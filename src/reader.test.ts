@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/dom";
 import userEvent from "@testing-library/user-event";
 import { mountReader } from "./reader";
-import type { GardenApi, SourcePage } from "./api";
+import type {
+  GardenApi,
+  PageSearchRequest,
+  PageSearchResults,
+  SourcePage,
+} from "./api";
 
 const riverside: SourcePage = {
   info: {
@@ -43,12 +48,141 @@ function testApi(): GardenApi {
     chooseFile: vi.fn().mockResolvedValue("/tmp/Riverside notes.md"),
     importSource: vi.fn().mockResolvedValue(riverside),
     listSources: vi.fn().mockResolvedValue({ sources: [], next_offset: null }),
+    searchPages: vi.fn().mockResolvedValue({
+      pages: [],
+      next_offset: null,
+      available_tags: [],
+      available_formats: [],
+      available_statuses: [],
+    } satisfies PageSearchResults),
     openSource: vi.fn().mockResolvedValue(riverside),
     openKnowledgePage: vi.fn(),
     openOriginal: vi.fn().mockResolvedValue(undefined),
     onDrop: vi.fn().mockResolvedValue(() => {}),
   };
 }
+
+it("searches durable page results with combined filters and restores the exact result view after opening one", async () => {
+  const api = testApi();
+  const results: PageSearchResults = {
+    pages: [
+      {
+        page_id: "page-v17",
+        source_id: "source-riverside",
+        page_type: "source",
+        title: "Riverside notes",
+        kind: "source",
+        excerpt: "Observation V17 took place at Riverside.",
+        tags: ["fieldwork"],
+        format: "txt",
+        event_date: "2024-05-17",
+        extraction: "text_preserved",
+        processing_status: "complete",
+        matched_by: "keyword",
+        match_location: {
+          record_id: "page-v17",
+          source_id: "source-riverside",
+          quote: "Observation V17",
+          byte_start: 0,
+          byte_end: 15,
+          line_start: 1,
+          line_end: 1,
+        },
+      },
+    ],
+    next_offset: null,
+    available_tags: ["fieldwork", "riverside"],
+    available_formats: ["txt"],
+    available_statuses: ["complete", "pending"],
+  };
+  api.searchPages = vi.fn(async (_request: PageSearchRequest) => results);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await screen.findByRole("heading", { name: "Search your garden" });
+  await user.type(
+    screen.getByRole("searchbox", { name: "Words or title" }),
+    "Riverside",
+  );
+  await user.click(screen.getByRole("checkbox", { name: "Tag fieldwork" }));
+  fireEvent.change(screen.getByLabelText("From date"), {
+    target: { value: "2024-05-01" },
+  });
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Format" }),
+    "txt",
+  );
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Processing status" }),
+    "complete",
+  );
+  fireEvent.submit(root.querySelector(".search-form")!);
+  const request = (api.searchPages as ReturnType<typeof vi.fn>).mock.calls.at(
+    -1,
+  )?.[0] as PageSearchRequest;
+  expect(request).toEqual({
+    query: "Riverside",
+    tags: ["fieldwork"],
+    date_from: "2024-05-01",
+    date_to: null,
+    format: "txt",
+    processing_status: "complete",
+    offset: 0,
+  });
+  await user.click(
+    await screen.findByRole("button", { name: "Riverside notes" }),
+  );
+  expect(
+    await screen.findByRole("article", { name: "Riverside notes" }),
+  ).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(
+    await screen.findByRole("heading", { name: "Search your garden" }),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("searchbox", { name: "Words or title" }),
+  ).toHaveProperty("value", "Riverside");
+  expect(
+    screen.getByRole("checkbox", { name: "Tag fieldwork" }),
+  ).toHaveProperty("checked", true);
+  expect(
+    screen.getByRole("button", { name: "Remove #fieldwork filter" }),
+  ).toBeTruthy();
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Riverside notes" }),
+  );
+});
+
+it("shows an explicit empty state and removable search filters", async () => {
+  const api = testApi();
+  api.searchPages = vi.fn().mockResolvedValue({
+    pages: [],
+    next_offset: null,
+    available_tags: [],
+    available_formats: [],
+    available_statuses: [],
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await user.type(
+    screen.getByRole("searchbox", { name: "Words or title" }),
+    "missing phrase",
+  );
+  fireEvent.submit(root.querySelector(".search-form")!);
+  expect(await screen.findByText(/No matching pages/)).toBeTruthy();
+  await user.click(
+    screen.getByRole("button", { name: "Remove Words: missing phrase filter" }),
+  );
+  expect(await screen.findByText(/No matching pages/)).toBeTruthy();
+  expect(api.searchPages).toHaveBeenLastCalledWith(
+    expect.objectContaining({ query: "", offset: 0 }),
+  );
+});
 
 let dispose: (() => void) | undefined;
 afterEach(() => {
@@ -322,6 +456,13 @@ it("opens linked knowledge pages, returns to their source, and opens the retaine
   expect(api.openKnowledgePage).toHaveBeenCalledWith("page-v17");
   await user.click(screen.getByRole("link", { name: "Source page" }));
   expect(api.openSource).toHaveBeenCalledWith(source.info.source_id);
-  await user.click(screen.getByRole("link", { name: "Open original" }));
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(
+    await screen.findByRole("article", { name: "Observation V17" }),
+  ).toBeTruthy();
+  expect(document.activeElement).toBe(
+    screen.getByRole("link", { name: "Source page" }),
+  );
+  await user.click(screen.getByRole("link", { name: "Retained original" }));
   expect(api.openOriginal).toHaveBeenCalledWith(source.info.source_id);
 });

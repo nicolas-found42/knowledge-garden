@@ -74,11 +74,57 @@ export interface SourceList {
   next_offset: number | null;
 }
 
+export interface PageSearchRequest {
+  query: string;
+  tags: string[];
+  date_from: string | null;
+  date_to: string | null;
+  format: string | null;
+  processing_status: string | null;
+  offset: number;
+}
+
+export interface SearchMatchLocation {
+  record_id: string;
+  source_id: string;
+  quote: string;
+  byte_start: number;
+  byte_end: number;
+  line_start: number;
+  line_end: number;
+}
+
+export interface PageResult {
+  page_id: string;
+  source_id: string;
+  page_type: "source" | "knowledge";
+  title: string;
+  kind: string;
+  excerpt: string;
+  tags: string[];
+  format: string;
+  event_date: string | null;
+  extraction: ExtractionState;
+  processing_status:
+    "pending" | "processing" | "complete" | "failed" | "unavailable";
+  matched_by: "title" | "tag" | "keyword";
+  match_location: SearchMatchLocation | null;
+}
+
+export interface PageSearchResults {
+  pages: PageResult[];
+  next_offset: number | null;
+  available_tags: string[];
+  available_formats: string[];
+  available_statuses: string[];
+}
+
 /** The reader's application boundary. Desktop paths never come from page HTML. */
 export interface GardenApi {
   chooseFile(): Promise<string | null>;
   importSource(path: string, method: AcquisitionMethod): Promise<SourcePage>;
   listSources(offset: number): Promise<SourceList>;
+  searchPages(request: PageSearchRequest): Promise<PageSearchResults>;
   openSource(sourceId: string): Promise<SourcePage>;
   openKnowledgePage(pageId: string): Promise<KnowledgePage>;
   openOriginal(sourceId: string): Promise<void>;
@@ -96,6 +142,7 @@ export const desktopApi: GardenApi = {
   },
   importSource: (path, method) => invoke("import_source", { path, method }),
   listSources: (offset) => invoke("list_sources", { offset }),
+  searchPages: (request) => invoke("search_pages", { request }),
   openSource: (sourceId) => invoke("open_source", { sourceId }),
   openKnowledgePage: (pageId) => invoke("open_knowledge_page", { pageId }),
   openOriginal: (sourceId) => invoke("open_original", { sourceId }),
