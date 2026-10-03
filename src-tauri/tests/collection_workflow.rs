@@ -5,18 +5,25 @@ use knowledge_garden::semantic::{
     SemanticDecision, SemanticProvider,
 };
 use serde_json::Value;
+use std::collections::VecDeque;
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
 
 struct RecordedProvider {
-    result: Mutex<Option<std::result::Result<KnowledgeDraft, ProviderError>>>,
+    results: Mutex<VecDeque<std::result::Result<KnowledgeDraft, ProviderError>>>,
 }
 
 impl RecordedProvider {
     fn once(result: std::result::Result<KnowledgeDraft, ProviderError>) -> Self {
         Self {
-            result: Mutex::new(Some(result)),
+            results: Mutex::new(VecDeque::from([result])),
+        }
+    }
+
+    fn sequence(results: Vec<std::result::Result<KnowledgeDraft, ProviderError>>) -> Self {
+        Self {
+            results: Mutex::new(results.into()),
         }
     }
 }
@@ -26,7 +33,11 @@ impl SemanticProvider for RecordedProvider {
         &self,
         _source_text: &str,
     ) -> std::result::Result<KnowledgeDraft, ProviderError> {
-        self.result.lock().unwrap().take().expect("one recording")
+        self.results
+            .lock()
+            .unwrap()
+            .pop_front()
+            .expect("a recorded provider response")
     }
 }
 
@@ -149,6 +160,359 @@ fn v17_recording() -> KnowledgeDraft {
         })
         .collect(),
     }
+}
+
+fn replacement_recording(text: &str, visits: u32, include_duration: bool) -> KnowledgeDraft {
+    let evidence = |quote: &str| EvidenceDraft {
+        quote: quote.to_owned(),
+        byte_start: text.find(quote).unwrap(),
+        byte_end: text.find(quote).unwrap() + quote.len(),
+        origin: "observed".to_owned(),
+        qualifier: None,
+    };
+    let mut facts = vec![
+        FactDraft {
+            subject: "Observation V17".into(),
+            property: "occurred_on".into(),
+            value: "May 17, 2024".into(),
+            evidence: evidence("Observation V17 took place on May 17, 2024."),
+        },
+        FactDraft {
+            subject: "Observation V17".into(),
+            property: "visit_count".into(),
+            value: format!("{visits} visits"),
+            evidence: evidence(&format!("Visits: {visits}.")),
+        },
+    ];
+    if include_duration {
+        facts.push(FactDraft {
+            subject: "Observation V17".into(),
+            property: "duration".into(),
+            value: "10 minutes".into(),
+            evidence: evidence("Duration: 10 minutes."),
+        });
+    }
+    KnowledgeDraft {
+        entities: vec![
+            EntityDraft {
+                kind: "event".into(),
+                label: "Observation V17".into(),
+                evidence: evidence("Observation V17 took place on May 17, 2024."),
+            },
+            EntityDraft {
+                kind: "person".into(),
+                label: "Maya".into(),
+                evidence: evidence("Observer: Maya."),
+            },
+            EntityDraft {
+                kind: "place".into(),
+                label: "Riverside".into(),
+                evidence: evidence("Location: Riverside."),
+            },
+        ],
+        facts,
+        relationships: vec![
+            RelationshipDraft {
+                from: "Observation V17".into(),
+                to: "Maya".into(),
+                kind: "observed_by".into(),
+                qualifier: None,
+                evidence: evidence("Observer: Maya."),
+            },
+            RelationshipDraft {
+                from: "Observation V17".into(),
+                to: "Riverside".into(),
+                kind: "occurred_at".into(),
+                qualifier: None,
+                evidence: evidence("Location: Riverside."),
+            },
+        ],
+        ..KnowledgeDraft::default()
+    }
+}
+
+const REVISION_1: &str = "Complete report, revision 1 dated May 18, 2024.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 12. Duration: 10 minutes.\n";
+const REVISION_2: &str = "Complete report, revision 2 dated May 20, 2024. This report completely replaces revision 1 of this same observation record.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 15.\n";
+
+#[test]
+fn independently_acquired_duration_support_survives_replacement() {
+    let workspace = tempdir().unwrap();
+    let revision_one = workspace.path().join("revision-1.txt");
+    let independent = workspace.path().join("independent-duration.txt");
+    let revision_two = workspace.path().join("revision-2.txt");
+    let independent_text = "Independent report dated May 19, 2024.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 12. Duration: 10 minutes.\n";
+    fs::write(&revision_one, REVISION_1).unwrap();
+    fs::write(&independent, independent_text).unwrap();
+    fs::write(&revision_two, REVISION_2).unwrap();
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(replacement_recording(REVISION_1, 12, true)),
+            Ok(replacement_recording(independent_text, 12, true)),
+            Ok(replacement_recording(REVISION_2, 15, false)),
+        ])),
+    )
+    .unwrap();
+
+    let first = app
+        .import_source(&revision_one, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let second = app
+        .import_source(&independent, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    app.import_source(&revision_two, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let event = app
+        .open_source(&first.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.kind == "event")
+        .unwrap();
+    let markdown = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+    assert!(
+        markdown.contains("- **visit count:** 15 visits"),
+        "{markdown}"
+    );
+    assert!(
+        !markdown.contains("- **visit count:** 12 visits"),
+        "{markdown}"
+    );
+    assert!(
+        markdown.contains("- **duration:** 10 minutes"),
+        "{markdown}"
+    );
+    assert!(
+        markdown.contains(&format!("source_id: {}", second.info.source_id)),
+        "{markdown}"
+    );
+}
+
+#[test]
+fn reimporting_old_and_duplicate_revisions_keeps_latest_current_value() {
+    let workspace = tempdir().unwrap();
+    let revision_one_path = workspace.path().join("revision-1.txt");
+    let revision_two_path = workspace.path().join("revision-2.txt");
+    fs::write(&revision_one_path, REVISION_1).unwrap();
+    fs::write(&revision_two_path, REVISION_2).unwrap();
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(replacement_recording(REVISION_1, 12, true)),
+            Ok(replacement_recording(REVISION_2, 15, false)),
+        ])),
+    )
+    .unwrap();
+    let first = app
+        .import_source(&revision_one_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    app.import_source(&revision_two_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let source_count = app.list_sources(0).unwrap().sources.len();
+
+    app.import_source(&revision_one_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.import_source(&revision_two_path, AcquisitionMethod::Picker)
+        .unwrap();
+
+    assert_eq!(app.list_sources(0).unwrap().sources.len(), source_count);
+    let event = app
+        .open_source(&first.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.kind == "event")
+        .unwrap();
+    let markdown = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+    assert!(
+        markdown.contains("- **visit count:** 15 visits"),
+        "{markdown}"
+    );
+    assert!(
+        !markdown.contains("- **visit count:** 12 visits"),
+        "{markdown}"
+    );
+    assert!(
+        !markdown.contains("- **duration:** 10 minutes"),
+        "{markdown}"
+    );
+}
+
+#[test]
+fn undated_explicit_replacement_wins_by_arrival_and_records_uncertainty() {
+    let workspace = tempdir().unwrap();
+    let first_text = "Complete same-record report for observation V17. No source date or numbered revision is provided.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 12.\n";
+    let second_text = "Complete same-record report for observation V17. This replaces the previously supplied undated report in its entirety. No source date or numbered revision is provided.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 15.\n";
+    let first_path = workspace.path().join("undated-1.txt");
+    let second_path = workspace.path().join("undated-2.txt");
+    fs::write(&first_path, first_text).unwrap();
+    fs::write(&second_path, second_text).unwrap();
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(replacement_recording(first_text, 12, false)),
+            Ok(replacement_recording(second_text, 15, false)),
+        ])),
+    )
+    .unwrap();
+    let first = app
+        .import_source(&first_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let second = app
+        .import_source(&second_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let second_current = app.open_source(&second.info.source_id).unwrap();
+    assert!(second_current.info.ordering_uncertain);
+    let current_version_id = second_current.info.current_version_id.as_ref().unwrap();
+    let current = second_current
+        .info
+        .versions_seen
+        .iter()
+        .find(|version| &version.source_version_id == current_version_id)
+        .unwrap();
+    assert_eq!(current.source_date, None);
+    assert_eq!(current.order_basis, "arrival_fallback");
+    let event = app
+        .open_source(&first.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.kind == "event")
+        .unwrap();
+    let markdown = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+    assert!(
+        markdown.contains("- **visit count:** 15 visits"),
+        "{markdown}"
+    );
+    assert!(
+        !markdown.contains("- **visit count:** 12 visits"),
+        "{markdown}"
+    );
+}
+
+#[test]
+fn reopening_replays_a_durable_interrupted_publication_as_one_complete_generation() {
+    let workspace = tempdir().unwrap();
+    let source_path = workspace.path().join("V17.txt");
+    fs::write(&source_path, REVISION_1).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open_with_semantic_provider(
+        &collection,
+        Arc::new(RecordedProvider::once(Ok(replacement_recording(
+            REVISION_1, 12, true,
+        )))),
+    )
+    .unwrap();
+    let source = app
+        .import_source(&source_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let event = app
+        .open_source(&source.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.kind == "event")
+        .unwrap();
+    let current_page_path = collection.join(&event.path);
+    let current_page = fs::read_to_string(&current_page_path).unwrap();
+    let next_page = current_page.replace("12 visits", "15 visits");
+    let mut next_info = app.open_source(&source.info.source_id).unwrap().info;
+    let next_version = "a".repeat(64);
+    next_info.current_version_id = Some(next_version.clone());
+    next_info.versions_seen[0].state = "superseded".into();
+    let mut next_version_record = next_info.versions_seen[0].clone();
+    next_version_record.source_version_id = next_version.clone();
+    next_version_record.sha256 = next_version.clone();
+    next_version_record.state = "complete".into();
+    next_version_record.source_revision = Some(2);
+    next_info.versions_seen.push(next_version_record);
+    let source_body = app.open_source(&source.info.source_id).unwrap().body;
+    let next_source = format!(
+        "---\n{}---\n\n{}",
+        serde_yaml_ng::to_string(&next_info).unwrap(),
+        source_body
+    );
+
+    let transaction = collection.join(".staging/transactions/interrupted-generation");
+    let staged = transaction.join("files");
+    fs::create_dir_all(&staged).unwrap();
+    fs::write(staged.join("0000"), next_page).unwrap();
+    fs::write(staged.join("0001"), next_source).unwrap();
+    fs::write(
+        transaction.join("manifest.json"),
+        serde_json::json!({
+            "entries": [
+                { "destination": event.path, "staged": "files/0000" },
+                { "destination": format!("sources/{}/index.md", &source.info.source_id["source-".len()..]), "staged": "files/0001" }
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    drop(app);
+
+    let recovered = Application::open(&collection).unwrap();
+    let recovered_source = recovered.open_source(&source.info.source_id).unwrap();
+    assert_eq!(
+        recovered_source.info.current_version_id.as_deref(),
+        Some(next_version.as_str())
+    );
+    let recovered_page = recovered.open_knowledge_page(&event.page_id).unwrap();
+    assert!(recovered_page.markdown.contains("15 visits"));
+    assert!(!collection
+        .join(".staging/transactions/interrupted-generation")
+        .exists());
+}
+
+#[test]
+fn complete_newer_revision_updates_current_knowledge_in_place() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("V17.txt");
+    fs::write(&source, REVISION_1).unwrap();
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(replacement_recording(REVISION_1, 12, true)),
+            Ok(replacement_recording(REVISION_2, 15, false)),
+        ])),
+    )
+    .unwrap();
+
+    let revision_one = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    fs::write(&source, REVISION_2).unwrap();
+    let revision_two = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    assert_eq!(revision_two.info.source_id, revision_one.info.source_id);
+    assert_eq!(app.list_sources(0).unwrap().sources.len(), 1);
+    let current = app.open_source(&revision_one.info.source_id).unwrap();
+    let event = current
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.kind == "event")
+        .unwrap();
+    let markdown = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+    assert!(markdown.contains("value: 15 visits"), "{}", markdown);
+    assert!(!markdown.contains("value: 12 visits"));
+    assert!(!markdown.contains("value: 10 minutes"));
+    assert!(markdown.contains("value: May 17, 2024"));
+    assert!(markdown.contains("[Maya](../pages/"));
+    assert!(markdown.contains("[Riverside](../pages/"));
 }
 
 #[test]

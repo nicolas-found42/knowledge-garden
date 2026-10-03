@@ -15,6 +15,7 @@ pub struct KnowledgeDraft {
 #[derive(Debug, Clone)]
 pub struct SemanticJob {
     pub source_id: String,
+    pub source_version_id: String,
     pub attempt: u32,
     pub source_text: String,
 }
