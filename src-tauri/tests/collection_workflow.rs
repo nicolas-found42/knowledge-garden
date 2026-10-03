@@ -43,6 +43,30 @@ impl SemanticProvider for RecordedProvider {
     }
 }
 
+struct WholeInputProvider;
+
+impl SemanticProvider for WholeInputProvider {
+    fn form_knowledge(
+        &self,
+        source_text: &str,
+    ) -> std::result::Result<KnowledgeDraft, ProviderError> {
+        Ok(KnowledgeDraft {
+            entities: vec![EntityDraft {
+                kind: "document".into(),
+                label: "Office source document".into(),
+                evidence: EvidenceDraft {
+                    quote: source_text.to_owned(),
+                    byte_start: 0,
+                    byte_end: source_text.len(),
+                    origin: "observed".into(),
+                    qualifier: None,
+                },
+            }],
+            ..KnowledgeDraft::default()
+        })
+    }
+}
+
 struct RecordedSystemOneTransport {
     response: Value,
 }
@@ -1297,6 +1321,57 @@ fn identical_bytes_with_different_formats_keep_their_own_coverage_and_original_n
     assert_eq!(
         fs::read(app.original_path(&unsupported_page.info.source_id).unwrap()).unwrap(),
         bytes
+    );
+}
+
+#[test]
+fn partial_office_coverage_stays_inspectable_after_semantic_processing() {
+    use knowledge_garden::office::{CoverageScope, CoverageStatus};
+
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("field-visit.docx");
+    fs::write(
+        &source,
+        include_bytes!("fixtures/office/source/field-visit.docx"),
+    )
+    .unwrap();
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(WholeInputProvider),
+    )
+    .unwrap();
+
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    assert!(imported
+        .info
+        .extraction_coverage
+        .as_ref()
+        .unwrap()
+        .iter()
+        .any(|part| part.scope == CoverageScope::EmbeddedObject
+            && part.status == CoverageStatus::Partial));
+
+    app.resume_due_semantic_jobs().unwrap();
+    let processed = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(processed.info.semantic_state, "complete");
+    assert!(processed
+        .info
+        .extraction_detail
+        .to_lowercase()
+        .contains("embedded"));
+    assert!(processed
+        .info
+        .extraction_coverage
+        .as_ref()
+        .unwrap()
+        .iter()
+        .any(|part| part.scope == CoverageScope::EmbeddedObject
+            && part.status == CoverageStatus::Partial));
+    assert_eq!(
+        processed.info.versions_seen[0].coverage, "partial",
+        "semantic success over a projection must not imply full package coverage"
     );
 }
 

@@ -1195,6 +1195,15 @@ impl Application {
         source.info.semantic_decisions = draft.decisions;
         if let Some(version_id) = source.info.pending_version_id.take() {
             source.info.current_version_id = Some(version_id.clone());
+            let coverage_complete = source
+                .info
+                .extraction_coverage
+                .as_ref()
+                .is_none_or(|parts| {
+                    parts
+                        .iter()
+                        .all(|part| part.status == CoverageStatus::Complete)
+                });
             if let Some(version) = source
                 .info
                 .versions_seen
@@ -1202,18 +1211,25 @@ impl Application {
                 .find(|version| version.source_version_id == version_id)
             {
                 version.state = "complete".into();
-                version.coverage = "complete".into();
+                version.coverage = if coverage_complete {
+                    "complete"
+                } else {
+                    "partial"
+                }
+                .into();
             }
         }
         source.info.update_status = None;
-        source.info.extraction_detail = format!(
-            "Semantic facts and relationships are current from source version {}.",
-            source
-                .info
-                .current_version_id
-                .as_deref()
-                .unwrap_or("unknown")
-        );
+        if source.info.extraction_coverage.is_none() {
+            source.info.extraction_detail = format!(
+                "Semantic facts and relationships are current from source version {}.",
+                source
+                    .info
+                    .current_version_id
+                    .as_deref()
+                    .unwrap_or("unknown")
+            );
+        }
         source.info.semantic_state = "complete".into();
         source.body = replace_semantic_section(&source.body, &source.info.knowledge_pages);
         source.markdown = serialize_page(&source.info, &source.body)?;
@@ -1334,6 +1350,7 @@ impl Application {
         source.info.bytes = candidate.bytes;
         source.info.format = candidate.format.clone();
         source.info.extraction = ExtractionState::TextPreserved;
+        source.info.extraction_coverage = None;
         source.info.line_count = source_text.lines().count();
         source.info.extraction_detail =
             "Source text preserved. Semantic fact extraction has not run.".into();
@@ -2280,6 +2297,7 @@ fn classify_source(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn source_version(
     digest: &str,
     bytes: u64,

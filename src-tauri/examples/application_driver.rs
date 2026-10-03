@@ -121,14 +121,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         "list" => output(app.list_sources(args.get(3).ok_or("missing offset")?.parse()?)?),
         "search" => {
-            let request = args
-                .get(3)
-                .map(|value| serde_json::from_str::<PageSearchRequest>(value))
-                .transpose()?
-                .unwrap_or_else(|| PageSearchRequest {
-                    query: args.get(3).cloned().unwrap_or_default(),
+            let query_or_request = args.get(3).cloned().unwrap_or_default();
+            let request = if query_or_request.trim_start().starts_with('{') {
+                serde_json::from_str::<PageSearchRequest>(&query_or_request)?
+            } else {
+                PageSearchRequest {
+                    query: query_or_request,
                     ..PageSearchRequest::default()
-                });
+                }
+            };
             output(app.search_pages(request)?);
         }
         _ => return Err("unknown test operation".into()),
