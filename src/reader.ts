@@ -154,7 +154,13 @@ export async function mountReader(
           ? "Ready"
           : next.info.semantic_state === "unavailable"
             ? "Not available for this format"
-            : "Waiting for semantic processing",
+            : next.info.semantic_state === "failed"
+              ? "Processing failed"
+              : next.info.semantic_state === "processing"
+                ? "Semantic processing in progress"
+                : next.info.semantic_error && next.info.semantic_retry_at
+                  ? "Waiting to retry semantic processing"
+                  : "Waiting for semantic processing",
       ],
       [
         "Coverage",
@@ -306,6 +312,7 @@ export async function mountReader(
       !current ||
       disposed ||
       current.info.semantic_state === "complete" ||
+      current.info.semantic_state === "failed" ||
       current.info.semantic_state === "unavailable"
     )
       return;

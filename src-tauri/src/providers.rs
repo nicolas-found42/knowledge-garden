@@ -7,10 +7,10 @@ use regex::Regex;
 use reqwest::blocking::Client;
 use serde_json::{json, Value};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     process::Command,
-    sync::OnceLock,
-    time::Duration,
+    sync::{Arc, OnceLock},
+    time::{Duration, Instant},
 };
 
 const OPENROUTER_SYSTEM_ONE: &str = "https://openrouter.ai/api/v1/systemone";
@@ -19,40 +19,45 @@ const KEYCHAIN_SERVICE: &str = "Knowledge Garden Provider Keys";
 const SUPPORT_THRESHOLD: f64 = 0.6;
 
 pub struct JevSemanticProvider {
-    client: Client,
+    transport: Arc<dyn SystemOneTransport>,
     api_key: Option<String>,
+    keychain_account: Option<String>,
 }
 
-impl JevSemanticProvider {
-    pub fn from_environment_and_keychain() -> Self {
+pub trait SystemOneTransport: Send + Sync {
+    fn complete(&self, api_key: &str, request: &Value)
+        -> std::result::Result<Value, ProviderError>;
+}
+
+struct OpenRouterSystemOneTransport {
+    client: Client,
+}
+
+impl Default for OpenRouterSystemOneTransport {
+    fn default() -> Self {
         Self {
             client: Client::builder()
                 .timeout(Duration::from_secs(45))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
-            api_key: credential("OPENROUTER_API_KEY", "openrouter"),
         }
     }
+}
 
-    fn evaluate(&self, text: &str, questions: Value) -> std::result::Result<Value, ProviderError> {
-        let Some(key) = self.api_key.as_deref() else {
-            return Err(ProviderError::recoverable(
-                "Jev is waiting for an OpenRouter key in the Knowledge Garden Keychain or development environment.".into(),
-            ));
-        };
-        if text.len() > 64 * 1024 {
-            return Err(ProviderError::recoverable(
-                "This text is larger than the current Jev request limit; semantic work remains queued.".into(),
-            ));
-        }
+impl SystemOneTransport for OpenRouterSystemOneTransport {
+    fn complete(
+        &self,
+        api_key: &str,
+        request: &Value,
+    ) -> std::result::Result<Value, ProviderError> {
         let response = self
             .client
             .post(OPENROUTER_SYSTEM_ONE)
-            .bearer_auth(key)
+            .bearer_auth(api_key)
             .header("Accept", "application/json")
             .header("HTTP-Referer", "https://knowledge-garden.local")
             .header("X-Title", "Knowledge Garden")
-            .json(&json!({"model": JEV_MODEL, "state": {"source_text": text}, "questions": questions}))
+            .json(request)
             .send();
         let response = match response {
             Ok(response) if response.status().is_success() => response,
@@ -63,24 +68,70 @@ impl JevSemanticProvider {
                     || status.as_u16() == 408
                     || status.as_u16() == 429
                     || status.as_u16() >= 500;
+                let resolution = if retryable {
+                    "semantic work will retry automatically"
+                } else {
+                    "semantic processing failed and provider configuration or implementation needs attention"
+                };
                 return Err(ProviderError {
-                    message: format!(
-                        "Jev provider returned HTTP {status}; semantic work remains queued."
-                    ),
+                    message: format!("Jev provider returned HTTP {status}; {resolution}."),
                     retryable,
                 });
             }
             Err(_) => {
                 return Err(ProviderError::recoverable(
-                    "Jev could not be reached; semantic work remains queued.".into(),
+                    "Jev could not be reached; semantic work will retry automatically.".into(),
                 ))
             }
         };
         response.json::<Value>().map_err(|_| {
             ProviderError::recoverable(
-                "Jev returned a malformed response; semantic work remains queued.".into(),
+                "Jev returned a malformed response; semantic work will retry automatically.".into(),
             )
         })
+    }
+}
+
+impl JevSemanticProvider {
+    pub fn from_environment_and_keychain() -> Self {
+        Self {
+            transport: Arc::new(OpenRouterSystemOneTransport::default()),
+            api_key: std::env::var("OPENROUTER_API_KEY")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
+            keychain_account: Some("openrouter".into()),
+        }
+    }
+
+    pub fn with_transport(api_key: String, transport: Arc<dyn SystemOneTransport>) -> Self {
+        Self {
+            transport,
+            api_key: Some(api_key),
+            keychain_account: None,
+        }
+    }
+
+    fn evaluate(&self, text: &str, questions: Value) -> std::result::Result<Value, ProviderError> {
+        if text.len() > 64 * 1024 {
+            return Err(ProviderError::recoverable(
+                "This text is larger than the current Jev request limit; semantic work will retry automatically.".into(),
+            ));
+        }
+        let key = match self.api_key.as_deref() {
+            Some(key) => key.to_owned(),
+            None => {
+                let Some(account) = self.keychain_account.as_deref() else {
+                    return Err(ProviderError::recoverable(
+                        "Jev is waiting for an OpenRouter key in the development environment."
+                            .into(),
+                    ));
+                };
+                keychain_credential(account)?
+            }
+        };
+        let request =
+            json!({"model": JEV_MODEL, "state": {"source_text": text}, "questions": questions});
+        self.transport.complete(&key, &request)
     }
 }
 
@@ -205,6 +256,7 @@ impl SemanticProvider for JevSemanticProvider {
             .ok_or_else(|| {
                 ProviderError::recoverable("Jev response has no typed answers.".into())
             })?;
+        let validated = validate_answers(&candidates, &pairs, answers)?;
         let mut decisions = Vec::new();
         let model = result
             .get("model")
@@ -216,35 +268,19 @@ impl SemanticProvider for JevSemanticProvider {
             .iter()
             .filter(|candidate| candidate.kind == CandidateKind::Event)
         {
-            let answer = answers
-                .get("event_identity")
-                .filter(|answer| answer.get("type").and_then(Value::as_str) == Some("choice"))
-                .ok_or_else(|| {
-                    ProviderError::recoverable(
-                        "Jev omitted the event-identity choice; semantic work remains queued."
-                            .into(),
-                    )
-                })?;
-            let choice = answer.get("choice").and_then(Value::as_str)
-                .ok_or_else(|| ProviderError::recoverable("Jev returned a malformed event-identity choice; semantic work remains queued.".into()))?;
-            let confidence = answer
-                .get("probabilities")
-                .and_then(|p| p.get("event"))
-                .and_then(Value::as_f64)
-                .filter(|p| p.is_finite() && (0.0..=1.0).contains(p))
-                .unwrap_or(0.0);
+            let (choice, confidence) = validated.event_identity.as_ref().unwrap();
             decisions.push(SemanticDecision {
                 question: format!("event_identity:{}", candidate.value),
                 model: model.clone(),
-                outcome: if choice == "event" && confidence >= 0.55 {
+                outcome: if choice == "event" && *confidence >= 0.55 {
                     "event"
                 } else {
                     "unresolved"
                 }
                 .into(),
-                probability: Some(confidence),
+                probability: Some(*confidence),
             });
-            if choice == "event" && confidence >= 0.55 {
+            if choice == "event" && *confidence >= 0.55 {
                 accepted.push(candidate);
             }
         }
@@ -255,29 +291,32 @@ impl SemanticProvider for JevSemanticProvider {
                 .iter()
                 .position(|value| std::ptr::eq(value, candidate))
                 .unwrap_or(0);
-            let role = relation_choice(answers, index)?;
-            let probability = choice_probability(answers, index, role).unwrap_or(0.0);
+            let (role, probability) = validated.entity_roles.get(&index).unwrap();
             let judged_role = if candidate.kind == CandidateKind::Place
-                && (role == "location" && probability >= 0.6
-                    || noul_probability(answers, index)
-                        .is_some_and(|support| support >= SUPPORT_THRESHOLD))
+                && (role == "location" && *probability >= 0.6
+                    || validated
+                        .candidate_support
+                        .get(&index)
+                        .is_some_and(|support| *support >= SUPPORT_THRESHOLD))
             {
                 "location"
             } else {
-                role
+                role.as_str()
             };
             decisions.push(SemanticDecision {
                 question: format!("entity_role:{}", candidate.value),
                 model: model.clone(),
                 outcome: judged_role.into(),
-                probability: Some(probability),
+                probability: Some(*probability),
             });
             let selected = match candidate.kind {
-                CandidateKind::Person => role != "none" && probability >= 0.6,
+                CandidateKind::Person => role != "none" && *probability >= 0.6,
                 CandidateKind::Place => {
-                    (role == "location" && probability >= 0.6)
-                        || noul_probability(answers, index)
-                            .is_some_and(|support| support >= SUPPORT_THRESHOLD)
+                    (role == "location" && *probability >= 0.6)
+                        || validated
+                            .candidate_support
+                            .get(&index)
+                            .is_some_and(|support| *support >= SUPPORT_THRESHOLD)
                 }
                 _ => false,
             };
@@ -289,12 +328,7 @@ impl SemanticProvider for JevSemanticProvider {
             if matches!(candidate.kind, CandidateKind::Event | CandidateKind::Person) {
                 continue;
             }
-            let answer = answers.get(&format!("support_{i}"))
-                .filter(|answer| answer.get("type").and_then(Value::as_str) == Some("noul"))
-                .and_then(|answer| answer.get("noul"))
-                .and_then(Value::as_f64)
-                .filter(|p| p.is_finite() && (0.0..=1.0).contains(p))
-                .ok_or_else(|| ProviderError::recoverable("Jev omitted or malformed a candidate support judgment; semantic work remains queued.".into()))?;
+            let answer = *validated.candidate_support.get(&i).unwrap();
             decisions.push(SemanticDecision {
                 question: format!("candidate_support:{}", candidate.quote),
                 model: result
@@ -314,6 +348,13 @@ impl SemanticProvider for JevSemanticProvider {
                 accepted.push(candidate);
             }
         }
+        let mut accepted_indices = HashSet::new();
+        accepted.retain(|candidate| {
+            candidates
+                .iter()
+                .position(|candidate_ref| std::ptr::eq(candidate_ref, *candidate))
+                .is_some_and(|index| accepted_indices.insert(index))
+        });
         let event = accepted
             .iter()
             .find(|candidate| candidate.kind == CandidateKind::Event)
@@ -323,47 +364,27 @@ impl SemanticProvider for JevSemanticProvider {
                 .iter()
                 .any(|candidate| candidate.kind == CandidateKind::Reference)
         {
-            let event_answer = answers.get("event_identity");
-            let choice = event_answer
-                .and_then(|answer| answer.get("choice"))
-                .and_then(Value::as_str)
-                .unwrap_or("missing");
-            let probability =
-                choice_probability_from_answer(event_answer.unwrap_or(&Value::Null), choice)
-                    .unwrap_or(0.0);
+            let (choice, probability) = validated.event_identity.as_ref().unwrap();
             return Err(ProviderError::recoverable(format!(
-                "No supported event identity was found (Jev choice {choice}, probability {probability:.2}); semantic coverage remains incomplete."
+                "No supported event identity was found (Jev choice {choice}, probability {probability:.2}); semantic coverage remains incomplete and will retry automatically."
             )));
         }
         let mut draft = KnowledgeDraft {
             decisions,
             ..KnowledgeDraft::default()
         };
-        if let Some(answer) = answers.get("event_date") {
-            if let Some(choice) = answer.get("choice").and_then(Value::as_str) {
-                draft.decisions.push(SemanticDecision {
-                    question: "event_date".into(),
-                    model: model.clone(),
-                    outcome: choice.to_owned(),
-                    probability: choice_probability_from_answer(answer, choice),
-                });
-            }
+        if let Some((choice, probability)) = &validated.event_date {
+            draft.decisions.push(SemanticDecision {
+                question: "event_date".into(),
+                model: model.clone(),
+                outcome: choice.to_owned(),
+                probability: Some(*probability),
+            });
         }
         let mut merged_mentions = HashMap::<usize, usize>::new();
         if !pairs.is_empty() {
             for (i, pair) in pairs.iter().enumerate() {
-                let answer = answers
-                    .get(&format!("person_identity_{i}"))
-                    .filter(|a| a.get("type").and_then(Value::as_str) == Some("choice"))
-                    .ok_or_else(|| {
-                        ProviderError::recoverable(
-                            "Jev omitted a person-identity choice; semantic work remains queued."
-                                .into(),
-                        )
-                    })?;
-                let choice = answer.get("choice").and_then(Value::as_str).filter(|choice| matches!(*choice, "distinct" | "uncertain" | "same"))
-                    .ok_or_else(|| ProviderError::recoverable("Jev returned an invalid person-identity choice; semantic work remains queued.".into()))?;
-                let probability = choice_probability_from_answer(answer, choice).unwrap_or(0.0);
+                let (choice, probability) = &validated.person_identity[i];
                 let first_index = candidates
                     .iter()
                     .position(|c| std::ptr::eq(c, pair.0))
@@ -377,7 +398,7 @@ impl SemanticProvider for JevSemanticProvider {
                 let corroborated_same =
                     regex(r"(?i)\b(same person|also known as|aka|both refer to the same)\b")
                         .is_match(between);
-                let merged = choice == "same" && probability >= 0.9 && corroborated_same;
+                let merged = choice == "same" && *probability >= 0.9 && corroborated_same;
                 if merged {
                     merged_mentions.insert(second_index, first_index);
                 }
@@ -392,7 +413,7 @@ impl SemanticProvider for JevSemanticProvider {
                         "unresolved_distinct_mentions"
                     }
                     .into(),
-                    probability: Some(probability),
+                    probability: Some(*probability),
                 });
             }
         }
@@ -413,7 +434,7 @@ impl SemanticProvider for JevSemanticProvider {
                 person_labels.insert(idx, canonical);
                 continue;
             }
-            let relation = relation_choice(answers, idx)?;
+            let relation = &validated.entity_roles.get(&idx).unwrap().0;
             let same_name_mentions = pairs.iter().any(|(first, second)| {
                 std::ptr::eq(*first, *candidate) || std::ptr::eq(*second, *candidate)
             });
@@ -451,13 +472,7 @@ impl SemanticProvider for JevSemanticProvider {
                         .iter()
                         .position(|c| std::ptr::eq(c, *candidate))
                         .unwrap_or(0);
-                    let label = person_labels.get(&idx).cloned().unwrap_or_else(|| {
-                        format!(
-                            "{} ({})",
-                            candidate.value,
-                            relation_choice(answers, idx).unwrap_or("other")
-                        )
-                    });
+                    let label = person_labels.get(&idx).unwrap().clone();
                     entity_labels
                         .entry(label.clone())
                         .or_insert_with(|| EntityDraft {
@@ -471,10 +486,12 @@ impl SemanticProvider for JevSemanticProvider {
                         .iter()
                         .position(|c| std::ptr::eq(c, *candidate))
                         .unwrap_or(0);
-                    let role = relation_choice(answers, idx)?;
+                    let (role, _) = validated.entity_roles.get(&idx).unwrap();
                     if role != "location"
-                        && !noul_probability(answers, idx)
-                            .is_some_and(|support| support >= SUPPORT_THRESHOLD)
+                        && !validated
+                            .candidate_support
+                            .get(&idx)
+                            .is_some_and(|support| *support >= SUPPORT_THRESHOLD)
                     {
                         continue;
                     }
@@ -510,10 +527,10 @@ impl SemanticProvider for JevSemanticProvider {
                     .unwrap_or(0);
                 let value = match candidate.kind {
                     CandidateKind::Date | CandidateKind::UnknownDate => {
-                        let choice = answers
-                            .get("event_date")
-                            .and_then(|a| a.get("choice"))
-                            .and_then(Value::as_str)
+                        let choice = validated
+                            .event_date
+                            .as_ref()
+                            .map(|(choice, _)| choice.as_str())
                             .unwrap_or("none");
                         let selected_candidate = candidates
                             .iter()
@@ -531,14 +548,19 @@ impl SemanticProvider for JevSemanticProvider {
                     CandidateKind::Count => Some(("visit_count", candidate.value.as_str())),
                     CandidateKind::Duration => Some(("duration", candidate.value.as_str())),
                     CandidateKind::Person
-                        if matches!(relation_choice(answers, idx)?, "observer" | "attendee") =>
+                        if matches!(
+                            validated.entity_roles.get(&idx).unwrap().0.as_str(),
+                            "observer" | "attendee"
+                        ) =>
                     {
                         Some(("observer", candidate.value.as_str()))
                     }
                     CandidateKind::Place
-                        if relation_choice(answers, idx)? == "location"
-                            || noul_probability(answers, idx)
-                                .is_some_and(|support| support >= SUPPORT_THRESHOLD) =>
+                        if validated.entity_roles.get(&idx).unwrap().0 == "location"
+                            || validated
+                                .candidate_support
+                                .get(&idx)
+                                .is_some_and(|support| *support >= SUPPORT_THRESHOLD) =>
                     {
                         Some(("location", candidate.value.as_str()))
                     }
@@ -556,7 +578,7 @@ impl SemanticProvider for JevSemanticProvider {
                         evidence: evidence.clone(),
                     });
                     if property == "observer" {
-                        let role = relation_choice(answers, idx)?;
+                        let role = validated.entity_roles.get(&idx).unwrap().0.as_str();
                         let to = person_labels
                             .get(&idx)
                             .cloned()
@@ -621,6 +643,122 @@ struct Candidate {
     end: usize,
     qualifier: Option<String>,
     origin: String,
+}
+
+#[derive(Default)]
+struct ValidatedAnswers {
+    event_identity: Option<(String, f64)>,
+    event_date: Option<(String, f64)>,
+    entity_roles: HashMap<usize, (String, f64)>,
+    candidate_support: HashMap<usize, f64>,
+    person_identity: Vec<(String, f64)>,
+}
+
+fn validate_answers(
+    candidates: &[Candidate],
+    pairs: &[(&Candidate, &Candidate)],
+    answers: &serde_json::Map<String, Value>,
+) -> std::result::Result<ValidatedAnswers, ProviderError> {
+    let mut validated = ValidatedAnswers::default();
+    if candidates
+        .iter()
+        .any(|candidate| candidate.kind == CandidateKind::Event)
+    {
+        validated.event_identity = Some(validated_choice(
+            answers,
+            "event_identity",
+            &["event", "not_event", "unclear"],
+        )?);
+    }
+    let mut date_choices = candidates
+        .iter()
+        .enumerate()
+        .filter(|(_, candidate)| {
+            matches!(
+                candidate.kind,
+                CandidateKind::Date | CandidateKind::UnknownDate
+            )
+        })
+        .map(|(index, _)| format!("date_{index}"))
+        .collect::<Vec<_>>();
+    if !date_choices.is_empty() {
+        date_choices.push("none".into());
+        let allowed = date_choices.iter().map(String::as_str).collect::<Vec<_>>();
+        validated.event_date = Some(validated_choice(answers, "event_date", &allowed)?);
+    }
+    for (index, candidate) in candidates.iter().enumerate() {
+        if matches!(candidate.kind, CandidateKind::Person | CandidateKind::Place) {
+            validated.entity_roles.insert(
+                index,
+                validated_choice(
+                    answers,
+                    &format!("relation_{index}"),
+                    &["observer", "attendee", "location", "other", "none"],
+                )?,
+            );
+        }
+        if !matches!(candidate.kind, CandidateKind::Event | CandidateKind::Person) {
+            validated
+                .candidate_support
+                .insert(index, validated_noul(answers, &format!("support_{index}"))?);
+        }
+    }
+    for index in 0..pairs.len() {
+        validated.person_identity.push(validated_choice(
+            answers,
+            &format!("person_identity_{index}"),
+            &["distinct", "uncertain", "same"],
+        )?);
+    }
+    Ok(validated)
+}
+
+fn validated_choice(
+    answers: &serde_json::Map<String, Value>,
+    key: &str,
+    allowed: &[&str],
+) -> std::result::Result<(String, f64), ProviderError> {
+    let answer = answers
+        .get(key)
+        .filter(|answer| answer.get("type").and_then(Value::as_str) == Some("choice"))
+        .ok_or_else(|| {
+            ProviderError::recoverable(format!(
+                "Jev omitted or returned the wrong answer type for `{key}`; semantic work will retry automatically."
+            ))
+        })?;
+    let choice = answer
+        .get("choice")
+        .and_then(Value::as_str)
+        .filter(|choice| allowed.contains(choice))
+        .ok_or_else(|| {
+            ProviderError::recoverable(format!(
+                "Jev returned an invalid choice for `{key}` (allowed: {}); semantic work will retry automatically.",
+                allowed.join(", ")
+            ))
+        })?;
+    let probability = choice_probability_from_answer(answer, choice).ok_or_else(|| {
+        ProviderError::recoverable(format!(
+            "Jev omitted or returned an invalid probability for `{key}` choice `{choice}`; semantic work will retry automatically."
+        ))
+    })?;
+    Ok((choice.to_owned(), probability))
+}
+
+fn validated_noul(
+    answers: &serde_json::Map<String, Value>,
+    key: &str,
+) -> std::result::Result<f64, ProviderError> {
+    answers
+        .get(key)
+        .filter(|answer| answer.get("type").and_then(Value::as_str) == Some("noul"))
+        .and_then(|answer| answer.get("noul"))
+        .and_then(Value::as_f64)
+        .filter(|probability| probability.is_finite() && (0.0..=1.0).contains(probability))
+        .ok_or_else(|| {
+            ProviderError::recoverable(format!(
+                "Jev omitted or returned an invalid support probability for `{key}`; semantic work will retry automatically."
+            ))
+        })
 }
 
 impl Candidate {
@@ -880,52 +1018,10 @@ fn person_pairs(candidates: &[Candidate]) -> Vec<(&Candidate, &Candidate)> {
     pairs
 }
 
-fn relation_choice(
-    answers: &serde_json::Map<String, Value>,
-    i: usize,
-) -> std::result::Result<&str, ProviderError> {
-    answers
-        .get(&format!("relation_{i}"))
-        .filter(|answer| answer.get("type").and_then(Value::as_str) == Some("choice"))
-        .and_then(|answer| answer.get("choice"))
-        .and_then(Value::as_str)
-        .filter(|value| {
-            matches!(
-                *value,
-                "observer" | "attendee" | "location" | "other" | "none"
-            )
-        })
-        .ok_or_else(|| {
-            ProviderError::recoverable(
-                "Jev omitted or malformed an entity-role choice; semantic work remains queued."
-                    .into(),
-            )
-        })
-}
-
-fn choice_probability(
-    answers: &serde_json::Map<String, Value>,
-    index: usize,
-    choice: &str,
-) -> Option<f64> {
-    choice_probability_from_answer(answers.get(&format!("relation_{index}"))?, choice)
-}
-
 fn choice_probability_from_answer(answer: &Value, choice: &str) -> Option<f64> {
     answer
         .get("probabilities")?
         .get(choice)?
-        .as_f64()
-        .filter(|probability| probability.is_finite() && (0.0..=1.0).contains(probability))
-}
-
-fn noul_probability(answers: &serde_json::Map<String, Value>, index: usize) -> Option<f64> {
-    let answer = answers.get(&format!("support_{index}"))?;
-    if answer.get("type").and_then(Value::as_str) != Some("noul") {
-        return None;
-    }
-    answer
-        .get("noul")?
         .as_f64()
         .filter(|probability| probability.is_finite() && (0.0..=1.0).contains(probability))
 }
@@ -998,13 +1094,8 @@ fn regex(pattern: &str) -> &'static Regex {
     compiled
 }
 
-fn credential(env_name: &str, account: &str) -> Option<String> {
-    if let Ok(value) = std::env::var(env_name) {
-        if !value.trim().is_empty() {
-            return Some(value);
-        }
-    }
-    let output = Command::new("/usr/bin/security")
+fn keychain_credential(account: &str) -> std::result::Result<String, ProviderError> {
+    let mut child = Command::new("/usr/bin/security")
         .args([
             "find-generic-password",
             "-s",
@@ -1013,11 +1104,50 @@ fn credential(env_name: &str, account: &str) -> Option<String> {
             account,
             "-w",
         ])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|_| ProviderError::recoverable(
+            "Jev is waiting for macOS Keychain authorization; semantic work will retry automatically.".into(),
+        ))?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(ProviderError::recoverable(
+                    "Jev is waiting for macOS Keychain authorization; semantic work will retry automatically.".into(),
+                ));
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(ProviderError::recoverable(
+                    "Jev could not read the Knowledge Garden key from macOS Keychain; semantic work will retry automatically.".into(),
+                ));
+            }
+        }
     }
-    let value = String::from_utf8(output.stdout).ok()?.trim().to_owned();
-    (!value.is_empty()).then_some(value)
+    let output = child.wait_with_output().map_err(|_| ProviderError::recoverable(
+        "Jev could not read the Knowledge Garden key from macOS Keychain; semantic work will retry automatically.".into(),
+    ))?;
+    if !output.status.success() {
+        return Err(ProviderError::recoverable(
+            "Jev is waiting for macOS Keychain authorization; semantic work will retry automatically.".into(),
+        ));
+    }
+    let value = String::from_utf8(output.stdout).map_err(|_| ProviderError::recoverable(
+        "The Knowledge Garden Keychain value is not valid text; semantic work will retry automatically.".into(),
+    ))?.trim().to_owned();
+    if value.is_empty() {
+        return Err(ProviderError::recoverable(
+            "Jev is waiting for an OpenRouter key in the Knowledge Garden Keychain; semantic work will retry automatically.".into(),
+        ));
+    }
+    Ok(value)
 }
