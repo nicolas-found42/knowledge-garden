@@ -1496,6 +1496,9 @@ fn write_search_documents(
 fn extraction_string(value: ExtractionState) -> String {
     match value {
         ExtractionState::TextPreserved => "text_preserved",
+        ExtractionState::StructuredText => "structured_text",
+        ExtractionState::PartialText => "partial_text",
+        ExtractionState::InvalidContainer => "invalid_container",
         ExtractionState::Unsupported => "unsupported",
         ExtractionState::InvalidUtf8 => "invalid_utf8",
         ExtractionState::TooLarge => "too_large",
@@ -1506,6 +1509,9 @@ fn extraction_string(value: ExtractionState) -> String {
 fn parse_extraction(value: &str) -> Result<ExtractionState> {
     match value {
         "text_preserved" => Ok(ExtractionState::TextPreserved),
+        "structured_text" => Ok(ExtractionState::StructuredText),
+        "partial_text" => Ok(ExtractionState::PartialText),
+        "invalid_container" => Ok(ExtractionState::InvalidContainer),
         "unsupported" => Ok(ExtractionState::Unsupported),
         "invalid_utf8" => Ok(ExtractionState::InvalidUtf8),
         "too_large" => Ok(ExtractionState::TooLarge),
@@ -1516,7 +1522,12 @@ fn parse_extraction(value: &str) -> Result<ExtractionState> {
 }
 
 fn processing_status(info: &SourceInfo) -> String {
-    if info.extraction != ExtractionState::TextPreserved {
+    if !matches!(
+        info.extraction,
+        ExtractionState::TextPreserved
+            | ExtractionState::StructuredText
+            | ExtractionState::PartialText
+    ) {
         "unavailable".into()
     } else {
         info.semantic_state.clone()
