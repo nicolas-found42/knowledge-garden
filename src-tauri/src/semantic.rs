@@ -9,6 +9,8 @@ pub struct KnowledgeDraft {
     pub facts: Vec<FactDraft>,
     pub relationships: Vec<RelationshipDraft>,
     #[serde(default)]
+    pub tags: Vec<TagDraft>,
+    #[serde(default)]
     pub decisions: Vec<SemanticDecision>,
 }
 
@@ -48,6 +50,13 @@ pub struct RelationshipDraft {
     pub to: String,
     pub kind: String,
     pub qualifier: Option<String>,
+    pub evidence: EvidenceDraft,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TagDraft {
+    pub subject: String,
+    pub label: String,
     pub evidence: EvidenceDraft,
 }
 

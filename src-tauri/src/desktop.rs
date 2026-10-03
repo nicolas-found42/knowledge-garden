@@ -1,5 +1,8 @@
 use crate::{
-    application::{AcquisitionMethod, Application, SourceList, SourcePage},
+    application::{
+        AcquisitionMethod, Application, PageSearchRequest, PageSearchResults, SourceList,
+        SourcePage,
+    },
     providers::JevSemanticProvider,
     semantic::{KnowledgePage, SemanticProvider},
 };
@@ -53,6 +56,14 @@ async fn open_knowledge_page(
 #[tauri::command]
 async fn list_sources(engine: State<'_, Engine>, offset: usize) -> Result<SourceList, String> {
     with_engine(&engine, move |app| app.list_sources(offset)).await
+}
+
+#[tauri::command]
+async fn search_pages(
+    engine: State<'_, Engine>,
+    request: PageSearchRequest,
+) -> Result<PageSearchResults, String> {
+    with_engine(&engine, move |app| app.search_pages(request)).await
 }
 
 #[tauri::command]
@@ -121,6 +132,7 @@ pub fn run() {
             open_source,
             open_knowledge_page,
             list_sources,
+            search_pages,
             open_original
         ])
         .run(tauri::generate_context!())
