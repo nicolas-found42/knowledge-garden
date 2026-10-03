@@ -1,8 +1,10 @@
 use knowledge_garden::application::{AcquisitionMethod, Application, ExtractionState};
+use knowledge_garden::providers::{JevSemanticProvider, SystemOneTransport};
 use knowledge_garden::semantic::{
     EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, RelationshipDraft,
     SemanticDecision, SemanticProvider,
 };
+use serde_json::Value;
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
@@ -25,6 +27,20 @@ impl SemanticProvider for RecordedProvider {
         _source_text: &str,
     ) -> std::result::Result<KnowledgeDraft, ProviderError> {
         self.result.lock().unwrap().take().expect("one recording")
+    }
+}
+
+struct RecordedSystemOneTransport {
+    response: Value,
+}
+
+impl SystemOneTransport for RecordedSystemOneTransport {
+    fn complete(
+        &self,
+        _api_key: &str,
+        _request: &Value,
+    ) -> std::result::Result<Value, ProviderError> {
+        Ok(self.response.clone())
     }
 }
 
@@ -338,6 +354,151 @@ fn semantic_evidence_offsets_are_measured_in_original_utf8_bytes_after_a_bom() {
         fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
         bytes
     );
+}
+
+#[test]
+fn malformed_recorded_jev_answers_leave_the_public_application_in_recoverable_pending_state() {
+    let source_text = "Maya observed Observation V50 at Riverside on May 1, 2024.";
+    let valid = serde_json::json!({
+        "model":"typesafe/jev-1.13-fixture",
+        "answers":{
+            "event_identity":{"type":"choice","choice":"event","probabilities":{"event":0.95,"not_event":0.03,"unclear":0.02}},
+            "relation_0":{"type":"choice","choice":"observer","probabilities":{"observer":0.94,"attendee":0.01,"location":0.01,"other":0.03,"none":0.01}},
+            "relation_3":{"type":"choice","choice":"location","probabilities":{"location":0.96,"observer":0.01,"attendee":0.01,"other":0.01,"none":0.01}},
+            "support_2":{"type":"noul","noul":0.97},
+            "support_3":{"type":"noul","noul":0.97},
+            "event_date":{"type":"choice","choice":"date_2","probabilities":{"date_2":0.96,"none":0.04}}
+        }
+    });
+    let mut malformed = Vec::new();
+    for (name, mutate) in [
+        ("missing date choice", 0),
+        ("wrong date answer type", 1),
+        ("unknown date option", 2),
+        ("missing date probability", 3),
+        ("out of range date probability", 4),
+        ("missing identity probability", 5),
+        ("invalid identity choice", 6),
+        ("missing observer probability", 7),
+        ("invalid relation choice", 8),
+        ("missing place support", 9),
+        ("wrong place support type", 10),
+        ("out of range place support", 11),
+    ] {
+        let mut response = valid.clone();
+        let answers = response["answers"].as_object_mut().unwrap();
+        match mutate {
+            0 => {
+                answers.remove("event_date");
+            }
+            1 => {
+                answers["event_date"]["type"] = "noul".into();
+            }
+            2 => {
+                answers["event_date"]["choice"] = "date_99".into();
+            }
+            3 => {
+                answers["event_date"]["probabilities"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("date_2");
+            }
+            4 => {
+                answers["event_date"]["probabilities"]["date_2"] = 1.1.into();
+            }
+            5 => {
+                answers["event_identity"]["probabilities"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("event");
+            }
+            6 => {
+                answers["event_identity"]["choice"] = "maybe".into();
+            }
+            7 => {
+                answers["relation_0"]["probabilities"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("observer");
+            }
+            8 => {
+                answers["relation_0"]["choice"] = "maybe".into();
+            }
+            9 => {
+                answers.remove("support_3");
+            }
+            10 => {
+                answers["support_3"]["type"] = "choice".into();
+            }
+            11 => {
+                answers["support_3"]["noul"] = 1.1.into();
+            }
+            _ => unreachable!(),
+        }
+        malformed.push((name, response));
+    }
+
+    for (case, response) in malformed {
+        let workspace = tempdir().unwrap();
+        let source = workspace.path().join("typed-response.txt");
+        fs::write(&source, source_text).unwrap();
+        let provider = JevSemanticProvider::with_transport(
+            "recorded-test-credential".into(),
+            Arc::new(RecordedSystemOneTransport { response }),
+        );
+        let mut app = Application::open_with_semantic_provider(
+            workspace.path().join("collection"),
+            Arc::new(provider),
+        )
+        .unwrap();
+        let imported = app
+            .import_source(&source, AcquisitionMethod::Picker)
+            .unwrap();
+        app.resume_due_semantic_jobs().unwrap();
+        let current = app.open_source(&imported.info.source_id).unwrap();
+        assert_eq!(current.info.semantic_state, "pending", "{case}");
+        assert!(current.info.semantic_error.is_some(), "{case}");
+        assert!(current.knowledge_pages.is_empty(), "{case}");
+        assert!(current.body.contains(source_text), "{case}");
+    }
+
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("typed-response-valid.txt");
+    fs::write(&source, source_text).unwrap();
+    let provider = JevSemanticProvider::with_transport(
+        "recorded-test-credential".into(),
+        Arc::new(RecordedSystemOneTransport { response: valid }),
+    );
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("valid-collection"),
+        Arc::new(provider),
+    )
+    .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let current = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(
+        current.info.semantic_state, "complete",
+        "{:?}",
+        current.info.semantic_error
+    );
+    assert!(current
+        .knowledge_pages
+        .iter()
+        .any(|page| page.kind == "event"));
+    let event = current
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "event")
+        .unwrap();
+    let markdown = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+    assert!(markdown.contains("value: May 1, 2024"));
+    assert!(markdown.contains("value: Maya"));
+    assert!(markdown.contains("value: Riverside"));
+    assert_eq!(markdown.matches("  property: location\n").count(), 1);
+    assert_eq!(markdown.matches("  kind: occurred_at\n").count(), 1);
 }
 
 #[test]

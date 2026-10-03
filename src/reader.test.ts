@@ -163,6 +163,35 @@ it("shows background semantic completion on the active source without closing it
   );
 });
 
+it("shows permanent semantic failure separately and stops polling that source", async () => {
+  const failed: SourcePage = {
+    ...riverside,
+    info: {
+      ...riverside.info,
+      semantic_state: "failed",
+      semantic_error: "Jev returned HTTP 400; semantic processing failed.",
+    },
+  };
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(failed);
+  api.openSource = vi.fn().mockResolvedValue(failed);
+  vi.useFakeTimers();
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await screen.findByRole("heading", { name: "Riverside notes" });
+  await user.click(screen.getByText("Source information"));
+  expect(screen.getByText("Processing failed")).toBeTruthy();
+  expect(screen.getByText(failed.info.semantic_error!)).toBeTruthy();
+
+  await vi.advanceTimersByTimeAsync(6000);
+
+  expect(api.openSource).not.toHaveBeenCalled();
+  expect(screen.getByRole("article", { name: "Riverside notes" })).toBeTruthy();
+});
+
 it("exposes unsupported coverage and provenance on demand with keyboard access to the original", async () => {
   const api = testApi();
   const unsupported: SourcePage = {
