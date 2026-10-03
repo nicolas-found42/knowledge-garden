@@ -1,8 +1,10 @@
-use knowledge_garden::application::{AcquisitionMethod, Application, ExtractionState};
+use knowledge_garden::application::{
+    AcquisitionMethod, Application, ExtractionState, PageSearchRequest,
+};
 use knowledge_garden::providers::{JevSemanticProvider, SystemOneTransport};
 use knowledge_garden::semantic::{
     EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, RelationshipDraft,
-    SemanticDecision, SemanticProvider,
+    SemanticDecision, SemanticProvider, TagDraft,
 };
 use serde_json::Value;
 use std::collections::VecDeque;
@@ -144,6 +146,7 @@ fn v17_recording() -> KnowledgeDraft {
                 evidence: evidence("possibly occurred at Riverside"),
             },
         ],
+        tags: vec![],
         decisions: [
             "span_selection:choice",
             "candidate_fact:noul",
@@ -513,6 +516,236 @@ fn complete_newer_revision_updates_current_knowledge_in_place() {
     assert!(markdown.contains("value: May 17, 2024"));
     assert!(markdown.contains("[Maya](../pages/"));
     assert!(markdown.contains("[Riverside](../pages/"));
+
+    let current_hits = app
+        .search_pages(PageSearchRequest {
+            query: "15 visits".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap()
+        .pages
+        .into_iter()
+        .filter(|page| page.page_type == "knowledge")
+        .collect::<Vec<_>>();
+    assert_eq!(current_hits.len(), 1);
+    assert_eq!(current_hits[0].page_id, event.page_id);
+
+    let stale_hits = app
+        .search_pages(PageSearchRequest {
+            query: "12 visits".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap()
+        .pages
+        .into_iter()
+        .filter(|page| page.page_type == "knowledge")
+        .collect::<Vec<_>>();
+    assert!(stale_hits.is_empty(), "{stale_hits:?}\n{markdown}");
+}
+
+#[test]
+fn search_returns_frozen_page_set_from_titles_tags_keyword_and_current_metadata() {
+    // Independent expected labels are frozen in ticket-18-expected-results.md.
+    let workspace = tempdir().unwrap();
+    let source_text = "Observation V17 took place at Riverside on May 17, 2024. Maya observed the event. 12 visits were reported. This is fieldwork.";
+    let source = workspace.path().join("V17 research.txt");
+    fs::write(&source, source_text).unwrap();
+    let evidence = |quote: &str| EvidenceDraft {
+        quote: quote.to_owned(),
+        byte_start: source_text.find(quote).unwrap(),
+        byte_end: source_text.find(quote).unwrap() + quote.len(),
+        origin: "observed".into(),
+        qualifier: None,
+    };
+    let draft = KnowledgeDraft {
+        entities: vec![
+            EntityDraft {
+                kind: "event".into(),
+                label: "Observation V17".into(),
+                evidence: evidence("Observation V17 took place at Riverside on May 17, 2024"),
+            },
+            EntityDraft {
+                kind: "place".into(),
+                label: "Riverside".into(),
+                evidence: evidence("Riverside"),
+            },
+            EntityDraft {
+                kind: "person".into(),
+                label: "Maya".into(),
+                evidence: evidence("Maya observed the event"),
+            },
+        ],
+        facts: vec![
+            FactDraft {
+                subject: "Observation V17".into(),
+                property: "occurred_on".into(),
+                value: "May 17, 2024".into(),
+                evidence: evidence("May 17, 2024"),
+            },
+            FactDraft {
+                subject: "Observation V17".into(),
+                property: "location".into(),
+                value: "Riverside".into(),
+                evidence: evidence("Riverside"),
+            },
+            FactDraft {
+                subject: "Observation V17".into(),
+                property: "observer".into(),
+                value: "Maya".into(),
+                evidence: evidence("Maya observed the event"),
+            },
+            FactDraft {
+                subject: "Observation V17".into(),
+                property: "visit_count".into(),
+                value: "12 visits".into(),
+                evidence: evidence("12 visits were reported"),
+            },
+        ],
+        tags: vec![
+            TagDraft {
+                subject: "Observation V17".into(),
+                label: "Riverside".into(),
+                evidence: evidence("Riverside"),
+            },
+            TagDraft {
+                subject: "Observation V17".into(),
+                label: "fieldwork".into(),
+                evidence: evidence("This is fieldwork"),
+            },
+        ],
+        ..KnowledgeDraft::default()
+    };
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::once(Ok(draft))),
+    )
+    .unwrap();
+    let source_page = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let combined = app
+        .search_pages(PageSearchRequest {
+            query: "Riverside".into(),
+            tags: vec!["#fieldwork".into()],
+            date_from: Some("2024-05-01".into()),
+            date_to: Some("2024-05-31".into()),
+            format: Some("txt".into()),
+            processing_status: Some("complete".into()),
+            offset: 0,
+        })
+        .unwrap();
+    assert_eq!(
+        combined
+            .pages
+            .iter()
+            .map(|page| page.title.as_str())
+            .collect::<Vec<_>>(),
+        ["Observation V17"]
+    );
+    assert!(combined.pages[0].excerpt.contains("Riverside"));
+    assert_eq!(combined.pages[0].format, "txt");
+    assert_eq!(combined.pages[0].processing_status, "complete");
+    assert!(combined.pages[0].tags.iter().any(|tag| tag == "fieldwork"));
+    assert!(combined.available_tags.contains(&"fieldwork".to_owned()));
+    assert!(combined.available_formats.contains(&"txt".to_owned()));
+    let markdown = app
+        .open_knowledge_page(&combined.pages[0].page_id)
+        .unwrap()
+        .markdown;
+    assert!(markdown.contains("normalized: fieldwork"));
+    assert!(markdown.contains("source_version_id:"));
+
+    let by_keyword = app
+        .search_pages(PageSearchRequest {
+            query: "12 visits".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert!(by_keyword
+        .pages
+        .iter()
+        .any(|page| page.title == "Observation V17"));
+    assert!(by_keyword
+        .pages
+        .iter()
+        .any(|page| page.page_id == source_page.info.page_id));
+    let by_title = app
+        .search_pages(PageSearchRequest {
+            query: "Observation V17".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert!(by_title
+        .pages
+        .iter()
+        .any(|page| page.title == "Observation V17"));
+    let by_tag = app
+        .search_pages(PageSearchRequest {
+            tags: vec!["#fieldwork".into()],
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert_eq!(
+        by_tag
+            .pages
+            .iter()
+            .map(|page| page.title.as_str())
+            .collect::<Vec<_>>(),
+        ["Observation V17"]
+    );
+    let no_match = app
+        .search_pages(PageSearchRequest {
+            query: "Atlantis no such observation".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert!(no_match.pages.is_empty());
+
+    drop(app);
+    fs::remove_dir_all(workspace.path().join("collection/.derived")).unwrap();
+    let rebuilt = Application::open(workspace.path().join("collection")).unwrap();
+    let after_restart = rebuilt
+        .search_pages(PageSearchRequest {
+            query: "Riverside".into(),
+            tags: vec!["fieldwork".into()],
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert_eq!(
+        after_restart
+            .pages
+            .iter()
+            .map(|page| page.title.as_str())
+            .collect::<Vec<_>>(),
+        ["Observation V17"]
+    );
+}
+
+#[test]
+fn search_paginates_a_bounded_set_of_page_results() {
+    let workspace = tempdir().unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open(&collection).unwrap();
+    for index in 0..51 {
+        let source = workspace.path().join(format!("Page {index:02}.txt"));
+        fs::write(&source, format!("Searchable fixture source {index:02}.")).unwrap();
+        app.import_source(&source, AcquisitionMethod::Picker)
+            .unwrap();
+    }
+    let first = app.search_pages(PageSearchRequest::default()).unwrap();
+    assert_eq!(first.pages.len(), 50);
+    assert_eq!(first.next_offset, Some(50));
+    let second = app
+        .search_pages(PageSearchRequest {
+            offset: first.next_offset.unwrap(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert_eq!(second.pages.len(), 1);
+    assert_eq!(second.next_offset, None);
+    assert_ne!(first.pages[0].page_id, second.pages[0].page_id);
 }
 
 #[test]
@@ -627,6 +860,7 @@ fn application_keeps_two_same_name_observers_as_distinct_evidence_backed_entitie
                 evidence: evidence("different person named Maya observed"),
             },
         ],
+        tags: vec![],
         decisions: vec![SemanticDecision {
             question: "person_identity".into(),
             model: "jev-1.13".into(),

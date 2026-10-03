@@ -1,5 +1,5 @@
 //! Test-only process adapter for the public Application boundary; not a product importer.
-use knowledge_garden::application::{AcquisitionMethod, Application};
+use knowledge_garden::application::{AcquisitionMethod, Application, PageSearchRequest};
 use knowledge_garden::providers::JevSemanticProvider;
 use serde::Serialize;
 
@@ -48,6 +48,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         "original" => output(app.original_path(args.get(3).ok_or("missing source identity")?)?),
         "list" => output(app.list_sources(args.get(3).ok_or("missing offset")?.parse()?)?),
+        "search" => {
+            let request = args
+                .get(3)
+                .map(|value| serde_json::from_str::<PageSearchRequest>(value))
+                .transpose()?
+                .unwrap_or_else(|| PageSearchRequest {
+                    query: args.get(3).cloned().unwrap_or_default(),
+                    ..PageSearchRequest::default()
+                });
+            output(app.search_pages(request)?);
+        }
         _ => return Err("unknown test operation".into()),
     }
     Ok(())

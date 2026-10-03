@@ -4,7 +4,7 @@ use crate::semantic::{
     SemanticDecision, SemanticJob, SemanticProvider,
 };
 use fs2::FileExt;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -146,6 +146,61 @@ pub struct SourceList {
     pub next_offset: Option<usize>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PageSearchRequest {
+    #[serde(default)]
+    pub query: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub date_from: Option<String>,
+    #[serde(default)]
+    pub date_to: Option<String>,
+    #[serde(default)]
+    pub format: Option<String>,
+    #[serde(default)]
+    pub processing_status: Option<String>,
+    #[serde(default)]
+    pub offset: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PageSearchResults {
+    pub pages: Vec<PageResult>,
+    pub next_offset: Option<usize>,
+    pub available_tags: Vec<String>,
+    pub available_formats: Vec<String>,
+    pub available_statuses: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PageResult {
+    pub page_id: String,
+    pub source_id: String,
+    pub page_type: String,
+    pub title: String,
+    pub kind: String,
+    pub excerpt: String,
+    pub tags: Vec<String>,
+    pub format: String,
+    pub event_date: Option<String>,
+    pub extraction: ExtractionState,
+    pub processing_status: String,
+    pub matched_by: String,
+    pub match_location: Option<SearchMatchLocation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchMatchLocation {
+    pub record_id: String,
+    pub source_id: String,
+    pub quote: String,
+    pub byte_start: usize,
+    pub byte_end: usize,
+    pub line_start: usize,
+    pub line_end: usize,
+}
+
 pub struct Application {
     root: PathBuf,
     index: Connection,
@@ -202,6 +257,32 @@ impl Application {
              CREATE TABLE IF NOT EXISTS source_versions (
                  source_id TEXT NOT NULL, source_version_id TEXT NOT NULL, format TEXT NOT NULL,
                  PRIMARY KEY(source_id, source_version_id)
+             );
+             CREATE TABLE IF NOT EXISTS page_tags (
+                 page_id TEXT NOT NULL,
+                 normalized TEXT NOT NULL,
+                 label TEXT NOT NULL,
+                 source_id TEXT NOT NULL,
+                 source_version_id TEXT NOT NULL,
+                 support_json TEXT NOT NULL,
+                 PRIMARY KEY (page_id, normalized, source_id, source_version_id, support_json)
+             );
+             CREATE INDEX IF NOT EXISTS page_tags_normalized ON page_tags(normalized, page_id);
+             CREATE VIRTUAL TABLE IF NOT EXISTS page_search USING fts5(
+                 page_id UNINDEXED,
+                 source_id UNINDEXED,
+                 page_type UNINDEXED,
+                 title,
+                 kind UNINDEXED,
+                 content,
+                 tags,
+                 format UNINDEXED,
+                 extraction UNINDEXED,
+                 processing_status UNINDEXED,
+                 event_date UNINDEXED,
+                 doc_kind UNINDEXED,
+                 match_location UNINDEXED,
+                 tokenize = 'unicode61 remove_diacritics 2'
              );",
         )?;
         let mut app = Self {
@@ -784,6 +865,53 @@ impl Application {
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
+            let mut tag_records = Vec::<TagRecord>::new();
+            {
+                let mut add_tag = |label: &str, evidence: EvidenceLocation| -> Result<()> {
+                    let normalized = normalize_tag(label)?;
+                    let support = TagSupport {
+                        source_id: source.info.source_id.clone(),
+                        source_version_id: source
+                            .info
+                            .pending_version_id
+                            .clone()
+                            .unwrap_or_else(|| source.info.sha256.clone()),
+                        value: label.trim().trim_start_matches('#').to_owned(),
+                        qualifier: evidence.qualifier.clone(),
+                        origin: evidence.origin.clone(),
+                        evidence,
+                    };
+                    if let Some(existing) = tag_records
+                        .iter_mut()
+                        .find(|tag| tag.normalized == normalized)
+                    {
+                        if !existing.supports.iter().any(|old| {
+                            old.source_id == support.source_id
+                                && old.source_version_id == support.source_version_id
+                                && old.evidence.byte_start == support.evidence.byte_start
+                        }) {
+                            existing.supports.push(support);
+                        }
+                    } else {
+                        tag_records.push(TagRecord {
+                            normalized,
+                            label: label.trim().trim_start_matches('#').to_owned(),
+                            supports: vec![support],
+                        });
+                    }
+                    Ok(())
+                };
+                for tag in draft.tags.iter().filter(|tag| tag.subject == entity.label) {
+                    add_tag(&tag.label, validate_evidence(source_text, &tag.evidence)?)?;
+                }
+                for fact in fact_records
+                    .iter()
+                    .filter(|fact| fact.property.eq_ignore_ascii_case("location"))
+                {
+                    add_tag(&fact.value, fact.evidence.clone())?;
+                }
+            }
+            tag_records.sort_by(|left, right| left.normalized.cmp(&right.normalized));
             let mut body = format!("# {}\n\n## Facts\n", escape_heading(&entity.label));
             if facts.is_empty() {
                 body.push_str("\nNo facts were selected for this page.\n");
@@ -821,6 +949,22 @@ impl Application {
                     &source.info.source_id["source-".len()..], source.info.asset
                 ));
             }
+            body.push_str("\n## Tags\n");
+            if tag_records.is_empty() {
+                body.push_str("\nNo supported tags were selected for this page.\n");
+            }
+            for tag in &tag_records {
+                body.push_str(&format!(
+                    "\n- **#{}** · {}\n  - Evidence: “{}” · source lines {}–{}, bytes {}–{}\n",
+                    escape_markdown(&tag.label),
+                    escape_markdown(&tag.normalized),
+                    escape_markdown(&tag.supports[0].evidence.quote),
+                    tag.supports[0].evidence.line_start,
+                    tag.supports[0].evidence.line_end,
+                    tag.supports[0].evidence.byte_start,
+                    tag.supports[0].evidence.byte_end,
+                ));
+            }
             let header = serde_yaml_ng::to_string(&KnowledgePageHeader {
                 schema: 1,
                 page_id: summary.page_id.clone(),
@@ -830,6 +974,7 @@ impl Application {
                 evidence: evidence.clone(),
                 facts: fact_records,
                 relationships: relationship_records,
+                tags: tag_records,
             })?;
             contents.insert(
                 summary.page_id.clone(),
@@ -861,6 +1006,7 @@ impl Application {
             old.facts = self.reconcile_facts(old.facts, Vec::new(), &replaced_sources)?;
             old.relationships =
                 self.reconcile_relationships(old.relationships, Vec::new(), &replaced_sources)?;
+            old.tags = self.reconcile_tags(old.tags, Vec::new(), &replaced_sources);
             contents.insert(page.page_id.clone(), self.render_knowledge_page(old)?);
         }
         for (page_id, markdown) in &mut contents {
@@ -880,6 +1026,7 @@ impl Application {
                     header.relationships,
                     &replaced_sources,
                 )?;
+                header.tags = self.reconcile_tags(old.tags, header.tags, &replaced_sources);
                 *markdown = self.render_knowledge_page(header)?;
             }
         }
@@ -888,6 +1035,11 @@ impl Application {
                 pages_dir.join(format!("{page_id}.md")),
                 markdown.into_bytes(),
             ));
+        }
+        for tag in &draft.tags {
+            let _ = page_for(&tag.subject)?;
+            validate_tag_label(&tag.label)?;
+            validate_evidence(source_text, &tag.evidence)?;
         }
         source.info.knowledge_pages = page_records
             .iter()
@@ -1155,10 +1307,16 @@ impl Application {
                     .flat_map(|rel| rel.supports.iter()),
             )
             .map(|support| support.source_id.clone())
+            .chain(
+                page.tags
+                    .iter()
+                    .flat_map(|tag| tag.supports.iter())
+                    .map(|support| support.source_id.clone()),
+            )
             .filter(|source_id| !source_id.is_empty() && source_id != &source.info.source_id)
             .collect::<std::collections::HashSet<_>>();
         let mut candidates = Vec::new();
-        for source_id in support_sources {
+        for source_id in support_sources.iter().cloned() {
             let path = self.source_dir(&source_id)?.join("index.md");
             if !path.exists() {
                 continue;
@@ -1186,18 +1344,7 @@ impl Application {
 
         if incoming.source_date.is_none() && incoming.source_revision.is_none() {
             let mut undated = Vec::new();
-            for source_id in page
-                .facts
-                .iter()
-                .flat_map(|fact| fact.supports.iter())
-                .chain(
-                    page.relationships
-                        .iter()
-                        .flat_map(|rel| rel.supports.iter()),
-                )
-                .map(|support| support.source_id.clone())
-                .filter(|source_id| !source_id.is_empty() && source_id != &source.info.source_id)
-            {
+            for source_id in support_sources.iter().cloned() {
                 let path = self.source_dir(&source_id)?.join("index.md");
                 if !path.exists() {
                     continue;
@@ -1274,6 +1421,46 @@ impl Application {
             records.insert(merged.relationship_id.clone(), merged);
         }
         Ok(records.into_values().collect())
+    }
+
+    fn reconcile_tags(
+        &self,
+        previous: Vec<TagRecord>,
+        incoming: Vec<TagRecord>,
+        remove_source_ids: &std::collections::HashSet<String>,
+    ) -> Vec<TagRecord> {
+        let mut records = std::collections::HashMap::<String, TagRecord>::new();
+        for (mut record, is_previous) in previous
+            .into_iter()
+            .map(|record| (record, true))
+            .chain(incoming.into_iter().map(|record| (record, false)))
+        {
+            if is_previous {
+                record
+                    .supports
+                    .retain(|support| !remove_source_ids.contains(&support.source_id));
+            }
+            if record.supports.is_empty() {
+                continue;
+            }
+            let mut merged = records
+                .remove(&record.normalized)
+                .unwrap_or_else(|| record.clone());
+            for support in record.supports {
+                if !merged.supports.iter().any(|existing| {
+                    existing.source_id == support.source_id
+                        && existing.source_version_id == support.source_version_id
+                        && existing.evidence.byte_start == support.evidence.byte_start
+                        && existing.evidence.byte_end == support.evidence.byte_end
+                }) {
+                    merged.supports.push(support);
+                }
+            }
+            records.insert(merged.normalized.clone(), merged);
+        }
+        let mut tags = records.into_values().collect::<Vec<_>>();
+        tags.sort_by(|left, right| left.normalized.cmp(&right.normalized));
+        tags
     }
 
     fn latest_support<'a>(
@@ -1430,9 +1617,298 @@ impl Application {
         })
     }
 
+    pub fn search_pages(&self, request: PageSearchRequest) -> Result<PageSearchResults> {
+        let query = request.query.trim();
+        let normalized_tags = request
+            .tags
+            .iter()
+            .map(|tag| normalize_tag(tag))
+            .collect::<Result<Vec<_>>>()?;
+        let date_from = request
+            .date_from
+            .as_deref()
+            .map(validate_iso_date)
+            .transpose()?;
+        let date_to = request
+            .date_to
+            .as_deref()
+            .map(validate_iso_date)
+            .transpose()?;
+        if date_from
+            .as_ref()
+            .zip(date_to.as_ref())
+            .is_some_and(|(from, to)| from > to)
+        {
+            return Err(GardenError::Invalid(
+                "The start date must not be after the end date.".into(),
+            ));
+        }
+        let processing_status = request.processing_status.as_deref();
+        if processing_status.is_some_and(|status| {
+            !["pending", "processing", "complete", "failed", "unavailable"].contains(&status)
+        }) {
+            return Err(GardenError::Invalid("Unknown processing status.".into()));
+        }
+        let mut where_parts = Vec::<String>::new();
+        let mut values = Vec::<rusqlite::types::Value>::new();
+        if !query.is_empty() {
+            where_parts.push("page_search MATCH ?".into());
+            values.push(fts_expression(query).into());
+        }
+        if !normalized_tags.is_empty() {
+            let placeholders = vec!["?"; normalized_tags.len()].join(", ");
+            where_parts.push(format!(
+                "EXISTS (SELECT 1 FROM page_tags t WHERE t.page_id = page_search.page_id AND t.normalized IN ({placeholders}))"
+            ));
+            values.extend(normalized_tags.iter().cloned().map(Into::into));
+        }
+        if let Some(from) = date_from {
+            where_parts.push("event_date IS NOT NULL AND event_date >= ?".into());
+            values.push(from.into());
+        }
+        if let Some(to) = date_to {
+            where_parts.push("event_date IS NOT NULL AND event_date <= ?".into());
+            values.push(to.into());
+        }
+        if let Some(format) = request.format.as_deref().filter(|value| !value.is_empty()) {
+            where_parts.push("lower(format) = lower(?)".into());
+            values.push(format.to_lowercase().into());
+        }
+        if let Some(status) = processing_status {
+            where_parts.push("processing_status = ?".into());
+            values.push(status.to_owned().into());
+        }
+        let where_sql = if where_parts.is_empty() {
+            "1 = 1".to_owned()
+        } else {
+            where_parts.join(" AND ")
+        };
+        let excerpt = if query.is_empty() {
+            "substr(content, 1, 240)"
+        } else {
+            "snippet(page_search, 5, '', '', ' … ', 24)"
+        };
+        let sql = format!(
+            "SELECT page_id, source_id, page_type, title, kind, {excerpt} AS excerpt,
+                    event_date, format, extraction, processing_status, match_location
+             FROM page_search
+             WHERE {where_sql}
+             ORDER BY CASE WHEN ? = '' THEN 0 WHEN lower(title) = lower(?) THEN 0
+                           WHEN instr(lower(title), lower(?)) > 0 THEN 1 ELSE 2 END,
+                      bm25(page_search), title COLLATE NOCASE, page_id
+             LIMIT ? OFFSET ?"
+        );
+        values.extend([
+            query.to_owned().into(),
+            query.to_owned().into(),
+            query.to_owned().into(),
+            ((PAGE_SIZE + 1) as i64).into(),
+            i64::try_from(request.offset)
+                .map_err(|_| GardenError::Invalid("Invalid result offset.".into()))?
+                .into(),
+        ]);
+        let mut statement = self.index.prepare(&sql)?;
+        let rows = statement.query_map(params_from_iter(values.iter()), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, String>(8)?,
+                row.get::<_, String>(9)?,
+                row.get::<_, Option<String>>(10)?,
+            ))
+        })?;
+        let mut pages = Vec::new();
+        for row in rows {
+            let (
+                page_id,
+                source_id,
+                page_type,
+                title,
+                kind,
+                excerpt,
+                event_date,
+                format,
+                extraction,
+                processing_status,
+                match_location,
+            ) = row?;
+            let tags = self.page_tags(&page_id)?;
+            let match_location = match_location
+                .map(|value| serde_json::from_str(&value))
+                .transpose()
+                .map_err(|error| GardenError::Invalid(error.to_string()))?
+                .or(self.find_match_location(
+                    &page_type,
+                    &page_id,
+                    &source_id,
+                    query,
+                    &normalized_tags,
+                )?);
+            pages.push(PageResult {
+                page_id,
+                source_id: source_id.clone(),
+                page_type,
+                title: title.clone(),
+                kind,
+                excerpt: excerpt.trim().to_owned(),
+                tags,
+                format,
+                event_date: event_date.clone(),
+                extraction: parse_extraction(&extraction)?,
+                processing_status,
+                matched_by: if !query.is_empty()
+                    && title.to_lowercase().contains(&query.to_lowercase())
+                {
+                    "title"
+                } else if !normalized_tags.is_empty() {
+                    "tag"
+                } else {
+                    "keyword"
+                }
+                .into(),
+                match_location,
+            });
+        }
+        let next_offset = if pages.len() > PAGE_SIZE {
+            pages.pop();
+            Some(request.offset.saturating_add(PAGE_SIZE))
+        } else {
+            None
+        };
+        let available_tags = {
+            let mut statement = self
+                .index
+                .prepare("SELECT DISTINCT label FROM page_tags ORDER BY normalized")?;
+            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()?
+        };
+        let available_formats = {
+            let mut statement = self.index.prepare(
+                "SELECT DISTINCT format FROM page_search WHERE format != '' ORDER BY format",
+            )?;
+            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()?
+        };
+        Ok(PageSearchResults {
+            pages,
+            next_offset,
+            available_tags,
+            available_formats,
+            available_statuses: ["pending", "processing", "complete", "failed", "unavailable"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        })
+    }
+
+    fn page_tags(&self, page_id: &str) -> Result<Vec<String>> {
+        let mut statement = self.index.prepare(
+            "SELECT DISTINCT label FROM page_tags WHERE page_id = ?1 ORDER BY normalized",
+        )?;
+        let rows = statement.query_map([page_id], |row| row.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(GardenError::from)
+    }
+
+    fn find_match_location(
+        &self,
+        page_type: &str,
+        page_id: &str,
+        source_id: &str,
+        query: &str,
+        tags: &[String],
+    ) -> Result<Option<SearchMatchLocation>> {
+        let terms = if query.trim().is_empty() {
+            tags.first().map(String::as_str).unwrap_or("")
+        } else {
+            query
+        }
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|term| !term.is_empty())
+        .map(str::to_lowercase)
+        .collect::<Vec<_>>();
+        if terms.is_empty() {
+            return Ok(None);
+        }
+        if page_type == "source" {
+            let source = read_page(&self.page_path(source_id)?)?;
+            let bytes = fs::read(self.original_path(source_id)?).unwrap_or_default();
+            if let Ok(text) = String::from_utf8(bytes) {
+                if let Some((start, end)) = find_text_match(&text, &terms) {
+                    let line_start =
+                        text[..start].bytes().filter(|byte| *byte == b'\n').count() + 1;
+                    let line_end = text[..end].bytes().filter(|byte| *byte == b'\n').count() + 1;
+                    return Ok(Some(SearchMatchLocation {
+                        record_id: format!("source:{}", source.info.page_id),
+                        source_id: source.info.source_id,
+                        quote: text[start..end].to_owned(),
+                        byte_start: start,
+                        byte_end: end,
+                        line_start,
+                        line_end,
+                    }));
+                }
+            }
+            return Ok(None);
+        }
+        let path = self.root.join("pages").join(format!("{page_id}.md"));
+        let markdown = match read_bounded_text(&path, MAX_PAGE_BYTES) {
+            Ok(markdown) => markdown,
+            Err(_) => return Ok(None),
+        };
+        let header = match parse_knowledge_header(&markdown) {
+            Ok(header) => header,
+            Err(_) => return Ok(None),
+        };
+        for fact in &header.facts {
+            if contains_all_terms(
+                &format!("{} {} {}", fact.property, fact.value, fact.evidence.quote),
+                &terms,
+            ) {
+                return Ok(Some(search_location(
+                    &fact.fact_id,
+                    &header.source_id,
+                    &fact.evidence,
+                )));
+            }
+        }
+        for relationship in &header.relationships {
+            if contains_all_terms(
+                &format!("{} {}", relationship.kind, relationship.evidence.quote),
+                &terms,
+            ) {
+                return Ok(Some(search_location(
+                    &relationship.relationship_id,
+                    &header.source_id,
+                    &relationship.evidence,
+                )));
+            }
+        }
+        for tag in &header.tags {
+            if tags.contains(&tag.normalized) || contains_all_terms(&tag.label, &terms) {
+                if let Some(support) = tag.supports.first() {
+                    return Ok(Some(search_location(
+                        &format!("tag:{}", tag.normalized),
+                        &support.source_id,
+                        &support.evidence,
+                    )));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     pub fn rebuild_index(&mut self) -> Result<()> {
-        let transaction = self.index.transaction()?;
+        let transaction = self.index.unchecked_transaction()?;
         transaction.execute("DELETE FROM sources", [])?;
+        transaction.execute("DELETE FROM page_search", [])?;
+        transaction.execute("DELETE FROM page_tags", [])?;
         transaction.execute("DELETE FROM source_origins", [])?;
         transaction.execute("DELETE FROM source_versions", [])?;
         for entry in fs::read_dir(self.root.join("sources"))? {
@@ -1457,23 +1933,15 @@ impl Application {
                     params![page.info.source_id, version.source_version_id, version.format],
                 )?;
             }
+            let documents = self.search_documents_for_source(&page.info)?;
+            write_search_documents(&transaction, &documents)?;
         }
         transaction.commit()?;
         Ok(())
     }
 
-    fn index_page(&self, info: &SourceInfo) -> Result<()> {
-        self.index.execute(
-            "INSERT OR REPLACE INTO sources (source_id, summary) VALUES (?1, ?2)",
-            params![info.source_id, summary_json(info)?],
-        )?;
-        for acquisition in &info.acquisitions {
-            self.index_acquisition(&acquisition.path, &info.source_id)?;
-        }
-        for version in &info.versions_seen {
-            self.index_version(&info.source_id, &version.source_version_id, &version.format)?;
-        }
-        Ok(())
+    fn index_page(&mut self, _info: &SourceInfo) -> Result<()> {
+        self.rebuild_index()
     }
 
     fn source_for_origin(&self, path: &str) -> Result<Option<String>> {
@@ -1520,6 +1988,83 @@ impl Application {
             .join("versions")
             .join(&version.source_version_id)
             .join(&version.asset))
+    }
+
+    fn search_documents_for_source(&self, info: &SourceInfo) -> Result<Vec<SearchDocument>> {
+        let source_page = read_page(&self.page_path(&info.source_id)?)?;
+        let mut knowledge = Vec::new();
+        for summary in &source_page.info.knowledge_pages {
+            let path = self.root.join(&summary.path);
+            let markdown = match read_bounded_text(&path, MAX_PAGE_BYTES) {
+                Ok(markdown) => markdown,
+                Err(_) => continue,
+            };
+            let header = match parse_knowledge_header(&markdown) {
+                Ok(header) => header,
+                Err(_) => continue,
+            };
+            // A reconciled page is linked from every source that supports it.
+            // Index the canonical page once, under its stable owning source,
+            // while its Markdown already contains the current support set.
+            if header.source_id != source_page.info.source_id {
+                continue;
+            }
+            let body = knowledge_search_content(&header);
+            knowledge.push((summary.clone(), header, body));
+        }
+        let source_event_date = knowledge
+            .iter()
+            .filter(|(_, header, _)| header.kind.eq_ignore_ascii_case("event"))
+            .find_map(|(_, header, _)| event_date_from_facts(&header.facts));
+        let mut documents = Vec::new();
+        let source_text = if source_page.info.extraction == ExtractionState::TextPreserved {
+            fs::read(self.original_path(&source_page.info.source_id)?)
+                .ok()
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+                .unwrap_or_else(|| source_page.body.clone())
+        } else {
+            source_page.body.clone()
+        };
+        documents.push(SearchDocument {
+            page_id: source_page.info.page_id.clone(),
+            source_id: source_page.info.source_id.clone(),
+            page_type: "source".into(),
+            title: source_page.info.title.clone(),
+            kind: "source".into(),
+            content: source_text,
+            format: source_page.info.format.clone(),
+            extraction: source_page.info.extraction,
+            processing_status: processing_status(&source_page.info),
+            event_date: source_event_date,
+            tags: Vec::new(),
+            doc_kind: "page".into(),
+            match_location: None,
+        });
+        for (summary, header, body) in knowledge {
+            let tags = header
+                .tags
+                .iter()
+                .filter(|tag| !tag.supports.is_empty())
+                .cloned()
+                .collect::<Vec<_>>();
+            let event_date = event_date_from_facts(&header.facts);
+            documents.push(SearchDocument {
+                page_id: summary.page_id.clone(),
+                source_id: header.source_id.clone(),
+                page_type: "knowledge".into(),
+                title: summary.title.clone(),
+                kind: summary.kind.clone(),
+                content: body.clone(),
+                format: source_page.info.format.clone(),
+                extraction: source_page.info.extraction,
+                processing_status: processing_status(&source_page.info),
+                event_date: event_date.clone(),
+                tags: tags.clone(),
+                doc_kind: "page".into(),
+                match_location: None,
+            });
+        }
+        Ok(documents)
     }
 
     fn source_dir(&self, source_id: &str) -> Result<PathBuf> {
@@ -1708,6 +2253,223 @@ fn compare_source_order(
     None
 }
 
+fn write_search_documents(
+    transaction: &rusqlite::Transaction<'_>,
+    documents: &[SearchDocument],
+) -> Result<()> {
+    for document in documents {
+        let tags_for_fts = document
+            .tags
+            .iter()
+            .map(|tag| tag.normalized.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let location = document
+            .match_location
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|error| GardenError::Invalid(error.to_string()))?;
+        transaction.execute(
+            "INSERT INTO page_search
+             (page_id, source_id, page_type, title, kind, content, tags, format,
+              extraction, processing_status, event_date, doc_kind, match_location)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                document.page_id,
+                document.source_id,
+                document.page_type,
+                document.title,
+                document.kind,
+                document.content,
+                tags_for_fts,
+                document.format,
+                extraction_string(document.extraction),
+                document.processing_status,
+                document.event_date,
+                document.doc_kind,
+                location,
+            ],
+        )?;
+        for tag in &document.tags {
+            for support in &tag.supports {
+                let support_json = serde_json::to_string(support)
+                    .map_err(|error| GardenError::Invalid(error.to_string()))?;
+                transaction.execute(
+                    "INSERT OR IGNORE INTO page_tags
+                     (page_id, normalized, label, source_id, source_version_id, support_json)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        document.page_id,
+                        tag.normalized,
+                        tag.label,
+                        support.source_id,
+                        support.source_version_id,
+                        support_json,
+                    ],
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn extraction_string(value: ExtractionState) -> String {
+    match value {
+        ExtractionState::TextPreserved => "text_preserved",
+        ExtractionState::Unsupported => "unsupported",
+        ExtractionState::InvalidUtf8 => "invalid_utf8",
+        ExtractionState::TooLarge => "too_large",
+    }
+    .to_owned()
+}
+
+fn parse_extraction(value: &str) -> Result<ExtractionState> {
+    match value {
+        "text_preserved" => Ok(ExtractionState::TextPreserved),
+        "unsupported" => Ok(ExtractionState::Unsupported),
+        "invalid_utf8" => Ok(ExtractionState::InvalidUtf8),
+        "too_large" => Ok(ExtractionState::TooLarge),
+        _ => Err(GardenError::Invalid(
+            "Search index has an unknown extraction state.".into(),
+        )),
+    }
+}
+
+fn processing_status(info: &SourceInfo) -> String {
+    if info.extraction != ExtractionState::TextPreserved {
+        "unavailable".into()
+    } else {
+        info.semantic_state.clone()
+    }
+}
+
+fn normalize_tag(label: &str) -> Result<String> {
+    let display = label.trim().trim_start_matches('#').trim();
+    if display.is_empty()
+        || display.chars().count() > 80
+        || display.chars().any(|character| {
+            !(character.is_alphanumeric() || character.is_whitespace() || "_-".contains(character))
+        })
+    {
+        return Err(GardenError::Invalid(
+            "A tag must contain 1–80 letters, numbers, spaces, underscores, or hyphens.".into(),
+        ));
+    }
+    Ok(display
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase())
+}
+
+fn validate_tag_label(label: &str) -> Result<()> {
+    normalize_tag(label).map(|_| ())
+}
+
+fn fts_expression(query: &str) -> String {
+    query
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|term| !term.is_empty())
+        .map(|term| format!("\"{}\"*", term.replace('"', "")))
+        .collect::<Vec<_>>()
+        .join(" AND ")
+}
+
+fn knowledge_search_content(header: &KnowledgePageHeader) -> String {
+    let mut fields = vec![header.title.clone(), header.kind.clone()];
+    for fact in &header.facts {
+        fields.extend([
+            fact.property.clone(),
+            fact.value.clone(),
+            fact.qualifier.clone().unwrap_or_default(),
+            fact.evidence.quote.clone(),
+        ]);
+    }
+    for relationship in &header.relationships {
+        fields.extend([
+            relationship.kind.clone(),
+            relationship.qualifier.clone().unwrap_or_default(),
+            relationship.evidence.quote.clone(),
+        ]);
+    }
+    for tag in &header.tags {
+        if !tag.supports.is_empty() {
+            fields.push(tag.label.clone());
+        }
+    }
+    fields.join(" ")
+}
+
+fn validate_iso_date(value: &str) -> Result<String> {
+    let date = value.trim();
+    let bytes = date.as_bytes();
+    let valid_shape = bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit());
+    if !valid_shape {
+        return Err(GardenError::Invalid(
+            "Date filters must use YYYY-MM-DD.".into(),
+        ));
+    }
+    let month = date[5..7].parse::<u32>().unwrap_or(0);
+    let day = date[8..10].parse::<u32>().unwrap_or(0);
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return Err(GardenError::Invalid(
+            "Date filter is outside the calendar.".into(),
+        ));
+    }
+    Ok(date.to_owned())
+}
+
+fn event_date_from_facts(facts: &[FactRecord]) -> Option<String> {
+    facts
+        .iter()
+        .filter(|fact| {
+            ["event_date", "occurred_on", "date"]
+                .iter()
+                .any(|property| fact.property.eq_ignore_ascii_case(property))
+        })
+        .find_map(|fact| parse_date_value(&fact.value))
+}
+
+fn search_location(
+    record_id: &str,
+    source_id: &str,
+    evidence: &EvidenceLocation,
+) -> SearchMatchLocation {
+    SearchMatchLocation {
+        record_id: record_id.to_owned(),
+        source_id: source_id.to_owned(),
+        quote: evidence.quote.clone(),
+        byte_start: evidence.byte_start,
+        byte_end: evidence.byte_end,
+        line_start: evidence.line_start,
+        line_end: evidence.line_end,
+    }
+}
+
+fn contains_all_terms(text: &str, terms: &[String]) -> bool {
+    let text = text.to_lowercase();
+    terms.iter().all(|term| text.contains(term))
+}
+
+fn find_text_match(text: &str, terms: &[String]) -> Option<(usize, usize)> {
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        let content = line.trim_end_matches(['\r', '\n']);
+        if contains_all_terms(content, terms) {
+            return Some((offset, offset + content.len()));
+        }
+        offset += line.len();
+    }
+    None
+}
+
 fn write_acquisition(destination: &Path, acquisition: &Acquisition) -> Result<()> {
     let contexts = destination.join("acquisitions");
     fs::create_dir_all(&contexts)?;
@@ -1726,6 +2488,64 @@ fn write_acquisition(destination: &Path, acquisition: &Acquisition) -> Result<()
         .persist_noclobber(contexts.join(format!("{key}.md")))
         .map_err(|error| GardenError::Io(error.error))?;
     sync_directory(&contexts)
+}
+
+fn parse_date_value(value: &str) -> Option<String> {
+    let value = value
+        .trim()
+        .trim_matches(|character: char| !(character.is_ascii_alphanumeric() || character == '-'));
+    if value.len() == 10
+        && value.as_bytes()[4] == b'-'
+        && value.as_bytes()[7] == b'-'
+        && value
+            .bytes()
+            .enumerate()
+            .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
+    {
+        return Some(value.to_owned());
+    }
+    let parts = value
+        .trim_end_matches(',')
+        .split(|character: char| character.is_whitespace() || character == ',')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    if parts.len() < 3 {
+        return None;
+    }
+    let month = match parts[0].to_lowercase().as_str() {
+        "jan" | "january" => 1,
+        "feb" | "february" => 2,
+        "mar" | "march" => 3,
+        "apr" | "april" => 4,
+        "may" => 5,
+        "jun" | "june" => 6,
+        "jul" | "july" => 7,
+        "aug" | "august" => 8,
+        "sep" | "sept" | "september" => 9,
+        "oct" | "october" => 10,
+        "nov" | "november" => 11,
+        "dec" | "december" => 12,
+        _ => return None,
+    };
+    let day = parts[1].parse::<u32>().ok()?;
+    let year = parts[2].parse::<u32>().ok()?;
+    if !(1..=31).contains(&day) || !(1000..=9999).contains(&year) {
+        return None;
+    }
+    Some(format!("{year:04}-{month:02}-{day:02}"))
+}
+
+fn read_bounded_text(path: &Path, max_bytes: u64) -> Result<String> {
+    let mut text = String::new();
+    File::open(path)?
+        .take(max_bytes + 1)
+        .read_to_string(&mut text)?;
+    if text.len() as u64 > max_bytes {
+        return Err(GardenError::Invalid(
+            "A knowledge page exceeds the search limit.".into(),
+        ));
+    }
+    Ok(text)
 }
 
 struct UnavailableProvider;
@@ -1788,6 +2608,23 @@ struct RelationshipRecord {
     supports: Vec<SupportRecord>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TagSupport {
+    source_id: String,
+    source_version_id: String,
+    value: String,
+    qualifier: Option<String>,
+    origin: String,
+    evidence: EvidenceLocation,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TagRecord {
+    normalized: String,
+    label: String,
+    supports: Vec<TagSupport>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct KnowledgePageHeader {
     schema: u32,
@@ -1800,6 +2637,24 @@ struct KnowledgePageHeader {
     facts: Vec<FactRecord>,
     #[serde(default)]
     relationships: Vec<RelationshipRecord>,
+    #[serde(default)]
+    tags: Vec<TagRecord>,
+}
+
+struct SearchDocument {
+    page_id: String,
+    source_id: String,
+    page_type: String,
+    title: String,
+    kind: String,
+    content: String,
+    format: String,
+    extraction: ExtractionState,
+    processing_status: String,
+    event_date: Option<String>,
+    tags: Vec<TagRecord>,
+    doc_kind: String,
+    match_location: Option<SearchMatchLocation>,
 }
 
 fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceLocation> {
