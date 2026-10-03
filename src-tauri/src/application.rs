@@ -1,4 +1,5 @@
 //! Public, disk-backed collection operations. Markdown and originals are authoritative.
+use crate::office::{CoveragePart, CoverageScope, CoverageStatus, OfficeProjection};
 use crate::semantic::{
     EntityDraft, EvidenceDraft, KnowledgeDraft, KnowledgePage, KnowledgePageSummary, ProviderError,
     SemanticDecision, SemanticJob, SemanticProvider,
@@ -48,6 +49,9 @@ pub enum AcquisitionMethod {
 #[serde(rename_all = "snake_case")]
 pub enum ExtractionState {
     TextPreserved,
+    StructuredText,
+    PartialText,
+    InvalidContainer,
     Unsupported,
     InvalidUtf8,
     TooLarge,
@@ -97,6 +101,8 @@ pub struct SourceInfo {
     pub format: String,
     pub extraction: ExtractionState,
     pub extraction_detail: String,
+    #[serde(default)]
+    pub extraction_coverage: Option<Vec<CoveragePart>>,
     pub line_count: usize,
     pub acquisitions: Vec<Acquisition>,
     #[serde(default)]
@@ -431,7 +437,77 @@ impl Application {
             self.index_page(&existing.info)?;
             return self.open_source(&source_id);
         }
-        let (extraction, extraction_detail, text) = classify_source(&format, count, text_bytes);
+        let (extraction, extraction_detail, text, office_projection, extraction_coverage) = if matches!(
+            format.as_str(),
+            "docx" | "pptx"
+        ) {
+            match crate::office::extract(
+                &staging.path().join(&asset),
+                &format,
+                path.file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .as_ref(),
+            ) {
+                Ok(projection) => {
+                    let extraction = if projection.partial {
+                        ExtractionState::PartialText
+                    } else {
+                        ExtractionState::StructuredText
+                    };
+                    (
+                        extraction,
+                        projection.detail.clone(),
+                        projection.semantic_text.clone(),
+                        Some(projection.clone()),
+                        Some(projection.coverage.clone()),
+                    )
+                }
+                Err(detail) => {
+                    let scope = if format == "docx" {
+                        CoverageScope::MainDocument
+                    } else {
+                        CoverageScope::SlideText
+                    };
+                    (
+                        ExtractionState::InvalidContainer,
+                        format!("Office container could not be read. {detail}"),
+                        String::new(),
+                        None,
+                        Some(vec![CoveragePart {
+                            scope,
+                            status: CoverageStatus::Failed,
+                            source_location: Some("package".into()),
+                            detail,
+                        }]),
+                    )
+                }
+            }
+        } else if !matches!(format.as_str(), "" | "txt" | "text" | "md" | "markdown") {
+            (
+                ExtractionState::Unsupported,
+                "This format is not supported by the text importer. The original is retained."
+                    .into(),
+                String::new(),
+                None,
+                None,
+            )
+        } else if count > MAX_TEXT_BYTES as u64 {
+            (
+                ExtractionState::TooLarge,
+                "Text exceeds the 2 MiB preview limit. The complete original is retained.".into(),
+                String::new(),
+                None,
+                None,
+            )
+        } else {
+            match String::from_utf8(text_bytes) {
+                Err(_) => (ExtractionState::InvalidUtf8, "The source is not valid UTF-8. The original is retained without lossy decoding.".into(), String::new(), None, None),
+                Ok(text) if text.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t')) =>
+                    (ExtractionState::Unsupported, "The source contains binary control characters. The original is retained.".into(), String::new(), None, None),
+                Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 source text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
+            }
+        };
         let line_count = if text.is_empty() {
             0
         } else {
@@ -452,12 +528,18 @@ impl Application {
             bytes: count,
             format: format.clone(),
             extraction,
-            extraction_detail: extraction_detail.into(),
+            extraction_detail,
+            extraction_coverage,
             line_count,
             acquisitions: vec![acquisition.clone()],
             current_version_id: None,
-            pending_version_id: (extraction == ExtractionState::TextPreserved)
-                .then(|| digest.clone()),
+            pending_version_id: matches!(
+                extraction,
+                ExtractionState::TextPreserved
+                    | ExtractionState::StructuredText
+                    | ExtractionState::PartialText
+            )
+            .then(|| digest.clone()),
             versions_seen: vec![source_version(
                 &digest,
                 count,
@@ -466,16 +548,32 @@ impl Application {
                 &format,
                 &acquisition.received_at,
                 &text,
-                if extraction == ExtractionState::TextPreserved {
+                if matches!(
+                    extraction,
+                    ExtractionState::TextPreserved
+                        | ExtractionState::StructuredText
+                        | ExtractionState::PartialText
+                ) {
                     "pending"
                 } else {
                     "unavailable"
                 },
                 replacement_role(&text),
             )],
-            update_status: (extraction == ExtractionState::TextPreserved).then(|| "pending".into()),
+            update_status: matches!(
+                extraction,
+                ExtractionState::TextPreserved
+                    | ExtractionState::StructuredText
+                    | ExtractionState::PartialText
+            )
+            .then(|| "pending".into()),
             ordering_uncertain: false,
-            semantic_state: if extraction == ExtractionState::TextPreserved {
+            semantic_state: if matches!(
+                extraction,
+                ExtractionState::TextPreserved
+                    | ExtractionState::StructuredText
+                    | ExtractionState::PartialText
+            ) {
                 "pending".into()
             } else {
                 "unavailable".into()
@@ -486,7 +584,7 @@ impl Application {
             knowledge_pages: Vec::new(),
             semantic_decisions: Vec::new(),
         };
-        let body = source_body(&info, &text);
+        let body = source_body(&info, &text, office_projection.as_ref());
         let markdown = serialize_page(&info, &body)?;
         let mut page_file = File::create(staging.path().join("index.md"))?;
         page_file.write_all(markdown.as_bytes())?;
@@ -607,8 +705,12 @@ impl Application {
                 continue;
             };
             let initial = page.info.current_version_id.is_none();
-            if page.info.extraction != ExtractionState::TextPreserved
-                || (initial && page.info.semantic_state != "pending")
+            if !matches!(
+                page.info.extraction,
+                ExtractionState::TextPreserved
+                    | ExtractionState::StructuredText
+                    | ExtractionState::PartialText
+            ) || (initial && page.info.semantic_state != "pending")
                 || (!initial && page.info.update_status.as_deref() != Some("pending"))
             {
                 continue;
@@ -627,15 +729,25 @@ impl Application {
                     .join(&source_version_id)
                     .join(&version.asset)
             };
-            let bytes = fs::read(candidate_path)?;
-            let text = String::from_utf8(bytes).map_err(|_| {
-                GardenError::Invalid("The retained text source is no longer UTF-8.".into())
-            })?;
+            let text = if matches!(
+                page.info.extraction,
+                ExtractionState::StructuredText | ExtractionState::PartialText
+            ) {
+                crate::office::extract(&candidate_path, &page.info.format, &page.info.title)
+                    .map_err(GardenError::Invalid)?
+                    .semantic_text
+            } else {
+                let bytes = fs::read(candidate_path)?;
+                String::from_utf8(bytes).map_err(|_| {
+                    GardenError::Invalid("The retained text source is no longer UTF-8.".into())
+                })?
+            };
             if initial {
                 page.info.semantic_state = "processing".into();
             } else {
                 page.info.update_status = Some("processing".into());
             }
+
             page.info.semantic_attempts = page.info.semantic_attempts.saturating_add(1);
             page.info.semantic_error = None;
             page.info.semantic_retry_at = None;
@@ -917,11 +1029,36 @@ impl Application {
                 body.push_str("\nNo facts were selected for this page.\n");
             }
             for fact in &fact_records {
+                let basis = match fact.evidence.offset_basis {
+                    EvidenceOffsetBasis::PreservedText => "preserved source text",
+                    EvidenceOffsetBasis::ExtractedOfficeProjection => {
+                        "extracted Office projection; offsets are not original package byte offsets"
+                    }
+                };
+                let locator = fact
+                    .evidence
+                    .source_location
+                    .as_deref()
+                    .map(|value| format!(" · original locator: {value}"))
+                    .unwrap_or_default();
+                let (line_basis, byte_basis) = match fact.evidence.offset_basis {
+                    EvidenceOffsetBasis::PreservedText => ("source lines", "source bytes"),
+                    EvidenceOffsetBasis::ExtractedOfficeProjection => {
+                        ("extracted projection lines", "extracted projection bytes")
+                    }
+                };
+                let guidance = if fact.evidence.offset_basis
+                    == EvidenceOffsetBasis::ExtractedOfficeProjection
+                {
+                    "The original opens as a fallback; use the OOXML part and location above to find the extracted passage."
+                } else {
+                    "Original opens at the beginning; use these source lines and byte offsets to locate this passage."
+                };
                 body.push_str(&format!(
-                    "\n- **{}:** {}{}\n  - Fact identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · source lines {}–{}, bytes {}–{}\n  - Original opens at the beginning; use these source lines and byte offsets to locate this passage.\n  - Links: [Source page](../sources/{}/index.md) · [Retained original](../sources/{}/{})\n",
+                    "\n- **{}:** {}{}\n  - Fact identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Links: [Source page](../sources/{}/index.md) · [Retained original](../sources/{}/{})\n",
                     escape_markdown(&fact.property.replace('_', " ")), escape_markdown(&fact.value), fact.qualifier.as_deref().map(|q| format!(" ({})", escape_markdown(q))).unwrap_or_default(), fact.fact_id,
-                    escape_markdown(&fact.evidence.quote), escape_markdown(&fact.origin), fact.evidence.line_start, fact.evidence.line_end,
-                    fact.evidence.byte_start, fact.evidence.byte_end, &source.info.source_id["source-".len()..],
+                    escape_markdown(&fact.evidence.quote), escape_markdown(&fact.origin), line_basis, fact.evidence.line_start, fact.evidence.line_end,
+                    byte_basis, fact.evidence.byte_start, fact.evidence.byte_end, basis, locator, guidance, &source.info.source_id["source-".len()..],
                     &source.info.source_id["source-".len()..], source.info.asset
                 ));
             }
@@ -940,12 +1077,21 @@ impl Application {
                     .find(|(_, page, _)| page.page_id == relationship.to_page_id)
                     .map(|(entity, page, _)| (entity, page))
                     .unwrap();
+                let (line_basis, byte_basis, locator, guidance) = match relationship.evidence.offset_basis {
+                    EvidenceOffsetBasis::PreservedText => ("source lines", "source bytes", String::new(), "Original opens at the beginning; use these source lines and byte offsets to locate this passage."),
+                    EvidenceOffsetBasis::ExtractedOfficeProjection => (
+                        "extracted projection lines",
+                        "extracted projection bytes",
+                        relationship.evidence.source_location.as_deref().map(|location| format!(" · original locator: {location}")).unwrap_or_default(),
+                        "The original opens as a fallback; use the OOXML part and location above to find the extracted passage.",
+                    ),
+                };
                 body.push_str(&format!(
-                    "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · source lines {}–{}, bytes {}–{}\n  - Original opens at the beginning; use these source lines and byte offsets to locate this passage.\n  - Links: [Source page](../sources/{}/index.md) · [Retained original](../sources/{}/{})\n",
+                    "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{}{}\n  - {}\n  - Links: [Source page](../sources/{}/index.md) · [Retained original](../sources/{}/{})\n",
                     escape_markdown(&from.0.label), from.1.page_id, escape_markdown(&relationship.kind.replace('_', " ")), escape_markdown(&to.0.label), to.1.page_id,
                     relationship.qualifier.as_deref().map(|q| format!(" (qualifier: {})", escape_markdown(q))).unwrap_or_default(), relationship.relationship_id,
-                    escape_markdown(&relationship.evidence.quote), escape_markdown(&relationship.origin), relationship.evidence.line_start, relationship.evidence.line_end,
-                    relationship.evidence.byte_start, relationship.evidence.byte_end, &source.info.source_id["source-".len()..],
+                    escape_markdown(&relationship.evidence.quote), escape_markdown(&relationship.origin), line_basis, relationship.evidence.line_start, relationship.evidence.line_end,
+                    byte_basis, relationship.evidence.byte_start, relationship.evidence.byte_end, locator, guidance, &source.info.source_id["source-".len()..],
                     &source.info.source_id["source-".len()..], source.info.asset
                 ));
             }
@@ -1213,7 +1359,7 @@ impl Application {
             version.state = "complete".into();
             version.coverage = "complete".into();
         }
-        source.body = source_body(&source.info, source_text);
+        source.body = source_body(&source.info, source_text, None);
         self.publish_knowledge(source, source_text, draft)
     }
 
@@ -2317,6 +2463,9 @@ fn write_search_documents(
 fn extraction_string(value: ExtractionState) -> String {
     match value {
         ExtractionState::TextPreserved => "text_preserved",
+        ExtractionState::StructuredText => "structured_text",
+        ExtractionState::PartialText => "partial_text",
+        ExtractionState::InvalidContainer => "invalid_container",
         ExtractionState::Unsupported => "unsupported",
         ExtractionState::InvalidUtf8 => "invalid_utf8",
         ExtractionState::TooLarge => "too_large",
@@ -2327,6 +2476,9 @@ fn extraction_string(value: ExtractionState) -> String {
 fn parse_extraction(value: &str) -> Result<ExtractionState> {
     match value {
         "text_preserved" => Ok(ExtractionState::TextPreserved),
+        "structured_text" => Ok(ExtractionState::StructuredText),
+        "partial_text" => Ok(ExtractionState::PartialText),
+        "invalid_container" => Ok(ExtractionState::InvalidContainer),
         "unsupported" => Ok(ExtractionState::Unsupported),
         "invalid_utf8" => Ok(ExtractionState::InvalidUtf8),
         "too_large" => Ok(ExtractionState::TooLarge),
@@ -2337,7 +2489,12 @@ fn parse_extraction(value: &str) -> Result<ExtractionState> {
 }
 
 fn processing_status(info: &SourceInfo) -> String {
-    if info.extraction != ExtractionState::TextPreserved {
+    if !matches!(
+        info.extraction,
+        ExtractionState::TextPreserved
+            | ExtractionState::StructuredText
+            | ExtractionState::PartialText
+    ) {
         "unavailable".into()
     } else {
         info.semantic_state.clone()
@@ -2570,6 +2727,18 @@ struct EvidenceLocation {
     line_end: usize,
     origin: String,
     qualifier: Option<String>,
+    #[serde(default)]
+    offset_basis: EvidenceOffsetBasis,
+    #[serde(default)]
+    source_location: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+enum EvidenceOffsetBasis {
+    #[default]
+    PreservedText,
+    ExtractedOfficeProjection,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2685,6 +2854,26 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         .filter(|byte| *byte == b'\n')
         .count()
         + 1;
+    let line_start_byte = source[..evidence.byte_start]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let line_end_byte = source[evidence.byte_start..]
+        .find('\n')
+        .map(|index| evidence.byte_start + index)
+        .unwrap_or(source.len());
+    let evidence_line = &source[line_start_byte..line_end_byte];
+    let source_location = evidence_line
+        .strip_prefix('[')
+        .and_then(|line| line.find(']').map(|end| line[..end].to_owned()));
+    let offset_basis = if source_location
+        .as_deref()
+        .is_some_and(|locator| locator.starts_with("DOCX ") || locator.starts_with("PPTX "))
+    {
+        EvidenceOffsetBasis::ExtractedOfficeProjection
+    } else {
+        EvidenceOffsetBasis::PreservedText
+    };
     Ok(EvidenceLocation {
         quote: evidence.quote.clone(),
         byte_start: evidence.byte_start,
@@ -2693,6 +2882,8 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         line_end,
         origin: evidence.origin.clone(),
         qualifier: evidence.qualifier.clone(),
+        offset_basis,
+        source_location,
     })
 }
 
@@ -2876,11 +3067,14 @@ fn now_millis() -> Result<u128> {
         .as_millis())
 }
 
-fn source_body(info: &SourceInfo, text: &str) -> String {
+fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>) -> String {
     let title = info
         .title
         .replace(['\n', '\r'], " ")
         .replace(['[', ']', '<', '>'], "");
+    if let Some(projection) = office {
+        return projection.markdown.replace("ORIGINAL_ASSET", &info.asset);
+    }
     if info.extraction != ExtractionState::TextPreserved {
         return format!(
             "# {title}\n\n[Open original]({})\n\nText is unavailable. {}\n",

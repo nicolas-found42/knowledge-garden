@@ -4,7 +4,29 @@ import { open } from "@tauri-apps/plugin-dialog";
 
 export type AcquisitionMethod = "picker" | "drop";
 export type ExtractionState =
-  "text_preserved" | "unsupported" | "invalid_utf8" | "too_large";
+  | "text_preserved"
+  | "structured_text"
+  | "partial_text"
+  | "invalid_container"
+  | "unsupported"
+  | "invalid_utf8"
+  | "too_large";
+
+export type CoverageScope =
+  | "main_document"
+  | "tables"
+  | "slide_text"
+  | "speaker_notes"
+  | "embedded_object";
+
+export type CoverageStatus = "complete" | "partial" | "unsupported" | "failed";
+
+export interface CoveragePart {
+  scope: CoverageScope;
+  status: CoverageStatus;
+  source_location: string;
+  detail: string;
+}
 
 export interface Acquisition {
   path: string;
@@ -24,6 +46,7 @@ export interface SourceInfo {
   format: string;
   extraction: ExtractionState;
   extraction_detail: string;
+  extraction_coverage?: CoveragePart[] | null;
   line_count: number;
   acquisitions: Acquisition[];
   semantic_state:
