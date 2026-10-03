@@ -3,6 +3,7 @@ import { marked } from "marked";
 import type {
   AcquisitionMethod,
   GardenApi,
+  KnowledgePage,
   SourcePage,
   SourceSummary,
 } from "./api";
@@ -66,14 +67,20 @@ export async function mountReader(
     message(error instanceof Error ? error.message : String(error));
   }
 
-  function showPage(next: SourcePage) {
+  function showMarkdown(
+    markdown: string,
+    title: string,
+    sourceId: string,
+    originalAsset?: string,
+  ) {
     if (disposed) return;
-    page = next;
     const article = element("article");
     article.tabIndex = -1;
-    article.setAttribute("aria-label", next.info.title);
+    article.setAttribute("aria-label", title);
     article.innerHTML = DOMPurify.sanitize(
-      marked.parse(next.body, { async: false }),
+      marked.parse(markdown.replace(/^---\n[\s\S]*?\n---\n/, ""), {
+        async: false,
+      }),
       {
         USE_PROFILES: { html: true },
         FORBID_TAGS: ["img", "video", "audio", "iframe", "style", "form"],
@@ -84,12 +91,56 @@ export async function mountReader(
       const link = (event.target as Element).closest("a");
       if (!link) return;
       event.preventDefault();
-      if (link.getAttribute("href") === next.info.asset) {
-        void api.openOriginal(next.info.source_id).catch(report);
+      const href = link.getAttribute("href") ?? "";
+      const knowledgeMatch = href.match(
+        /(?:\.\.\/)?pages\/(page-[a-zA-Z0-9-]+)\.md/,
+      );
+      const sourceMatch = href.match(
+        /(?:\.\.\/)?sources\/([a-f0-9]{64})\/index\.md/,
+      );
+      const originalMatch = href.match(
+        /(?:\.\.\/)?sources\/([a-f0-9]{64})\/original(?:\.[a-zA-Z0-9]+)?/,
+      );
+      if (href === originalAsset || href === `knowledge-original:${sourceId}`) {
+        void api.openOriginal(sourceId).catch(report);
+      } else if (knowledgeMatch) {
+        void api
+          .openKnowledgePage(knowledgeMatch[1])
+          .then(showKnowledgePage)
+          .catch(report);
+      } else if (sourceMatch) {
+        void api
+          .openSource(`source-${sourceMatch[1]}`)
+          .then(showPage)
+          .catch(report);
+      } else if (originalMatch) {
+        void api.openOriginal(`source-${originalMatch[1]}`).catch(report);
       } else {
         message("This reference is preserved in the Markdown page.");
       }
     });
+    main.replaceChildren(article);
+    sources.hidden = true;
+    sourcesButton.setAttribute("aria-expanded", "false");
+    try {
+      localStorage.setItem(LAST_SOURCE, sourceId);
+    } catch {
+      /* Reading works without browser storage. */
+    }
+    article.focus();
+    return article;
+  }
+
+  function showPage(next: SourcePage) {
+    if (disposed) return;
+    page = next;
+    const article = showMarkdown(
+      next.body,
+      next.info.title,
+      next.info.source_id,
+      next.info.asset,
+    );
+    if (!article) return;
     const details = element("details");
     details.className = "source-info";
     details.append(element("summary", "Source information"));
@@ -97,12 +148,27 @@ export async function mountReader(
     const rows = [
       ["Original", next.info.original_name],
       ["Processing", labels[next.info.extraction]],
-      ["Coverage", next.info.extraction_detail],
+      [
+        "Knowledge",
+        next.info.semantic_state === "complete"
+          ? "Ready"
+          : next.info.semantic_state === "unavailable"
+            ? "Not available for this format"
+            : "Waiting for semantic processing",
+      ],
+      [
+        "Coverage",
+        next.info.semantic_state === "complete"
+          ? "Supported semantic spans are published with their original evidence and qualifiers."
+          : next.info.extraction_detail,
+      ],
       ["Format", next.info.format || "No extension"],
       ["Size", `${next.info.bytes.toLocaleString()} bytes`],
       ["Source identity", next.info.source_id],
       ["Page identity", next.info.page_id],
     ];
+    if (next.info.semantic_error)
+      rows.push(["Semantic status", next.info.semantic_error]);
     for (const acquisition of next.info.acquisitions) {
       rows.push(["Acquired from", acquisition.path]);
       rows.push([
@@ -117,15 +183,16 @@ export async function mountReader(
     for (const [label, value] of rows)
       definition.append(element("dt", label), element("dd", value));
     details.append(definition);
-    main.replaceChildren(article, details);
-    sources.hidden = true;
-    sourcesButton.setAttribute("aria-expanded", "false");
-    try {
-      localStorage.setItem(LAST_SOURCE, next.info.source_id);
-    } catch {
-      /* Reading works without browser storage. */
-    }
-    article.focus();
+    main.append(details);
+  }
+
+  function showKnowledgePage(next: KnowledgePage) {
+    page = null;
+    const article = showMarkdown(next.markdown, next.title, next.source_id);
+    if (!article) return;
+    const returnLink = element("a", "Return to source page");
+    returnLink.href = `../sources/${next.source_id.slice("source-".length)}/index.md`;
+    article.prepend(returnLink);
   }
 
   async function importPaths(paths: string[], method: AcquisitionMethod) {
@@ -233,8 +300,42 @@ export async function mountReader(
       report(error);
     }
   }
+  const refreshTimer = window.setInterval(() => {
+    const current = page;
+    if (
+      !current ||
+      disposed ||
+      current.info.semantic_state === "complete" ||
+      current.info.semantic_state === "unavailable"
+    )
+      return;
+    void api
+      .openSource(current.info.source_id)
+      .then((next) => {
+        if (disposed || page?.info.source_id !== current.info.source_id) return;
+        const detailsWereOpen = main.querySelector("details")?.open ?? false;
+        const focusedArticle =
+          document.activeElement === main.querySelector("article");
+        const scrollTop = main.querySelector("article")?.scrollTop ?? 0;
+        if (
+          next.info.semantic_state === current.info.semantic_state &&
+          next.info.semantic_error === current.info.semantic_error &&
+          next.info.knowledge_pages.length ===
+            current.info.knowledge_pages.length
+        )
+          return;
+        showPage(next);
+        const article = main.querySelector("article");
+        if (article) article.scrollTop = scrollTop;
+        const details = main.querySelector("details");
+        if (details) details.open = detailsWereOpen;
+        if (focusedArticle) article?.focus({ preventScroll: true });
+      })
+      .catch(report);
+  }, 3000);
   return () => {
     disposed = true;
+    window.clearInterval(refreshTimer);
     unlisten();
     root.replaceChildren();
   };

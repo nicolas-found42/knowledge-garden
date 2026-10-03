@@ -26,6 +26,18 @@ export interface SourceInfo {
   extraction_detail: string;
   line_count: number;
   acquisitions: Acquisition[];
+  semantic_state:
+    "pending" | "processing" | "complete" | "failed" | "unavailable";
+  semantic_error: string | null;
+  semantic_attempts: number;
+  semantic_retry_at: string | null;
+  knowledge_pages: KnowledgePageSummary[];
+  semantic_decisions: {
+    question: string;
+    model: string;
+    outcome: string;
+    probability: number | null;
+  }[];
 }
 
 export interface SourceSummary {
@@ -39,6 +51,22 @@ export interface SourcePage {
   info: SourceInfo;
   markdown: string;
   body: string;
+  knowledge_pages: KnowledgePageSummary[];
+}
+
+export interface KnowledgePageSummary {
+  page_id: string;
+  title: string;
+  kind: string;
+  path: string;
+}
+
+export interface KnowledgePage {
+  page_id: string;
+  source_id: string;
+  title: string;
+  kind: string;
+  markdown: string;
 }
 
 export interface SourceList {
@@ -52,6 +80,7 @@ export interface GardenApi {
   importSource(path: string, method: AcquisitionMethod): Promise<SourcePage>;
   listSources(offset: number): Promise<SourceList>;
   openSource(sourceId: string): Promise<SourcePage>;
+  openKnowledgePage(pageId: string): Promise<KnowledgePage>;
   openOriginal(sourceId: string): Promise<void>;
   onDrop(handler: (paths: string[]) => void): Promise<() => void>;
 }
@@ -68,6 +97,7 @@ export const desktopApi: GardenApi = {
   importSource: (path, method) => invoke("import_source", { path, method }),
   listSources: (offset) => invoke("list_sources", { offset }),
   openSource: (sourceId) => invoke("open_source", { sourceId }),
+  openKnowledgePage: (pageId) => invoke("open_knowledge_page", { pageId }),
   openOriginal: (sourceId) => invoke("open_original", { sourceId }),
   async onDrop(handler) {
     return getCurrentWebview().onDragDropEvent(({ payload }) => {

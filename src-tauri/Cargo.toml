@@ -24,3 +24,5 @@ tempfile = "3"
 thiserror = "2"
 uuid = { version = "1", features = ["v4"] }
 percent-encoding = "2"
+regex = "1"
+reqwest = { version = "0.13", features = ["blocking", "json"] }

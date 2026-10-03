@@ -1,17 +1,23 @@
-use crate::application::{AcquisitionMethod, Application, SourceList, SourcePage};
+use crate::{
+    application::{AcquisitionMethod, Application, SourceList, SourcePage},
+    providers::JevSemanticProvider,
+    semantic::{KnowledgePage, SemanticProvider},
+};
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
 };
 use tauri::{Manager, State};
 
-struct Engine(Arc<Mutex<Application>>);
+struct Engine {
+    app: Arc<Mutex<Application>>,
+}
 
 async fn with_engine<T: Send + 'static>(
     engine: &Engine,
     operation: impl FnOnce(&mut Application) -> crate::application::Result<T> + Send + 'static,
 ) -> Result<T, String> {
-    let engine = Arc::clone(&engine.0);
+    let engine = Arc::clone(&engine.app);
     tauri::async_runtime::spawn_blocking(move || {
         let mut app = engine
             .lock()
@@ -34,6 +40,14 @@ async fn import_source(
 #[tauri::command]
 async fn open_source(engine: State<'_, Engine>, source_id: String) -> Result<SourcePage, String> {
     with_engine(&engine, move |app| app.open_source(&source_id)).await
+}
+
+#[tauri::command]
+async fn open_knowledge_page(
+    engine: State<'_, Engine>,
+    page_id: String,
+) -> Result<KnowledgePage, String> {
+    with_engine(&engine, move |app| app.open_knowledge_page(&page_id)).await
 }
 
 #[tauri::command]
@@ -65,12 +79,47 @@ pub fn run() {
             let root = std::env::var_os("KNOWLEDGE_GARDEN_COLLECTION")
                 .map(PathBuf::from)
                 .unwrap_or(app.path().app_data_dir()?.join("collection"));
-            app.manage(Engine(Arc::new(Mutex::new(Application::open(root)?))));
+            let semantic_provider: Arc<dyn SemanticProvider> =
+                Arc::new(JevSemanticProvider::from_environment_and_keychain());
+            let engine = Arc::new(Mutex::new(Application::open(root)?));
+            let worker_app = Arc::clone(&engine);
+            let worker_provider = Arc::clone(&semantic_provider);
+            std::thread::Builder::new()
+                .name("knowledge-garden-semantic-queue".into())
+                .spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    let jobs = match worker_app.lock() {
+                        Ok(mut app) => match app.claim_due_semantic_jobs(2) {
+                            Ok(jobs) => jobs,
+                            Err(error) => {
+                                eprintln!("Semantic queue could not claim work: {error}");
+                                continue;
+                            }
+                        },
+                        Err(_) => {
+                            eprintln!("Semantic queue could not access the collection.");
+                            continue;
+                        }
+                    };
+                    for job in jobs {
+                        let result = worker_provider.form_knowledge(&job.source_text);
+                        match worker_app.lock() {
+                            Ok(mut app) => {
+                                if let Err(error) = app.finish_semantic_job(job, result) {
+                                    eprintln!("Semantic queue could not publish a result: {error}");
+                                }
+                            }
+                            Err(_) => eprintln!("Semantic queue could not access the collection to publish a result."),
+                        }
+                    }
+                })?;
+            app.manage(Engine { app: engine });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             import_source,
             open_source,
+            open_knowledge_page,
             list_sources,
             open_original
         ])

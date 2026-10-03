@@ -1,6 +1,391 @@
 use knowledge_garden::application::{AcquisitionMethod, Application, ExtractionState};
+use knowledge_garden::semantic::{
+    EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, RelationshipDraft,
+    SemanticDecision, SemanticProvider,
+};
 use std::fs;
+use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
+
+struct RecordedProvider {
+    result: Mutex<Option<std::result::Result<KnowledgeDraft, ProviderError>>>,
+}
+
+impl RecordedProvider {
+    fn once(result: std::result::Result<KnowledgeDraft, ProviderError>) -> Self {
+        Self {
+            result: Mutex::new(Some(result)),
+        }
+    }
+}
+
+impl SemanticProvider for RecordedProvider {
+    fn form_knowledge(
+        &self,
+        _source_text: &str,
+    ) -> std::result::Result<KnowledgeDraft, ProviderError> {
+        self.result.lock().unwrap().take().expect("one recording")
+    }
+}
+
+fn v17_recording() -> KnowledgeDraft {
+    let text = "Revision 1 dated May 18, 2024; observation V17 on May 17, 2024; observer Maya; location Riverside; 12 visits; duration 10 minutes. It possibly occurred at Riverside. A different person named Maya filed another report.";
+    let evidence = |quote: &str| EvidenceDraft {
+        quote: quote.to_owned(),
+        byte_start: text.find(quote).unwrap(),
+        byte_end: text.find(quote).unwrap() + quote.len(),
+        origin: "observed".to_owned(),
+        qualifier: None,
+    };
+    KnowledgeDraft {
+        entities: vec![
+            EntityDraft {
+                kind: "event".into(),
+                label: "Observation V17".into(),
+                evidence: evidence("observation V17 on May 17, 2024"),
+            },
+            EntityDraft {
+                kind: "person".into(),
+                label: "Maya (observer)".into(),
+                evidence: evidence("observer Maya"),
+            },
+            EntityDraft {
+                kind: "place".into(),
+                label: "Riverside".into(),
+                evidence: evidence("location Riverside"),
+            },
+            EntityDraft {
+                kind: "person".into(),
+                label: "Maya (separate report)".into(),
+                evidence: evidence("different person named Maya"),
+            },
+        ],
+        facts: vec![
+            FactDraft {
+                subject: "Observation V17".into(),
+                property: "occurred_on".into(),
+                value: "May 17, 2024".into(),
+                evidence: evidence("observation V17 on May 17, 2024"),
+            },
+            FactDraft {
+                subject: "Observation V17".into(),
+                property: "observer".into(),
+                value: "Maya (observer)".into(),
+                evidence: evidence("observer Maya"),
+            },
+            FactDraft {
+                subject: "Observation V17".into(),
+                property: "location".into(),
+                value: "Riverside".into(),
+                evidence: evidence("location Riverside"),
+            },
+            FactDraft {
+                subject: "Observation V17".into(),
+                property: "visit_count".into(),
+                value: "12 visits".into(),
+                evidence: evidence("12 visits"),
+            },
+            FactDraft {
+                subject: "Observation V17".into(),
+                property: "duration".into(),
+                value: "10 minutes".into(),
+                evidence: evidence("duration 10 minutes"),
+            },
+            FactDraft {
+                subject: "Observation V17".into(),
+                property: "possible_location".into(),
+                value: "Riverside".into(),
+                evidence: EvidenceDraft {
+                    qualifier: Some("possibly".into()),
+                    ..evidence("possibly occurred at Riverside")
+                },
+            },
+        ],
+        relationships: vec![
+            RelationshipDraft {
+                from: "Observation V17".into(),
+                to: "Maya (observer)".into(),
+                kind: "observed_by".into(),
+                qualifier: None,
+                evidence: evidence("observer Maya"),
+            },
+            RelationshipDraft {
+                from: "Observation V17".into(),
+                to: "Riverside".into(),
+                kind: "possibly_occurred_at".into(),
+                qualifier: Some("possibly".into()),
+                evidence: evidence("possibly occurred at Riverside"),
+            },
+        ],
+        decisions: [
+            "span_selection:choice",
+            "candidate_fact:noul",
+            "entity_matching:score",
+            "relationship_type:choice",
+            "evidence_support:noul",
+        ]
+        .into_iter()
+        .map(|question| SemanticDecision {
+            question: question.into(),
+            model: "jev-1.13".into(),
+            outcome: "accepted".into(),
+            probability: Some(0.99),
+        })
+        .collect(),
+    }
+}
+
+#[test]
+fn import_forms_linked_knowledge_pages_with_typed_facts_qualifiers_and_exact_evidence() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("V17.txt");
+    let text = "Revision 1 dated May 18, 2024; observation V17 on May 17, 2024; observer Maya; location Riverside; 12 visits; duration 10 minutes. It possibly occurred at Riverside. A different person named Maya filed another report.";
+    fs::write(&source, text).unwrap();
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::once(Ok(v17_recording()))),
+    )
+    .unwrap();
+
+    let queued = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    assert_eq!(queued.info.semantic_state, "pending");
+    app.resume_due_semantic_jobs().unwrap();
+    let page = app.open_source(&queued.info.source_id).unwrap();
+
+    assert_eq!(page.info.semantic_state, "complete");
+    assert!(page.body.contains("Observation V17"));
+    assert!(page.body.contains("Maya (observer)"));
+    assert!(page.body.contains("Maya (separate report)"));
+    let event = page
+        .knowledge_pages
+        .iter()
+        .find(|candidate| candidate.title == "Observation V17")
+        .unwrap();
+    let event_page = app.open_knowledge_page(&event.page_id).unwrap();
+    assert!(event_page.markdown.contains("May 17, 2024"));
+    assert!(event_page.markdown.contains("12 visits"));
+    assert!(event_page.markdown.contains("10 minutes"));
+    assert!(event_page.markdown.contains("possibly"));
+    assert!(event_page.markdown.contains("observer Maya"));
+    assert!(event_page.markdown.contains("byte_start:"));
+    assert!(event_page.markdown.contains("line_start: 1"));
+    assert!(event_page.markdown.contains("[Source page]"));
+    for page in page.knowledge_pages {
+        let path = workspace
+            .path()
+            .join("collection")
+            .join("pages")
+            .join(format!("{}.md", page.page_id));
+        assert!(path.is_file());
+    }
+}
+
+#[test]
+fn application_keeps_two_same_name_observers_as_distinct_evidence_backed_entities() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("two-mayas.txt");
+    let text =
+        "Maya observed Observation V42. A different person named Maya observed Observation V42.";
+    fs::write(&source, text).unwrap();
+    let evidence = |quote: &str| EvidenceDraft {
+        quote: quote.to_owned(),
+        byte_start: text.find(quote).unwrap(),
+        byte_end: text.find(quote).unwrap() + quote.len(),
+        origin: "observed".to_owned(),
+        qualifier: None,
+    };
+    let event = "Observation V42";
+    let maya_one = "Maya (observer; mention 1)";
+    let maya_two = "Maya (observer; mention 2)";
+    let draft = KnowledgeDraft {
+        entities: vec![
+            EntityDraft {
+                kind: "event".into(),
+                label: event.into(),
+                evidence: evidence("Observation V42"),
+            },
+            EntityDraft {
+                kind: "person".into(),
+                label: maya_one.into(),
+                evidence: evidence("Maya observed"),
+            },
+            EntityDraft {
+                kind: "person".into(),
+                label: maya_two.into(),
+                evidence: evidence("different person named Maya"),
+            },
+        ],
+        facts: vec![
+            FactDraft {
+                subject: event.into(),
+                property: "observer".into(),
+                value: "Maya".into(),
+                evidence: evidence("Maya observed"),
+            },
+            FactDraft {
+                subject: event.into(),
+                property: "observer".into(),
+                value: "Maya".into(),
+                evidence: evidence("different person named Maya observed"),
+            },
+        ],
+        relationships: vec![
+            RelationshipDraft {
+                from: event.into(),
+                to: maya_one.into(),
+                kind: "observed_by".into(),
+                qualifier: None,
+                evidence: evidence("Maya observed"),
+            },
+            RelationshipDraft {
+                from: event.into(),
+                to: maya_two.into(),
+                kind: "observed_by".into(),
+                qualifier: None,
+                evidence: evidence("different person named Maya observed"),
+            },
+        ],
+        decisions: vec![SemanticDecision {
+            question: "person_identity".into(),
+            model: "jev-1.13".into(),
+            outcome: "distinct_identity".into(),
+            probability: Some(0.98),
+        }],
+    };
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::once(Ok(draft))),
+    )
+    .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let source_page = app.open_source(&imported.info.source_id).unwrap();
+    let people = source_page
+        .knowledge_pages
+        .iter()
+        .filter(|page| page.kind == "person")
+        .collect::<Vec<_>>();
+    assert_eq!(people.len(), 2);
+    assert_ne!(people[0].page_id, people[1].page_id);
+    for person in people {
+        let markdown = app.open_knowledge_page(&person.page_id).unwrap().markdown;
+        assert!(markdown.contains("observed by"));
+        assert!(markdown.contains("Observation V42"));
+    }
+    let event_page = source_page
+        .knowledge_pages
+        .iter()
+        .find(|page| page.title == event)
+        .unwrap();
+    let markdown = app
+        .open_knowledge_page(&event_page.page_id)
+        .unwrap()
+        .markdown;
+    assert!(markdown.contains("mention 1"));
+    assert!(markdown.contains("mention 2"));
+}
+
+#[test]
+fn semantic_evidence_offsets_are_measured_in_original_utf8_bytes_after_a_bom() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("bom-report.txt");
+    let bytes = b"\xef\xbb\xbfObservation V50 had 2 visits.";
+    fs::write(&source, bytes).unwrap();
+    let text = "\u{feff}Observation V50 had 2 visits.";
+    let evidence = |quote: &str| EvidenceDraft {
+        quote: quote.to_owned(),
+        byte_start: text.find(quote).unwrap(),
+        byte_end: text.find(quote).unwrap() + quote.len(),
+        origin: "observed".to_owned(),
+        qualifier: None,
+    };
+    let draft = KnowledgeDraft {
+        entities: vec![EntityDraft {
+            kind: "event".into(),
+            label: "Observation V50".into(),
+            evidence: evidence("Observation V50"),
+        }],
+        facts: vec![FactDraft {
+            subject: "Observation V50".into(),
+            property: "visit_count".into(),
+            value: "2 visits".into(),
+            evidence: evidence("2 visits"),
+        }],
+        ..KnowledgeDraft::default()
+    };
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::once(Ok(draft))),
+    )
+    .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let event = app
+        .open_source(&imported.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .remove(0);
+    let markdown = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+    assert!(markdown.contains("byte_start: 3"));
+    assert!(markdown.contains(&format!("byte_end: {}", 3 + "Observation V50".len())));
+    assert_eq!(
+        fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        bytes
+    );
+}
+
+#[test]
+fn provider_failure_keeps_a_readable_source_and_resumes_without_reimport() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("V17.txt");
+    fs::write(&source, "Observation V17 happened at Riverside.").unwrap();
+    let collection = workspace.path().join("collection");
+    let mut failed = Application::open_with_semantic_provider(
+        &collection,
+        Arc::new(RecordedProvider::once(Err(ProviderError::recoverable(
+            "Provider quota exceeded".into(),
+        )))),
+    )
+    .unwrap();
+    let queued = failed
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    assert_eq!(queued.info.semantic_state, "pending");
+    failed.resume_due_semantic_jobs().unwrap();
+    let imported = failed.open_source(&queued.info.source_id).unwrap();
+    assert_eq!(imported.info.semantic_state, "pending");
+    assert!(imported
+        .body
+        .contains("Observation V17 happened at Riverside."));
+    assert_eq!(
+        failed
+            .open_source(&imported.info.source_id)
+            .unwrap()
+            .info
+            .semantic_state,
+        "pending"
+    );
+    drop(failed);
+    std::thread::sleep(std::time::Duration::from_secs(2));
+
+    let mut resumed = Application::open_with_semantic_provider(
+        &collection,
+        Arc::new(RecordedProvider::once(Ok(KnowledgeDraft::default()))),
+    )
+    .unwrap();
+    resumed.resume_due_semantic_jobs().unwrap();
+    let current = resumed.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(current.info.semantic_state, "complete");
+    assert!(current
+        .body
+        .contains("Observation V17 happened at Riverside."));
+}
 
 #[test]
 fn imports_a_source_into_a_readable_page_and_retains_exact_original_bytes() {
