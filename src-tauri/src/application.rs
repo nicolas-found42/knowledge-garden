@@ -5,7 +5,7 @@ use crate::semantic::{
     SemanticDecision, SemanticJob, SemanticProvider,
 };
 use fs2::FileExt;
-use rusqlite::{params, params_from_iter, Connection};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -30,6 +30,8 @@ pub enum GardenError {
     Index(#[from] rusqlite::Error),
     #[error("Source page metadata is unreadable: {0}")]
     Metadata(#[from] serde_yaml_ng::Error),
+    #[error("A recoverable publication record is unreadable: {0}")]
+    Publication(#[from] serde_json::Error),
     #[error("{0}")]
     Invalid(String),
 }
@@ -64,6 +66,29 @@ pub struct Acquisition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceVersion {
+    pub source_version_id: String,
+    pub sha256: String,
+    pub bytes: u64,
+    pub original_name: String,
+    pub asset: String,
+    pub format: String,
+    pub received_at: String,
+    #[serde(default)]
+    pub source_date: Option<String>,
+    #[serde(default)]
+    pub source_revision: Option<u64>,
+    #[serde(default)]
+    pub order_basis: String,
+    #[serde(default)]
+    pub update_role: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub coverage: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceInfo {
     pub schema: u32,
     pub source_id: String,
@@ -80,6 +105,16 @@ pub struct SourceInfo {
     pub extraction_coverage: Option<Vec<CoveragePart>>,
     pub line_count: usize,
     pub acquisitions: Vec<Acquisition>,
+    #[serde(default)]
+    pub current_version_id: Option<String>,
+    #[serde(default)]
+    pub pending_version_id: Option<String>,
+    #[serde(default)]
+    pub versions_seen: Vec<SourceVersion>,
+    #[serde(default)]
+    pub update_status: Option<String>,
+    #[serde(default)]
+    pub ordering_uncertain: bool,
     #[serde(default = "semantic_pending")]
     pub semantic_state: String,
     #[serde(default)]
@@ -178,6 +213,7 @@ pub struct Application {
     // The lock survives for this application's lifetime, including across commands.
     _lock: File,
     semantic_provider: Arc<dyn SemanticProvider>,
+    staged_publication: Vec<(PathBuf, Vec<u8>)>,
 }
 
 fn semantic_pending() -> String {
@@ -213,12 +249,20 @@ impl Application {
         })?;
         fs::create_dir_all(root.join("sources"))?;
         fs::create_dir_all(root.join(".staging"))?;
+        recover_publications(&root)?;
         fs::create_dir_all(root.join(".derived"))?;
         let index = Connection::open(root.join(".derived/lookup.sqlite"))?;
         index.execute_batch(
             "PRAGMA journal_mode=WAL;
              CREATE TABLE IF NOT EXISTS sources (
                  source_id TEXT PRIMARY KEY, summary TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS source_origins (
+                 path TEXT PRIMARY KEY, source_id TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS source_versions (
+                 source_id TEXT NOT NULL, source_version_id TEXT NOT NULL, format TEXT NOT NULL,
+                 PRIMARY KEY(source_id, source_version_id)
              );
              CREATE TABLE IF NOT EXISTS page_tags (
                  page_id TEXT NOT NULL,
@@ -252,6 +296,7 @@ impl Application {
             index,
             _lock: lock,
             semantic_provider,
+            staged_publication: Vec::new(),
         };
         app.rebuild_index()?;
         Ok(app)
@@ -311,13 +356,18 @@ impl Application {
         let digest = format!("{:x}", hasher.finalize());
         // A format label changes extraction coverage and the retained asset name.
         // Keep exact-byte imports together only when that label also agrees.
+        let path_key = supplied_path.to_string_lossy().into_owned();
         let mut identity = Sha256::new();
         identity.update(format.as_bytes());
         identity.update([0]);
         identity.update(digest.as_bytes());
-        let source_id = format!("source-{:x}", identity.finalize());
+        let content_source_id = format!("source-{:x}", identity.finalize());
+        let source_id = self
+            .source_for_origin(&path_key)?
+            .or(self.source_for_version(&digest, &format)?)
+            .unwrap_or(content_source_id);
         let acquisition = Acquisition {
-            path: supplied_path.to_string_lossy().into_owned(),
+            path: path_key,
             method,
             received_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -327,34 +377,63 @@ impl Application {
         };
         let destination = self.source_dir(&source_id)?;
         if destination.exists() {
-            let existing = self.open_source(&source_id)?;
+            let mut existing = self.open_source(&source_id)?;
+            if existing
+                .info
+                .versions_seen
+                .iter()
+                .any(|version| version.source_version_id == digest)
+            {
+                if !existing
+                    .info
+                    .acquisitions
+                    .iter()
+                    .any(|old| old.path == acquisition.path && old.method == acquisition.method)
+                {
+                    write_acquisition(&destination, &acquisition)?;
+                    self.index_acquisition(&acquisition.path, &source_id)?;
+                }
+                return self.open_source(&source_id);
+            }
+            let (extraction, extraction_detail, text) = classify_source(&format, count, text_bytes);
+            if extraction != ExtractionState::TextPreserved {
+                existing.info.update_status = Some("incomplete".into());
+                existing.info.semantic_error = Some(format!(
+                    "The changed source version was retained, but {} prevented a complete replacement.",
+                    extraction_detail
+                ));
+                self.write_source_page(&existing)?;
+                self.index_page(&existing.info)?;
+                return self.open_source(&source_id);
+            }
+            let version = source_version(
+                &digest,
+                count,
+                &original_name,
+                &asset,
+                &format,
+                &acquisition.received_at,
+                &text,
+                "pending",
+                replacement_role(&text),
+            );
+            let version_path = self.version_original_path(&source_id, &version)?;
+            write_atomic(&version_path, &fs::read(staging.path().join(&asset))?)?;
+            existing.info.versions_seen.push(version);
+            existing.info.pending_version_id = Some(digest);
+            existing.info.update_status = Some("pending".into());
+            existing.info.semantic_error = None;
+            existing.info.semantic_retry_at = None;
             if !existing
                 .info
                 .acquisitions
                 .iter()
                 .any(|old| old.path == acquisition.path && old.method == acquisition.method)
             {
-                // Additional provenance has its own Markdown record; never rewrite an owner's page.
-                let contexts = destination.join("acquisitions");
-                fs::create_dir_all(&contexts)?;
-                let key = format!(
-                    "{:x}",
-                    Sha256::digest(
-                        format!("{}:{:?}", acquisition.path, acquisition.method).as_bytes()
-                    )
-                );
-                let mut record = tempfile::NamedTempFile::new_in(&contexts)?;
-                write!(
-                    record,
-                    "---\n{}---\n\n# Source acquisition\n\n[Source page](../index.md)\n",
-                    serde_yaml_ng::to_string(&acquisition)?
-                )?;
-                record.as_file().sync_all()?;
-                record
-                    .persist_noclobber(contexts.join(format!("{key}.md")))
-                    .map_err(|e| GardenError::Io(e.error))?;
-                sync_directory(&contexts)?;
+                write_acquisition(&destination, &acquisition)?;
             }
+            self.index_acquisition(&acquisition.path, &source_id)?;
+            self.write_source_page(&existing)?;
             self.index_page(&existing.info)?;
             return self.open_source(&source_id);
         }
@@ -443,16 +522,52 @@ impl Application {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned(),
-            original_name,
-            asset,
-            sha256: digest,
+            original_name: original_name.clone(),
+            asset: asset.clone(),
+            sha256: digest.clone(),
             bytes: count,
-            format,
+            format: format.clone(),
             extraction,
             extraction_detail,
             extraction_coverage,
             line_count,
-            acquisitions: vec![acquisition],
+            acquisitions: vec![acquisition.clone()],
+            current_version_id: None,
+            pending_version_id: matches!(
+                extraction,
+                ExtractionState::TextPreserved
+                    | ExtractionState::StructuredText
+                    | ExtractionState::PartialText
+            )
+            .then(|| digest.clone()),
+            versions_seen: vec![source_version(
+                &digest,
+                count,
+                &original_name,
+                &asset,
+                &format,
+                &acquisition.received_at,
+                &text,
+                if matches!(
+                    extraction,
+                    ExtractionState::TextPreserved
+                        | ExtractionState::StructuredText
+                        | ExtractionState::PartialText
+                ) {
+                    "pending"
+                } else {
+                    "unavailable"
+                },
+                replacement_role(&text),
+            )],
+            update_status: matches!(
+                extraction,
+                ExtractionState::TextPreserved
+                    | ExtractionState::StructuredText
+                    | ExtractionState::PartialText
+            )
+            .then(|| "pending".into()),
+            ordering_uncertain: false,
             semantic_state: if matches!(
                 extraction,
                 ExtractionState::TextPreserved
@@ -483,6 +598,8 @@ impl Application {
             body,
             knowledge_pages: Vec::new(),
         };
+        self.index_acquisition(&page.info.acquisitions[0].path, &page.info.source_id)?;
+        self.index_version(&page.info.source_id, &digest, &page.info.format)?;
         self.index_page(&page.info)?;
         Ok(page)
     }
@@ -546,10 +663,17 @@ impl Application {
             if !entry.file_type()?.is_dir() {
                 continue;
             }
-            let page = read_page(&entry.path().join("index.md"))?;
-            if page.info.semantic_state == "processing" {
+            let source_id = read_page(&entry.path().join("index.md"))?.info.source_id;
+            let page = self.open_source(&source_id)?;
+            if page.info.semantic_state == "processing"
+                || page.info.update_status.as_deref() == Some("processing")
+            {
                 let mut interrupted = page;
-                interrupted.info.semantic_state = "pending".into();
+                if interrupted.info.current_version_id.is_none() {
+                    interrupted.info.semantic_state = "pending".into();
+                } else {
+                    interrupted.info.update_status = Some("pending".into());
+                }
                 interrupted.info.semantic_error = Some(
                     "A previous semantic run was interrupted; automatic retry is scheduled.".into(),
                 );
@@ -566,48 +690,74 @@ impl Application {
                 .as_deref()
                 .and_then(|value| value.parse::<u128>().ok())
                 .unwrap_or(0);
-            if page.info.semantic_state == "pending" && retry_at <= now {
+            let has_pending_version = page.info.pending_version_id.is_some();
+            if (page.info.semantic_state == "pending"
+                || (has_pending_version && page.info.update_status.as_deref() == Some("pending")))
+                && retry_at <= now
+            {
                 due.push(page.info.source_id);
             }
         }
         let mut jobs = Vec::new();
         for source_id in due {
             let mut page = read_page(&self.page_path(&source_id)?)?;
+            let Some(source_version_id) = page.info.pending_version_id.clone() else {
+                continue;
+            };
+            let initial = page.info.current_version_id.is_none();
             if !matches!(
                 page.info.extraction,
                 ExtractionState::TextPreserved
                     | ExtractionState::StructuredText
                     | ExtractionState::PartialText
-            ) || page.info.semantic_state != "pending"
+            ) || (initial && page.info.semantic_state != "pending")
+                || (!initial && page.info.update_status.as_deref() != Some("pending"))
             {
                 continue;
             }
+            let version = page
+                .info
+                .versions_seen
+                .iter_mut()
+                .find(|version| version.source_version_id == source_version_id)
+                .ok_or_else(|| GardenError::Invalid("Pending source version is missing.".into()))?;
+            let candidate_path = if initial {
+                self.source_dir(&source_id)?.join(&version.asset)
+            } else {
+                self.source_dir(&source_id)?
+                    .join("versions")
+                    .join(&source_version_id)
+                    .join(&version.asset)
+            };
             let text = if matches!(
                 page.info.extraction,
                 ExtractionState::StructuredText | ExtractionState::PartialText
             ) {
-                crate::office::extract(
-                    &self.original_path(&source_id)?,
-                    &page.info.format,
-                    &page.info.title,
-                )
-                .map_err(GardenError::Invalid)?
-                .semantic_text
+                crate::office::extract(&candidate_path, &page.info.format, &page.info.title)
+                    .map_err(GardenError::Invalid)?
+                    .semantic_text
             } else {
-                let bytes = fs::read(self.original_path(&source_id)?)?;
+                let bytes = fs::read(candidate_path)?;
                 String::from_utf8(bytes).map_err(|_| {
                     GardenError::Invalid("The retained text source is no longer UTF-8.".into())
                 })?
             };
-            page.info.semantic_state = "processing".into();
+            if initial {
+                page.info.semantic_state = "processing".into();
+            } else {
+                page.info.update_status = Some("processing".into());
+            }
+
             page.info.semantic_attempts = page.info.semantic_attempts.saturating_add(1);
             page.info.semantic_error = None;
             page.info.semantic_retry_at = None;
             let attempt = page.info.semantic_attempts;
+            version.state = "processing".into();
             self.write_source_page(&page)?;
             self.index_page(&page.info)?;
             jobs.push(SemanticJob {
                 source_id,
+                source_version_id,
                 attempt,
                 source_text: text,
             });
@@ -620,26 +770,77 @@ impl Application {
         job: SemanticJob,
         result: std::result::Result<KnowledgeDraft, ProviderError>,
     ) -> Result<()> {
+        self.staged_publication.clear();
         let mut page = read_page(&self.page_path(&job.source_id)?)?;
-        if page.info.semantic_state != "processing" || page.info.semantic_attempts != job.attempt {
+        let initial = page.info.current_version_id.is_none();
+        let active = if initial {
+            page.info.semantic_state == "processing"
+        } else {
+            page.info.update_status.as_deref() == Some("processing")
+        };
+        if !active
+            || page.info.pending_version_id.as_deref() != Some(&job.source_version_id)
+            || page.info.semantic_attempts != job.attempt
+        {
             return Err(GardenError::Invalid(
                 "The semantic job is no longer the active source attempt.".into(),
             ));
         }
         match result {
-            Ok(draft) => match self.publish_knowledge(&mut page, &job.source_text, draft) {
-                Ok(()) => {
-                    page.info.semantic_state = "complete".into();
-                    page.info.semantic_error = None;
-                    page.info.semantic_retry_at = None;
+            Ok(draft) => {
+                let result = if initial {
+                    self.publish_knowledge(&mut page, &job.source_text, draft)
+                } else {
+                    self.apply_replacement(
+                        &mut page,
+                        &job.source_version_id,
+                        &job.source_text,
+                        draft,
+                    )
+                };
+                match result {
+                    Ok(()) => {
+                        page.info.semantic_state = "complete".into();
+                        page.info.semantic_error = None;
+                        page.info.semantic_retry_at = None;
+                    }
+                    Err(error) => {
+                        self.record_semantic_failure(&mut page, error.to_string(), true)?
+                    }
                 }
-                Err(error) => self.record_semantic_failure(&mut page, error.to_string(), true)?,
-            },
+            }
             Err(error) => {
-                self.record_semantic_failure(&mut page, error.message, error.retryable)?
+                if initial {
+                    self.record_semantic_failure(&mut page, error.message, error.retryable)?
+                } else {
+                    let retryable = error.retryable;
+                    page.info.update_status =
+                        Some(if retryable { "pending" } else { "failed" }.into());
+                    page.info.semantic_error = Some(error.message.chars().take(300).collect());
+                    page.info.semantic_retry_at = retryable.then(|| {
+                        let delay = (1_u64 << page.info.semantic_attempts.min(12)).min(3600);
+                        (now_millis().unwrap_or(0) + u128::from(delay * 1000)).to_string()
+                    });
+                    if let Some(version) = page
+                        .info
+                        .versions_seen
+                        .iter_mut()
+                        .find(|version| version.source_version_id == job.source_version_id)
+                    {
+                        version.state = page.info.update_status.clone().unwrap_or_default();
+                    }
+                }
             }
         }
-        self.write_source_page(&page)?;
+        if self.staged_publication.is_empty() {
+            self.write_source_page(&page)?;
+        } else {
+            let markdown = serialize_page(&page.info, &page.body)?;
+            self.staged_publication
+                .push((self.page_path(&page.info.source_id)?, markdown.into_bytes()));
+            let files = std::mem::take(&mut self.staged_publication);
+            commit_publication(&self.root, files)?;
+        }
         self.index_page(&page.info)?;
         Ok(())
     }
@@ -654,11 +855,13 @@ impl Application {
     }
 
     fn publish_knowledge(
-        &self,
+        &mut self,
         source: &mut SourcePage,
         source_text: &str,
         draft: KnowledgeDraft,
     ) -> Result<()> {
+        let prior_pages = source.info.knowledge_pages.clone();
+        let replacing_source = source.info.current_version_id.is_some();
         if draft.entities.len() > 500
             || draft.facts.len() > 2_000
             || draft.relationships.len() > 2_000
@@ -678,7 +881,7 @@ impl Application {
                     "Semantic entity has no type or label.".into(),
                 ));
             }
-            let page_id = stable_page_id(&source.info.source_id, entity);
+            let page_id = stable_page_id(entity);
             let summary = KnowledgePageSummary {
                 page_id: page_id.clone(),
                 title: entity.label.clone(),
@@ -719,19 +922,25 @@ impl Application {
                 .map(|fact| {
                     let evidence = validate_evidence(source_text, &fact.evidence)?;
                     Ok(FactRecord {
-                        fact_id: stable_record_id(
-                            "fact",
-                            &source.info.source_id,
-                            &fact.property,
-                            &fact.value,
-                            evidence.byte_start,
-                        ),
+                        fact_id: stable_fact_id(&summary.page_id, &fact.property),
                         subject_page_id: summary.page_id.clone(),
                         property: fact.property.clone(),
                         value: fact.value.clone(),
                         qualifier: evidence.qualifier.clone(),
                         origin: evidence.origin.clone(),
                         evidence,
+                        supports: vec![SupportRecord {
+                            source_id: source.info.source_id.clone(),
+                            source_version_id: source
+                                .info
+                                .pending_version_id
+                                .clone()
+                                .unwrap_or_else(|| source.info.sha256.clone()),
+                            value: fact.value.clone(),
+                            qualifier: fact.evidence.qualifier.clone(),
+                            origin: fact.evidence.origin.clone(),
+                            evidence: validate_evidence(source_text, &fact.evidence)?,
+                        }],
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
@@ -742,12 +951,10 @@ impl Application {
                     let to = page_for(&relationship.to)?;
                     let evidence = validate_evidence(source_text, &relationship.evidence)?;
                     Ok(RelationshipRecord {
-                        relationship_id: stable_record_id(
-                            "relationship",
-                            &source.info.source_id,
+                        relationship_id: stable_relationship_id(
+                            &from.page_id,
+                            &to.page_id,
                             &relationship.kind,
-                            &format!("{}→{}", from.page_id, to.page_id),
-                            evidence.byte_start,
                         ),
                         from_page_id: from.page_id.clone(),
                         to_page_id: to.page_id.clone(),
@@ -755,6 +962,18 @@ impl Application {
                         qualifier: relationship.qualifier.clone(),
                         origin: evidence.origin.clone(),
                         evidence,
+                        supports: vec![SupportRecord {
+                            source_id: source.info.source_id.clone(),
+                            source_version_id: source
+                                .info
+                                .pending_version_id
+                                .clone()
+                                .unwrap_or_else(|| source.info.sha256.clone()),
+                            value: relationship.kind.clone(),
+                            qualifier: relationship.qualifier.clone(),
+                            origin: relationship.evidence.origin.clone(),
+                            evidence: validate_evidence(source_text, &relationship.evidence)?,
+                        }],
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
@@ -764,7 +983,11 @@ impl Application {
                     let normalized = normalize_tag(label)?;
                     let support = TagSupport {
                         source_id: source.info.source_id.clone(),
-                        source_version_id: source.info.sha256.clone(),
+                        source_version_id: source
+                            .info
+                            .pending_version_id
+                            .clone()
+                            .unwrap_or_else(|| source.info.sha256.clone()),
                         value: label.trim().trim_start_matches('#').to_owned(),
                         qualifier: evidence.qualifier.clone(),
                         origin: evidence.origin.clone(),
@@ -914,28 +1137,577 @@ impl Application {
             let _ = page_for(&relationship.to)?;
             validate_evidence(source_text, &relationship.evidence)?;
         }
+        for page in &prior_pages {
+            if contents.contains_key(&page.page_id) {
+                continue;
+            }
+            let path = pages_dir.join(format!("{}.md", page.page_id));
+            if !path.exists() {
+                continue;
+            }
+            let mut old = read_knowledge_header(&path)?;
+            ensure_legacy_supports(&mut old);
+            let replaced_sources = self.replacement_sources(&old, source)?;
+            mark_arrival_fallback(source, &replaced_sources);
+            old.facts = self.reconcile_facts(old.facts, Vec::new(), &replaced_sources)?;
+            old.relationships =
+                self.reconcile_relationships(old.relationships, Vec::new(), &replaced_sources)?;
+            old.tags = self.reconcile_tags(old.tags, Vec::new(), &replaced_sources);
+            contents.insert(page.page_id.clone(), self.render_knowledge_page(old)?);
+        }
+        for (page_id, markdown) in &mut contents {
+            let path = pages_dir.join(format!("{page_id}.md"));
+            let mut header = parse_knowledge_header(markdown)?;
+            if path.exists() {
+                let mut old = read_knowledge_header(&path)?;
+                ensure_legacy_supports(&mut old);
+                let mut replaced_sources = self.replacement_sources(&old, source)?;
+                if replacing_source {
+                    replaced_sources.insert(source.info.source_id.clone());
+                }
+                mark_arrival_fallback(source, &replaced_sources);
+                header.facts = self.reconcile_facts(old.facts, header.facts, &replaced_sources)?;
+                header.relationships = self.reconcile_relationships(
+                    old.relationships,
+                    header.relationships,
+                    &replaced_sources,
+                )?;
+                header.tags = self.reconcile_tags(old.tags, header.tags, &replaced_sources);
+                *markdown = self.render_knowledge_page(header)?;
+            }
+        }
+        for (page_id, markdown) in contents {
+            self.staged_publication.push((
+                pages_dir.join(format!("{page_id}.md")),
+                markdown.into_bytes(),
+            ));
+        }
         for tag in &draft.tags {
             let _ = page_for(&tag.subject)?;
             validate_tag_label(&tag.label)?;
             validate_evidence(source_text, &tag.evidence)?;
         }
-        for (page_id, markdown) in contents {
-            write_atomic(
-                &pages_dir.join(format!("{page_id}.md")),
-                markdown.as_bytes(),
-            )?;
-        }
-        sync_directory(&pages_dir)?;
         source.info.knowledge_pages = page_records
             .iter()
             .map(|(_, summary, _)| summary.clone())
             .collect();
         source.knowledge_pages = source.info.knowledge_pages.clone();
         source.info.semantic_decisions = draft.decisions;
+        if let Some(version_id) = source.info.pending_version_id.take() {
+            source.info.current_version_id = Some(version_id.clone());
+            let coverage_complete = source
+                .info
+                .extraction_coverage
+                .as_ref()
+                .is_none_or(|parts| {
+                    parts
+                        .iter()
+                        .all(|part| part.status == CoverageStatus::Complete)
+                });
+            if let Some(version) = source
+                .info
+                .versions_seen
+                .iter_mut()
+                .find(|version| version.source_version_id == version_id)
+            {
+                version.state = "complete".into();
+                version.coverage = if coverage_complete {
+                    "complete"
+                } else {
+                    "partial"
+                }
+                .into();
+            }
+        }
+        source.info.update_status = None;
+        if source.info.extraction_coverage.is_none() {
+            source.info.extraction_detail = format!(
+                "Semantic facts and relationships are current from source version {}.",
+                source
+                    .info
+                    .current_version_id
+                    .as_deref()
+                    .unwrap_or("unknown")
+            );
+        }
         source.info.semantic_state = "complete".into();
         source.body = replace_semantic_section(&source.body, &source.info.knowledge_pages);
         source.markdown = serialize_page(&source.info, &source.body)?;
         Ok(())
+    }
+
+    fn apply_replacement(
+        &mut self,
+        source: &mut SourcePage,
+        source_version_id: &str,
+        source_text: &str,
+        draft: KnowledgeDraft,
+    ) -> Result<()> {
+        let Some(candidate) = source
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == source_version_id)
+            .cloned()
+        else {
+            return Err(GardenError::Invalid(
+                "The pending source version is missing.".into(),
+            ));
+        };
+        let same_event = draft.entities.iter().any(|entity| {
+            entity.kind == "event"
+                && source
+                    .info
+                    .knowledge_pages
+                    .iter()
+                    .any(|page| page.kind == "event" && page.title == entity.label)
+        });
+        if candidate.update_role != "complete_replacement" || !same_event {
+            source.info.pending_version_id = None;
+            source.info.update_status = Some("uncertain".into());
+            source.info.semantic_error = Some(
+                "The new source version was kept, but it did not establish a complete replacement of the current event; the last current knowledge remains active.".into(),
+            );
+            if let Some(version) = source
+                .info
+                .versions_seen
+                .iter_mut()
+                .find(|version| version.source_version_id == source_version_id)
+            {
+                version.state = "uncertain".into();
+            }
+            return Ok(());
+        }
+        let current_id = source.info.current_version_id.clone().ok_or_else(|| {
+            GardenError::Invalid("A replacement has no established current version.".into())
+        })?;
+        let current_version = source
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == current_id)
+            .cloned()
+            .ok_or_else(|| GardenError::Invalid("The current source version is missing.".into()))?;
+        match compare_source_order(&current_version, &candidate) {
+            Some(std::cmp::Ordering::Less) => {
+                if let Some(version) = source
+                    .info
+                    .versions_seen
+                    .iter_mut()
+                    .find(|version| version.source_version_id == source_version_id)
+                {
+                    version.state = "superseded_before_publish".into();
+                    version.coverage = "complete".into();
+                }
+                source.info.pending_version_id = None;
+                source.info.update_status = None;
+                source.info.semantic_error = None;
+                source.info.semantic_retry_at = None;
+                return Ok(());
+            }
+            Some(std::cmp::Ordering::Greater) => {}
+            Some(std::cmp::Ordering::Equal) | None => {
+                source.info.ordering_uncertain = true;
+                if let Some(version) = source
+                    .info
+                    .versions_seen
+                    .iter_mut()
+                    .find(|version| version.source_version_id == source_version_id)
+                {
+                    version.order_basis = "arrival_fallback".into();
+                }
+            }
+        }
+
+        let current_asset = source.info.asset.clone();
+        let current_original = self
+            .source_dir(&source.info.source_id)?
+            .join(&current_asset);
+        let previous_original = self
+            .source_dir(&source.info.source_id)?
+            .join("versions")
+            .join(&current_id)
+            .join(&current_asset);
+        if !previous_original.exists() {
+            self.staged_publication
+                .push((previous_original, fs::read(&current_original)?));
+        }
+        let candidate_path = self
+            .source_dir(&source.info.source_id)?
+            .join("versions")
+            .join(source_version_id)
+            .join(&candidate.asset);
+        let candidate_bytes = fs::read(candidate_path)?;
+        let destination_original = self
+            .source_dir(&source.info.source_id)?
+            .join(&candidate.asset);
+        self.staged_publication
+            .push((destination_original, candidate_bytes));
+
+        source.info.original_name = candidate.original_name.clone();
+        source.info.asset = candidate.asset.clone();
+        source.info.sha256 = candidate.sha256.clone();
+        source.info.bytes = candidate.bytes;
+        source.info.format = candidate.format.clone();
+        source.info.extraction = ExtractionState::TextPreserved;
+        source.info.extraction_coverage = None;
+        source.info.line_count = source_text.lines().count();
+        source.info.extraction_detail =
+            "Source text preserved. Semantic fact extraction has not run.".into();
+        source.info.current_version_id = Some(source_version_id.into());
+        source.info.pending_version_id = None;
+        source.info.update_status = None;
+        source.info.semantic_error = None;
+        source.info.semantic_retry_at = None;
+        if let Some(previous) = source
+            .info
+            .versions_seen
+            .iter_mut()
+            .find(|version| version.source_version_id == current_id)
+        {
+            previous.state = "superseded".into();
+        }
+        if let Some(version) = source
+            .info
+            .versions_seen
+            .iter_mut()
+            .find(|version| version.source_version_id == source_version_id)
+        {
+            version.state = "complete".into();
+            version.coverage = "complete".into();
+        }
+        source.body = source_body(&source.info, source_text, None);
+        self.publish_knowledge(source, source_text, draft)
+    }
+
+    fn reconcile_facts(
+        &self,
+        previous: Vec<FactRecord>,
+        incoming: Vec<FactRecord>,
+        remove_source_ids: &std::collections::HashSet<String>,
+    ) -> Result<Vec<FactRecord>> {
+        let mut records = std::collections::HashMap::<String, FactRecord>::new();
+        for (mut record, is_previous) in previous
+            .into_iter()
+            .map(|record| (record, true))
+            .chain(incoming.into_iter().map(|record| (record, false)))
+        {
+            if record.supports.is_empty() {
+                record.supports.push(SupportRecord {
+                    source_id: String::new(),
+                    source_version_id: "legacy".into(),
+                    value: record.value.clone(),
+                    qualifier: record.qualifier.clone(),
+                    origin: record.origin.clone(),
+                    evidence: record.evidence.clone(),
+                });
+            }
+            if is_previous {
+                record
+                    .supports
+                    .retain(|support| !remove_source_ids.contains(&support.source_id));
+            }
+            if record.supports.is_empty() {
+                continue;
+            }
+            let mut merged = records
+                .remove(&record.fact_id)
+                .unwrap_or_else(|| record.clone());
+            for support in record.supports {
+                if !merged.supports.iter().any(|existing| {
+                    existing.source_id == support.source_id
+                        && existing.source_version_id == support.source_version_id
+                        && existing.value == support.value
+                        && existing.evidence.byte_start == support.evidence.byte_start
+                        && existing.evidence.byte_end == support.evidence.byte_end
+                }) {
+                    merged.supports.push(support);
+                }
+            }
+            if let Some(current) = self.latest_support(&merged.supports)? {
+                merged.value = current.value.clone();
+                merged.qualifier = current.qualifier.clone();
+                merged.origin = current.origin.clone();
+                merged.evidence = current.evidence.clone();
+            }
+            records.insert(merged.fact_id.clone(), merged);
+        }
+        Ok(records.into_values().collect())
+    }
+
+    fn replacement_sources(
+        &self,
+        page: &KnowledgePageHeader,
+        source: &SourcePage,
+    ) -> Result<std::collections::HashSet<String>> {
+        let Some(version_id) = source
+            .info
+            .pending_version_id
+            .as_deref()
+            .or(source.info.current_version_id.as_deref())
+        else {
+            return Ok(std::collections::HashSet::new());
+        };
+        let Some(incoming) = source
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == version_id)
+        else {
+            return Ok(std::collections::HashSet::new());
+        };
+        if incoming.update_role != "complete_replacement" {
+            return Ok(std::collections::HashSet::new());
+        }
+
+        let support_sources = page
+            .facts
+            .iter()
+            .flat_map(|fact| fact.supports.iter())
+            .chain(
+                page.relationships
+                    .iter()
+                    .flat_map(|rel| rel.supports.iter()),
+            )
+            .map(|support| support.source_id.clone())
+            .chain(
+                page.tags
+                    .iter()
+                    .flat_map(|tag| tag.supports.iter())
+                    .map(|support| support.source_id.clone()),
+            )
+            .filter(|source_id| !source_id.is_empty() && source_id != &source.info.source_id)
+            .collect::<std::collections::HashSet<_>>();
+        let mut candidates = Vec::new();
+        for source_id in support_sources.iter().cloned() {
+            let path = self.source_dir(&source_id)?.join("index.md");
+            if !path.exists() {
+                continue;
+            }
+            let info = read_page(&path)?.info;
+            let Some(previous) = info.versions_seen.iter().find(|version| {
+                Some(version.source_version_id.as_str()) == info.current_version_id.as_deref()
+            }) else {
+                continue;
+            };
+            if incoming.source_revision.is_some()
+                && previous.source_revision.is_some_and(|revision| {
+                    revision.saturating_add(1) == incoming.source_revision.unwrap()
+                })
+            {
+                candidates.push((source_id, previous.clone()));
+            }
+        }
+        if !candidates.is_empty() {
+            return Ok(candidates
+                .into_iter()
+                .map(|(source_id, _)| source_id)
+                .collect());
+        }
+
+        if incoming.source_date.is_none() && incoming.source_revision.is_none() {
+            let mut undated = Vec::new();
+            for source_id in support_sources.iter().cloned() {
+                let path = self.source_dir(&source_id)?.join("index.md");
+                if !path.exists() {
+                    continue;
+                }
+                let info = read_page(&path)?.info;
+                let Some(previous) = info.versions_seen.iter().find(|version| {
+                    Some(version.source_version_id.as_str()) == info.current_version_id.as_deref()
+                }) else {
+                    continue;
+                };
+                if previous.source_date.is_none() && previous.source_revision.is_none() {
+                    undated.push((source_id, previous.received_at.clone()));
+                }
+            }
+            undated.sort_by(|a, b| a.1.cmp(&b.1));
+            return Ok(undated
+                .pop()
+                .map(|(source_id, _)| [source_id].into_iter().collect())
+                .unwrap_or_default());
+        }
+        Ok(std::collections::HashSet::new())
+    }
+
+    fn reconcile_relationships(
+        &self,
+        previous: Vec<RelationshipRecord>,
+        incoming: Vec<RelationshipRecord>,
+        remove_source_ids: &std::collections::HashSet<String>,
+    ) -> Result<Vec<RelationshipRecord>> {
+        let mut records = std::collections::HashMap::<String, RelationshipRecord>::new();
+        for (mut record, is_previous) in previous
+            .into_iter()
+            .map(|record| (record, true))
+            .chain(incoming.into_iter().map(|record| (record, false)))
+        {
+            if record.supports.is_empty() {
+                record.supports.push(SupportRecord {
+                    source_id: String::new(),
+                    source_version_id: "legacy".into(),
+                    value: record.kind.clone(),
+                    qualifier: record.qualifier.clone(),
+                    origin: record.origin.clone(),
+                    evidence: record.evidence.clone(),
+                });
+            }
+            if is_previous {
+                record
+                    .supports
+                    .retain(|support| !remove_source_ids.contains(&support.source_id));
+            }
+            if record.supports.is_empty() {
+                continue;
+            }
+            let mut merged = records
+                .remove(&record.relationship_id)
+                .unwrap_or_else(|| record.clone());
+            for support in record.supports {
+                if !merged.supports.iter().any(|existing| {
+                    existing.source_id == support.source_id
+                        && existing.source_version_id == support.source_version_id
+                        && existing.value == support.value
+                        && existing.evidence.byte_start == support.evidence.byte_start
+                        && existing.evidence.byte_end == support.evidence.byte_end
+                }) {
+                    merged.supports.push(support);
+                }
+            }
+            if let Some(current) = self.latest_support(&merged.supports)? {
+                merged.kind = current.value.clone();
+                merged.qualifier = current.qualifier.clone();
+                merged.origin = current.origin.clone();
+                merged.evidence = current.evidence.clone();
+            }
+            records.insert(merged.relationship_id.clone(), merged);
+        }
+        Ok(records.into_values().collect())
+    }
+
+    fn reconcile_tags(
+        &self,
+        previous: Vec<TagRecord>,
+        incoming: Vec<TagRecord>,
+        remove_source_ids: &std::collections::HashSet<String>,
+    ) -> Vec<TagRecord> {
+        let mut records = std::collections::HashMap::<String, TagRecord>::new();
+        for (mut record, is_previous) in previous
+            .into_iter()
+            .map(|record| (record, true))
+            .chain(incoming.into_iter().map(|record| (record, false)))
+        {
+            if is_previous {
+                record
+                    .supports
+                    .retain(|support| !remove_source_ids.contains(&support.source_id));
+            }
+            if record.supports.is_empty() {
+                continue;
+            }
+            let mut merged = records
+                .remove(&record.normalized)
+                .unwrap_or_else(|| record.clone());
+            for support in record.supports {
+                if !merged.supports.iter().any(|existing| {
+                    existing.source_id == support.source_id
+                        && existing.source_version_id == support.source_version_id
+                        && existing.evidence.byte_start == support.evidence.byte_start
+                        && existing.evidence.byte_end == support.evidence.byte_end
+                }) {
+                    merged.supports.push(support);
+                }
+            }
+            records.insert(merged.normalized.clone(), merged);
+        }
+        let mut tags = records.into_values().collect::<Vec<_>>();
+        tags.sort_by(|left, right| left.normalized.cmp(&right.normalized));
+        tags
+    }
+
+    fn latest_support<'a>(
+        &self,
+        supports: &'a [SupportRecord],
+    ) -> Result<Option<&'a SupportRecord>> {
+        let mut ranked = supports
+            .iter()
+            .map(|support| Ok((self.support_order(support)?, support)))
+            .collect::<Result<Vec<_>>>()?;
+        ranked.sort_by(|(a, _), (b, _)| a.cmp(b));
+        Ok(ranked.last().map(|(_, support)| *support))
+    }
+
+    fn support_order(
+        &self,
+        support: &SupportRecord,
+    ) -> Result<(Option<String>, Option<u64>, String, String)> {
+        if support.source_id.is_empty() {
+            return Ok((None, None, String::new(), support.source_version_id.clone()));
+        }
+        let path = self.source_dir(&support.source_id)?.join("index.md");
+        if !path.exists() {
+            return Ok((None, None, String::new(), support.source_version_id.clone()));
+        }
+        let info = read_page(&path)?.info;
+        let version = info
+            .versions_seen
+            .iter()
+            .find(|v| v.source_version_id == support.source_version_id);
+        Ok((
+            version.and_then(|v| v.source_date.clone()),
+            version.and_then(|v| v.source_revision),
+            version.map(|v| v.received_at.clone()).unwrap_or_default(),
+            support.source_version_id.clone(),
+        ))
+    }
+
+    fn render_knowledge_page(&self, header: KnowledgePageHeader) -> Result<String> {
+        let pages_dir = self.root.join("pages");
+        let labels = fs::read_dir(&pages_dir)?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "md"))
+            .filter_map(|entry| read_knowledge_page(&entry.path()).ok())
+            .map(|page| (page.page_id, page.title))
+            .collect::<std::collections::HashMap<_, _>>();
+        let mut body = format!("# {}\n\n## Facts\n", escape_heading(&header.title));
+        for fact in &header.facts {
+            body.push_str(&format!(
+                "\n- **{}:** {}{}\n  - Fact identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · source lines {}–{}, bytes {}–{}\n  - Source support count: {}\n",
+                escape_markdown(&fact.property.replace('_', " ")),
+                escape_markdown(&fact.value),
+                fact.qualifier.as_deref().map(|q| format!(" ({})", escape_markdown(q))).unwrap_or_default(),
+                fact.fact_id,
+                escape_markdown(&fact.evidence.quote),
+                escape_markdown(&fact.origin),
+                fact.evidence.line_start,
+                fact.evidence.line_end,
+                fact.evidence.byte_start,
+                fact.evidence.byte_end,
+                fact.supports.len(),
+            ));
+        }
+        if header.facts.is_empty() {
+            body.push_str("\nNo current facts are supported by this page.\n");
+        }
+        body.push_str("\n## Relationships\n");
+        for rel in &header.relationships {
+            body.push_str(&format!(
+                "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · source lines {}–{}, bytes {}–{}\n  - Source support count: {}\n",
+                escape_markdown(labels.get(&rel.from_page_id).map(String::as_str).unwrap_or(&rel.from_page_id)), rel.from_page_id,
+                escape_markdown(&rel.kind.replace('_', " ")),
+                escape_markdown(labels.get(&rel.to_page_id).map(String::as_str).unwrap_or(&rel.to_page_id)), rel.to_page_id,
+                rel.qualifier.as_deref().map(|q| format!(" (qualifier: {})", escape_markdown(q))).unwrap_or_default(),
+                rel.relationship_id, escape_markdown(&rel.evidence.quote), escape_markdown(&rel.origin),
+                rel.evidence.line_start, rel.evidence.line_end, rel.evidence.byte_start, rel.evidence.byte_end,
+                rel.supports.len(),
+            ));
+        }
+        if header.relationships.is_empty() {
+            body.push_str("\nNo current relationships are supported by this page.\n");
+        }
+        let yaml = serde_yaml_ng::to_string(&header)?;
+        Ok(format!("---\n{yaml}---\n\n{body}"))
     }
 
     fn record_semantic_failure(
@@ -1300,6 +2072,8 @@ impl Application {
         transaction.execute("DELETE FROM sources", [])?;
         transaction.execute("DELETE FROM page_search", [])?;
         transaction.execute("DELETE FROM page_tags", [])?;
+        transaction.execute("DELETE FROM source_origins", [])?;
+        transaction.execute("DELETE FROM source_versions", [])?;
         for entry in fs::read_dir(self.root.join("sources"))? {
             let entry = entry?;
             if !entry.file_type()?.is_dir() {
@@ -1310,6 +2084,18 @@ impl Application {
                 "INSERT INTO sources (source_id, summary) VALUES (?1, ?2)",
                 params![page.info.source_id, summary_json(&page.info)?],
             )?;
+            for acquisition in &page.info.acquisitions {
+                transaction.execute(
+                    "INSERT OR REPLACE INTO source_origins(path, source_id) VALUES (?1, ?2)",
+                    params![acquisition.path, page.info.source_id],
+                )?;
+            }
+            for version in &page.info.versions_seen {
+                transaction.execute(
+                    "INSERT OR REPLACE INTO source_versions(source_id, source_version_id, format) VALUES (?1, ?2, ?3)",
+                    params![page.info.source_id, version.source_version_id, version.format],
+                )?;
+            }
             let documents = self.search_documents_for_source(&page.info)?;
             write_search_documents(&transaction, &documents)?;
         }
@@ -1317,25 +2103,54 @@ impl Application {
         Ok(())
     }
 
-    fn index_page(&mut self, info: &SourceInfo) -> Result<()> {
-        let page = read_page(&self.page_path(&info.source_id)?)?;
-        let documents = self.search_documents_for_source(&page.info)?;
-        let transaction = self.index.unchecked_transaction()?;
-        transaction.execute(
-            "INSERT OR REPLACE INTO sources (source_id, summary) VALUES (?1, ?2)",
-            params![info.source_id, summary_json(info)?],
+    fn index_page(&mut self, _info: &SourceInfo) -> Result<()> {
+        self.rebuild_index()
+    }
+
+    fn source_for_origin(&self, path: &str) -> Result<Option<String>> {
+        Ok(self
+            .index
+            .query_row(
+                "SELECT source_id FROM source_origins WHERE path=?1",
+                [path],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    fn source_for_version(&self, version_id: &str, format: &str) -> Result<Option<String>> {
+        Ok(self
+            .index
+            .query_row(
+                "SELECT source_id FROM source_versions WHERE source_version_id=?1 AND format=?2 ORDER BY source_id LIMIT 1",
+                params![version_id, format],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    fn index_acquisition(&self, path: &str, source_id: &str) -> Result<()> {
+        self.index.execute(
+            "INSERT OR REPLACE INTO source_origins(path, source_id) VALUES (?1, ?2)",
+            params![path, source_id],
         )?;
-        transaction.execute(
-            "DELETE FROM page_search WHERE source_id = ?1",
-            [&info.source_id],
-        )?;
-        transaction.execute(
-            "DELETE FROM page_tags WHERE source_id = ?1",
-            [&info.source_id],
-        )?;
-        write_search_documents(&transaction, &documents)?;
-        transaction.commit()?;
         Ok(())
+    }
+
+    fn index_version(&self, source_id: &str, version_id: &str, format: &str) -> Result<()> {
+        self.index.execute(
+            "INSERT OR REPLACE INTO source_versions(source_id, source_version_id, format) VALUES (?1, ?2, ?3)",
+            params![source_id, version_id, format],
+        )?;
+        Ok(())
+    }
+
+    fn version_original_path(&self, source_id: &str, version: &SourceVersion) -> Result<PathBuf> {
+        Ok(self
+            .source_dir(source_id)?
+            .join("versions")
+            .join(&version.source_version_id)
+            .join(&version.asset))
     }
 
     fn search_documents_for_source(&self, info: &SourceInfo) -> Result<Vec<SearchDocument>> {
@@ -1351,7 +2166,13 @@ impl Application {
                 Ok(header) => header,
                 Err(_) => continue,
             };
-            let body = strip_frontmatter(&markdown).unwrap_or(&markdown).to_owned();
+            // A reconciled page is linked from every source that supports it.
+            // Index the canonical page once, under its stable owning source,
+            // while its Markdown already contains the current support set.
+            if header.source_id != source_page.info.source_id {
+                continue;
+            }
+            let body = knowledge_search_content(&header);
             knowledge.push((summary.clone(), header, body));
         }
         let source_event_date = knowledge
@@ -1430,6 +2251,170 @@ fn summary_json(info: &SourceInfo) -> Result<String> {
         extraction: info.extraction,
     })
     .map_err(|e| GardenError::Invalid(e.to_string()))
+}
+
+fn classify_source(
+    format: &str,
+    count: u64,
+    text_bytes: Vec<u8>,
+) -> (ExtractionState, &'static str, String) {
+    if !matches!(format, "" | "txt" | "text" | "md" | "markdown") {
+        return (
+            ExtractionState::Unsupported,
+            "This format is not supported by the text importer. The original is retained.",
+            String::new(),
+        );
+    }
+    if count > MAX_TEXT_BYTES as u64 {
+        return (
+            ExtractionState::TooLarge,
+            "Text exceeds the 2 MiB preview limit. The complete original is retained.",
+            String::new(),
+        );
+    }
+    match String::from_utf8(text_bytes) {
+        Err(_) => (
+            ExtractionState::InvalidUtf8,
+            "The source is not valid UTF-8. The original is retained without lossy decoding.",
+            String::new(),
+        ),
+        Ok(text)
+            if text
+                .chars()
+                .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t')) =>
+        {
+            (
+                ExtractionState::Unsupported,
+                "The source contains binary control characters. The original is retained.",
+                String::new(),
+            )
+        }
+        Ok(text) => (
+            ExtractionState::TextPreserved,
+            "Source text preserved. Semantic fact extraction has not run.",
+            text.trim_start_matches('\u{feff}').to_owned(),
+        ),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn source_version(
+    digest: &str,
+    bytes: u64,
+    original_name: &str,
+    asset: &str,
+    format: &str,
+    received_at: &str,
+    text: &str,
+    state: &str,
+    update_role: &str,
+) -> SourceVersion {
+    let (source_date, source_revision) = parse_source_order(text);
+    let order_basis = if source_date.is_some() {
+        "source_date"
+    } else if source_revision.is_some() {
+        "explicit_revision"
+    } else {
+        "arrival_fallback"
+    };
+    SourceVersion {
+        source_version_id: digest.to_owned(),
+        sha256: digest.to_owned(),
+        bytes,
+        original_name: original_name.to_owned(),
+        asset: asset.to_owned(),
+        format: format.to_owned(),
+        received_at: received_at.to_owned(),
+        source_date,
+        source_revision,
+        order_basis: order_basis.into(),
+        update_role: update_role.to_owned(),
+        state: state.to_owned(),
+        coverage: if state == "complete" {
+            "complete"
+        } else if state == "unavailable" {
+            "incomplete"
+        } else {
+            "pending"
+        }
+        .into(),
+    }
+}
+
+fn parse_source_order(text: &str) -> (Option<String>, Option<u64>) {
+    let revision_regex = regex::Regex::new(r"(?i)\brevision\s+([0-9]+)").unwrap();
+    let date_regex = regex::Regex::new(
+        r"(?i)\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+([0-9]{1,2}),?\s+([0-9]{4})\b",
+    )
+    .unwrap();
+    let revision = text
+        .lines()
+        .find(|line| line.to_lowercase().contains("revision"))
+        .and_then(|line| revision_regex.captures(line))
+        .and_then(|captures| captures.get(1)?.as_str().parse::<u64>().ok());
+    let date = text.lines().find_map(|line| {
+        let lower = line.to_lowercase();
+        if !(lower.contains("dated") || lower.contains("report date") || lower.contains("updated"))
+        {
+            return None;
+        }
+        let captures = date_regex.captures(line)?;
+        let month = match captures.get(1)?.as_str().to_lowercase().as_str() {
+            "january" | "jan" => 1,
+            "february" | "feb" => 2,
+            "march" | "mar" => 3,
+            "april" | "apr" => 4,
+            "may" => 5,
+            "june" | "jun" => 6,
+            "july" | "jul" => 7,
+            "august" | "aug" => 8,
+            "september" | "sep" | "sept" => 9,
+            "october" | "oct" => 10,
+            "november" | "nov" => 11,
+            "december" | "dec" => 12,
+            _ => return None,
+        };
+        Some(format!(
+            "{}-{month:02}-{:02}",
+            captures.get(3)?.as_str(),
+            captures.get(2)?.as_str().parse::<u8>().ok()?
+        ))
+    });
+    (date, revision)
+}
+
+fn replacement_role(text: &str) -> &'static str {
+    let lower = text.to_lowercase();
+    if lower.contains("replace") || lower.contains("supersed") {
+        "complete_replacement"
+    } else {
+        "unspecified"
+    }
+}
+
+fn compare_source_order(
+    current: &SourceVersion,
+    incoming: &SourceVersion,
+) -> Option<std::cmp::Ordering> {
+    if let (Some(current_date), Some(incoming_date)) = (&current.source_date, &incoming.source_date)
+    {
+        let by_date = incoming_date.cmp(current_date);
+        if by_date != std::cmp::Ordering::Equal {
+            return Some(by_date);
+        }
+        if let (Some(current_revision), Some(incoming_revision)) =
+            (current.source_revision, incoming.source_revision)
+        {
+            return Some(incoming_revision.cmp(&current_revision));
+        }
+        return None;
+    }
+    if let (Some(current_revision), Some(incoming_revision)) =
+        (current.source_revision, incoming.source_revision)
+    {
+        return Some(incoming_revision.cmp(&current_revision));
+    }
+    None
 }
 
 fn write_search_documents(
@@ -1566,6 +2551,31 @@ fn fts_expression(query: &str) -> String {
         .join(" AND ")
 }
 
+fn knowledge_search_content(header: &KnowledgePageHeader) -> String {
+    let mut fields = vec![header.title.clone(), header.kind.clone()];
+    for fact in &header.facts {
+        fields.extend([
+            fact.property.clone(),
+            fact.value.clone(),
+            fact.qualifier.clone().unwrap_or_default(),
+            fact.evidence.quote.clone(),
+        ]);
+    }
+    for relationship in &header.relationships {
+        fields.extend([
+            relationship.kind.clone(),
+            relationship.qualifier.clone().unwrap_or_default(),
+            relationship.evidence.quote.clone(),
+        ]);
+    }
+    for tag in &header.tags {
+        if !tag.supports.is_empty() {
+            fields.push(tag.label.clone());
+        }
+    }
+    fields.join(" ")
+}
+
 fn validate_iso_date(value: &str) -> Result<String> {
     let date = value.trim();
     let bytes = date.as_bytes();
@@ -1635,6 +2645,26 @@ fn find_text_match(text: &str, terms: &[String]) -> Option<(usize, usize)> {
     None
 }
 
+fn write_acquisition(destination: &Path, acquisition: &Acquisition) -> Result<()> {
+    let contexts = destination.join("acquisitions");
+    fs::create_dir_all(&contexts)?;
+    let key = format!(
+        "{:x}",
+        Sha256::digest(format!("{}:{:?}", acquisition.path, acquisition.method).as_bytes())
+    );
+    let mut record = tempfile::NamedTempFile::new_in(&contexts)?;
+    write!(
+        record,
+        "---\n{}---\n\n# Source acquisition\n\n[Source page](../index.md)\n",
+        serde_yaml_ng::to_string(acquisition)?
+    )?;
+    record.as_file().sync_all()?;
+    record
+        .persist_noclobber(contexts.join(format!("{key}.md")))
+        .map_err(|error| GardenError::Io(error.error))?;
+    sync_directory(&contexts)
+}
+
 fn parse_date_value(value: &str) -> Option<String> {
     let value = value
         .trim()
@@ -1693,22 +2723,6 @@ fn read_bounded_text(path: &Path, max_bytes: u64) -> Result<String> {
     Ok(text)
 }
 
-fn strip_frontmatter(markdown: &str) -> Option<&str> {
-    markdown
-        .strip_prefix("---\n")?
-        .split_once("\n---\n")
-        .map(|(_, body)| body.trim_start_matches('\n'))
-}
-
-fn parse_knowledge_header(markdown: &str) -> Result<KnowledgePageHeader> {
-    let header = markdown
-        .strip_prefix("---\n")
-        .and_then(|rest| rest.split_once("\n---\n"))
-        .map(|(header, _)| header)
-        .ok_or_else(|| GardenError::Invalid("Knowledge page metadata is incomplete.".into()))?;
-    serde_yaml_ng::from_str(header).map_err(GardenError::from)
-}
-
 struct UnavailableProvider;
 
 impl SemanticProvider for UnavailableProvider {
@@ -1746,6 +2760,16 @@ enum EvidenceOffsetBasis {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct SupportRecord {
+    source_id: String,
+    source_version_id: String,
+    value: String,
+    qualifier: Option<String>,
+    origin: String,
+    evidence: EvidenceLocation,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct FactRecord {
     fact_id: String,
     subject_page_id: String,
@@ -1754,6 +2778,8 @@ struct FactRecord {
     qualifier: Option<String>,
     origin: String,
     evidence: EvidenceLocation,
+    #[serde(default)]
+    supports: Vec<SupportRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1765,6 +2791,8 @@ struct RelationshipRecord {
     qualifier: Option<String>,
     origin: String,
     evidence: EvidenceLocation,
+    #[serde(default)]
+    supports: Vec<SupportRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1877,34 +2905,30 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
     })
 }
 
-fn stable_page_id(source_id: &str, entity: &EntityDraft) -> String {
+fn stable_page_id(entity: &EntityDraft) -> String {
     let mut digest = Sha256::new();
-    digest.update(source_id.as_bytes());
-    digest.update([0]);
     digest.update(entity.kind.to_lowercase().as_bytes());
     digest.update([0]);
     digest.update(entity.label.to_lowercase().as_bytes());
-    digest.update([0]);
-    digest.update(entity.evidence.byte_start.to_be_bytes());
     format!("page-{:x}", digest.finalize())
 }
 
-fn stable_record_id(
-    prefix: &str,
-    source_id: &str,
-    kind: &str,
-    value: &str,
-    offset: usize,
-) -> String {
+fn stable_fact_id(subject_page_id: &str, property: &str) -> String {
     let mut digest = Sha256::new();
-    digest.update(source_id.as_bytes());
+    digest.update(subject_page_id.as_bytes());
     digest.update([0]);
-    digest.update(kind.as_bytes());
+    digest.update(property.trim().to_lowercase().as_bytes());
+    format!("fact-{:x}", digest.finalize())
+}
+
+fn stable_relationship_id(from_page_id: &str, to_page_id: &str, kind: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(from_page_id.as_bytes());
     digest.update([0]);
-    digest.update(value.as_bytes());
+    digest.update(kind.trim().to_lowercase().as_bytes());
     digest.update([0]);
-    digest.update(offset.to_be_bytes());
-    format!("{prefix}-{:x}", digest.finalize())
+    digest.update(to_page_id.as_bytes());
+    format!("relationship-{:x}", digest.finalize())
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -1982,6 +3006,78 @@ fn read_knowledge_page(path: &Path) -> Result<KnowledgePage> {
     })
 }
 
+fn parse_knowledge_header(markdown: &str) -> Result<KnowledgePageHeader> {
+    let header = markdown
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.split_once("\n---\n").map(|(yaml, _)| yaml))
+        .ok_or_else(|| GardenError::Invalid("Knowledge page metadata is unreadable.".into()))?;
+    Ok(serde_yaml_ng::from_str(header)?)
+}
+
+fn read_knowledge_header(path: &Path) -> Result<KnowledgePageHeader> {
+    let mut markdown = String::new();
+    File::open(path)?
+        .take(256 * 1024)
+        .read_to_string(&mut markdown)?;
+    parse_knowledge_header(&markdown)
+}
+
+fn ensure_legacy_supports(header: &mut KnowledgePageHeader) {
+    for fact in &mut header.facts {
+        if fact.supports.is_empty() {
+            fact.supports.push(SupportRecord {
+                source_id: header.source_id.clone(),
+                source_version_id: "legacy".into(),
+                value: fact.value.clone(),
+                qualifier: fact.qualifier.clone(),
+                origin: fact.origin.clone(),
+                evidence: fact.evidence.clone(),
+            });
+        }
+    }
+    for relationship in &mut header.relationships {
+        if relationship.supports.is_empty() {
+            relationship.supports.push(SupportRecord {
+                source_id: header.source_id.clone(),
+                source_version_id: "legacy".into(),
+                value: relationship.kind.clone(),
+                qualifier: relationship.qualifier.clone(),
+                origin: relationship.origin.clone(),
+                evidence: relationship.evidence.clone(),
+            });
+        }
+    }
+}
+
+fn mark_arrival_fallback(
+    source: &mut SourcePage,
+    replaced_sources: &std::collections::HashSet<String>,
+) {
+    if replaced_sources.is_empty() {
+        return;
+    }
+    let Some(version_id) = source
+        .info
+        .pending_version_id
+        .clone()
+        .or(source.info.current_version_id.clone())
+    else {
+        return;
+    };
+    let Some(version) = source
+        .info
+        .versions_seen
+        .iter_mut()
+        .find(|version| version.source_version_id == version_id)
+    else {
+        return;
+    };
+    if version.source_date.is_none() && version.source_revision.is_none() {
+        source.info.ordering_uncertain = true;
+        version.order_basis = "arrival_fallback".into();
+    }
+}
+
 fn now_millis() -> Result<u128> {
     Ok(SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -2038,8 +3134,42 @@ fn read_page(path: &Path) -> Result<SourcePage> {
     let (header, body) = remainder.split_once("\n---\n").ok_or_else(|| {
         GardenError::Invalid("The source page metadata header is incomplete.".into())
     })?;
-    let info: SourceInfo = serde_yaml_ng::from_str(header)?;
     let body = body.trim_start_matches('\n').to_owned();
+    let mut info: SourceInfo = serde_yaml_ng::from_str(header)?;
+    if info.versions_seen.is_empty() {
+        let received_at = info
+            .acquisitions
+            .first()
+            .map(|acquisition| acquisition.received_at.clone())
+            .unwrap_or_else(|| "0".into());
+        let mut legacy = source_version(
+            &info.sha256,
+            info.bytes,
+            &info.original_name,
+            &info.asset,
+            &info.format,
+            &received_at,
+            &body,
+            if info.semantic_state == "complete" {
+                "complete"
+            } else {
+                "pending"
+            },
+            "legacy",
+        );
+        legacy.coverage = if info.extraction == ExtractionState::TextPreserved
+            && info.semantic_state == "complete"
+        {
+            "complete".into()
+        } else {
+            "incomplete".into()
+        };
+        info.current_version_id = (info.semantic_state == "complete").then(|| info.sha256.clone());
+        info.pending_version_id = (info.semantic_state != "complete"
+            && info.extraction == ExtractionState::TextPreserved)
+            .then(|| info.sha256.clone());
+        info.versions_seen.push(legacy);
+    }
     let knowledge_pages = info.knowledge_pages.clone();
     Ok(SourcePage {
         info,
@@ -2051,5 +3181,115 @@ fn read_page(path: &Path) -> Result<SourcePage> {
 
 fn sync_directory(path: &Path) -> Result<()> {
     File::open(path)?.sync_all()?;
+    Ok(())
+}
+
+#[derive(Serialize, Deserialize)]
+struct PublicationManifest {
+    entries: Vec<PublicationEntry>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PublicationEntry {
+    destination: String,
+    staged: String,
+}
+
+fn commit_publication(root: &Path, files: Vec<(PathBuf, Vec<u8>)>) -> Result<()> {
+    if files.is_empty() {
+        return Ok(());
+    }
+    let transactions = root.join(".staging/transactions");
+    fs::create_dir_all(&transactions)?;
+    let staging = tempfile::tempdir_in(&transactions)?;
+    let staged_files = staging.path().join("files");
+    fs::create_dir_all(&staged_files)?;
+    let mut entries = Vec::with_capacity(files.len());
+    for (index, (destination, bytes)) in files.into_iter().enumerate() {
+        let relative = destination.strip_prefix(root).map_err(|_| {
+            GardenError::Invalid("A publication path escaped the collection.".into())
+        })?;
+        validate_relative_collection_path(relative)?;
+        let staged = format!("files/{index:04}");
+        let path = staging.path().join(&staged);
+        let mut file = File::create(&path)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        entries.push(PublicationEntry {
+            destination: relative.to_string_lossy().into_owned(),
+            staged,
+        });
+    }
+    sync_directory(&staged_files)?;
+    let manifest = serde_json::to_vec(&PublicationManifest { entries })?;
+    let manifest_path = staging.path().join("manifest.json");
+    let mut file = File::create(&manifest_path)?;
+    file.write_all(&manifest)?;
+    file.sync_all()?;
+    sync_directory(staging.path())?;
+    let transaction_path = staging.keep();
+    sync_directory(&transactions)?;
+    apply_publication(root, &transaction_path)?;
+    fs::remove_dir_all(&transaction_path)?;
+    sync_directory(&transactions)
+}
+
+fn recover_publications(root: &Path) -> Result<()> {
+    let transactions = root.join(".staging/transactions");
+    fs::create_dir_all(&transactions)?;
+    for entry in fs::read_dir(&transactions)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let path = entry.path();
+        if !path.join("manifest.json").exists() {
+            fs::remove_dir_all(path)?;
+            continue;
+        }
+        apply_publication(root, &path)?;
+        fs::remove_dir_all(path)?;
+    }
+    sync_directory(&transactions)
+}
+
+fn apply_publication(root: &Path, transaction: &Path) -> Result<()> {
+    let manifest: PublicationManifest =
+        serde_json::from_slice(&fs::read(transaction.join("manifest.json"))?)?;
+    for entry in manifest.entries {
+        let destination = Path::new(&entry.destination);
+        let staged = Path::new(&entry.staged);
+        validate_relative_collection_path(destination)?;
+        validate_relative_staging_path(staged)?;
+        let bytes = fs::read(transaction.join(staged))?;
+        write_atomic(&root.join(destination), &bytes)?;
+    }
+    Ok(())
+}
+
+fn validate_relative_collection_path(path: &Path) -> Result<()> {
+    if path.as_os_str().is_empty()
+        || path.is_absolute()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir | std::path::Component::RootDir
+            )
+        })
+    {
+        return Err(GardenError::Invalid(
+            "A publication path is outside the collection.".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_relative_staging_path(path: &Path) -> Result<()> {
+    validate_relative_collection_path(path)?;
+    if path.components().next() != Some(std::path::Component::Normal("files".as_ref())) {
+        return Err(GardenError::Invalid(
+            "A publication staging path is invalid.".into(),
+        ));
+    }
     Ok(())
 }
