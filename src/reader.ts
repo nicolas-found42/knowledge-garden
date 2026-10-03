@@ -11,6 +11,9 @@ import type {
 const LAST_SOURCE = "knowledge-garden:last-source";
 const labels = {
   text_preserved: "Text preserved",
+  structured_text: "Structured text extracted",
+  partial_text: "Partially extracted",
+  invalid_container: "Damaged Office container",
   unsupported: "Unsupported format",
   invalid_utf8: "Text could not be decoded",
   too_large: "Text exceeds preview limit",
@@ -51,7 +54,7 @@ export async function mountReader(
     element("h1", "A place for what you know"),
     element(
       "p",
-      "Choose a text or Markdown file, or drop one anywhere in this window. Your original stays intact.",
+      "Choose a text, Markdown, Word, or PowerPoint file, or drop one anywhere in this window. Your original stays intact.",
     ),
   );
   main.append(empty);
@@ -188,6 +191,15 @@ export async function mountReader(
     }
     for (const [label, value] of rows)
       definition.append(element("dt", label), element("dd", value));
+    for (const part of next.info.extraction_coverage ?? []) {
+      definition.append(
+        element("dt", `Coverage · ${part.scope.replaceAll("_", " ")}`),
+        element(
+          "dd",
+          `${part.status}: ${part.detail} (${part.source_location})`,
+        ),
+      );
+    }
     details.append(definition);
     main.append(details);
   }
@@ -212,7 +224,9 @@ export async function mountReader(
         const imported = await api.importSource(path, method);
         showPage(imported);
         message(
-          imported.info.extraction === "text_preserved"
+          ["text_preserved", "structured_text", "partial_text"].includes(
+            imported.info.extraction,
+          )
             ? "Source added."
             : `${labels[imported.info.extraction]}. The original is retained.`,
         );

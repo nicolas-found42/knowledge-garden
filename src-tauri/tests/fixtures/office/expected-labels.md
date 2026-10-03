@@ -1,0 +1,30 @@
+# Independent expected labels for ticket 12 fixture
+
+Labels frozen before DOCX/PPTX construction and before any extraction implementation runs. These fixtures are synthetic; all names, counts, and destinations below are invented.
+
+## DOCX: qualified table entry
+
+- File: `source/field-visit.docx` (modern Word OOXML package, `.docx`).
+- Main document title: `Riverside Field Visit`.
+- Heading 1 `Observed results` precedes a two-column table headed `Measure` / `Result`.
+- Row 2 measure `Transect visits`; result `12 visits, excluding two unverified reports.` This qualification is part of the cell value. Expected extraction must keep measure/value together and preserve the exclusion qualification; extracting bare `12 visits` as the whole fact is incomplete.
+- Row 3 measure `Observation period`; result `May 4, 2026, 09:00–11:30 local time.`
+- Body paragraph: `Counts include only visits confirmed by two observers.`
+- An external hyperlink to `https://example.invalid/unacquired-methods` appears in the document. Expected treatment: retain link text and URL occurrence; do not fetch destination content.
+- The package contains a relationship-referenced embedded OLE object whose payload is intentionally not a readable/valid Office object. Expected treatment: retain DOCX; disclose unreadable embedded-object coverage, do not discard document text or pretend object contents are known.
+
+## PPTX: visible slide versus note
+
+- File: `source/visit-summary.pptx` (modern PowerPoint OOXML package, `.pptx`).
+- Exactly one slide (slide 1 in deck order); title `Field visit summary`.
+- Visible slide shape text: `12 visits`. This is the slide's visible reported value; it is not itself confirmation of any later correction.
+- Speaker notes for slide 1: `An unconfirmed correction suggests the count may be 14 visits. Do not replace the slide's visible count until the correction is verified.` Expected extraction must record this as speaker-note content with note origin, keep it distinct from visible slide text, and preserve its unconfirmed qualification.
+- A visible hyperlink to `https://example.invalid/linked-method` is a linked occurrence only. Do not fetch the target.
+- The package contains a relationship-referenced embedded OLE object with intentionally unreadable payload. Expected treatment: retain the presentation and visible slide/notes; disclose unsupported/unreadable embedded object coverage.
+
+## Shared integrity expectations
+
+- Preserve each original byte-for-byte through a future importer; these fixture hashes can be recorded before/after that importer.
+- Preserve source order and evidence locations: DOCX paragraph/table cell; PPTX slide index/order and distinguishable speaker-notes location. Slide-visible text and notes must not be collapsed into one unqualified stream.
+- A parser must not run, acquire, or dereference either `.invalid` link. They are reserved example-domain strings and do not designate actual resources.
+- Extraction omissions caused by the malformed embedded object must not be interpreted as evidence that the rest of the document/presentation has no content.
