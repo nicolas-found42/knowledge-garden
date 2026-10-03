@@ -63,6 +63,13 @@ it("imports a real temporary source through the reader and preserves visible con
       return selected;
     },
     listSources: async (offset) => call<SourceList>("list", String(offset)),
+    searchPages: async () => ({
+      pages: [],
+      next_offset: null,
+      available_tags: [],
+      available_formats: [],
+      available_statuses: [],
+    }),
     openSource: async (id) => call<SourcePage>("open", id),
     openKnowledgePage: async (id) => call("knowledge", id),
     openOriginal: async (id) => {

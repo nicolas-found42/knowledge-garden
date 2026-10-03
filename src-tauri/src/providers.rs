@@ -1,7 +1,7 @@
 //! Rust-only semantic provider transports. Request bodies and credentials never enter logs.
 use crate::semantic::{
     EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, RelationshipDraft,
-    SemanticDecision, SemanticProvider,
+    SemanticDecision, SemanticProvider, TagDraft,
 };
 use regex::Regex;
 use reqwest::blocking::Client;
@@ -618,6 +618,21 @@ impl SemanticProvider for JevSemanticProvider {
                 evidence: candidate.evidence(),
             });
         }
+        for candidate in accepted
+            .iter()
+            .filter(|candidate| candidate.kind == CandidateKind::Tag)
+        {
+            let subject = event
+                .map(|event| event.value.clone())
+                .or_else(|| draft.entities.first().map(|entity| entity.label.clone()));
+            if let Some(subject) = subject {
+                draft.tags.push(TagDraft {
+                    subject,
+                    label: candidate.value.clone(),
+                    evidence: candidate.evidence(),
+                });
+            }
+        }
         Ok(draft)
     }
 }
@@ -632,6 +647,7 @@ enum CandidateKind {
     Count,
     Duration,
     Reference,
+    Tag,
 }
 
 #[derive(Clone)]
@@ -797,6 +813,19 @@ fn candidates(text: &str) -> Vec<Candidate> {
             end,
             qualifier: None,
             origin,
+        });
+    }
+    let tag_re = regex(r"#[\p{L}\p{N}_-]+\b");
+    for m in tag_re.find_iter(text) {
+        let value = m.as_str().trim_start_matches('#').to_owned();
+        result.push(Candidate {
+            kind: CandidateKind::Tag,
+            value,
+            quote: m.as_str().to_owned(),
+            start: m.start(),
+            end: m.end(),
+            qualifier: None,
+            origin: origin_for(text, m.start(), m.end()),
         });
     }
     let date_re = regex(
