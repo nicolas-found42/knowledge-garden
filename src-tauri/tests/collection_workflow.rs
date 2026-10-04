@@ -4,7 +4,7 @@ use knowledge_garden::application::{
 use knowledge_garden::providers::{JevSemanticProvider, SystemOneTransport};
 use knowledge_garden::semantic::{
     EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, RelationshipDraft,
-    SemanticDecision, SemanticProvider, TagDraft,
+    SemanticDecision, SemanticProvider, SourceUpdateDraft, SourceUpdateRole, TagDraft,
 };
 use serde_json::Value;
 use std::collections::VecDeque;
@@ -60,6 +60,8 @@ impl SemanticProvider for WholeInputProvider {
                     byte_end: source_text.len(),
                     origin: "observed".into(),
                     qualifier: None,
+                    offset_basis: None,
+                    source_location: None,
                 },
             }],
             ..KnowledgeDraft::default()
@@ -69,6 +71,10 @@ impl SemanticProvider for WholeInputProvider {
 
 struct RecordedSystemOneTransport {
     response: Value,
+}
+
+struct ConfiguredSystemOneTransport {
+    roles: Mutex<VecDeque<String>>,
 }
 
 impl SystemOneTransport for RecordedSystemOneTransport {
@@ -81,6 +87,64 @@ impl SystemOneTransport for RecordedSystemOneTransport {
     }
 }
 
+impl SystemOneTransport for ConfiguredSystemOneTransport {
+    fn complete(
+        &self,
+        _api_key: &str,
+        request: &Value,
+    ) -> std::result::Result<Value, ProviderError> {
+        let role = self.roles.lock().unwrap().pop_front().unwrap();
+        let questions = request["questions"].as_object().unwrap();
+        let mut answers = serde_json::Map::new();
+        for (key, question) in questions {
+            match question["type"].as_str().unwrap_or_default() {
+                "noul" => {
+                    answers.insert(key.clone(), serde_json::json!({"type":"noul","noul":0.99}));
+                }
+                "choice" => {
+                    let criteria = question["criteria"].as_object().unwrap();
+                    let choice = match key.as_str() {
+                        "source_update_role" => role.as_str(),
+                        "source_update_evidence" => criteria
+                            .keys()
+                            .find(|option| option.starts_with("span_"))
+                            .map(String::as_str)
+                            .unwrap_or("span_0"),
+                        "source_order_date" | "source_order_revision" | "event_date" => "none",
+                        "event_identity" => "event",
+                        name if name.starts_with("person_identity_") => "uncertain",
+                        name if name.starts_with("relation_") => {
+                            if criteria.contains_key("observer") {
+                                "observer"
+                            } else if criteria.contains_key("location") {
+                                "location"
+                            } else {
+                                "none"
+                            }
+                        }
+                        _ => criteria.keys().next().map(String::as_str).unwrap_or("none"),
+                    };
+                    if !criteria.contains_key(choice) {
+                        return Err(ProviderError::recoverable(format!(
+                            "fixture transport could not answer {key}"
+                        )));
+                    }
+                    answers.insert(
+                        key.clone(),
+                        serde_json::json!({"type":"choice","choice":choice,"probabilities":{choice:0.99}}),
+                    );
+                }
+                _ => {
+                    return Err(ProviderError::recoverable(
+                        "Unexpected typed question.".into(),
+                    ))
+                }
+            }
+        }
+        Ok(serde_json::json!({"model":"typesafe/jev-1.13-recorded","answers":answers}))
+    }
+}
+
 fn v17_recording() -> KnowledgeDraft {
     let text = "Revision 1 dated May 18, 2024; observation V17 on May 17, 2024; observer Maya; location Riverside; 12 visits; duration 10 minutes. It possibly occurred at Riverside. A different person named Maya filed another report.";
     let evidence = |quote: &str| EvidenceDraft {
@@ -89,6 +153,8 @@ fn v17_recording() -> KnowledgeDraft {
         byte_end: text.find(quote).unwrap() + quote.len(),
         origin: "observed".to_owned(),
         qualifier: None,
+        offset_basis: None,
+        source_location: None,
     };
     KnowledgeDraft {
         entities: vec![
@@ -119,30 +185,35 @@ fn v17_recording() -> KnowledgeDraft {
                 property: "occurred_on".into(),
                 value: "May 17, 2024".into(),
                 evidence: evidence("observation V17 on May 17, 2024"),
+                record_key: None,
             },
             FactDraft {
                 subject: "Observation V17".into(),
                 property: "observer".into(),
                 value: "Maya (observer)".into(),
                 evidence: evidence("observer Maya"),
+                record_key: None,
             },
             FactDraft {
                 subject: "Observation V17".into(),
                 property: "location".into(),
                 value: "Riverside".into(),
                 evidence: evidence("location Riverside"),
+                record_key: None,
             },
             FactDraft {
                 subject: "Observation V17".into(),
                 property: "visit_count".into(),
                 value: "12 visits".into(),
                 evidence: evidence("12 visits"),
+                record_key: None,
             },
             FactDraft {
                 subject: "Observation V17".into(),
                 property: "duration".into(),
                 value: "10 minutes".into(),
                 evidence: evidence("duration 10 minutes"),
+                record_key: None,
             },
             FactDraft {
                 subject: "Observation V17".into(),
@@ -152,6 +223,7 @@ fn v17_recording() -> KnowledgeDraft {
                     qualifier: Some("possibly".into()),
                     ..evidence("possibly occurred at Riverside")
                 },
+                record_key: None,
             },
         ],
         relationships: vec![
@@ -186,6 +258,7 @@ fn v17_recording() -> KnowledgeDraft {
             probability: Some(0.99),
         })
         .collect(),
+        source_update: None,
     }
 }
 
@@ -196,6 +269,8 @@ fn replacement_recording(text: &str, visits: u32, include_duration: bool) -> Kno
         byte_end: text.find(quote).unwrap() + quote.len(),
         origin: "observed".to_owned(),
         qualifier: None,
+        offset_basis: None,
+        source_location: None,
     };
     let mut facts = vec![
         FactDraft {
@@ -203,12 +278,14 @@ fn replacement_recording(text: &str, visits: u32, include_duration: bool) -> Kno
             property: "occurred_on".into(),
             value: "May 17, 2024".into(),
             evidence: evidence("Observation V17 took place on May 17, 2024."),
+            record_key: None,
         },
         FactDraft {
             subject: "Observation V17".into(),
             property: "visit_count".into(),
             value: format!("{visits} visits"),
             evidence: evidence(&format!("Visits: {visits}.")),
+            record_key: None,
         },
     ];
     if include_duration {
@@ -217,6 +294,7 @@ fn replacement_recording(text: &str, visits: u32, include_duration: bool) -> Kno
             property: "duration".into(),
             value: "10 minutes".into(),
             evidence: evidence("Duration: 10 minutes."),
+            record_key: None,
         });
     }
     KnowledgeDraft {
@@ -254,7 +332,79 @@ fn replacement_recording(text: &str, visits: u32, include_duration: bool) -> Kno
                 evidence: evidence("Location: Riverside."),
             },
         ],
+        source_update: Some(recorded_update(text, SourceUpdateRole::CompleteReplacement)),
         ..KnowledgeDraft::default()
+    }
+}
+
+fn recorded_update(text: &str, role: SourceUpdateRole) -> SourceUpdateDraft {
+    let first_line = text.lines().next().unwrap_or(text);
+    let (role_start, role_end) = text
+        .find(first_line)
+        .map(|start| (start, start + first_line.len()))
+        .unwrap_or((0, text.len()));
+    let lower = text.to_lowercase();
+    let revision = lower.match_indices("revision ").find_map(|(start, _)| {
+        let digits = lower[start + "revision ".len()..]
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>();
+        digits.parse::<u64>().ok().filter(|revision| *revision > 0)
+    });
+    let revision_quote = revision.map(|number| format!("revision {number}"));
+    let revision_evidence = revision_quote.as_ref().and_then(|quote| {
+        let start = text.to_lowercase().find(quote)?;
+        Some(EvidenceDraft {
+            quote: text[start..start + quote.len()].to_owned(),
+            byte_start: start,
+            byte_end: start + quote.len(),
+            origin: "observed".into(),
+            qualifier: None,
+            offset_basis: None,
+            source_location: None,
+        })
+    });
+    let date = if text.contains("May 18, 2024") {
+        Some(("May 18, 2024", "2024-05-18"))
+    } else if text.contains("May 19, 2024") {
+        Some(("May 19, 2024", "2024-05-19"))
+    } else if text.contains("May 20, 2024") {
+        Some(("May 20, 2024", "2024-05-20"))
+    } else if text.contains("May 21, 2024") {
+        Some(("May 21, 2024", "2024-05-21"))
+    } else {
+        None
+    };
+    let date_evidence = date.and_then(|(date, _)| {
+        let start = text.find(date)?;
+        Some(EvidenceDraft {
+            quote: date.to_owned(),
+            byte_start: start,
+            byte_end: start + date.len(),
+            origin: "observed".into(),
+            qualifier: None,
+            offset_basis: None,
+            source_location: None,
+        })
+    });
+    SourceUpdateDraft {
+        role,
+        evidence: EvidenceDraft {
+            quote: first_line.to_owned(),
+            byte_start: role_start,
+            byte_end: role_end,
+            origin: "observed".into(),
+            qualifier: None,
+            offset_basis: None,
+            source_location: None,
+        },
+        certainty: 0.99,
+        source_date: date.map(|(_, iso)| iso.to_owned()),
+        source_date_evidence: date_evidence,
+        source_date_certainty: if date.is_some() { 0.99 } else { 0.0 },
+        source_revision: revision,
+        source_revision_evidence: revision_evidence,
+        source_revision_certainty: if revision.is_some() { 0.99 } else { 0.0 },
     }
 }
 
@@ -317,6 +467,25 @@ fn independently_acquired_duration_support_survives_replacement() {
         markdown.contains(&format!("source_id: {}", second.info.source_id)),
         "{markdown}"
     );
+    let source_short_id = second.info.source_id.strip_prefix("source-").unwrap();
+    let retained_link = format!(
+        "[Retained original](../sources/{source_short_id}/{})",
+        second.info.asset
+    );
+    assert!(markdown.contains(&retained_link), "{markdown}");
+    let linked_original = app
+        .page_path(&first.info.source_id)
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("../")
+        .join("../")
+        .join("sources")
+        .join(source_short_id)
+        .join(&second.info.asset);
+    assert!(String::from_utf8(fs::read(linked_original).unwrap())
+        .unwrap()
+        .contains("Duration: 10 minutes."));
 }
 
 #[test]
@@ -502,6 +671,73 @@ fn reopening_replays_a_durable_interrupted_publication_as_one_complete_generatio
 }
 
 #[test]
+fn application_recovery_replays_an_actual_interrupted_replacement_transaction() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("working-report.txt");
+    fs::write(&source, REVISION_1).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open_with_semantic_provider(
+        &collection,
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(replacement_recording(REVISION_1, 12, true)),
+            Ok(replacement_recording(REVISION_2, 15, false)),
+        ])),
+    )
+    .unwrap();
+    let first = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    fs::write(&source, REVISION_2).unwrap();
+    app.import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    app.set_publication_failpoint_for_test(1);
+    let error = app
+        .finish_semantic_job(job, Ok(replacement_recording(REVISION_2, 15, false)))
+        .unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("Injected publication interruption"));
+    drop(app);
+
+    let app = Application::open(&collection).unwrap();
+    let current = app.open_source(&first.info.source_id).unwrap();
+    assert_eq!(current.info.semantic_state, "complete");
+    assert_eq!(
+        current.info.current_version_id.as_deref(),
+        Some(current.info.sha256.as_str())
+    );
+    assert_eq!(
+        fs::read(app.original_path(&first.info.source_id).unwrap()).unwrap(),
+        REVISION_2.as_bytes()
+    );
+    let event = current
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "event")
+        .unwrap();
+    let markdown = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+    assert_eq!(markdown.matches("value: 15 visits").count(), 2);
+    assert_eq!(markdown.matches("- **visit count:** 15 visits").count(), 1);
+    assert!(!markdown.contains("value: 12 visits"));
+    let results = app
+        .search_pages(PageSearchRequest {
+            query: "15 visits".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert!(results
+        .pages
+        .iter()
+        .any(|page| page.page_id == event.page_id));
+    assert!(fs::read_dir(collection.join(".staging/transactions"))
+        .unwrap()
+        .next()
+        .is_none());
+}
+
+#[test]
 fn complete_newer_revision_updates_current_knowledge_in_place() {
     let workspace = tempdir().unwrap();
     let source = workspace.path().join("V17.txt");
@@ -580,6 +816,8 @@ fn search_returns_frozen_page_set_from_titles_tags_keyword_and_current_metadata(
         byte_end: source_text.find(quote).unwrap() + quote.len(),
         origin: "observed".into(),
         qualifier: None,
+        offset_basis: None,
+        source_location: None,
     };
     let draft = KnowledgeDraft {
         entities: vec![
@@ -605,24 +843,28 @@ fn search_returns_frozen_page_set_from_titles_tags_keyword_and_current_metadata(
                 property: "occurred_on".into(),
                 value: "May 17, 2024".into(),
                 evidence: evidence("May 17, 2024"),
+                record_key: None,
             },
             FactDraft {
                 subject: "Observation V17".into(),
                 property: "location".into(),
                 value: "Riverside".into(),
                 evidence: evidence("Riverside"),
+                record_key: None,
             },
             FactDraft {
                 subject: "Observation V17".into(),
                 property: "observer".into(),
                 value: "Maya".into(),
                 evidence: evidence("Maya observed the event"),
+                record_key: None,
             },
             FactDraft {
                 subject: "Observation V17".into(),
                 property: "visit_count".into(),
                 value: "12 visits".into(),
                 evidence: evidence("12 visits were reported"),
+                record_key: None,
             },
         ],
         tags: vec![
@@ -808,7 +1050,7 @@ fn import_forms_linked_knowledge_pages_with_typed_facts_qualifiers_and_exact_evi
     assert!(event_page.markdown.contains("observer Maya"));
     assert!(event_page.markdown.contains("byte_start:"));
     assert!(event_page.markdown.contains("line_start: 1"));
-    assert!(event_page.markdown.contains("[Source page]"));
+    assert!(event_page.markdown.contains("[Supporting source page]"));
     for page in page.knowledge_pages {
         let path = workspace
             .path()
@@ -832,6 +1074,8 @@ fn application_keeps_two_same_name_observers_as_distinct_evidence_backed_entitie
         byte_end: text.find(quote).unwrap() + quote.len(),
         origin: "observed".to_owned(),
         qualifier: None,
+        offset_basis: None,
+        source_location: None,
     };
     let event = "Observation V42";
     let maya_one = "Maya (observer; mention 1)";
@@ -860,12 +1104,14 @@ fn application_keeps_two_same_name_observers_as_distinct_evidence_backed_entitie
                 property: "observer".into(),
                 value: "Maya".into(),
                 evidence: evidence("Maya observed"),
+                record_key: None,
             },
             FactDraft {
                 subject: event.into(),
                 property: "observer".into(),
                 value: "Maya".into(),
                 evidence: evidence("different person named Maya observed"),
+                record_key: None,
             },
         ],
         relationships: vec![
@@ -891,6 +1137,7 @@ fn application_keeps_two_same_name_observers_as_distinct_evidence_backed_entitie
             outcome: "distinct_identity".into(),
             probability: Some(0.98),
         }],
+        source_update: None,
     };
     let mut app = Application::open_with_semantic_provider(
         workspace.path().join("collection"),
@@ -928,6 +1175,129 @@ fn application_keeps_two_same_name_observers_as_distinct_evidence_backed_entitie
 }
 
 #[test]
+fn document_pages_are_source_scoped_and_fact_record_keys_preserve_granular_ids() {
+    fn draft(text: &str, first_value: &str, second_value: &str) -> KnowledgeDraft {
+        let evidence = |quote: &str| EvidenceDraft {
+            quote: quote.to_owned(),
+            byte_start: text.find(quote).unwrap(),
+            byte_end: text.find(quote).unwrap() + quote.len(),
+            origin: "observed".into(),
+            qualifier: None,
+            offset_basis: None,
+            source_location: None,
+        };
+        KnowledgeDraft {
+            entities: vec![EntityDraft {
+                kind: "document".into(),
+                label: "Imported document".into(),
+                evidence: evidence(text),
+            }],
+            facts: vec![
+                FactDraft {
+                    subject: "Imported document".into(),
+                    property: "statement".into(),
+                    value: first_value.into(),
+                    evidence: evidence(first_value),
+                    record_key: Some("section:summary".into()),
+                },
+                FactDraft {
+                    subject: "Imported document".into(),
+                    property: "statement".into(),
+                    value: second_value.into(),
+                    evidence: evidence(second_value),
+                    record_key: Some("section:method".into()),
+                },
+            ],
+            source_update: Some(recorded_update(text, SourceUpdateRole::CompleteReplacement)),
+            ..KnowledgeDraft::default()
+        }
+    }
+
+    let workspace = tempdir().unwrap();
+    let first_path = workspace.path().join("first.txt");
+    let second_path = workspace.path().join("second.txt");
+    let first_text = "Summary: Alpha finding. Method: Surveyed 8 sites.";
+    let second_text = "Summary: Beta finding. Method: Surveyed 3 sites.";
+    let revised_text = "Summary: Revised alpha finding. Method: Surveyed 8 sites.";
+    fs::write(&first_path, first_text).unwrap();
+    fs::write(&second_path, second_text).unwrap();
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(draft(first_text, "Alpha finding", "Surveyed 8 sites")),
+            Ok(draft(second_text, "Beta finding", "Surveyed 3 sites")),
+            Ok(draft(
+                revised_text,
+                "Revised alpha finding",
+                "Surveyed 8 sites",
+            )),
+        ])),
+    )
+    .unwrap();
+    let first = app
+        .import_source(&first_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let second = app
+        .import_source(&second_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let first_page = app
+        .open_source(&first.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .first()
+        .unwrap()
+        .page_id
+        .clone();
+    let second_page = app
+        .open_source(&second.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .first()
+        .unwrap()
+        .page_id
+        .clone();
+    assert_ne!(first_page, second_page);
+    let first_markdown = app.open_knowledge_page(&first_page).unwrap().markdown;
+    let ids_before = serde_yaml_ng::from_str::<serde_yaml_ng::Value>(
+        first_markdown
+            .strip_prefix("---\n")
+            .unwrap()
+            .split_once("\n---\n")
+            .unwrap()
+            .0,
+    )
+    .unwrap();
+    let facts = ids_before["facts"].as_sequence().unwrap();
+    assert_eq!(facts.len(), 2);
+    let summary_id = facts
+        .iter()
+        .find(|fact| fact["record_key"] == "section:summary")
+        .unwrap()["fact_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let method_id = facts
+        .iter()
+        .find(|fact| fact["record_key"] == "section:method")
+        .unwrap()["fact_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_ne!(summary_id, method_id);
+
+    fs::write(&first_path, revised_text).unwrap();
+    app.import_source(&first_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let revised = app.open_knowledge_page(&first_page).unwrap().markdown;
+    assert!(revised.contains(&summary_id));
+    assert!(revised.contains(&method_id));
+    assert!(revised.contains("value: Revised alpha finding"));
+}
+
+#[test]
 fn semantic_evidence_offsets_are_measured_in_original_utf8_bytes_after_a_bom() {
     let workspace = tempdir().unwrap();
     let source = workspace.path().join("bom-report.txt");
@@ -940,6 +1310,8 @@ fn semantic_evidence_offsets_are_measured_in_original_utf8_bytes_after_a_bom() {
         byte_end: text.find(quote).unwrap() + quote.len(),
         origin: "observed".to_owned(),
         qualifier: None,
+        offset_basis: None,
+        source_location: None,
     };
     let draft = KnowledgeDraft {
         entities: vec![EntityDraft {
@@ -952,6 +1324,7 @@ fn semantic_evidence_offsets_are_measured_in_original_utf8_bytes_after_a_bom() {
             property: "visit_count".into(),
             value: "2 visits".into(),
             evidence: evidence("2 visits"),
+            record_key: None,
         }],
         ..KnowledgeDraft::default()
     };
@@ -979,12 +1352,90 @@ fn semantic_evidence_offsets_are_measured_in_original_utf8_bytes_after_a_bom() {
 }
 
 #[test]
+fn jev_role_judgments_keep_same_path_supplements_and_uncertain_updates_non_destructive() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("V17.txt");
+    let original = "Revision 1 dated May 18, 2024. Observation V17 took place on May 17, 2024. Observer: Maya. Location: Riverside. Visits: 12. Duration: 10 minutes.";
+    fs::write(&source, original).unwrap();
+    let transport = ConfiguredSystemOneTransport {
+        roles: Mutex::new(
+            [
+                "complete_replacement",
+                "supplement",
+                "conditional",
+                "targeted_correction",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+        ),
+    };
+    let provider =
+        JevSemanticProvider::with_transport("recorded-test-key".into(), Arc::new(transport));
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(provider),
+    )
+    .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    for (number, (role, text)) in [
+        (
+            "supplement",
+            "Supplement: an independent note mentions 14 visits for Observation V17.",
+        ),
+        (
+            "conditional",
+            "Conditional proposal: if verified, Observation V17 may have 14 visits.",
+        ),
+        (
+            "targeted_correction",
+            "Targeted correction only: the count for Observation V17 is 14 visits.",
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert_eq!(
+            role,
+            ["supplement", "conditional", "targeted_correction"][number]
+        );
+        fs::write(&source, text).unwrap();
+        app.import_source(&source, AcquisitionMethod::Picker)
+            .unwrap();
+        app.resume_due_semantic_jobs().unwrap();
+        let current = app.open_source(&imported.info.source_id).unwrap();
+        let event = current
+            .knowledge_pages
+            .iter()
+            .find(|page| page.kind == "event")
+            .unwrap();
+        let markdown = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+        assert!(markdown.contains("value: 12 visits"), "{role}: {markdown}");
+        assert!(!markdown.contains("value: 14 visits"), "{role}: {markdown}");
+        assert_eq!(
+            current.info.update_status.as_deref(),
+            Some("uncertain"),
+            "{role}"
+        );
+        assert_eq!(current.info.semantic_state, "complete");
+    }
+}
+
+#[test]
 fn malformed_recorded_jev_answers_leave_the_public_application_in_recoverable_pending_state() {
     let source_text = "Maya observed Observation V50 at Riverside on May 1, 2024.";
     let valid = serde_json::json!({
         "model":"typesafe/jev-1.13-fixture",
         "answers":{
             "event_identity":{"type":"choice","choice":"event","probabilities":{"event":0.95,"not_event":0.03,"unclear":0.02}},
+            "source_update_role":{"type":"choice","choice":"supplement","probabilities":{"supplement":0.99}},
+            "source_update_evidence":{"type":"choice","choice":"span_0","probabilities":{"span_0":0.99}},
+            "source_order_date":{"type":"choice","choice":"none","probabilities":{"none":0.99}},
+            "source_order_revision":{"type":"choice","choice":"none","probabilities":{"none":0.99}},
             "relation_0":{"type":"choice","choice":"observer","probabilities":{"observer":0.94,"attendee":0.01,"location":0.01,"other":0.03,"none":0.01}},
             "relation_3":{"type":"choice","choice":"location","probabilities":{"location":0.96,"observer":0.01,"attendee":0.01,"other":0.01,"none":0.01}},
             "support_2":{"type":"noul","noul":0.97},
@@ -1006,6 +1457,14 @@ fn malformed_recorded_jev_answers_leave_the_public_application_in_recoverable_pe
         ("missing place support", 9),
         ("wrong place support type", 10),
         ("out of range place support", 11),
+        ("missing source-update role", 12),
+        ("wrong source-update role type", 13),
+        ("invalid source-update role", 14),
+        ("missing source-update role probability", 15),
+        ("missing source-update evidence", 16),
+        ("invalid source-update evidence", 17),
+        ("missing source date choice", 18),
+        ("missing source revision probability", 19),
     ] {
         let mut response = valid.clone();
         let answers = response["answers"].as_object_mut().unwrap();
@@ -1054,6 +1513,36 @@ fn malformed_recorded_jev_answers_leave_the_public_application_in_recoverable_pe
             }
             11 => {
                 answers["support_3"]["noul"] = 1.1.into();
+            }
+            12 => {
+                answers.remove("source_update_role");
+            }
+            13 => {
+                answers["source_update_role"]["type"] = "noul".into();
+            }
+            14 => {
+                answers["source_update_role"]["choice"] = "suggested_replacement".into();
+            }
+            15 => {
+                answers["source_update_role"]["probabilities"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("supplement");
+            }
+            16 => {
+                answers.remove("source_update_evidence");
+            }
+            17 => {
+                answers["source_update_evidence"]["choice"] = "span_99".into();
+            }
+            18 => {
+                answers.remove("source_order_date");
+            }
+            19 => {
+                answers["source_order_revision"]["probabilities"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("none");
             }
             _ => unreachable!(),
         }
