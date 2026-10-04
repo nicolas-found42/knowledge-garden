@@ -473,6 +473,13 @@ fn independently_acquired_duration_support_survives_replacement() {
         second.info.asset
     );
     assert!(markdown.contains(&retained_link), "{markdown}");
+    let relationship_section = markdown.split("## Relationships\n").nth(1).unwrap();
+    assert!(
+        relationship_section.contains(&format!(
+            "[Source page](../sources/{source_short_id}/index.md)"
+        )),
+        "{relationship_section}"
+    );
     let linked_original = app
         .page_path(&first.info.source_id)
         .unwrap()
@@ -1050,7 +1057,7 @@ fn import_forms_linked_knowledge_pages_with_typed_facts_qualifiers_and_exact_evi
     assert!(event_page.markdown.contains("observer Maya"));
     assert!(event_page.markdown.contains("byte_start:"));
     assert!(event_page.markdown.contains("line_start: 1"));
-    assert!(event_page.markdown.contains("[Supporting source page]"));
+    assert!(event_page.markdown.contains("[Source page]"));
     for page in page.knowledge_pages {
         let path = workspace
             .path()
@@ -1360,7 +1367,7 @@ fn jev_role_judgments_keep_same_path_supplements_and_uncertain_updates_non_destr
     let transport = ConfiguredSystemOneTransport {
         roles: Mutex::new(
             [
-                "complete_replacement",
+                "unknown",
                 "supplement",
                 "conditional",
                 "targeted_correction",
@@ -1381,6 +1388,18 @@ fn jev_role_judgments_keep_same_path_supplements_and_uncertain_updates_non_destr
         .import_source(&source, AcquisitionMethod::Picker)
         .unwrap();
     app.resume_due_semantic_jobs().unwrap();
+    let baseline = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(baseline.info.semantic_state, "complete");
+    let baseline_event = baseline
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "event")
+        .unwrap();
+    assert!(app
+        .open_knowledge_page(&baseline_event.page_id)
+        .unwrap()
+        .markdown
+        .contains("value: 12 visits"));
 
     for (number, (role, text)) in [
         (
@@ -1423,6 +1442,65 @@ fn jev_role_judgments_keep_same_path_supplements_and_uncertain_updates_non_destr
         );
         assert_eq!(current.info.semantic_state, "complete");
     }
+}
+
+#[test]
+fn complete_revision_does_not_withdraw_an_independent_same_numbered_supplement() {
+    let workspace = tempdir().unwrap();
+    let base = workspace.path().join("revision-1.txt");
+    let timing = workspace.path().join("independent-revision-one.txt");
+    let revised = workspace.path().join("revision-2.txt");
+    fs::write(
+        &base,
+        "Complete report revision 1 dated May 18, 2024. Observation R9 took place on May 17, 2024. Visits: 12.",
+    )
+    .unwrap();
+    fs::write(
+        &timing,
+        "Independent timing supplement revision 1: Observation R9 lasted 10 minutes.",
+    )
+    .unwrap();
+    fs::write(
+        &revised,
+        "Complete report revision 2 dated May 19, 2024. Observation R9 took place on May 17, 2024. Visits: 15.",
+    )
+    .unwrap();
+    let transport = ConfiguredSystemOneTransport {
+        roles: Mutex::new(
+            ["unknown", "supplement", "complete_replacement"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        ),
+    };
+    let provider =
+        JevSemanticProvider::with_transport("recorded-test-key".into(), Arc::new(transport));
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(provider),
+    )
+    .unwrap();
+    let base_page = app.import_source(&base, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let timing_page = app
+        .import_source(&timing, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    app.import_source(&revised, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let current = app.open_source(&base_page.info.source_id).unwrap();
+    let event = current
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "event")
+        .unwrap();
+    let markdown = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+    assert!(markdown.contains("value: 15 visits"), "{markdown}");
+    assert!(!markdown.contains("value: 12 visits"), "{markdown}");
+    assert!(markdown.contains("value: 10 minutes"), "{markdown}");
+    assert!(markdown.contains(&timing_page.info.source_id), "{markdown}");
 }
 
 #[test]

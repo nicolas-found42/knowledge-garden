@@ -816,20 +816,9 @@ impl Application {
                     )
                     .and_then(|()| {
                         if initial {
-                            if update.as_ref().is_some_and(|decision| {
-                                matches!(
-                                    decision.role,
-                                    SourceUpdateRole::Conditional
-                                        | SourceUpdateRole::TargetedCorrection
-                                        | SourceUpdateRole::Unknown
-                                )
-                            }) {
-                                return self.retain_non_authoritative_update(
-                                    &mut page,
-                                    &job.source_version_id,
-                                    update.as_ref(),
-                                );
-                            }
+                            // Classification controls replacement of existing current facts.
+                            // On an initial acquisition there is nothing to withdraw, so keep
+                            // grounded facts and preserve any uncertainty in their qualifiers.
                             self.publish_knowledge(&mut page, &job.source_text, draft)
                         } else {
                             self.apply_replacement(
@@ -1290,15 +1279,29 @@ impl Application {
                 body.push_str("\nNo supported tags were selected for this page.\n");
             }
             for tag in &tag_records {
+                let support = &tag.supports[0];
+                let (basis, line_label, byte_label, guidance) =
+                    evidence_display_basis(support.evidence.offset_basis);
+                let locator = support
+                    .evidence
+                    .source_location
+                    .as_deref()
+                    .map(|value| format!(" · source locator: {value}"))
+                    .unwrap_or_default();
                 body.push_str(&format!(
-                    "\n- **#{}** · {}\n  - Evidence: “{}” · source lines {}–{}, bytes {}–{}\n",
+                    "\n- **#{}** · {}\n  - Evidence: “{}” · {} {}–{}, {} {}–{} · {}{}\n  - {}\n",
                     escape_markdown(&tag.label),
                     escape_markdown(&tag.normalized),
-                    escape_markdown(&tag.supports[0].evidence.quote),
-                    tag.supports[0].evidence.line_start,
-                    tag.supports[0].evidence.line_end,
-                    tag.supports[0].evidence.byte_start,
-                    tag.supports[0].evidence.byte_end,
+                    escape_markdown(&support.evidence.quote),
+                    line_label,
+                    support.evidence.line_start,
+                    support.evidence.line_end,
+                    byte_label,
+                    support.evidence.byte_start,
+                    support.evidence.byte_end,
+                    basis,
+                    locator,
+                    guidance,
                 ));
             }
             let header = serde_yaml_ng::to_string(&KnowledgePageHeader {
@@ -1692,6 +1695,14 @@ impl Application {
             }) else {
                 continue;
             };
+            // A matching revision number does not make a known supplement or
+            // tentative update part of the report being replaced.
+            if matches!(
+                previous.update_role.as_str(),
+                "supplement" | "conditional" | "targeted_correction"
+            ) {
+                continue;
+            }
             if incoming.source_revision.is_some()
                 && previous.source_revision.is_some_and(|revision| {
                     revision.saturating_add(1) == incoming.source_revision.unwrap()
@@ -1700,7 +1711,7 @@ impl Application {
                 candidates.push((source_id, previous.clone()));
             }
         }
-        if !candidates.is_empty() {
+        if candidates.len() == 1 {
             replacements.extend(candidates.into_iter().map(|(source_id, _)| source_id));
             return Ok(replacements);
         }
@@ -1718,12 +1729,19 @@ impl Application {
                 }) else {
                     continue;
                 };
+                if matches!(
+                    previous.update_role.as_str(),
+                    "supplement" | "conditional" | "targeted_correction"
+                ) {
+                    continue;
+                }
                 if previous.source_date.is_none() && previous.source_revision.is_none() {
                     undated.push((source_id, previous.received_at.clone()));
                 }
             }
             undated.sort_by(|a, b| a.1.cmp(&b.1));
-            if let Some((source_id, _)) = undated.pop() {
+            if undated.len() == 1 {
+                let (source_id, _) = undated.pop().expect("exactly one candidate");
                 replacements.insert(source_id);
             }
             return Ok(replacements);
@@ -1934,19 +1952,25 @@ impl Application {
                 .as_deref()
                 .map(|value| format!(" · source locator: {value}"))
                 .unwrap_or_default();
+            let (basis, line_label, byte_label, guidance) =
+                evidence_display_basis(evidence.offset_basis);
             body.push_str(&format!(
-                "\n- **{}:** {}{}\n  - Fact identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · source lines {}–{}, bytes {}–{}{}\n  - Source support count: {}\n  - Links: [Supporting source page]({}) · [Retained original]({})\n",
+                "\n- **{}:** {}{}\n  - Fact identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Source support count: {}\n  - Links: [Source page]({}) · [Retained original]({})\n",
                 escape_markdown(&fact.property.replace('_', " ")),
                 escape_markdown(&fact.value),
                 fact.qualifier.as_deref().map(|q| format!(" ({})", escape_markdown(q))).unwrap_or_default(),
                 fact.fact_id,
                 escape_markdown(&evidence.quote),
                 escape_markdown(origin),
+                line_label,
                 evidence.line_start,
                 evidence.line_end,
+                byte_label,
                 evidence.byte_start,
                 evidence.byte_end,
+                basis,
                 locator,
+                guidance,
                 fact.supports.len(),
                 source_link,
                 original_link,
@@ -1973,15 +1997,19 @@ impl Application {
                 .as_deref()
                 .map(|value| format!(" · source locator: {value}"))
                 .unwrap_or_default();
+            let (basis, line_label, byte_label, guidance) =
+                evidence_display_basis(evidence.offset_basis);
             body.push_str(&format!(
-                "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · source lines {}–{}, bytes {}–{}{}\n  - Source support count: {}\n  - Links: [Supporting source page]({}) · [Retained original]({})\n",
+                "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Source support count: {}\n  - Links: [Source page]({}) · [Retained original]({})\n",
                 escape_markdown(labels.get(&rel.from_page_id).map(String::as_str).unwrap_or(&rel.from_page_id)), rel.from_page_id,
                 escape_markdown(&rel.kind.replace('_', " ")),
                 escape_markdown(labels.get(&rel.to_page_id).map(String::as_str).unwrap_or(&rel.to_page_id)), rel.to_page_id,
                 rel.qualifier.as_deref().map(|q| format!(" (qualifier: {})", escape_markdown(q))).unwrap_or_default(),
                 rel.relationship_id, escape_markdown(&evidence.quote), escape_markdown(origin),
-                evidence.line_start, evidence.line_end, evidence.byte_start, evidence.byte_end,
+                line_label, evidence.line_start, evidence.line_end, byte_label, evidence.byte_start, evidence.byte_end,
+                basis,
                 locator,
+                guidance,
                 rel.supports.len(),
                 source_link,
                 original_link,
@@ -2996,6 +3024,31 @@ enum EvidenceOffsetBasis {
     PreservedText,
     ExtractedOfficeProjection,
     WebVisibleText,
+}
+
+fn evidence_display_basis(
+    basis: EvidenceOffsetBasis,
+) -> (&'static str, &'static str, &'static str, &'static str) {
+    match basis {
+        EvidenceOffsetBasis::PreservedText => (
+            "preserved source text",
+            "source lines",
+            "source bytes",
+            "Original opens at the beginning; use the source lines and byte offsets to locate this passage.",
+        ),
+        EvidenceOffsetBasis::ExtractedOfficeProjection => (
+            "extracted Office projection; offsets are not original package byte offsets",
+            "extracted projection lines",
+            "extracted projection bytes",
+            "The retained original opens as a fallback; use the OOXML part and locator above to find this passage.",
+        ),
+        EvidenceOffsetBasis::WebVisibleText => (
+            "extracted web visible-text projection; offsets are not downloaded HTML byte offsets",
+            "visible-text projection lines",
+            "visible-text projection bytes",
+            "The retained original opens as a fallback; offsets refer to the stated web visible-text projection.",
+        ),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
