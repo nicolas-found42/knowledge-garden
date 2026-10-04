@@ -788,24 +788,37 @@ impl Application {
         }
         match result {
             Ok(draft) => {
-                let result = if initial {
-                    self.publish_knowledge(&mut page, &job.source_text, draft)
-                } else {
-                    self.apply_replacement(
+                let has_office_content = !matches!(page.info.format.as_str(), "docx" | "pptx")
+                    || draft
+                        .facts
+                        .iter()
+                        .any(|fact| !fact.property.eq_ignore_ascii_case("acquired_content"));
+                if !has_office_content {
+                    self.record_semantic_failure(
                         &mut page,
-                        &job.source_version_id,
-                        &job.source_text,
-                        draft,
-                    )
-                };
-                match result {
-                    Ok(()) => {
-                        page.info.semantic_state = "complete".into();
-                        page.info.semantic_error = None;
-                        page.info.semantic_retry_at = None;
-                    }
-                    Err(error) => {
-                        self.record_semantic_failure(&mut page, error.to_string(), true)?
+                        "Office semantic processing selected no content-bearing facts; coverage remains incomplete and will retry automatically.".into(),
+                        true,
+                    )?;
+                } else {
+                    let result = if initial {
+                        self.publish_knowledge(&mut page, &job.source_text, draft)
+                    } else {
+                        self.apply_replacement(
+                            &mut page,
+                            &job.source_version_id,
+                            &job.source_text,
+                            draft,
+                        )
+                    };
+                    match result {
+                        Ok(()) => {
+                            page.info.semantic_state = "complete".into();
+                            page.info.semantic_error = None;
+                            page.info.semantic_retry_at = None;
+                        }
+                        Err(error) => {
+                            self.record_semantic_failure(&mut page, error.to_string(), true)?
+                        }
                     }
                 }
             }

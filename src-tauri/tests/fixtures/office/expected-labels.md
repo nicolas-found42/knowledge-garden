@@ -28,3 +28,15 @@ Labels frozen before DOCX/PPTX construction and before any extraction implementa
 - Preserve source order and evidence locations: DOCX paragraph/table cell; PPTX slide index/order and distinguishable speaker-notes location. Slide-visible text and notes must not be collapsed into one unqualified stream.
 - A parser must not run, acquire, or dereference either `.invalid` link. They are reserved example-domain strings and do not designate actual resources.
 - Extraction omissions caused by the malformed embedded object must not be interpreted as evidence that the rest of the document/presentation has no content.
+# Frozen follow-up labels for general Office proposition formation
+
+Frozen before constructing this added synthetic package and before its application extraction/semantic tests.
+
+- File: `general-measure.docx`, a modern Word OOXML DOCX with no event identifier and no external link.
+- Body statement: `Sensor drift left the reading provisional until the second instrument check.` It is a source statement, with provisional qualification preserved and body paragraph provenance.
+- Table columns: `Measurement`, `Result`, `Review`.
+- Table row: `Dissolved oxygen` / `7.4 mg/L` / `Provisional pending a second-instrument check.` The extracted knowledge must retain the header/value pairing and exact row qualification, not assert a bare unqualified measurement.
+- A source-document knowledge page should exist from the admitted statements even though this sample contains no Vxx identifier, no named visit/event, and no URL.
+- All facts must quote exact extracted text and identify the DOCX paragraph or table row projection locator. The original must remain byte-identical.
+
+This synthetic fixture tests generic Office-channel processing and is not representative owner data, a quality claim, or a full Office-format qualification.
