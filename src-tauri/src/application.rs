@@ -806,48 +806,61 @@ impl Application {
         }
         match result {
             Ok(draft) => {
-                let update = draft.source_update.clone();
-                let result = self
-                    .store_source_update(
+                let has_office_content = !matches!(page.info.format.as_str(), "docx" | "pptx")
+                    || draft
+                        .facts
+                        .iter()
+                        .any(|fact| !fact.property.eq_ignore_ascii_case("acquired_content"));
+                if !has_office_content {
+                    self.record_semantic_failure(
                         &mut page,
-                        &job.source_version_id,
-                        &job.source_text,
-                        update.as_ref(),
-                    )
-                    .and_then(|()| {
-                        if initial {
-                            if update.as_ref().is_some_and(|decision| {
-                                matches!(
-                                    decision.role,
-                                    SourceUpdateRole::Conditional
-                                        | SourceUpdateRole::TargetedCorrection
-                                        | SourceUpdateRole::Unknown
-                                )
-                            }) {
-                                return self.retain_non_authoritative_update(
+                        "Office semantic processing selected no content-bearing facts; coverage remains incomplete and will retry automatically.".into(),
+                        true,
+                    )?;
+                } else {
+                    let update = draft.source_update.clone();
+                    let result = self
+                        .store_source_update(
+                            &mut page,
+                            &job.source_version_id,
+                            &job.source_text,
+                            update.as_ref(),
+                        )
+                        .and_then(|()| {
+                            if initial {
+                                if update.as_ref().is_some_and(|decision| {
+                                    matches!(
+                                        decision.role,
+                                        SourceUpdateRole::Conditional
+                                            | SourceUpdateRole::TargetedCorrection
+                                            | SourceUpdateRole::Unknown
+                                    )
+                                }) {
+                                    return self.retain_non_authoritative_update(
+                                        &mut page,
+                                        &job.source_version_id,
+                                        update.as_ref(),
+                                    );
+                                }
+                                self.publish_knowledge(&mut page, &job.source_text, draft)
+                            } else {
+                                self.apply_replacement(
                                     &mut page,
                                     &job.source_version_id,
-                                    update.as_ref(),
-                                );
+                                    &job.source_text,
+                                    draft,
+                                )
                             }
-                            self.publish_knowledge(&mut page, &job.source_text, draft)
-                        } else {
-                            self.apply_replacement(
-                                &mut page,
-                                &job.source_version_id,
-                                &job.source_text,
-                                draft,
-                            )
+                        });
+                    match result {
+                        Ok(()) => {
+                            page.info.semantic_state = "complete".into();
+                            page.info.semantic_error = None;
+                            page.info.semantic_retry_at = None;
                         }
-                    });
-                match result {
-                    Ok(()) => {
-                        page.info.semantic_state = "complete".into();
-                        page.info.semantic_error = None;
-                        page.info.semantic_retry_at = None;
-                    }
-                    Err(error) => {
-                        self.record_semantic_failure(&mut page, error.to_string(), true)?
+                        Err(error) => {
+                            self.record_semantic_failure(&mut page, error.to_string(), true)?
+                        }
                     }
                 }
             }

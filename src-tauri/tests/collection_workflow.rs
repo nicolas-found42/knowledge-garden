@@ -64,6 +64,21 @@ impl SemanticProvider for WholeInputProvider {
                     source_location: None,
                 },
             }],
+            facts: vec![FactDraft {
+                subject: "Office source document".into(),
+                property: "document_statement".into(),
+                value: source_text.to_owned(),
+                evidence: EvidenceDraft {
+                    quote: source_text.to_owned(),
+                    byte_start: 0,
+                    byte_end: source_text.len(),
+                    origin: "document_body".into(),
+                    qualifier: None,
+                    offset_basis: None,
+                    source_location: None,
+                },
+                record_key: Some("whole-input-projection".into()),
+            }],
             ..KnowledgeDraft::default()
         })
     }
