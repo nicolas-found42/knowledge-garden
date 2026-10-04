@@ -223,7 +223,7 @@ it("imports labeled DOCX and PPTX through the public reader with distinct locate
     expect(evidencePage.markdown).toContain(
       fixture.endsWith(".docx")
         ? "DOCX table 1 row 2; channel=table"
-        : "PPTX slide 1 speaker note 0; channel=speaker_notes",
+        : "PPTX slide 1 speaker note 1",
     );
     expect(evidencePage.markdown).toContain(
       "offsets are not original package byte offsets",
