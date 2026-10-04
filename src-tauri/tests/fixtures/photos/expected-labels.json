@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "frozen_before_fixture_generation": true,
+  "synthetic_only": true,
+  "cases": [
+    {
+      "id": "caption-date-conflicts-with-metadata",
+      "file": "source/tabletop-apple.jpg",
+      "format": "JPEG",
+      "pixels": {
+        "visible": ["one red apple", "one green leaf attached to the apple", "white ceramic saucer", "light wood tabletop"],
+        "not_visible": ["people", "a river", "a visit", "a readable calendar"],
+        "identity": "no named person or identity is established by these pixels"
+      },
+      "metadata": {
+        "exif_datetime_original": "2026:04:11 12:30:00",
+        "date_interpretation": "metadata claim with EXIF origin only; timezone and authenticity are unknown"
+      },
+      "embedded_caption": "Maya and Jonah took this photo at Riverside on May 17, 2024 during the field visit.",
+      "required": [
+        "Keep the caption as supplied caption provenance, not a pixel observation.",
+        "Do not create a verified May 17, 2024 capture date or infer Maya, Jonah, Riverside, or a field visit from the pixels.",
+        "Keep the EXIF date distinct from the caption date, with metadata origin and qualified status.",
+        "If image interpretation is produced, it should describe the apple/saucer/table only and cite the whole-image fallback or an actual normalized region."
+      ]
+    },
+    {
+      "id": "stripped-metadata-ocr-region",
+      "file": "source/river-gauge.png",
+      "format": "PNG",
+      "pixels": {
+        "visible": ["a white rectangular sign", "dark printed text: RIVER STAGE 2.4 M", "small line: CHECK GAUGE"],
+        "not_visible": ["people", "a named place", "a date", "a waterway or river scene"],
+        "identity": "no named person or identity is established by these pixels"
+      },
+      "metadata": "no EXIF capture time or location tags; capture date/location remain unknown",
+      "ocr": {
+        "expected_text": ["RIVER STAGE 2.4 M", "CHECK GAUGE"],
+        "origin": "image_ocr",
+        "location": "normalized region around printed text; disclose whole-image fallback if no region is returned"
+      },
+      "required": [
+        "Keep OCR text distinct from visual interpretation and file metadata.",
+        "Do not infer actual river level, a named river, a date, or an observer from the sign alone.",
+        "Do not invent a capture date/location when metadata is stripped."
+      ]
+    },
+    {
+      "id": "heic-read-and-preview",
+      "file": "source/garden-pot.heic",
+      "format": "HEIC",
+      "pixels": {
+        "visible": ["one terracotta pot", "one small green plant", "plain pale background"],
+        "not_visible": ["people", "text", "a location", "a calendar"],
+        "identity": "no named person or identity is established by these pixels"
+      },
+      "required": [
+        "Retain the exact HEIC original and provide a readable source page.",
+        "An on-demand preview displays the same plant/pot image; preview pixels are derived and never replace the retained original.",
+        "Do not invent metadata, text, identity, or date."
+      ]
+    },
+    {
+      "id": "damaged-image",
+      "file": "source/damaged-photo.jpg",
+      "format": "JPEG label with invalid image payload",
+      "pixels": "unreadable; expected visual/OCR content is unknown",
+      "required": [
+        "Retain exact input bytes and readable source state.",
+        "Expose failed or unsupported image coverage and an unavailable preview.",
+        "Do not publish visual, OCR, date, place, or identity facts."
+      ]
+    }
+  ]
+}
