@@ -26,6 +26,8 @@ impl SemanticProvider for RecordedOfficeProvider {
             qualifier: source_text
                 .contains("channel=speaker_notes")
                 .then(|| "unconfirmed note, not visible slide text".into()),
+            offset_basis: None,
+            source_location: None,
         };
         let label = if source_text.contains("DOCX table") {
             "Riverside field visit"
@@ -47,6 +49,7 @@ impl SemanticProvider for RecordedOfficeProvider {
                     "possible correction to 14 visits".into()
                 },
                 evidence,
+                record_key: None,
             }],
             ..KnowledgeDraft::default()
         })

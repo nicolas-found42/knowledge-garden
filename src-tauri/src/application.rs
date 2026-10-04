@@ -2,7 +2,7 @@
 use crate::office::{CoveragePart, CoverageScope, CoverageStatus, OfficeProjection};
 use crate::semantic::{
     EntityDraft, EvidenceDraft, KnowledgeDraft, KnowledgePage, KnowledgePageSummary, ProviderError,
-    SemanticDecision, SemanticJob, SemanticProvider,
+    SemanticDecision, SemanticJob, SemanticProvider, SourceUpdateRole,
 };
 use fs2::FileExt;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
@@ -91,6 +91,18 @@ pub struct SourceVersion {
     pub order_basis: String,
     #[serde(default)]
     pub update_role: String,
+    #[serde(default)]
+    pub update_evidence: Option<EvidenceDraft>,
+    #[serde(default)]
+    pub update_confidence: Option<f64>,
+    #[serde(default)]
+    pub source_date_evidence: Option<EvidenceDraft>,
+    #[serde(default)]
+    pub source_date_confidence: Option<f64>,
+    #[serde(default)]
+    pub source_revision_evidence: Option<EvidenceDraft>,
+    #[serde(default)]
+    pub source_revision_confidence: Option<f64>,
     #[serde(default)]
     pub state: String,
     #[serde(default)]
@@ -223,6 +235,7 @@ pub struct Application {
     _lock: File,
     semantic_provider: Arc<dyn SemanticProvider>,
     staged_publication: Vec<(PathBuf, Vec<u8>)>,
+    fail_after_publication_files: Option<usize>,
 }
 
 fn semantic_pending() -> String {
@@ -230,6 +243,13 @@ fn semantic_pending() -> String {
 }
 
 impl Application {
+    /// Injects a one-shot failure after the specified number of destination
+    /// files have been atomically replaced. Intended for public-application
+    /// recovery verification.
+    pub fn set_publication_failpoint_for_test(&mut self, after_files: usize) {
+        self.fail_after_publication_files = Some(after_files);
+    }
+
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
         Self::open_inner(root, Arc::new(UnavailableProvider))
     }
@@ -306,6 +326,7 @@ impl Application {
             _lock: lock,
             semantic_provider,
             staged_publication: Vec::new(),
+            fail_after_publication_files: None,
         };
         app.rebuild_index()?;
         Ok(app)
@@ -564,9 +585,7 @@ impl Application {
                 &asset,
                 &format,
                 &acquisition.received_at,
-                &text,
                 "pending",
-                replacement_role(&text),
             );
             let version_path = self.version_original_path(&source_id, &version)?;
             write_atomic(&version_path, &fs::read(staging.path().join(&asset))?)?;
@@ -741,7 +760,6 @@ impl Application {
                 &asset,
                 &format,
                 &acquisition.received_at,
-                &text,
                 if matches!(
                     extraction,
                     ExtractionState::TextPreserved
@@ -752,7 +770,6 @@ impl Application {
                 } else {
                     "unavailable"
                 },
-                replacement_role(&text),
             )],
             update_status: matches!(
                 extraction,
@@ -1008,16 +1025,40 @@ impl Application {
         }
         match result {
             Ok(draft) => {
-                let result = if initial {
-                    self.publish_knowledge(&mut page, &job.source_text, draft)
-                } else {
-                    self.apply_replacement(
+                let update = draft.source_update.clone();
+                let result = self
+                    .store_source_update(
                         &mut page,
                         &job.source_version_id,
                         &job.source_text,
-                        draft,
+                        update.as_ref(),
                     )
-                };
+                    .and_then(|()| {
+                        if initial {
+                            if update.as_ref().is_some_and(|decision| {
+                                matches!(
+                                    decision.role,
+                                    SourceUpdateRole::Conditional
+                                        | SourceUpdateRole::TargetedCorrection
+                                        | SourceUpdateRole::Unknown
+                                )
+                            }) {
+                                return self.retain_non_authoritative_update(
+                                    &mut page,
+                                    &job.source_version_id,
+                                    update.as_ref(),
+                                );
+                            }
+                            self.publish_knowledge(&mut page, &job.source_text, draft)
+                        } else {
+                            self.apply_replacement(
+                                &mut page,
+                                &job.source_version_id,
+                                &job.source_text,
+                                draft,
+                            )
+                        }
+                    });
                 match result {
                     Ok(()) => {
                         page.info.semantic_state = "complete".into();
@@ -1059,9 +1100,142 @@ impl Application {
             self.staged_publication
                 .push((self.page_path(&page.info.source_id)?, markdown.into_bytes()));
             let files = std::mem::take(&mut self.staged_publication);
-            commit_publication(&self.root, files)?;
+            let fail_after = self.fail_after_publication_files.take();
+            commit_publication(&self.root, files, fail_after)?;
         }
         self.index_page(&page.info)?;
+        Ok(())
+    }
+
+    fn store_source_update(
+        &self,
+        page: &mut SourcePage,
+        version_id: &str,
+        source_text: &str,
+        decision: Option<&crate::semantic::SourceUpdateDraft>,
+    ) -> Result<()> {
+        let Some(version) = page
+            .info
+            .versions_seen
+            .iter_mut()
+            .find(|version| version.source_version_id == version_id)
+        else {
+            return Err(GardenError::Invalid(
+                "The semantic result references a source version that is no longer retained."
+                    .into(),
+            ));
+        };
+        let Some(decision) = decision else {
+            version.update_role = "unknown".into();
+            version.update_evidence = None;
+            version.update_confidence = None;
+            version.source_date = None;
+            version.source_revision = None;
+            version.source_date_evidence = None;
+            version.source_date_confidence = None;
+            version.source_revision_evidence = None;
+            version.source_revision_confidence = None;
+            version.order_basis = "arrival_fallback".into();
+            return Ok(());
+        };
+        if !decision.certainty.is_finite() || !(0.0..=1.0).contains(&decision.certainty) {
+            return Err(GardenError::Invalid(
+                "Jev returned an invalid source-update confidence.".into(),
+            ));
+        }
+        for confidence in [
+            decision.source_date_certainty,
+            decision.source_revision_certainty,
+        ] {
+            if !confidence.is_finite() || !(0.0..=1.0).contains(&confidence) {
+                return Err(GardenError::Invalid(
+                    "Jev returned an invalid source-order confidence.".into(),
+                ));
+            }
+        }
+        validate_evidence(source_text, &decision.evidence)?;
+        let judged_source_date_evidence = decision
+            .source_date_evidence
+            .as_ref()
+            .map(|evidence| validate_evidence(source_text, evidence))
+            .transpose()?;
+        let judged_source_revision_evidence = decision
+            .source_revision_evidence
+            .as_ref()
+            .map(|evidence| validate_evidence(source_text, evidence))
+            .transpose()?;
+        let judged_source_date = decision
+            .source_date
+            .as_deref()
+            .map(validate_iso_date)
+            .transpose()?;
+        if judged_source_date.is_some() != judged_source_date_evidence.is_some()
+            || decision.source_revision.is_some() != judged_source_revision_evidence.is_some()
+            || decision.source_revision == Some(0)
+        {
+            return Err(GardenError::Invalid(
+                "Jev returned incomplete source-order evidence.".into(),
+            ));
+        }
+        let accept_source_date = decision.source_date_certainty >= 0.8;
+        let accept_source_revision = decision.source_revision_certainty >= 0.8;
+        version.update_role = decision.role.as_str().into();
+        version.update_evidence = Some(decision.evidence.clone());
+        version.update_confidence = Some(decision.certainty);
+        version.source_date = accept_source_date.then_some(judged_source_date).flatten();
+        version.source_revision = accept_source_revision
+            .then_some(decision.source_revision)
+            .flatten();
+        version.source_date_evidence = if version.source_date.is_some() {
+            decision.source_date_evidence.clone()
+        } else {
+            None
+        };
+        version.source_date_confidence = version
+            .source_date
+            .is_some()
+            .then_some(decision.source_date_certainty);
+        version.source_revision_evidence = if version.source_revision.is_some() {
+            decision.source_revision_evidence.clone()
+        } else {
+            None
+        };
+        version.source_revision_confidence = version
+            .source_revision
+            .is_some()
+            .then_some(decision.source_revision_certainty);
+        version.order_basis = if version.source_date.is_some() {
+            "provider_judged_source_date".into()
+        } else if version.source_revision.is_some() {
+            "provider_judged_revision".into()
+        } else {
+            "arrival_fallback".into()
+        };
+        Ok(())
+    }
+
+    fn retain_non_authoritative_update(
+        &self,
+        page: &mut SourcePage,
+        version_id: &str,
+        decision: Option<&crate::semantic::SourceUpdateDraft>,
+    ) -> Result<()> {
+        let role = decision
+            .map(|decision| decision.role.as_str())
+            .unwrap_or("unknown");
+        page.info.pending_version_id = None;
+        page.info.update_status = Some("uncertain".into());
+        page.info.semantic_error = Some(format!(
+            "The new source was classified as {role}; its retained text and update evidence were recorded, while current knowledge remains unchanged."
+        ));
+        if let Some(version) = page
+            .info
+            .versions_seen
+            .iter_mut()
+            .find(|version| version.source_version_id == version_id)
+        {
+            version.state = "retained_without_current_change".into();
+        }
         Ok(())
     }
 
@@ -1081,7 +1255,6 @@ impl Application {
         draft: KnowledgeDraft,
     ) -> Result<()> {
         let prior_pages = source.info.knowledge_pages.clone();
-        let replacing_source = source.info.current_version_id.is_some();
         if draft.entities.len() > 500
             || draft.facts.len() > 2_000
             || draft.relationships.len() > 2_000
@@ -1101,7 +1274,7 @@ impl Application {
                     "Semantic entity has no type or label.".into(),
                 ));
             }
-            let page_id = stable_page_id(entity);
+            let page_id = stable_page_id(entity, &source.info.source_id);
             let summary = KnowledgePageSummary {
                 page_id: page_id.clone(),
                 title: entity.label.clone(),
@@ -1142,9 +1315,14 @@ impl Application {
                 .map(|fact| {
                     let evidence = validate_evidence(source_text, &fact.evidence)?;
                     Ok(FactRecord {
-                        fact_id: stable_fact_id(&summary.page_id, &fact.property),
+                        fact_id: stable_fact_id(
+                            &summary.page_id,
+                            &fact.property,
+                            fact.record_key.as_deref(),
+                        ),
                         subject_page_id: summary.page_id.clone(),
                         property: fact.property.clone(),
+                        record_key: fact.record_key.clone(),
                         value: fact.value.clone(),
                         qualifier: evidence.qualifier.clone(),
                         origin: evidence.origin.clone(),
@@ -1254,6 +1432,9 @@ impl Application {
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         "extracted Office projection; offsets are not original package byte offsets"
                     }
+                    EvidenceOffsetBasis::WebVisibleText => {
+                        "extracted web visible-text projection; offsets are not downloaded HTML byte offsets"
+                    }
                 };
                 let locator = fact
                     .evidence
@@ -1266,11 +1447,13 @@ impl Application {
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         ("extracted projection lines", "extracted projection bytes")
                     }
+                    EvidenceOffsetBasis::WebVisibleText => (
+                        "visible-text projection lines",
+                        "visible-text projection bytes",
+                    ),
                 };
-                let guidance = if fact.evidence.offset_basis
-                    == EvidenceOffsetBasis::ExtractedOfficeProjection
-                {
-                    "The original opens as a fallback; use the OOXML part and location above to find the extracted passage."
+                let guidance = if fact.evidence.offset_basis != EvidenceOffsetBasis::PreservedText {
+                    "The retained original opens as a fallback; the offsets above refer to the stated extracted projection."
                 } else {
                     "Original opens at the beginning; use these source lines and byte offsets to locate this passage."
                 };
@@ -1304,6 +1487,12 @@ impl Application {
                         "extracted projection bytes",
                         relationship.evidence.source_location.as_deref().map(|location| format!(" · original locator: {location}")).unwrap_or_default(),
                         "The original opens as a fallback; use the OOXML part and location above to find the extracted passage.",
+                    ),
+                    EvidenceOffsetBasis::WebVisibleText => (
+                        "visible-text projection lines",
+                        "visible-text projection bytes",
+                        relationship.evidence.source_location.as_deref().map(|location| format!(" · original locator: {location}")).unwrap_or_default(),
+                        "The retained original opens as a fallback; offsets refer to the stated web visible-text projection.",
                     ),
                 };
                 body.push_str(&format!(
@@ -1373,18 +1562,22 @@ impl Application {
             old.relationships =
                 self.reconcile_relationships(old.relationships, Vec::new(), &replaced_sources)?;
             old.tags = self.reconcile_tags(old.tags, Vec::new(), &replaced_sources);
-            contents.insert(page.page_id.clone(), self.render_knowledge_page(old)?);
+            contents.insert(
+                page.page_id.clone(),
+                self.render_knowledge_page(old, &std::collections::HashMap::new())?,
+            );
         }
+        let draft_labels = page_records
+            .iter()
+            .map(|(_, page, _)| (page.page_id.clone(), page.title.clone()))
+            .collect::<std::collections::HashMap<_, _>>();
         for (page_id, markdown) in &mut contents {
             let path = pages_dir.join(format!("{page_id}.md"));
             let mut header = parse_knowledge_header(markdown)?;
             if path.exists() {
                 let mut old = read_knowledge_header(&path)?;
                 ensure_legacy_supports(&mut old);
-                let mut replaced_sources = self.replacement_sources(&old, source)?;
-                if replacing_source {
-                    replaced_sources.insert(source.info.source_id.clone());
-                }
+                let replaced_sources = self.replacement_sources(&old, source)?;
                 mark_arrival_fallback(source, &replaced_sources);
                 header.facts = self.reconcile_facts(old.facts, header.facts, &replaced_sources)?;
                 header.relationships = self.reconcile_relationships(
@@ -1393,8 +1586,8 @@ impl Application {
                     &replaced_sources,
                 )?;
                 header.tags = self.reconcile_tags(old.tags, header.tags, &replaced_sources);
-                *markdown = self.render_knowledge_page(header)?;
             }
+            *markdown = self.render_knowledge_page(header, &draft_labels)?;
         }
         for (page_id, markdown) in contents {
             self.staged_publication.push((
@@ -1474,29 +1667,22 @@ impl Application {
                 "The pending source version is missing.".into(),
             ));
         };
-        let same_event = draft.entities.iter().any(|entity| {
-            entity.kind == "event"
-                && source
-                    .info
-                    .knowledge_pages
-                    .iter()
-                    .any(|page| page.kind == "event" && page.title == entity.label)
+        let same_entity = draft.entities.iter().any(|entity| {
+            source.info.knowledge_pages.iter().any(|page| {
+                page.kind.eq_ignore_ascii_case(&entity.kind) && page.title == entity.label
+            })
         });
-        if candidate.update_role != "complete_replacement" || !same_event {
-            source.info.pending_version_id = None;
-            source.info.update_status = Some("uncertain".into());
-            source.info.semantic_error = Some(
-                "The new source version was kept, but it did not establish a complete replacement of the current event; the last current knowledge remains active.".into(),
+        let complete_replacement = draft.source_update.as_ref().is_some_and(|decision| {
+            decision.role == SourceUpdateRole::CompleteReplacement
+                && decision.certainty >= 0.8
+                && decision.certainty.is_finite()
+        });
+        if !complete_replacement || !same_entity {
+            return self.retain_non_authoritative_update(
+                source,
+                source_version_id,
+                draft.source_update.as_ref(),
             );
-            if let Some(version) = source
-                .info
-                .versions_seen
-                .iter_mut()
-                .find(|version| version.source_version_id == source_version_id)
-            {
-                version.state = "uncertain".into();
-            }
-            return Ok(());
         }
         let current_id = source.info.current_version_id.clone().ok_or_else(|| {
             GardenError::Invalid("A replacement has no established current version.".into())
@@ -1606,6 +1792,10 @@ impl Application {
         incoming: Vec<FactRecord>,
         remove_source_ids: &std::collections::HashSet<String>,
     ) -> Result<Vec<FactRecord>> {
+        let replacement_values = incoming
+            .iter()
+            .map(|record| (record.fact_id.clone(), record.value.clone()))
+            .collect::<std::collections::HashMap<_, _>>();
         let mut records = std::collections::HashMap::<String, FactRecord>::new();
         for (mut record, is_previous) in previous
             .into_iter()
@@ -1623,9 +1813,16 @@ impl Application {
                 });
             }
             if is_previous {
-                record
-                    .supports
-                    .retain(|support| !remove_source_ids.contains(&support.source_id));
+                if let Some(replacement_value) = replacement_values.get(&record.fact_id) {
+                    record.supports.retain(|support| {
+                        !remove_source_ids.contains(&support.source_id)
+                            && (remove_source_ids.is_empty() || support.value == *replacement_value)
+                    });
+                } else {
+                    record
+                        .supports
+                        .retain(|support| !remove_source_ids.contains(&support.source_id));
+                }
             }
             if record.supports.is_empty() {
                 continue;
@@ -1676,7 +1873,10 @@ impl Application {
         else {
             return Ok(std::collections::HashSet::new());
         };
-        if incoming.update_role != "complete_replacement" {
+        if incoming.update_role != "complete_replacement"
+            || incoming.update_confidence.is_none_or(|value| value < 0.8)
+            || incoming.update_evidence.is_none()
+        {
             return Ok(std::collections::HashSet::new());
         }
 
@@ -1698,6 +1898,7 @@ impl Application {
             )
             .filter(|source_id| !source_id.is_empty() && source_id != &source.info.source_id)
             .collect::<std::collections::HashSet<_>>();
+        let mut replacements = std::collections::HashSet::from([source.info.source_id.clone()]);
         let mut candidates = Vec::new();
         for source_id in support_sources.iter().cloned() {
             let path = self.source_dir(&source_id)?.join("index.md");
@@ -1719,10 +1920,8 @@ impl Application {
             }
         }
         if !candidates.is_empty() {
-            return Ok(candidates
-                .into_iter()
-                .map(|(source_id, _)| source_id)
-                .collect());
+            replacements.extend(candidates.into_iter().map(|(source_id, _)| source_id));
+            return Ok(replacements);
         }
 
         if incoming.source_date.is_none() && incoming.source_revision.is_none() {
@@ -1743,12 +1942,12 @@ impl Application {
                 }
             }
             undated.sort_by(|a, b| a.1.cmp(&b.1));
-            return Ok(undated
-                .pop()
-                .map(|(source_id, _)| [source_id].into_iter().collect())
-                .unwrap_or_default());
+            if let Some((source_id, _)) = undated.pop() {
+                replacements.insert(source_id);
+            }
+            return Ok(replacements);
         }
-        Ok(std::collections::HashSet::new())
+        Ok(replacements)
     }
 
     fn reconcile_relationships(
@@ -1882,29 +2081,94 @@ impl Application {
         ))
     }
 
-    fn render_knowledge_page(&self, header: KnowledgePageHeader) -> Result<String> {
+    fn support_links(&self, support: &SupportRecord) -> Result<(String, String)> {
+        let Some(short_id) = support.source_id.strip_prefix("source-") else {
+            return Ok(("unavailable".into(), "unavailable".into()));
+        };
+        let source_dir = self.source_dir(&support.source_id)?;
+        let source_page = read_page(&source_dir.join("index.md"))?;
+        let version = source_page
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == support.source_version_id);
+        let (asset, current) = if let Some(version) = version {
+            (
+                version.asset.clone(),
+                source_page.info.current_version_id.as_deref()
+                    == Some(support.source_version_id.as_str())
+                    || (source_page.info.current_version_id.is_none()
+                        && source_page.info.pending_version_id.as_deref()
+                            == Some(support.source_version_id.as_str())),
+            )
+        } else if support.source_version_id == source_page.info.sha256 {
+            (source_page.info.asset.clone(), true)
+        } else {
+            return Ok((
+                format!("../sources/{short_id}/index.md"),
+                format!("../sources/{short_id}/{}", source_page.info.asset),
+            ));
+        };
+        let asset_path = if current {
+            format!("../sources/{short_id}/{asset}")
+        } else {
+            format!(
+                "../sources/{short_id}/versions/{}/{asset}",
+                support.source_version_id
+            )
+        };
+        Ok((format!("../sources/{short_id}/index.md"), asset_path))
+    }
+
+    fn render_knowledge_page(
+        &self,
+        header: KnowledgePageHeader,
+        additional_labels: &std::collections::HashMap<String, String>,
+    ) -> Result<String> {
         let pages_dir = self.root.join("pages");
-        let labels = fs::read_dir(&pages_dir)?
+        let mut labels = fs::read_dir(&pages_dir)?
             .filter_map(|entry| entry.ok())
             .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "md"))
             .filter_map(|entry| read_knowledge_page(&entry.path()).ok())
             .map(|page| (page.page_id, page.title))
             .collect::<std::collections::HashMap<_, _>>();
+        for (page_id, title) in additional_labels {
+            labels.insert(page_id.clone(), title.clone());
+        }
         let mut body = format!("# {}\n\n## Facts\n", escape_heading(&header.title));
         for fact in &header.facts {
+            let support = self.latest_support(&fact.supports)?;
+            let (source_link, original_link) = support
+                .map(|support| self.support_links(support))
+                .transpose()?
+                .unwrap_or_else(|| ("unavailable".into(), "unavailable".into()));
+            let evidence = support
+                .map(|support| &support.evidence)
+                .unwrap_or(&fact.evidence);
+            let origin = support
+                .map(|support| support.origin.as_str())
+                .unwrap_or(&fact.origin);
+            let locator = evidence
+                .source_location
+                .as_deref()
+                .map(|value| format!(" · source locator: {value}"))
+                .unwrap_or_default();
             body.push_str(&format!(
-                "\n- **{}:** {}{}\n  - Fact identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · source lines {}–{}, bytes {}–{}\n  - Source support count: {}\n",
+                "\n- **{}:** {}{}\n  - Fact identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · source lines {}–{}, bytes {}–{}{}\n  - Source support count: {}\n  - Links: [Supporting source page]({}) · [Retained original]({})\n",
                 escape_markdown(&fact.property.replace('_', " ")),
                 escape_markdown(&fact.value),
                 fact.qualifier.as_deref().map(|q| format!(" ({})", escape_markdown(q))).unwrap_or_default(),
                 fact.fact_id,
-                escape_markdown(&fact.evidence.quote),
-                escape_markdown(&fact.origin),
-                fact.evidence.line_start,
-                fact.evidence.line_end,
-                fact.evidence.byte_start,
-                fact.evidence.byte_end,
+                escape_markdown(&evidence.quote),
+                escape_markdown(origin),
+                evidence.line_start,
+                evidence.line_end,
+                evidence.byte_start,
+                evidence.byte_end,
+                locator,
                 fact.supports.len(),
+                source_link,
+                original_link,
             ));
         }
         if header.facts.is_empty() {
@@ -1912,15 +2176,34 @@ impl Application {
         }
         body.push_str("\n## Relationships\n");
         for rel in &header.relationships {
+            let support = self.latest_support(&rel.supports)?;
+            let (source_link, original_link) = support
+                .map(|support| self.support_links(support))
+                .transpose()?
+                .unwrap_or_else(|| ("unavailable".into(), "unavailable".into()));
+            let evidence = support
+                .map(|support| &support.evidence)
+                .unwrap_or(&rel.evidence);
+            let origin = support
+                .map(|support| support.origin.as_str())
+                .unwrap_or(&rel.origin);
+            let locator = evidence
+                .source_location
+                .as_deref()
+                .map(|value| format!(" · source locator: {value}"))
+                .unwrap_or_default();
             body.push_str(&format!(
-                "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · source lines {}–{}, bytes {}–{}\n  - Source support count: {}\n",
+                "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · source lines {}–{}, bytes {}–{}{}\n  - Source support count: {}\n  - Links: [Supporting source page]({}) · [Retained original]({})\n",
                 escape_markdown(labels.get(&rel.from_page_id).map(String::as_str).unwrap_or(&rel.from_page_id)), rel.from_page_id,
                 escape_markdown(&rel.kind.replace('_', " ")),
                 escape_markdown(labels.get(&rel.to_page_id).map(String::as_str).unwrap_or(&rel.to_page_id)), rel.to_page_id,
                 rel.qualifier.as_deref().map(|q| format!(" (qualifier: {})", escape_markdown(q))).unwrap_or_default(),
-                rel.relationship_id, escape_markdown(&rel.evidence.quote), escape_markdown(&rel.origin),
-                rel.evidence.line_start, rel.evidence.line_end, rel.evidence.byte_start, rel.evidence.byte_end,
+                rel.relationship_id, escape_markdown(&evidence.quote), escape_markdown(origin),
+                evidence.line_start, evidence.line_end, evidence.byte_start, evidence.byte_end,
+                locator,
                 rel.supports.len(),
+                source_link,
+                original_link,
             ));
         }
         if header.relationships.is_empty() {
@@ -2525,18 +2808,8 @@ fn source_version(
     asset: &str,
     format: &str,
     received_at: &str,
-    text: &str,
     state: &str,
-    update_role: &str,
 ) -> SourceVersion {
-    let (source_date, source_revision) = parse_source_order(text);
-    let order_basis = if source_date.is_some() {
-        "source_date"
-    } else if source_revision.is_some() {
-        "explicit_revision"
-    } else {
-        "arrival_fallback"
-    };
     SourceVersion {
         source_version_id: digest.to_owned(),
         sha256: digest.to_owned(),
@@ -2545,10 +2818,16 @@ fn source_version(
         asset: asset.to_owned(),
         format: format.to_owned(),
         received_at: received_at.to_owned(),
-        source_date,
-        source_revision,
-        order_basis: order_basis.into(),
-        update_role: update_role.to_owned(),
+        source_date: None,
+        source_revision: None,
+        order_basis: "awaiting_provider_judgment".into(),
+        update_role: "unknown".into(),
+        update_evidence: None,
+        update_confidence: None,
+        source_date_evidence: None,
+        source_date_confidence: None,
+        source_revision_evidence: None,
+        source_revision_confidence: None,
         state: state.to_owned(),
         coverage: if state == "complete" {
             "complete"
@@ -2558,57 +2837,6 @@ fn source_version(
             "pending"
         }
         .into(),
-    }
-}
-
-fn parse_source_order(text: &str) -> (Option<String>, Option<u64>) {
-    let revision_regex = regex::Regex::new(r"(?i)\brevision\s+([0-9]+)").unwrap();
-    let date_regex = regex::Regex::new(
-        r"(?i)\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+([0-9]{1,2}),?\s+([0-9]{4})\b",
-    )
-    .unwrap();
-    let revision = text
-        .lines()
-        .find(|line| line.to_lowercase().contains("revision"))
-        .and_then(|line| revision_regex.captures(line))
-        .and_then(|captures| captures.get(1)?.as_str().parse::<u64>().ok());
-    let date = text.lines().find_map(|line| {
-        let lower = line.to_lowercase();
-        if !(lower.contains("dated") || lower.contains("report date") || lower.contains("updated"))
-        {
-            return None;
-        }
-        let captures = date_regex.captures(line)?;
-        let month = match captures.get(1)?.as_str().to_lowercase().as_str() {
-            "january" | "jan" => 1,
-            "february" | "feb" => 2,
-            "march" | "mar" => 3,
-            "april" | "apr" => 4,
-            "may" => 5,
-            "june" | "jun" => 6,
-            "july" | "jul" => 7,
-            "august" | "aug" => 8,
-            "september" | "sep" | "sept" => 9,
-            "october" | "oct" => 10,
-            "november" | "nov" => 11,
-            "december" | "dec" => 12,
-            _ => return None,
-        };
-        Some(format!(
-            "{}-{month:02}-{:02}",
-            captures.get(3)?.as_str(),
-            captures.get(2)?.as_str().parse::<u8>().ok()?
-        ))
-    });
-    (date, revision)
-}
-
-fn replacement_role(text: &str) -> &'static str {
-    let lower = text.to_lowercase();
-    if lower.contains("replace") || lower.contains("supersed") {
-        "complete_replacement"
-    } else {
-        "unspecified"
     }
 }
 
@@ -2813,7 +3041,16 @@ fn validate_iso_date(value: &str) -> Result<String> {
     }
     let month = date[5..7].parse::<u32>().unwrap_or(0);
     let day = date[8..10].parse::<u32>().unwrap_or(0);
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+    let year = date[0..4].parse::<u32>().unwrap_or(0);
+    let leap = year != 0 && year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let max_day = match month {
+        2 if leap => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        _ => 0,
+    };
+    if !(1..=12).contains(&month) || day == 0 || day > max_day || year == 0 {
         return Err(GardenError::Invalid(
             "Date filter is outside the calendar.".into(),
         ));
@@ -2977,6 +3214,7 @@ enum EvidenceOffsetBasis {
     #[default]
     PreservedText,
     ExtractedOfficeProjection,
+    WebVisibleText,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2994,6 +3232,8 @@ struct FactRecord {
     fact_id: String,
     subject_page_id: String,
     property: String,
+    #[serde(default)]
+    record_key: Option<String>,
     value: String,
     qualifier: Option<String>,
     origin: String,
@@ -3101,16 +3341,31 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         .map(|index| evidence.byte_start + index)
         .unwrap_or(source.len());
     let evidence_line = &source[line_start_byte..line_end_byte];
-    let source_location = evidence_line
+    let inferred_location = evidence_line
         .strip_prefix('[')
         .and_then(|line| line.find(']').map(|end| line[..end].to_owned()));
-    let offset_basis = if source_location
-        .as_deref()
-        .is_some_and(|locator| locator.starts_with("DOCX ") || locator.starts_with("PPTX "))
-    {
-        EvidenceOffsetBasis::ExtractedOfficeProjection
-    } else {
-        EvidenceOffsetBasis::PreservedText
+    let source_location = evidence
+        .source_location
+        .clone()
+        .or(inferred_location.clone());
+    let offset_basis = match evidence.offset_basis.as_deref() {
+        None if inferred_location.as_deref().is_some_and(|locator| {
+            locator.starts_with("DOCX ") || locator.starts_with("PPTX ")
+        }) =>
+        {
+            EvidenceOffsetBasis::ExtractedOfficeProjection
+        }
+        None => EvidenceOffsetBasis::PreservedText,
+        Some("preserved_text") => EvidenceOffsetBasis::PreservedText,
+        Some("office_projection") | Some("extracted_office_projection") => {
+            EvidenceOffsetBasis::ExtractedOfficeProjection
+        }
+        Some("web_visible_text") => EvidenceOffsetBasis::WebVisibleText,
+        Some(_) => {
+            return Err(GardenError::Invalid(
+                "Semantic evidence uses an unsupported offset basis.".into(),
+            ));
+        }
     };
     Ok(EvidenceLocation {
         quote: evidence.quote.clone(),
@@ -3125,19 +3380,30 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
     })
 }
 
-fn stable_page_id(entity: &EntityDraft) -> String {
+fn stable_page_id(entity: &EntityDraft, source_id: &str) -> String {
     let mut digest = Sha256::new();
     digest.update(entity.kind.to_lowercase().as_bytes());
     digest.update([0]);
     digest.update(entity.label.to_lowercase().as_bytes());
+    if matches!(
+        entity.kind.to_ascii_lowercase().as_str(),
+        "document" | "presentation"
+    ) {
+        digest.update([0]);
+        digest.update(source_id.as_bytes());
+    }
     format!("page-{:x}", digest.finalize())
 }
 
-fn stable_fact_id(subject_page_id: &str, property: &str) -> String {
+fn stable_fact_id(subject_page_id: &str, property: &str, record_key: Option<&str>) -> String {
     let mut digest = Sha256::new();
     digest.update(subject_page_id.as_bytes());
     digest.update([0]);
     digest.update(property.trim().to_lowercase().as_bytes());
+    if let Some(record_key) = record_key {
+        digest.update([0]);
+        digest.update(record_key.trim().to_lowercase().as_bytes());
+    }
     format!("fact-{:x}", digest.finalize())
 }
 
@@ -3421,13 +3687,11 @@ fn read_page(path: &Path) -> Result<SourcePage> {
             &info.asset,
             &info.format,
             &received_at,
-            &body,
             if info.semantic_state == "complete" {
                 "complete"
             } else {
                 "pending"
             },
-            "legacy",
         );
         legacy.coverage = if info.extraction == ExtractionState::TextPreserved
             && info.semantic_state == "complete"
@@ -3467,7 +3731,11 @@ struct PublicationEntry {
     staged: String,
 }
 
-fn commit_publication(root: &Path, files: Vec<(PathBuf, Vec<u8>)>) -> Result<()> {
+fn commit_publication(
+    root: &Path,
+    files: Vec<(PathBuf, Vec<u8>)>,
+    fail_after_files: Option<usize>,
+) -> Result<()> {
     if files.is_empty() {
         return Ok(());
     }
@@ -3501,7 +3769,7 @@ fn commit_publication(root: &Path, files: Vec<(PathBuf, Vec<u8>)>) -> Result<()>
     sync_directory(staging.path())?;
     let transaction_path = staging.keep();
     sync_directory(&transactions)?;
-    apply_publication(root, &transaction_path)?;
+    apply_publication(root, &transaction_path, fail_after_files)?;
     fs::remove_dir_all(&transaction_path)?;
     sync_directory(&transactions)
 }
@@ -3519,22 +3787,32 @@ fn recover_publications(root: &Path) -> Result<()> {
             fs::remove_dir_all(path)?;
             continue;
         }
-        apply_publication(root, &path)?;
+        apply_publication(root, &path, None)?;
         fs::remove_dir_all(path)?;
     }
     sync_directory(&transactions)
 }
 
-fn apply_publication(root: &Path, transaction: &Path) -> Result<()> {
+fn apply_publication(
+    root: &Path,
+    transaction: &Path,
+    fail_after_files: Option<usize>,
+) -> Result<()> {
     let manifest: PublicationManifest =
         serde_json::from_slice(&fs::read(transaction.join("manifest.json"))?)?;
-    for entry in manifest.entries {
+    for (index, entry) in manifest.entries.into_iter().enumerate() {
         let destination = Path::new(&entry.destination);
         let staged = Path::new(&entry.staged);
         validate_relative_collection_path(destination)?;
         validate_relative_staging_path(staged)?;
         let bytes = fs::read(transaction.join(staged))?;
         write_atomic(&root.join(destination), &bytes)?;
+        if fail_after_files == Some(index + 1) {
+            return Err(GardenError::Io(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "Injected publication interruption after an atomic file replacement.",
+            )));
+        }
     }
     Ok(())
 }

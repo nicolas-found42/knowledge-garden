@@ -12,6 +12,49 @@ pub struct KnowledgeDraft {
     pub tags: Vec<TagDraft>,
     #[serde(default)]
     pub decisions: Vec<SemanticDecision>,
+    #[serde(default)]
+    pub source_update: Option<SourceUpdateDraft>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceUpdateRole {
+    CompleteReplacement,
+    Supplement,
+    Conditional,
+    TargetedCorrection,
+    Unknown,
+}
+
+impl SourceUpdateRole {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CompleteReplacement => "complete_replacement",
+            Self::Supplement => "supplement",
+            Self::Conditional => "conditional",
+            Self::TargetedCorrection => "targeted_correction",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceUpdateDraft {
+    pub role: SourceUpdateRole,
+    pub evidence: EvidenceDraft,
+    pub certainty: f64,
+    #[serde(default)]
+    pub source_date: Option<String>,
+    #[serde(default)]
+    pub source_date_evidence: Option<EvidenceDraft>,
+    #[serde(default)]
+    pub source_date_certainty: f64,
+    #[serde(default)]
+    pub source_revision: Option<u64>,
+    #[serde(default)]
+    pub source_revision_evidence: Option<EvidenceDraft>,
+    #[serde(default)]
+    pub source_revision_certainty: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +86,8 @@ pub struct FactDraft {
     pub property: String,
     pub value: String,
     pub evidence: EvidenceDraft,
+    #[serde(default)]
+    pub record_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +113,10 @@ pub struct EvidenceDraft {
     pub byte_end: usize,
     pub origin: String,
     pub qualifier: Option<String>,
+    #[serde(default)]
+    pub offset_basis: Option<String>,
+    #[serde(default)]
+    pub source_location: Option<String>,
 }
 
 pub trait SemanticProvider: Send + Sync {
