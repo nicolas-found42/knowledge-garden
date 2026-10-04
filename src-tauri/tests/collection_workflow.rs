@@ -473,6 +473,13 @@ fn independently_acquired_duration_support_survives_replacement() {
         second.info.asset
     );
     assert!(markdown.contains(&retained_link), "{markdown}");
+    let relationship_section = markdown.split("## Relationships\n").nth(1).unwrap();
+    assert!(
+        relationship_section.contains(&format!(
+            "[Supporting source page](../sources/{source_short_id}/index.md)"
+        )),
+        "{relationship_section}"
+    );
     let linked_original = app
         .page_path(&first.info.source_id)
         .unwrap()
