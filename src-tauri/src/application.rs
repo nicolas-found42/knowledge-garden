@@ -20,7 +20,6 @@ use uuid::Uuid;
 
 pub const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_PAGE_BYTES: u64 = (MAX_TEXT_BYTES * 3 + 64 * 1024) as u64;
-const MAX_REMOTE_BYTES: u64 = 32 * 1024 * 1024;
 const PAGE_SIZE: usize = 50;
 
 #[derive(Debug, Error)]
@@ -350,15 +349,6 @@ impl Application {
                 status.as_u16()
             )));
         }
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAX_REMOTE_BYTES)
-        {
-            return Err(GardenError::Invalid(
-                "The URL response exceeds the 32 MiB source limit; no source material was added."
-                    .into(),
-            ));
-        }
         let final_url = response.url().to_string();
         let content_type = response
             .headers()
@@ -385,7 +375,6 @@ impl Application {
         let staging = tempfile::tempdir_in(self.root.join(".staging"))?;
         let remote_file = staging.path().join(&original_name);
         let mut output = File::create(&remote_file)?;
-        let mut total = 0_u64;
         let mut chunk = [0_u8; 64 * 1024];
         loop {
             let read = response.read(&mut chunk).map_err(|_| {
@@ -396,10 +385,6 @@ impl Application {
             })?;
             if read == 0 {
                 break;
-            }
-            total = total.saturating_add(read as u64);
-            if total > MAX_REMOTE_BYTES {
-                return Err(GardenError::Invalid("The URL response exceeds the 32 MiB source limit; no source material was added.".into()));
             }
             output.write_all(&chunk[..read])?;
         }

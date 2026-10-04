@@ -1,4 +1,5 @@
 use knowledge_garden::application::Application;
+use sha2::{Digest, Sha256};
 use std::{
     io::{Read, Write},
     net::TcpListener,
@@ -45,6 +46,7 @@ impl Fixture {
                         }
                         Err(_) => break,
                     };
+                    stream.set_nonblocking(false).unwrap();
                     let mut request = Vec::with_capacity(4096);
                     let mut chunk = [0; 1024];
                     while request.len() < 4096
@@ -56,14 +58,38 @@ impl Fixture {
                         }
                         request.extend_from_slice(&chunk[..size]);
                     }
+                    if request.is_empty() {
+                        continue;
+                    }
                     let line = String::from_utf8_lossy(&request);
-                    let path = line
+                    let Some(target) = line
                         .lines()
                         .next()
                         .and_then(|line| line.split_whitespace().nth(1))
-                        .unwrap_or("/")
-                        .to_owned();
+                    else {
+                        continue;
+                    };
+                    let target = target.to_owned();
+                    let path = reqwest::Url::parse(&target)
+                        .map(|url| url.path().to_owned())
+                        .unwrap_or_else(|_| target.clone());
                     requests.lock().unwrap().push(path.clone());
+                    if path == "/large.bin" {
+                        let size = 36 * 1024 * 1024;
+                        let headers = format!("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {size}\r\nConnection: close\r\n\r\n");
+                        if stream.write_all(headers.as_bytes()).is_ok() {
+                            let pattern = b"\0SYNTHETIC-LARGE-ASSET\xff".repeat(4096);
+                            let mut remaining = size;
+                            while remaining > 0 {
+                                let chunk_size = remaining.min(pattern.len());
+                                if stream.write_all(&pattern[..chunk_size]).is_err() {
+                                    break;
+                                }
+                                remaining -= chunk_size;
+                            }
+                        }
+                        continue;
+                    }
                     let (status, content_type, disposition, body, location) = match path.as_str() {
                         "/a" => (200, "text/html; charset=utf-8", None, PAGE_A, None),
                         "/b" => (200, "text/html; charset=utf-8", None, PAGE_B, None),
@@ -287,6 +313,21 @@ fn explicitly_supplied_urls_retain_origins_without_crawling_and_can_be_retried()
         b"\0UNKNOWN-CONTAINER\xff\0"
     );
     assert!(unknown.body.contains("Text is unavailable"));
+
+    let large = app
+        .import_url(&format!("{}/large.bin", fixture.base_url))
+        .unwrap();
+    assert_eq!(large.info.bytes, 36 * 1024 * 1024);
+    assert_eq!(
+        large.info.extraction,
+        knowledge_garden::application::ExtractionState::Unsupported
+    );
+    let retained = std::fs::read(app.original_path(&large.info.source_id).unwrap()).unwrap();
+    assert_eq!(retained.len(), 36 * 1024 * 1024);
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&retained)),
+        large.info.sha256
+    );
 
     let invalid_html = app
         .import_url(&format!("{}/invalid.html", fixture.base_url))
