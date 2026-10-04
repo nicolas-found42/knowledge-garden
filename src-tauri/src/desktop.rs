@@ -41,6 +41,11 @@ async fn import_source(
 }
 
 #[tauri::command]
+async fn import_url(engine: State<'_, Engine>, url: String) -> Result<SourcePage, String> {
+    with_engine(&engine, move |app| app.import_url(&url)).await
+}
+
+#[tauri::command]
 async fn open_source(engine: State<'_, Engine>, source_id: String) -> Result<SourcePage, String> {
     with_engine(&engine, move |app| app.open_source(&source_id)).await
 }
@@ -129,6 +134,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             import_source,
+            import_url,
             open_source,
             open_knowledge_page,
             list_sources,
