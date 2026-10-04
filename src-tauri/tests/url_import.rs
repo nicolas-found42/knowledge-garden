@@ -1,4 +1,10 @@
-use knowledge_garden::application::Application;
+use knowledge_garden::{
+    application::Application,
+    semantic::{
+        EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, RelationshipDraft,
+        SemanticProvider, TagDraft,
+    },
+};
 use sha2::{Digest, Sha256};
 use std::{
     io::{Read, Write},
@@ -381,4 +387,80 @@ fn explicitly_supplied_urls_retain_origins_without_crawling_and_can_be_retried()
     assert!(!u5.source_text.contains("<script>"));
     assert!(!u5.source_text.contains("NEVER INDEX SCRIPT"));
     assert!(!u5.source_text.contains("DESTINATION-UNSEEN-91823"));
+}
+
+struct WebProjectionProvider;
+
+impl SemanticProvider for WebProjectionProvider {
+    fn form_knowledge(
+        &self,
+        source_text: &str,
+    ) -> std::result::Result<KnowledgeDraft, ProviderError> {
+        let evidence = EvidenceDraft {
+            quote: source_text.to_owned(),
+            byte_start: 0,
+            byte_end: source_text.len(),
+            origin: "observed".into(),
+            qualifier: None,
+            offset_basis: None,
+            source_location: None,
+        };
+        Ok(KnowledgeDraft {
+            entities: vec![
+                EntityDraft {
+                    kind: "report".into(),
+                    label: "Riverside report".into(),
+                    evidence: evidence.clone(),
+                },
+                EntityDraft {
+                    kind: "person".into(),
+                    label: "Maya".into(),
+                    evidence: evidence.clone(),
+                },
+            ],
+            facts: vec![FactDraft {
+                subject: "Riverside report".into(),
+                property: "visits".into(),
+                value: "4".into(),
+                evidence: evidence.clone(),
+                record_key: None,
+            }],
+            relationships: vec![RelationshipDraft {
+                from: "Riverside report".into(),
+                to: "Maya".into(),
+                kind: "observed_by".into(),
+                qualifier: None,
+                evidence: evidence.clone(),
+            }],
+            tags: vec![TagDraft {
+                subject: "Riverside report".into(),
+                label: "field-notes".into(),
+                evidence,
+            }],
+            ..KnowledgeDraft::default()
+        })
+    }
+}
+
+#[test]
+fn url_html_semantic_evidence_names_its_visible_text_projection() {
+    let fixture = Fixture::start();
+    let collection = tempfile::tempdir().unwrap();
+    let mut app = Application::open_with_semantic_provider(
+        collection.path(),
+        Arc::new(WebProjectionProvider),
+    )
+    .unwrap();
+    let source = app.import_url(&format!("{}/a", fixture.base_url)).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let source = app.open_source(&source.info.source_id).unwrap();
+    let knowledge = app
+        .open_knowledge_page(&source.info.knowledge_pages[0].page_id)
+        .unwrap();
+    assert!(knowledge
+        .markdown
+        .contains("offset_basis: web_visible_text"));
+    assert!(knowledge
+        .markdown
+        .contains("HTML visible-text projection; no stable DOM locator is available"));
 }

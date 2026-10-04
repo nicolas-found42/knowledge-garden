@@ -539,7 +539,7 @@ impl Application {
                 self.index_acquisition(&acquisition.path, &source_id)?;
                 return self.open_source(&source_id);
             }
-            let (extraction, extraction_detail, text) =
+            let (extraction, extraction_detail, _text) =
                 if method == AcquisitionMethod::Url && format == "html" {
                     match crate::web::project(
                         &text_bytes,
@@ -1023,6 +1023,18 @@ impl Application {
                 "The semantic job is no longer the active source attempt.".into(),
             ));
         }
+        let web_projection = page.info.format == "html"
+            && page
+                .info
+                .acquisitions
+                .iter()
+                .any(|acquisition| acquisition.method == AcquisitionMethod::Url);
+        let result = result.map(|mut draft| {
+            if web_projection {
+                mark_web_projection_evidence(&mut draft);
+            }
+            draft
+        });
         match result {
             Ok(draft) => {
                 let update = draft.source_update.clone();
@@ -3302,6 +3314,36 @@ struct SearchDocument {
     tags: Vec<TagRecord>,
     doc_kind: String,
     match_location: Option<SearchMatchLocation>,
+}
+
+fn mark_web_projection_evidence(draft: &mut KnowledgeDraft) {
+    fn mark(evidence: &mut EvidenceDraft) {
+        evidence.offset_basis = Some("web_visible_text".into());
+        evidence.source_location =
+            Some("HTML visible-text projection; no stable DOM locator is available".into());
+    }
+
+    if let Some(update) = &mut draft.source_update {
+        mark(&mut update.evidence);
+        if let Some(evidence) = &mut update.source_date_evidence {
+            mark(evidence);
+        }
+        if let Some(evidence) = &mut update.source_revision_evidence {
+            mark(evidence);
+        }
+    }
+    for entity in &mut draft.entities {
+        mark(&mut entity.evidence);
+    }
+    for fact in &mut draft.facts {
+        mark(&mut fact.evidence);
+    }
+    for relationship in &mut draft.relationships {
+        mark(&mut relationship.evidence);
+    }
+    for tag in &mut draft.tags {
+        mark(&mut tag.evidence);
+    }
 }
 
 fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceLocation> {

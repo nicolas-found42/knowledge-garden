@@ -1,5 +1,7 @@
 //! Test-only process adapter for the public Application boundary; not a product importer.
-use knowledge_garden::application::{AcquisitionMethod, Application, PageSearchRequest};
+use knowledge_garden::application::{
+    AcquisitionMethod, Application, GardenError, PageSearchRequest,
+};
 use knowledge_garden::providers::JevSemanticProvider;
 use knowledge_garden::semantic::{
     EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, SemanticProvider,
@@ -56,6 +58,15 @@ impl SemanticProvider for RecordedOfficeProvider {
     }
 }
 
+fn url_failure(error: GardenError) -> String {
+    match error {
+        GardenError::Invalid(message) if message.starts_with("URL acquisition returned HTTP ") => {
+            message
+        }
+        _ => "URL acquisition failed; no source material was added.".into(),
+    }
+}
+
 fn output(value: impl Serialize) {
     println!(
         "{}",
@@ -97,14 +108,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let url = args.get(3).ok_or("missing URL")?;
             match app.import_url(url) {
                 Ok(page) => output(page),
-                Err(error) => return Err(format!("URL acquisition failed: {error}").into()),
+                Err(error) => return Err(url_failure(error).into()),
             }
         }
         "url-live-import" => {
             let url = args.get(3).ok_or("missing URL")?;
             let page = match app.import_url(url) {
                 Ok(page) => page,
-                Err(error) => return Err(format!("URL acquisition failed: {error}").into()),
+                Err(error) => return Err(url_failure(error).into()),
             };
             app.resume_due_semantic_jobs()?;
             output(app.open_source(&page.info.source_id)?);
