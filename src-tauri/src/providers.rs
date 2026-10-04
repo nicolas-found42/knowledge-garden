@@ -1,7 +1,7 @@
 //! Rust-only semantic provider transports. Request bodies and credentials never enter logs.
 use crate::semantic::{
     EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, RelationshipDraft,
-    SemanticDecision, SemanticProvider, TagDraft,
+    SemanticDecision, SemanticProvider, SourceUpdateDraft, SourceUpdateRole, TagDraft,
 };
 use regex::Regex;
 use reqwest::blocking::Client;
@@ -149,6 +149,10 @@ impl SemanticProvider for JevSemanticProvider {
         if candidates.len() > 64 {
             return Err(ProviderError::recoverable("This source produced more than 64 bounded semantic candidates; semantic coverage remains incomplete rather than silently truncating the source.".into()));
         }
+        let update_spans = source_spans(source_text);
+        if update_spans.is_empty() || update_spans.len() > 64 {
+            return Err(ProviderError::recoverable("Jev source-update classification has no bounded evidence spans; semantic coverage remains incomplete.".into()));
+        }
         if candidates
             .iter()
             .filter(|candidate| candidate.kind == CandidateKind::Event)
@@ -188,6 +192,60 @@ impl SemanticProvider for JevSemanticProvider {
                 "criteria":{"true":"The value and its stated meaning are supported by the span", "false":"The value is unsupported, overstates the span, or loses an explicit qualification"}
             }));
         }
+        let update_criteria = update_spans
+            .iter()
+            .enumerate()
+            .map(|(index, span)| {
+                (
+                    format!("span_{index}"),
+                    json!({"quote":span.quote,"byte_start":span.start,"byte_end":span.end}),
+                )
+            })
+            .collect::<serde_json::Map<String, Value>>();
+        questions.insert("source_update_role".into(), json!({
+            "type":"choice",
+            "instructions":"Classify the author’s active intent for how this source relates to an existing source about the same record. Use the whole source. `complete_replacement` means this entire source version is explicitly intended to replace the earlier complete source for the same record. `supplement` adds independent information without replacing the earlier source. `conditional` is a proposal, uncertainty, or update that is not yet authorized as current. `targeted_correction` changes only specified fields and does not authorize withdrawing omitted fields. `unknown` means the relationship is not established. Do not treat quoted/rejected proposals, negation, or a conditional clause as the author’s active replacement intent. Do not infer replacement from a count/date change alone.",
+            "criteria":{"complete_replacement":"The whole source is explicitly an authoritative replacement for the earlier complete source", "supplement":"This adds independent support/context and retains earlier source content", "conditional":"This is tentative, rejected, quoted, or awaiting verification", "targeted_correction":"Only named facts are corrected; omitted facts remain active", "unknown":"The relationship or scope cannot be established from source evidence"}
+        }));
+        questions.insert("source_update_evidence".into(), json!({
+            "type":"choice",
+            "instructions":"Choose the exact source span that supports your source_update_role judgment, including the words that establish negation, quotation, condition, supplement, or full replacement scope. If no sentence is decisive, choose the span that best shows why the relationship remains unknown. The span text and offsets are supplied in the criteria.",
+            "criteria":update_criteria
+        }));
+        let report_dates = report_date_candidates(source_text);
+        let mut report_date_criteria = serde_json::Map::new();
+        for (index, candidate) in report_dates.iter().enumerate() {
+            report_date_criteria.insert(
+                format!("source_date_{index}"),
+                json!({"value":candidate.iso,"span":candidate.evidence.quote}),
+            );
+        }
+        report_date_criteria.insert(
+            "none".into(),
+            json!("No reliable source/report version date is stated."),
+        );
+        questions.insert("source_order_date".into(), json!({
+            "type":"choice",
+            "instructions":"Select a date only when the source explicitly identifies it as this document/report/version’s own date. Do not choose the observed event date, import/receipt date, a quoted/rejected date, a conditional date, or a date whose calendar value is invalid. Choose none when no reliable source date is stated.",
+            "criteria":report_date_criteria
+        }));
+        let report_revisions = report_revision_candidates(source_text);
+        let mut revision_criteria = serde_json::Map::new();
+        for (index, candidate) in report_revisions.iter().enumerate() {
+            revision_criteria.insert(
+                format!("source_revision_{index}"),
+                json!({"value":candidate.revision,"span":candidate.evidence.quote}),
+            );
+        }
+        revision_criteria.insert(
+            "none".into(),
+            json!("No reliable source revision number is stated."),
+        );
+        questions.insert("source_order_revision".into(), json!({
+            "type":"choice",
+            "instructions":"Select a revision number only when the source identifies it as the active version/revision of this complete source. Do not select event IDs, quoted/rejected proposals, targeted-correction references, or conditional/obsolete revision mentions. Choose none when no reliable revision is stated.",
+            "criteria":revision_criteria
+        }));
         if candidates.iter().any(|candidate| {
             matches!(
                 candidate.kind,
@@ -256,7 +314,15 @@ impl SemanticProvider for JevSemanticProvider {
             .ok_or_else(|| {
                 ProviderError::recoverable("Jev response has no typed answers.".into())
             })?;
-        let validated = validate_answers(&candidates, &pairs, answers)?;
+        let validated = validate_answers(
+            source_text,
+            &candidates,
+            &pairs,
+            answers,
+            &update_spans,
+            &report_dates,
+            &report_revisions,
+        )?;
         let mut decisions = Vec::new();
         let model = result
             .get("model")
@@ -373,6 +439,19 @@ impl SemanticProvider for JevSemanticProvider {
             decisions,
             ..KnowledgeDraft::default()
         };
+        draft.source_update = Some(validated.source_update.clone().unwrap());
+        draft.decisions.push(SemanticDecision {
+            question: "source_update_role".into(),
+            model: model.clone(),
+            outcome: validated
+                .source_update
+                .as_ref()
+                .unwrap()
+                .role
+                .as_str()
+                .into(),
+            probability: Some(validated.source_update.as_ref().unwrap().certainty),
+        });
         if let Some((choice, probability)) = &validated.event_date {
             draft.decisions.push(SemanticDecision {
                 question: "event_date".into(),
@@ -576,6 +655,7 @@ impl SemanticProvider for JevSemanticProvider {
                         property: property.into(),
                         value: value.into(),
                         evidence: evidence.clone(),
+                        record_key: None,
                     });
                     if property == "observer" {
                         let role = validated.entity_roles.get(&idx).unwrap().0.as_str();
@@ -616,6 +696,7 @@ impl SemanticProvider for JevSemanticProvider {
                 property: "acquired_content".into(),
                 value: "not acquired".into(),
                 evidence: candidate.evidence(),
+                record_key: None,
             });
         }
         for candidate in accepted
@@ -661,6 +742,23 @@ struct Candidate {
     origin: String,
 }
 
+#[derive(Clone)]
+struct SourceSpan {
+    quote: String,
+    start: usize,
+    end: usize,
+}
+
+struct ReportDateCandidate {
+    iso: Option<String>,
+    evidence: EvidenceDraft,
+}
+
+struct ReportRevisionCandidate {
+    revision: u64,
+    evidence: EvidenceDraft,
+}
+
 #[derive(Default)]
 struct ValidatedAnswers {
     event_identity: Option<(String, f64)>,
@@ -668,12 +766,17 @@ struct ValidatedAnswers {
     entity_roles: HashMap<usize, (String, f64)>,
     candidate_support: HashMap<usize, f64>,
     person_identity: Vec<(String, f64)>,
+    source_update: Option<SourceUpdateDraft>,
 }
 
 fn validate_answers(
+    source_text: &str,
     candidates: &[Candidate],
     pairs: &[(&Candidate, &Candidate)],
     answers: &serde_json::Map<String, Value>,
+    update_spans: &[SourceSpan],
+    report_dates: &[ReportDateCandidate],
+    report_revisions: &[ReportRevisionCandidate],
 ) -> std::result::Result<ValidatedAnswers, ProviderError> {
     let mut validated = ValidatedAnswers::default();
     if candidates
@@ -726,6 +829,113 @@ fn validate_answers(
             &["distinct", "uncertain", "same"],
         )?);
     }
+    let (role, certainty) = validated_choice(
+        answers,
+        "source_update_role",
+        &[
+            "complete_replacement",
+            "supplement",
+            "conditional",
+            "targeted_correction",
+            "unknown",
+        ],
+    )?;
+    let span_options = update_spans
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!("span_{index}"))
+        .collect::<Vec<_>>();
+    let selected_span = validated_choice(
+        answers,
+        "source_update_evidence",
+        &span_options.iter().map(String::as_str).collect::<Vec<_>>(),
+    )?;
+    let selected_span_index = selected_span
+        .0
+        .strip_prefix("span_")
+        .and_then(|index| index.parse::<usize>().ok())
+        .and_then(|index| update_spans.get(index))
+        .ok_or_else(|| ProviderError::recoverable("Jev source-update evidence selected an unknown source span; semantic work will retry automatically.".into()))?;
+    let role = match role.as_str() {
+        "complete_replacement" => SourceUpdateRole::CompleteReplacement,
+        "supplement" => SourceUpdateRole::Supplement,
+        "conditional" => SourceUpdateRole::Conditional,
+        "targeted_correction" => SourceUpdateRole::TargetedCorrection,
+        "unknown" => SourceUpdateRole::Unknown,
+        _ => unreachable!(),
+    };
+    let source_date_options = report_dates
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!("source_date_{index}"))
+        .chain(std::iter::once("none".to_owned()))
+        .collect::<Vec<_>>();
+    let (selected_date, date_certainty) = validated_choice(
+        answers,
+        "source_order_date",
+        &source_date_options
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+    )?;
+    let (source_date, source_date_evidence) = if selected_date == "none" {
+        (None, None)
+    } else {
+        let index = selected_date
+            .strip_prefix("source_date_")
+            .and_then(|index| index.parse::<usize>().ok())
+            .ok_or_else(|| ProviderError::recoverable("Jev returned an invalid source-date option; semantic work will retry automatically.".into()))?;
+        let candidate = report_dates.get(index).ok_or_else(|| ProviderError::recoverable("Jev selected a source date outside the candidate set; semantic work will retry automatically.".into()))?;
+        let value = candidate.iso.clone().ok_or_else(|| ProviderError::recoverable("Jev selected an invalid calendar date as source order; semantic work will retry automatically.".into()))?;
+        (Some(value), Some(candidate.evidence.clone()))
+    };
+    let revision_options = report_revisions
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!("source_revision_{index}"))
+        .chain(std::iter::once("none".to_owned()))
+        .collect::<Vec<_>>();
+    let (selected_revision, revision_certainty) = validated_choice(
+        answers,
+        "source_order_revision",
+        &revision_options
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+    )?;
+    let (source_revision, source_revision_evidence) = if selected_revision == "none" {
+        (None, None)
+    } else {
+        let index = selected_revision
+            .strip_prefix("source_revision_")
+            .and_then(|index| index.parse::<usize>().ok())
+            .ok_or_else(|| ProviderError::recoverable("Jev returned an invalid source-revision option; semantic work will retry automatically.".into()))?;
+        let candidate = report_revisions.get(index).ok_or_else(|| ProviderError::recoverable("Jev selected a source revision outside the candidate set; semantic work will retry automatically.".into()))?;
+        (Some(candidate.revision), Some(candidate.evidence.clone()))
+    };
+    validated.source_update = Some(SourceUpdateDraft {
+        role,
+        evidence: EvidenceDraft {
+            quote: selected_span_index.quote.clone(),
+            byte_start: selected_span_index.start,
+            byte_end: selected_span_index.end,
+            origin: origin_for(
+                source_text,
+                selected_span_index.start,
+                selected_span_index.end,
+            ),
+            qualifier: None,
+            offset_basis: None,
+            source_location: None,
+        },
+        certainty,
+        source_date,
+        source_date_evidence,
+        source_date_certainty: date_certainty,
+        source_revision,
+        source_revision_evidence,
+        source_revision_certainty: revision_certainty,
+    });
     Ok(validated)
 }
 
@@ -777,6 +987,132 @@ fn validated_noul(
         })
 }
 
+fn source_spans(text: &str) -> Vec<SourceSpan> {
+    let mut spans = Vec::new();
+    let mut start = 0;
+    for (index, character) in text.char_indices() {
+        let end = index + character.len_utf8();
+        let sentence_end = matches!(character, '.' | '!' | '?')
+            && text[end..].chars().next().is_none_or(char::is_whitespace);
+        if character == '\n' || sentence_end {
+            push_source_span(text, start, end, &mut spans);
+            start = end;
+        }
+    }
+    push_source_span(text, start, text.len(), &mut spans);
+    spans
+}
+
+fn push_source_span(text: &str, start: usize, end: usize, spans: &mut Vec<SourceSpan>) {
+    let Some(raw) = text.get(start..end) else {
+        return;
+    };
+    let leading = raw.len() - raw.trim_start().len();
+    let trailing_end = raw.trim_end().len();
+    if trailing_end <= leading {
+        return;
+    }
+    let byte_start = start + leading;
+    let byte_end = start + trailing_end;
+    if text.is_char_boundary(byte_start) && text.is_char_boundary(byte_end) {
+        spans.push(SourceSpan {
+            quote: text[byte_start..byte_end].to_owned(),
+            start: byte_start,
+            end: byte_end,
+        });
+    }
+}
+
+fn report_date_candidates(text: &str) -> Vec<ReportDateCandidate> {
+    let date_re = regex(
+        r"(?i)\b(?:[0-9]{4}-[0-9]{2}-[0-9]{2}|(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+[0-9]{1,2},?\s+[0-9]{4})\b",
+    );
+    date_re
+        .find_iter(text)
+        .map(|matched| ReportDateCandidate {
+            iso: normalize_source_date(matched.as_str()),
+            evidence: EvidenceDraft {
+                quote: matched.as_str().to_owned(),
+                byte_start: matched.start(),
+                byte_end: matched.end(),
+                origin: origin_for(text, matched.start(), matched.end()),
+                qualifier: None,
+                offset_basis: None,
+                source_location: None,
+            },
+        })
+        .collect()
+}
+
+fn report_revision_candidates(text: &str) -> Vec<ReportRevisionCandidate> {
+    let revision_re = regex(r"(?i)\brevision\s+([0-9]+)\b");
+    revision_re
+        .captures_iter(text)
+        .filter_map(|captures| {
+            let full = captures.get(0)?;
+            let revision = captures.get(1)?.as_str().parse::<u64>().ok()?;
+            (revision > 0).then(|| ReportRevisionCandidate {
+                revision,
+                evidence: EvidenceDraft {
+                    quote: full.as_str().to_owned(),
+                    byte_start: full.start(),
+                    byte_end: full.end(),
+                    origin: origin_for(text, full.start(), full.end()),
+                    qualifier: None,
+                    offset_basis: None,
+                    source_location: None,
+                },
+            })
+        })
+        .collect()
+}
+
+fn normalize_source_date(value: &str) -> Option<String> {
+    if let Some(captures) = regex(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})$").captures(value) {
+        let year = captures.get(1)?.as_str().parse::<u32>().ok()?;
+        let month = captures.get(2)?.as_str().parse::<u32>().ok()?;
+        let day = captures.get(3)?.as_str().parse::<u32>().ok()?;
+        if valid_calendar_date(year, month, day) {
+            return Some(value.to_owned());
+        }
+        return None;
+    }
+    let captures = regex(r"(?i)^\s*(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+([0-9]{1,2}),?\s+([0-9]{4})\s*$")
+        .captures(value)?;
+    let month = match captures.get(1)?.as_str().to_lowercase().as_str() {
+        "january" | "jan" => 1,
+        "february" | "feb" => 2,
+        "march" | "mar" => 3,
+        "april" | "apr" => 4,
+        "may" => 5,
+        "june" | "jun" => 6,
+        "july" | "jul" => 7,
+        "august" | "aug" => 8,
+        "september" | "sep" | "sept" => 9,
+        "october" | "oct" => 10,
+        "november" | "nov" => 11,
+        "december" | "dec" => 12,
+        _ => return None,
+    };
+    let day = captures.get(2)?.as_str().parse::<u32>().ok()?;
+    let year = captures.get(3)?.as_str().parse::<u32>().ok()?;
+    valid_calendar_date(year, month, day).then(|| format!("{year:04}-{month:02}-{day:02}"))
+}
+
+fn valid_calendar_date(year: u32, month: u32, day: u32) -> bool {
+    if year == 0 || !(1..=12).contains(&month) || day == 0 {
+        return false;
+    }
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let max_day = match month {
+        2 if leap => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    };
+    day <= max_day
+}
+
 impl Candidate {
     fn evidence(&self) -> EvidenceDraft {
         EvidenceDraft {
@@ -785,6 +1121,8 @@ impl Candidate {
             byte_end: self.end,
             origin: self.origin.clone(),
             qualifier: self.qualifier.clone(),
+            offset_basis: None,
+            source_location: None,
         }
     }
 }
