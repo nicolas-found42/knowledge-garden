@@ -144,11 +144,14 @@ it("searches durable page results with combined filters and restores the exact r
         match_location: {
           record_id: "page-v17",
           source_id: "source-riverside",
+          source_version_id: "version-riverside-1",
           quote: "Observation V17",
           byte_start: 0,
           byte_end: 15,
           line_start: 1,
           line_end: 1,
+          offset_basis: "preserved_text",
+          source_location: null,
         },
       },
     ],
@@ -158,6 +161,17 @@ it("searches durable page results with combined filters and restores the exact r
     available_statuses: ["complete", "pending"],
   };
   api.searchPages = vi.fn(async (_request: PageSearchRequest) => results);
+  api.openSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: {
+      ...riverside.info,
+      semantic_state: "complete",
+      current_version_id: "version-riverside-1",
+      versions_seen: [
+        { source_version_id: "version-riverside-1", state: "superseded" },
+      ],
+    },
+  });
   const root = document.createElement("div");
   document.body.append(root);
   dispose = await mountReader(root, api);
@@ -193,12 +207,24 @@ it("searches durable page results with combined filters and restores the exact r
     processing_status: "complete",
     offset: 0,
   });
+  expect(
+    await screen.findByText(
+      /Evidence · preserved source text · version version-r/,
+    ),
+  ).toBeTruthy();
   await user.click(
     await screen.findByRole("button", { name: "Riverside notes" }),
   );
   expect(
     await screen.findByRole("article", { name: "Riverside notes" }),
   ).toBeTruthy();
+  await user.click(screen.getByText("Source information"));
+  expect(
+    screen.getByText(
+      "Superseded source version retained as history. Its original remains available.",
+    ),
+  ).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Open original" })).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Back" }));
   expect(
     await screen.findByRole("heading", { name: "Search your garden" }),

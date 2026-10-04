@@ -222,11 +222,17 @@ pub struct PageResult {
 pub struct SearchMatchLocation {
     pub record_id: String,
     pub source_id: String,
+    #[serde(default)]
+    pub source_version_id: Option<String>,
     pub quote: String,
     pub byte_start: usize,
     pub byte_end: usize,
     pub line_start: usize,
     pub line_end: usize,
+    #[serde(default = "preserved_text_basis")]
+    pub offset_basis: String,
+    #[serde(default)]
+    pub source_location: Option<String>,
 }
 
 pub struct Application {
@@ -2273,7 +2279,33 @@ impl Application {
     ) -> Result<Option<&'a SupportRecord>> {
         let mut ranked = supports
             .iter()
-            .map(|support| Ok((self.support_order(support)?, support)))
+            .map(|support| {
+                Ok((
+                    self.support_order(&support.source_id, &support.source_version_id)?,
+                    support,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        ranked.sort_by(|(a, _), (b, _)| a.cmp(b));
+        Ok(ranked.last().map(|(_, support)| *support))
+    }
+
+    fn latest_relationship_support<'a>(
+        &self,
+        supports: &'a [SupportRecord],
+    ) -> Result<Option<&'a SupportRecord>> {
+        self.latest_support(supports)
+    }
+
+    fn latest_tag_support<'a>(&self, supports: &'a [TagSupport]) -> Result<Option<&'a TagSupport>> {
+        let mut ranked = supports
+            .iter()
+            .map(|support| {
+                Ok((
+                    self.support_order(&support.source_id, &support.source_version_id)?,
+                    support,
+                ))
+            })
             .collect::<Result<Vec<_>>>()?;
         ranked.sort_by(|(a, _), (b, _)| a.cmp(b));
         Ok(ranked.last().map(|(_, support)| *support))
@@ -2281,25 +2313,28 @@ impl Application {
 
     fn support_order(
         &self,
-        support: &SupportRecord,
+        source_id: &str,
+        source_version_id: &str,
     ) -> Result<(Option<String>, Option<u64>, String, String)> {
-        if support.source_id.is_empty() {
-            return Ok((None, None, String::new(), support.source_version_id.clone()));
+        if source_id.is_empty() {
+            return Ok((None, None, String::new(), source_version_id.to_owned()));
         }
-        let path = self.source_dir(&support.source_id)?.join("index.md");
+        let path = self.source_dir(source_id)?.join("index.md");
         if !path.exists() {
-            return Ok((None, None, String::new(), support.source_version_id.clone()));
+            return Ok((None, None, String::new(), source_version_id.to_owned()));
         }
         let info = read_page(&path)?.info;
         let version = info
             .versions_seen
             .iter()
-            .find(|v| v.source_version_id == support.source_version_id);
+            .find(|version| version.source_version_id == source_version_id);
         Ok((
-            version.and_then(|v| v.source_date.clone()),
-            version.and_then(|v| v.source_revision),
-            version.map(|v| v.received_at.clone()).unwrap_or_default(),
-            support.source_version_id.clone(),
+            version.and_then(|version| version.source_date.clone()),
+            version.and_then(|version| version.source_revision),
+            version
+                .map(|version| version.received_at.clone())
+                .unwrap_or_default(),
+            source_version_id.to_owned(),
         ))
     }
 
@@ -2835,11 +2870,19 @@ impl Application {
                     return Ok(Some(SearchMatchLocation {
                         record_id: format!("source:{}", source.info.page_id),
                         source_id: source.info.source_id,
+                        source_version_id: source
+                            .info
+                            .current_version_id
+                            .clone()
+                            .or(source.info.pending_version_id.clone())
+                            .or_else(|| Some(source.info.sha256.clone())),
                         quote: text[start..end].to_owned(),
                         byte_start: start,
                         byte_end: end,
                         line_start,
                         line_end,
+                        offset_basis: preserved_text_basis(),
+                        source_location: None,
                     }));
                 }
             }
@@ -2859,11 +2902,17 @@ impl Application {
                 &format!("{} {} {}", fact.property, fact.value, fact.evidence.quote),
                 &terms,
             ) {
-                return Ok(Some(search_location(
-                    &fact.fact_id,
-                    &header.source_id,
-                    &fact.evidence,
-                )));
+                let location = if let Some(support) = self.latest_support(&fact.supports)? {
+                    search_location(
+                        &fact.fact_id,
+                        &support.source_id,
+                        Some(&support.source_version_id),
+                        &support.evidence,
+                    )
+                } else {
+                    search_location(&fact.fact_id, &header.source_id, None, &fact.evidence)
+                };
+                return Ok(Some(location));
             }
         }
         for relationship in &header.relationships {
@@ -2871,19 +2920,33 @@ impl Application {
                 &format!("{} {}", relationship.kind, relationship.evidence.quote),
                 &terms,
             ) {
-                return Ok(Some(search_location(
-                    &relationship.relationship_id,
-                    &header.source_id,
-                    &relationship.evidence,
-                )));
+                let location = if let Some(support) =
+                    self.latest_relationship_support(&relationship.supports)?
+                {
+                    search_location(
+                        &relationship.relationship_id,
+                        &support.source_id,
+                        Some(&support.source_version_id),
+                        &support.evidence,
+                    )
+                } else {
+                    search_location(
+                        &relationship.relationship_id,
+                        &header.source_id,
+                        None,
+                        &relationship.evidence,
+                    )
+                };
+                return Ok(Some(location));
             }
         }
         for tag in &header.tags {
             if tags.contains(&tag.normalized) || contains_all_terms(&tag.label, &terms) {
-                if let Some(support) = tag.supports.first() {
+                if let Some(support) = self.latest_tag_support(&tag.supports)? {
                     return Ok(Some(search_location(
                         &format!("tag:{}", tag.normalized),
                         &support.source_id,
+                        Some(&support.source_version_id),
                         &support.evidence,
                     )));
                 }
@@ -3005,7 +3068,21 @@ impl Application {
             .filter(|(_, header, _)| header.kind.eq_ignore_ascii_case("event"))
             .find_map(|(_, header, _)| event_date_from_facts(&header.facts));
         let mut documents = Vec::new();
-        let source_text = if source_page.info.extraction == ExtractionState::TextPreserved {
+        let current_version_is_superseded = source_page
+            .info
+            .current_version_id
+            .as_deref()
+            .and_then(|version_id| {
+                source_page
+                    .info
+                    .versions_seen
+                    .iter()
+                    .find(|version| version.source_version_id == version_id)
+            })
+            .is_some_and(|version| version.state == "superseded");
+        let source_text = if current_version_is_superseded {
+            String::new()
+        } else if source_page.info.extraction == ExtractionState::TextPreserved {
             fs::read(self.original_path(&source_page.info.source_id)?)
                 .ok()
                 .and_then(|bytes| String::from_utf8(bytes).ok())
@@ -3410,19 +3487,35 @@ fn event_date_from_facts(facts: &[FactRecord]) -> Option<String> {
         .find_map(|fact| parse_date_value(&fact.value))
 }
 
+fn preserved_text_basis() -> String {
+    "preserved_text".into()
+}
+
+fn evidence_offset_basis_name(basis: EvidenceOffsetBasis) -> &'static str {
+    match basis {
+        EvidenceOffsetBasis::PreservedText => "preserved_text",
+        EvidenceOffsetBasis::ExtractedOfficeProjection => "extracted_office_projection",
+        EvidenceOffsetBasis::WebVisibleText => "web_visible_text",
+    }
+}
+
 fn search_location(
     record_id: &str,
     source_id: &str,
+    source_version_id: Option<&str>,
     evidence: &EvidenceLocation,
 ) -> SearchMatchLocation {
     SearchMatchLocation {
         record_id: record_id.to_owned(),
         source_id: source_id.to_owned(),
+        source_version_id: source_version_id.map(str::to_owned),
         quote: evidence.quote.clone(),
         byte_start: evidence.byte_start,
         byte_end: evidence.byte_end,
         line_start: evidence.line_start,
         line_end: evidence.line_end,
+        offset_basis: evidence_offset_basis_name(evidence.offset_basis).into(),
+        source_location: evidence.source_location.clone(),
     }
 }
 

@@ -250,7 +250,8 @@ dd {
   text-decoration: underline;
 }
 .result-meta,
-.result-tags {
+.result-tags,
+.search-match-origin {
   margin: 0.25rem 0;
   color: #596654;
   font-size: 0.85rem;
