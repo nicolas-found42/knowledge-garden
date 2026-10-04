@@ -588,7 +588,7 @@ impl Application {
                 "pending",
             );
             let version_path = self.version_original_path(&source_id, &version)?;
-            write_atomic(&version_path, &fs::read(staging.path().join(&asset))?)?;
+            write_atomic_from_file(&version_path, &staging.path().join(&asset))?;
             existing.info.versions_seen.push(version);
             existing.info.pending_version_id = Some(digest);
             existing.info.update_status = Some("pending".into());
@@ -3457,6 +3457,21 @@ fn stable_relationship_id(from_page_id: &str, to_page_id: &str, kind: &str) -> S
     digest.update([0]);
     digest.update(to_page_id.as_bytes());
     format!("relationship-{:x}", digest.finalize())
+}
+
+fn write_atomic_from_file(path: &Path, source: &Path) -> Result<()> {
+    let parent = path.parent().ok_or_else(|| {
+        GardenError::Invalid("Cannot publish a file without a parent directory.".into())
+    })?;
+    fs::create_dir_all(parent)?;
+    let mut input = File::open(source)?;
+    let mut file = tempfile::NamedTempFile::new_in(parent)?;
+    std::io::copy(&mut input, file.as_file_mut())?;
+    file.as_file().sync_all()?;
+    file.persist(path)
+        .map_err(|error| GardenError::Io(error.error))?;
+    sync_directory(parent)?;
+    Ok(())
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
