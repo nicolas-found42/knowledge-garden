@@ -9,6 +9,7 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -545,27 +546,52 @@ impl Application {
                 self.index_acquisition(&acquisition.path, &source_id)?;
                 return self.open_source(&source_id);
             }
-            let (extraction, extraction_detail, _text) =
-                if method == AcquisitionMethod::Url && format == "html" {
-                    match crate::web::project(
-                        &text_bytes,
-                        acquisition.final_url.as_deref().unwrap_or(""),
-                    ) {
-                        Ok(web) if count > MAX_TEXT_BYTES as u64 => {
-                            (ExtractionState::PartialText, web.detail, web.semantic_text)
-                        }
-                        Ok(web) => (
-                            ExtractionState::StructuredText,
-                            web.detail,
-                            web.semantic_text,
-                        ),
-                        Err(detail) => (ExtractionState::InvalidUtf8, detail, String::new()),
+            let (extraction, extraction_detail, extraction_coverage) = if method
+                == AcquisitionMethod::Url
+                && format == "html"
+            {
+                match crate::web::project(
+                    &text_bytes,
+                    acquisition.final_url.as_deref().unwrap_or(""),
+                ) {
+                    Ok(web) if count > MAX_TEXT_BYTES as u64 => {
+                        (ExtractionState::PartialText, web.detail, None)
                     }
-                } else {
-                    let (extraction, detail, text) =
-                        classify_source(&format, count, text_bytes.clone());
-                    (extraction, detail.to_owned(), text)
-                };
+                    Ok(web) => (ExtractionState::StructuredText, web.detail, None),
+                    Err(detail) => (ExtractionState::InvalidUtf8, detail, None),
+                }
+            } else if matches!(format.as_str(), "docx" | "pptx") {
+                match crate::office::extract(
+                    &staging.path().join(&asset),
+                    &format,
+                    path.file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .as_ref(),
+                ) {
+                    Ok(projection) => (
+                        if projection.partial {
+                            ExtractionState::PartialText
+                        } else {
+                            ExtractionState::StructuredText
+                        },
+                        projection.detail,
+                        Some(projection.coverage),
+                    ),
+                    Err(detail) => {
+                        existing.info.update_status = Some("incomplete".into());
+                        existing.info.semantic_error = Some(format!(
+                                "The changed Office version was retained, but extraction failed: {detail}"
+                            ));
+                        self.write_source_page(&existing)?;
+                        self.index_page(&existing.info)?;
+                        return self.open_source(&source_id);
+                    }
+                }
+            } else {
+                let (extraction, detail, _) = classify_source(&format, count, text_bytes);
+                (extraction, detail.to_owned(), None)
+            };
             if !matches!(
                 extraction,
                 ExtractionState::TextPreserved
@@ -584,6 +610,9 @@ impl Application {
                 self.index_page(&existing.info)?;
                 return self.open_source(&source_id);
             }
+            existing.info.extraction = extraction;
+            existing.info.extraction_detail = extraction_detail;
+            existing.info.extraction_coverage = extraction_coverage;
             let version = source_version(
                 &digest,
                 count,
@@ -1043,37 +1072,74 @@ impl Application {
         });
         match result {
             Ok(draft) => {
-                let update = draft.source_update.clone();
-                let result = self
-                    .store_source_update(
-                        &mut page,
-                        &job.source_version_id,
-                        &job.source_text,
-                        update.as_ref(),
-                    )
-                    .and_then(|()| {
-                        if initial {
-                            // Classification controls replacement of existing current facts.
-                            // On an initial acquisition there is nothing to withdraw, so keep
-                            // grounded facts and preserve any uncertainty in their qualifiers.
-                            self.publish_knowledge(&mut page, &job.source_text, draft)
-                        } else {
-                            self.apply_replacement(
-                                &mut page,
-                                &job.source_version_id,
-                                &job.source_text,
-                                draft,
-                            )
-                        }
-                    });
-                match result {
-                    Ok(()) => {
-                        page.info.semantic_state = "complete".into();
-                        page.info.semantic_error = None;
-                        page.info.semantic_retry_at = None;
+                let is_office = matches!(page.info.format.as_str(), "docx" | "pptx");
+                let office_facts = draft
+                    .facts
+                    .iter()
+                    .filter(|fact| !fact.property.eq_ignore_ascii_case("acquired_content"))
+                    .collect::<Vec<_>>();
+                let mut office_keys = HashMap::<(&str, &str), Vec<Option<&str>>>::new();
+                if is_office {
+                    for fact in &office_facts {
+                        office_keys
+                            .entry((&fact.subject, &fact.property))
+                            .or_default()
+                            .push(fact.record_key.as_deref());
                     }
-                    Err(error) => {
-                        self.record_semantic_failure(&mut page, error.to_string(), true)?
+                }
+                let office_identity_is_unambiguous = !is_office
+                    || office_keys.values().all(|keys| {
+                        keys.len() == 1
+                            || (keys
+                                .iter()
+                                .all(|key| key.is_some_and(|key| !key.trim().is_empty()))
+                                && keys.iter().flatten().collect::<HashSet<_>>().len()
+                                    == keys.len())
+                    });
+                let has_office_content = !is_office || !office_facts.is_empty();
+                if !has_office_content || !office_identity_is_unambiguous {
+                    self.record_semantic_failure(
+                        &mut page,
+                        if has_office_content {
+                            "Office semantic processing could not assign distinct stable record identities to repeated facts; coverage remains incomplete and will retry automatically.".into()
+                        } else {
+                            "Office semantic processing selected no content-bearing facts; coverage remains incomplete and will retry automatically.".into()
+                        },
+                        true,
+                    )?;
+                } else {
+                    let update = draft.source_update.clone();
+                    let result = self
+                        .store_source_update(
+                            &mut page,
+                            &job.source_version_id,
+                            &job.source_text,
+                            update.as_ref(),
+                        )
+                        .and_then(|()| {
+                            if initial {
+                                // A first acquisition has no existing facts to withdraw. Even
+                                // an unknown/conditional relationship can publish the grounded
+                                // evidence it contains; the role only limits replacement scope.
+                                self.publish_knowledge(&mut page, &job.source_text, draft)
+                            } else {
+                                self.apply_replacement(
+                                    &mut page,
+                                    &job.source_version_id,
+                                    &job.source_text,
+                                    draft,
+                                )
+                            }
+                        });
+                    match result {
+                        Ok(()) => {
+                            page.info.semantic_state = "complete".into();
+                            page.info.semantic_error = None;
+                            page.info.semantic_retry_at = None;
+                        }
+                        Err(error) => {
+                            self.record_semantic_failure(&mut page, error.to_string(), true)?
+                        }
                     }
                 }
             }
@@ -1848,6 +1914,22 @@ impl Application {
             .join("versions")
             .join(source_version_id)
             .join(&candidate.asset);
+        let office_projection = if matches!(candidate.format.as_str(), "docx" | "pptx") {
+            Some(
+                crate::office::extract(
+                    &candidate_path,
+                    &candidate.format,
+                    Path::new(&candidate.original_name)
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .as_ref(),
+                )
+                .map_err(GardenError::Invalid)?,
+            )
+        } else {
+            None
+        };
         let candidate_bytes = fs::read(candidate_path)?;
         let destination_original = self
             .source_dir(&source.info.source_id)?
@@ -1860,11 +1942,22 @@ impl Application {
         source.info.sha256 = candidate.sha256.clone();
         source.info.bytes = candidate.bytes;
         source.info.format = candidate.format.clone();
-        source.info.extraction = ExtractionState::TextPreserved;
-        source.info.extraction_coverage = None;
-        source.info.line_count = source_text.lines().count();
-        source.info.extraction_detail =
-            "Source text preserved. Semantic fact extraction has not run.".into();
+        if let Some(projection) = office_projection.as_ref() {
+            source.info.extraction = if projection.partial {
+                ExtractionState::PartialText
+            } else {
+                ExtractionState::StructuredText
+            };
+            source.info.extraction_coverage = Some(projection.coverage.clone());
+            source.info.line_count = projection.line_count;
+            source.info.extraction_detail = projection.detail.clone();
+        } else {
+            source.info.extraction = ExtractionState::TextPreserved;
+            source.info.extraction_coverage = None;
+            source.info.line_count = source_text.lines().count();
+            source.info.extraction_detail =
+                "Source text preserved. Semantic fact extraction has not run.".into();
+        }
         source.info.current_version_id = Some(source_version_id.into());
         source.info.pending_version_id = None;
         source.info.update_status = None;
@@ -1878,6 +1971,16 @@ impl Application {
         {
             previous.state = "superseded".into();
         }
+        let extraction_coverage_complete =
+            source
+                .info
+                .extraction_coverage
+                .as_ref()
+                .is_none_or(|parts| {
+                    parts
+                        .iter()
+                        .all(|part| part.status == CoverageStatus::Complete)
+                });
         if let Some(version) = source
             .info
             .versions_seen
@@ -1885,9 +1988,14 @@ impl Application {
             .find(|version| version.source_version_id == source_version_id)
         {
             version.state = "complete".into();
-            version.coverage = "complete".into();
+            version.coverage = if extraction_coverage_complete {
+                "complete"
+            } else {
+                "partial"
+            }
+            .into();
         }
-        source.body = source_body(&source.info, source_text, None);
+        source.body = source_body(&source.info, source_text, office_projection.as_ref());
         self.publish_knowledge(source, source_text, draft)
     }
 

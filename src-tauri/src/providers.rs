@@ -140,7 +140,11 @@ impl SemanticProvider for JevSemanticProvider {
         &self,
         source_text: &str,
     ) -> std::result::Result<KnowledgeDraft, ProviderError> {
-        let candidates = candidates(source_text);
+        let mut candidates = candidates(source_text);
+        let office_candidates = office_statement_candidates(source_text);
+        let office_mode = !office_candidates.is_empty() || source_text.contains("; channel=");
+        candidates.extend(office_candidates);
+        candidates.sort_by_key(|candidate| (candidate.start, candidate.end));
         if candidates.is_empty() {
             return Err(ProviderError::recoverable(
                 "Jev has no grounded candidate spans for this text yet; semantic coverage remains incomplete.".into(),
@@ -184,6 +188,7 @@ impl SemanticProvider for JevSemanticProvider {
                 CandidateKind::Place => "Does this exact source span place the described event at the named place? Phrases such as 'at Riverside' or 'Location: Riverside' explicitly attach the place to the event; keep any uncertainty in the qualification.",
                 CandidateKind::Count if candidate.origin == "quoted" => "Does the source explicitly quote or report the qualified count described by this candidate? Judge whether the source contains that quoted assertion, not whether the count was independently observed.",
                 CandidateKind::Reference => "Does the supplied text contain this exact URL as a reference occurrence? Do not infer or fetch its destination content.",
+                CandidateKind::OfficeStatement => "Is this exact extracted Office passage a meaningful source statement worth representing on a source knowledge page? This includes qualified table measurements, short visible count/value fragments, and speaker-note instructions or corrections; do not drop them merely because they are provisional, conditional, or not a complete sentence. Preserve table headers, every qualification, and visible-slide versus speaker-note origin. Do not convert a proposed correction or conditional instruction into a completed event. Reject headings or labels alone. Judge what the source states, not whether it is true in the world.",
                 _ => "Does this exact source span support the candidate as a statement made by the source? Do not judge whether the statement is true in the world.",
             };
             questions.insert(format!("support_{i}"), json!({
@@ -334,7 +339,11 @@ impl SemanticProvider for JevSemanticProvider {
             .iter()
             .filter(|candidate| candidate.kind == CandidateKind::Event)
         {
-            let (choice, confidence) = validated.event_identity.as_ref().unwrap();
+            let Some((choice, confidence)) = validated.event_identity.as_ref() else {
+                return Err(ProviderError::recoverable(
+                    "No supported event identity was found; semantic coverage remains incomplete and will retry automatically.".into(),
+                ));
+            };
             decisions.push(SemanticDecision {
                 question: format!("event_identity:{}", candidate.value),
                 model: model.clone(),
@@ -429,11 +438,16 @@ impl SemanticProvider for JevSemanticProvider {
             && !accepted
                 .iter()
                 .any(|candidate| candidate.kind == CandidateKind::Reference)
+            && !office_mode
         {
-            let (choice, probability) = validated.event_identity.as_ref().unwrap();
-            return Err(ProviderError::recoverable(format!(
-                "No supported event identity was found (Jev choice {choice}, probability {probability:.2}); semantic coverage remains incomplete and will retry automatically."
-            )));
+            if let Some((choice, probability)) = validated.event_identity.as_ref() {
+                return Err(ProviderError::recoverable(format!(
+                    "No supported event identity was found (Jev choice {choice}, probability {probability:.2}); semantic coverage remains incomplete and will retry automatically."
+                )));
+            }
+            return Err(ProviderError::recoverable(
+                "No supported event identity or acquired reference was found; semantic coverage remains incomplete and will retry automatically.".into(),
+            ));
         }
         let mut draft = KnowledgeDraft {
             decisions,
@@ -596,6 +610,34 @@ impl SemanticProvider for JevSemanticProvider {
                 _ => {}
             }
         }
+        if office_mode {
+            if let Some(first) = accepted
+                .iter()
+                .find(|candidate| candidate.kind == CandidateKind::OfficeStatement)
+            {
+                let channel = office_channel_at(source_text, first.start).unwrap_or_default();
+                let document_label = if matches!(
+                    channel.as_str(),
+                    "slide_text" | "slide_text_table" | "speaker_notes"
+                ) {
+                    "Imported presentation"
+                } else {
+                    "Imported document"
+                };
+                entity_labels
+                    .entry(document_label.into())
+                    .or_insert_with(|| EntityDraft {
+                        kind: if document_label == "Imported presentation" {
+                            "presentation"
+                        } else {
+                            "document"
+                        }
+                        .into(),
+                        label: document_label.into(),
+                        evidence: first.evidence(),
+                    });
+            }
+        }
         draft.entities.extend(entity_labels.values().cloned());
         if let Some(event) = event {
             let event_label = event.value.clone();
@@ -701,6 +743,39 @@ impl SemanticProvider for JevSemanticProvider {
         }
         for candidate in accepted
             .iter()
+            .filter(|candidate| candidate.kind == CandidateKind::OfficeStatement)
+        {
+            let channel = office_channel_at(source_text, candidate.start).unwrap_or_default();
+            let subject = if matches!(
+                channel.as_str(),
+                "slide_text" | "slide_text_table" | "speaker_notes"
+            ) {
+                "Imported presentation"
+            } else {
+                "Imported document"
+            };
+            let property = match channel.as_str() {
+                "table" => "table_row",
+                "slide_text" => "visible_slide_text",
+                "slide_text_table" => "visible_slide_table_row",
+                "speaker_notes" => "speaker_note",
+                _ => "document_statement",
+            };
+            draft.facts.push(FactDraft {
+                subject: subject.into(),
+                property: property.into(),
+                value: candidate.value.clone(),
+                evidence: candidate.evidence(),
+                record_key: office_record_key(
+                    source_text,
+                    candidate.start,
+                    channel.as_str(),
+                    &candidate.value,
+                ),
+            });
+        }
+        for candidate in accepted
+            .iter()
             .filter(|candidate| candidate.kind == CandidateKind::Tag)
         {
             let subject = event
@@ -729,6 +804,7 @@ enum CandidateKind {
     Duration,
     Reference,
     Tag,
+    OfficeStatement,
 }
 
 #[derive(Clone)]
@@ -1125,6 +1201,261 @@ impl Candidate {
             source_location: None,
         }
     }
+}
+
+fn office_statement_candidates(text: &str) -> Vec<Candidate> {
+    let mut result = Vec::new();
+    let mut line_start = 0usize;
+    for raw_line in text.split_inclusive('\n') {
+        let line = raw_line.strip_suffix('\n').unwrap_or(raw_line);
+        if let Some((channel, body_offset)) = office_line_channel(line) {
+            if matches!(
+                channel,
+                "main_document" | "table" | "slide_text" | "slide_text_table" | "speaker_notes"
+            ) {
+                let body = &line[body_offset..];
+                let leading = body.len() - body.trim_start().len();
+                let quote = body.trim();
+                if !quote.is_empty() {
+                    let start = line_start + body_offset + leading;
+                    let end = start + quote.len();
+                    let origin = match channel {
+                        "table" => "table_cell",
+                        "slide_text" => "slide_visible",
+                        "slide_text_table" => "slide_table_cell",
+                        "speaker_notes" => "speaker_note",
+                        _ => "document_body",
+                    };
+                    result.push(Candidate {
+                        kind: CandidateKind::OfficeStatement,
+                        value: quote.to_owned(),
+                        quote: quote.to_owned(),
+                        start,
+                        end,
+                        qualifier: office_qualification(quote),
+                        origin: origin.into(),
+                    });
+                }
+            }
+        }
+        line_start += raw_line.len();
+    }
+    result
+}
+
+fn office_line_channel(line: &str) -> Option<(&str, usize)> {
+    let closing = line.find("] ")?;
+    let marker = line.get(1..closing)?;
+    let channel = marker
+        .strip_prefix("PPTX ")
+        .or_else(|| marker.strip_prefix("DOCX "))?;
+    let (_, channel) = channel.rsplit_once("; channel=")?;
+    Some((channel, closing + 2))
+}
+
+fn office_channel_at(text: &str, offset: usize) -> Option<String> {
+    let start = text[..offset].rfind('\n').map_or(0, |index| index + 1);
+    let end = text[offset..]
+        .find('\n')
+        .map_or(text.len(), |index| offset + index);
+    office_line_channel(&text[start..end]).map(|(channel, _)| channel.to_owned())
+}
+
+fn office_record_key(text: &str, offset: usize, channel: &str, quote: &str) -> Option<String> {
+    let line_start = text[..offset].rfind('\n').map_or(0, |index| index + 1);
+    let line_end = text[offset..]
+        .find('\n')
+        .map_or(text.len(), |index| offset + index);
+    let marker = text[line_start..line_end]
+        .find(']')
+        .and_then(|closing| text[line_start + 1..line_start + closing].split_once(' '))
+        .map(|(_, marker)| marker)?;
+    let heading = office_heading_context(text, line_start);
+
+    // OOXML paragraph and shape IDs are stable identities owned by the source package.
+    // Keep the part path because shape IDs are scoped to their XML part.
+    let object_identity = office_ooxml_object_identity(marker);
+    if let Some(object_identity) = object_identity.as_deref() {
+        if channel == "slide_text_table" {
+            // A graphic-frame ID identifies the table, not an individual row. Combine it
+            // with the stable field and row subject so separate rows do not collide.
+        } else {
+            return Some(format!(
+                "office-object:{}:{}:{}",
+                office_key_slug(&heading.unwrap_or_default()),
+                channel,
+                office_key_slug(object_identity)
+            ));
+        }
+    }
+
+    if matches!(channel, "table" | "slide_text_table") {
+        let (field, subject) = quote.split(';').next()?.split_once(':')?;
+        let field = office_key_slug(field);
+        let subject = office_key_slug(subject);
+        if !field.is_empty() && !subject.is_empty() {
+            return Some(format!(
+                "office-field:{}:{}:{}:{}-{}",
+                channel,
+                office_key_slug(&heading.unwrap_or_default()),
+                object_identity
+                    .as_deref()
+                    .map(office_key_slug)
+                    .unwrap_or_default(),
+                field,
+                subject,
+            ));
+        }
+    }
+
+    if matches!(channel, "slide_text" | "slide_text_table") {
+        if let Some((field, _)) = quote.split_once(':') {
+            let field = office_key_slug(field);
+            if !field.is_empty() {
+                return Some(format!(
+                    "office-slide-field:{}:{}",
+                    office_key_slug(&heading.unwrap_or_default()),
+                    field
+                ));
+            }
+        }
+    }
+
+    // For projected prose without a stable package ID, use a short source-grounded subject
+    // phrase under its nearest heading. Stop at common predicates so changed readings are
+    // excluded from the identity.
+    let subject = office_leading_subject(quote)?;
+    Some(format!(
+        "office-subject:{}:{}:{}",
+        channel,
+        office_key_slug(&heading.unwrap_or_default()),
+        subject
+    ))
+}
+
+fn office_ooxml_object_identity(marker: &str) -> Option<String> {
+    let (_, object) = marker.split_once("OOXML part ")?;
+    let (part, details) = object.split_once(' ')?;
+    for identifier in ["paragraph id ", "shape id "] {
+        if let Some((_, id)) = details.split_once(identifier) {
+            let id = id.split_whitespace().next()?;
+            return Some(format!("{part}:{identifier}{id}"));
+        }
+    }
+    None
+}
+
+fn office_heading_context(text: &str, line_start: usize) -> Option<String> {
+    let mut cursor = 0usize;
+    let mut nearest = None;
+    for raw_line in text.split_inclusive('\n') {
+        if cursor >= line_start {
+            break;
+        }
+        let line = raw_line.strip_suffix('\n').unwrap_or(raw_line);
+        if let Some(("main_document", body_offset)) = office_line_channel(line) {
+            if let Some(marker_end) = line.find("] ") {
+                let marker = &line[1..marker_end];
+                if marker.contains("style Title") || marker.contains("style Heading") {
+                    nearest = Some(line[body_offset..].trim().to_owned());
+                }
+            }
+        }
+        cursor += raw_line.len();
+    }
+    nearest
+}
+
+fn office_leading_subject(text: &str) -> Option<String> {
+    let mut words = Vec::new();
+    let stop = [
+        "a",
+        "an",
+        "the",
+        "this",
+        "that",
+        "these",
+        "those",
+        "unconfirmed",
+        "unverified",
+        "provisional",
+        "conditional",
+        "reported",
+        "possibly",
+        "estimated",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "left",
+        "remains",
+        "remained",
+        "measured",
+        "measures",
+        "recorded",
+        "reports",
+        "shows",
+        "showed",
+        "suggests",
+        "suggested",
+        "confirms",
+        "confirmed",
+        "indicates",
+        "indicated",
+        "occurred",
+        "happened",
+        "has",
+        "have",
+        "had",
+    ];
+    for token in text
+        .split(|character: char| !character.is_alphanumeric() && character != '-')
+        .filter(|token| !token.is_empty())
+    {
+        let word = token.to_lowercase();
+        if word.chars().all(char::is_numeric) {
+            continue;
+        }
+        if stop.contains(&word.as_str()) {
+            if words.is_empty() {
+                continue;
+            }
+            break;
+        }
+        words.push(word);
+        if words.len() == 3 {
+            break;
+        }
+    }
+    (!words.is_empty()).then(|| words.join("-"))
+}
+
+fn office_key_slug(value: &str) -> String {
+    let slug = value
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() {
+                character.to_lowercase().collect::<String>()
+            } else {
+                "-".to_owned()
+            }
+        })
+        .collect::<String>();
+    slug.split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+fn office_qualification(text: &str) -> Option<String> {
+    let matches = regex(r"(?i)\b(?:gauge\s+calibration\s+pending|calibration\s+pending|not\s+a\s+record(?:[\s-]+[\w-]+){0,5}|not\s+confirmed|not\s+verified|unconfirmed(?:[\s-]+[\w-]+){0,2}|unverified(?:[\s-]+[\w-]+){0,2}|possibly|possible|estimated(?:[\s-]+[\w-]+){0,2}|estimate|excluding(?:[\s-]+[\w-]+){0,3}|except(?:[\s-]+[\w-]+){0,3}|alleged|reported|provisional(?:[\s-]+[\w-]+){0,6}|uncalibrated(?:[\s-]+[\w-]+){0,2}|conditional|pending(?:[\s-]+[\w-]+){0,6}|unknown|may\s+be\s+\w+)")
+        .find_iter(text)
+        .map(|matched| matched.as_str().trim().trim_end_matches(','))
+        .collect::<Vec<_>>();
+    (!matches.is_empty()).then(|| matches.join("; "))
 }
 
 fn candidates(text: &str) -> Vec<Candidate> {

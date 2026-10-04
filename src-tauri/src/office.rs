@@ -443,17 +443,21 @@ fn extract_docx(
                     .and_then(|ppr| child_named(ppr, "pStyle"))
                     .and_then(|s| attr_local(s, "val"))
                     .unwrap_or_default();
+                let para_id = attr_local(node, "paraId");
                 let heading_level = style
                     .strip_prefix("Heading")
                     .and_then(|s| s.parse::<usize>().ok())
                     .filter(|n| (1..=6).contains(n));
                 let location = format!(
-                    "DOCX paragraph {paragraph_no}{}",
+                    "DOCX paragraph {paragraph_no}{}{}",
                     if style.is_empty() {
                         String::new()
                     } else {
                         format!(" style {style}")
-                    }
+                    },
+                    para_id
+                        .map(|id| format!(" OOXML part {part} paragraph id {id}"))
+                        .unwrap_or_default()
                 );
                 if let Some(level) = heading_level {
                     sections.push(format!("{} {}", "#".repeat((level + 1).min(6)), text));
@@ -506,6 +510,11 @@ fn extract_docx(
                         .join("\n")
                 ));
                 for (row_idx, row) in rows.iter().enumerate() {
+                    // The first row is the header row used by the Markdown table above; do not
+                    // offer it to semantic processing as a factual data row.
+                    if row_idx == 0 {
+                        continue;
+                    }
                     let columns = rows
                         .first()
                         .map(|header| {
@@ -666,9 +675,17 @@ fn extract_pptx(
                         .collect::<Vec<_>>()
                         .join(" ");
                     if !text.is_empty() {
+                        let object_id = shape
+                            .descendants()
+                            .find(|node| node.is_element() && local_name(*node) == "cNvPr")
+                            .and_then(|node| attr_local(node, "id"));
                         let locator = format!(
-                            "PPTX slide {slide_no} visible text block {}",
-                            visible.len() + 1
+                            "PPTX slide {slide_no}{} visible text block {}",
+                            object_id
+                                .as_deref()
+                                .map(|id| format!(" OOXML part {slide_part} shape id {id}"))
+                                .unwrap_or_default(),
+                            visible.len() + 1,
                         );
                         semantic.push(format!("[{locator}; channel=slide_text] {text}"));
                         ordered_content.push(text.clone());
@@ -681,6 +698,10 @@ fn extract_pptx(
                         .filter(|n| n.is_element() && local_name(*n) == "tbl")
                     {
                         slide_table_count += 1;
+                        let object_id = shape
+                            .descendants()
+                            .find(|node| node.is_element() && local_name(*node) == "cNvPr")
+                            .and_then(|node| attr_local(node, "id"));
                         let rows: Vec<Vec<String>> = children_named(table, "tr")
                             .into_iter()
                             .map(|row| {
@@ -700,6 +721,10 @@ fn extract_pptx(
                             })
                             .collect();
                         for (row_index, row) in rows.iter().enumerate() {
+                            // The first row is rendered as this table's header, not as a data fact.
+                            if row_index == 0 {
+                                continue;
+                            }
                             let pairs = rows
                                 .first()
                                 .map(|header| {
@@ -713,7 +738,7 @@ fn extract_pptx(
                                         .join("; ")
                                 })
                                 .unwrap_or_default();
-                            semantic.push(format!("[PPTX slide {slide_no} table {slide_table_count} row {}; channel=slide_text_table] {pairs}", row_index + 1));
+                            semantic.push(format!("[PPTX slide {slide_no}{} table {slide_table_count} row {}; channel=slide_text_table] {pairs}", object_id.as_deref().map(|id| format!(" OOXML part {slide_part} shape id {id}")).unwrap_or_default(), row_index + 1));
                         }
                         if !rows.is_empty() {
                             ordered_content.push(format!(
@@ -800,7 +825,11 @@ fn extract_pptx(
                                 .collect::<Vec<_>>()
                                 .join(" ");
                             if !text.is_empty() {
-                                notes.push(text);
+                                let object_id = shape
+                                    .descendants()
+                                    .find(|node| node.is_element() && local_name(*node) == "cNvPr")
+                                    .and_then(|node| attr_local(node, "id"));
+                                notes.push((text, object_id));
                             }
                         }
                         sections.push(format!(
@@ -808,11 +837,16 @@ fn extract_pptx(
                             if notes.is_empty() {
                                 "No speaker note text was found.".into()
                             } else {
-                                notes.join("\n\n")
+                                notes
+                                    .iter()
+                                    .map(|(text, _)| text.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join("\n\n")
                             }
                         ));
-                        for (idx, text) in notes.iter().enumerate() {
-                            semantic.push(format!("[PPTX slide {slide_no} speaker note {idx}; channel=speaker_notes] {text}"));
+                        for (idx, (text, object_id)) in notes.iter().enumerate() {
+                            let note_no = idx + 1;
+                            semantic.push(format!("[PPTX slide {slide_no} speaker note {note_no}{}; channel=speaker_notes] {text}", object_id.as_deref().map(|id| format!(" OOXML part {note_part} shape id {id}")).unwrap_or_default()));
                         }
                         notes_found += 1;
                     } else {
