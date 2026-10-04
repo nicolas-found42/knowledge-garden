@@ -198,8 +198,11 @@ export async function mountReader(
       const sourceMatch = href.match(
         /(?:\.\.\/)?sources\/([a-f0-9]{64})\/index\.md/,
       );
+      const versionedOriginalMatch = href.match(
+        /^(?:\.\.\/)?sources\/([a-f0-9]{64})\/versions\/([a-f0-9]{64})\/(original(?:\.[a-zA-Z0-9]+)?)$/,
+      );
       const originalMatch = href.match(
-        /(?:\.\.\/)?sources\/([a-f0-9]{64})\/original(?:\.[a-zA-Z0-9]+)?/,
+        /^(?:\.\.\/)?sources\/([a-f0-9]{64})\/(original(?:\.[a-zA-Z0-9]+)?)$/,
       );
       if (href === originalAsset || href === `knowledge-original:${sourceId}`) {
         void api.openOriginal(sourceId).catch(report);
@@ -215,8 +218,18 @@ export async function mountReader(
           .openSource(`source-${sourceMatch[1]}`)
           .then(showPage)
           .catch(report);
+      } else if (versionedOriginalMatch) {
+        void api
+          .openOriginalVersion(
+            `source-${versionedOriginalMatch[1]}`,
+            versionedOriginalMatch[2],
+            versionedOriginalMatch[3],
+          )
+          .catch(report);
       } else if (originalMatch) {
-        void api.openOriginal(`source-${originalMatch[1]}`).catch(report);
+        void api
+          .openOriginalAsset(`source-${originalMatch[1]}`, originalMatch[2])
+          .catch(report);
       } else {
         message("This reference is preserved in the Markdown page.");
       }

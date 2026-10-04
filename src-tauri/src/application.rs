@@ -1106,9 +1106,28 @@ impl Application {
             let markdown = serialize_page(&page.info, &page.body)?;
             self.staged_publication
                 .push((self.page_path(&page.info.source_id)?, markdown.into_bytes()));
+            let sources_root = self.root.join("sources");
+            let changed_source_ids = self
+                .staged_publication
+                .iter()
+                .filter_map(|(path, _)| {
+                    if path.file_name()?.to_str()? != "index.md" || !path.starts_with(&sources_root)
+                    {
+                        return None;
+                    }
+                    path.parent()?
+                        .file_name()?
+                        .to_str()
+                        .map(|digest| format!("source-{digest}"))
+                })
+                .collect::<std::collections::HashSet<_>>();
             let files = std::mem::take(&mut self.staged_publication);
             let fail_after = self.fail_after_publication_files.take();
             commit_publication(&self.root, files, fail_after)?;
+            for source_id in changed_source_ids {
+                let indexed = read_page(&self.page_path(&source_id)?)?;
+                self.index_page(&indexed.info)?;
+            }
         }
         self.index_page(&page.info)?;
         Ok(())
@@ -1567,6 +1586,7 @@ impl Application {
             let _ = page_for(&relationship.to)?;
             validate_evidence(source_text, &relationship.evidence)?;
         }
+        let mut foreign_replacement_sources = std::collections::HashSet::new();
         for page in &prior_pages {
             if contents.contains_key(&page.page_id) {
                 continue;
@@ -1578,6 +1598,12 @@ impl Application {
             let mut old = read_knowledge_header(&path)?;
             ensure_legacy_supports(&mut old);
             let replaced_sources = self.replacement_sources(&old, source)?;
+            foreign_replacement_sources.extend(
+                replaced_sources
+                    .iter()
+                    .filter(|id| *id != &source.info.source_id)
+                    .cloned(),
+            );
             mark_arrival_fallback(source, &replaced_sources);
             old.facts = self.reconcile_facts(old.facts, Vec::new(), &replaced_sources)?;
             old.relationships =
@@ -1599,6 +1625,12 @@ impl Application {
                 let mut old = read_knowledge_header(&path)?;
                 ensure_legacy_supports(&mut old);
                 let replaced_sources = self.replacement_sources(&old, source)?;
+                foreign_replacement_sources.extend(
+                    replaced_sources
+                        .iter()
+                        .filter(|id| *id != &source.info.source_id)
+                        .cloned(),
+                );
                 mark_arrival_fallback(source, &replaced_sources);
                 header.facts = self.reconcile_facts(old.facts, header.facts, &replaced_sources)?;
                 header.relationships = self.reconcile_relationships(
@@ -1609,6 +1641,58 @@ impl Application {
                 header.tags = self.reconcile_tags(old.tags, header.tags, &replaced_sources);
             }
             *markdown = self.render_knowledge_page(header, &draft_labels)?;
+        }
+        for source_id in foreign_replacement_sources {
+            let path = self.page_path(&source_id)?;
+            if !path.exists() {
+                continue;
+            }
+            let mut replaced_source = read_page(&path)?;
+            let mut may_still_support_current_knowledge = false;
+            for summary in &replaced_source.info.knowledge_pages {
+                let markdown = if let Some(markdown) = contents.get(&summary.page_id) {
+                    markdown.clone()
+                } else {
+                    let page_path = self.root.join(&summary.path);
+                    match read_bounded_text(&page_path, MAX_PAGE_BYTES) {
+                        Ok(markdown) => markdown,
+                        Err(_) => {
+                            may_still_support_current_knowledge = true;
+                            break;
+                        }
+                    }
+                };
+                match parse_knowledge_header(&markdown) {
+                    Ok(header) if knowledge_header_supported_by(&header, &source_id) => {
+                        may_still_support_current_knowledge = true;
+                        break;
+                    }
+                    Ok(_) => {}
+                    Err(_) => {
+                        may_still_support_current_knowledge = true;
+                        break;
+                    }
+                }
+            }
+            if may_still_support_current_knowledge {
+                continue;
+            }
+            let Some(current_version_id) = replaced_source.info.current_version_id.clone() else {
+                continue;
+            };
+            let Some(current_version) = replaced_source
+                .info
+                .versions_seen
+                .iter_mut()
+                .find(|version| version.source_version_id == current_version_id)
+            else {
+                continue;
+            };
+            current_version.state = "superseded".into();
+            replaced_source.markdown =
+                serialize_page(&replaced_source.info, &replaced_source.body)?;
+            self.staged_publication
+                .push((path, replaced_source.markdown.into_bytes()));
         }
         for (page_id, markdown) in contents {
             self.staged_publication.push((
@@ -2321,10 +2405,100 @@ impl Application {
             ));
         }
         let bundle = fs::canonicalize(self.source_dir(source_id)?)?;
+        let sources_root = fs::canonicalize(self.root.join("sources"))?;
+        if bundle.parent() != Some(sources_root.as_path()) {
+            return Err(GardenError::Invalid(
+                "The source bundle leaves the collection.".into(),
+            ));
+        }
         let original = fs::canonicalize(bundle.join(asset))?;
         if original.parent() != Some(bundle.as_path()) {
             return Err(GardenError::Invalid(
                 "The original's link leaves its source bundle.".into(),
+            ));
+        }
+        Ok(original)
+    }
+
+    pub fn original_asset_path(&self, source_id: &str, asset: &str) -> Result<PathBuf> {
+        if !asset.starts_with("original") || Path::new(asset).components().count() != 1 {
+            return Err(GardenError::Invalid(
+                "The original's link is not a retained asset.".into(),
+            ));
+        }
+        let page = self.open_source(source_id)?;
+        if asset == page.info.asset {
+            return self.original_path(source_id);
+        }
+        let candidates = page
+            .info
+            .versions_seen
+            .iter()
+            .filter(|version| version.asset == asset)
+            .collect::<Vec<_>>();
+        let [version] = candidates.as_slice() else {
+            return Err(GardenError::Invalid(
+                "The retained original asset is unknown or ambiguous; its source version must be specified.".into(),
+            ));
+        };
+        self.original_version_path(source_id, &version.source_version_id, asset)
+    }
+
+    pub fn original_version_path(
+        &self,
+        source_id: &str,
+        source_version_id: &str,
+        asset: &str,
+    ) -> Result<PathBuf> {
+        if source_version_id.len() != 64
+            || !source_version_id
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        {
+            return Err(GardenError::Invalid(
+                "Invalid source version identity.".into(),
+            ));
+        }
+        let page = self.open_source(source_id)?;
+        let version = page
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == source_version_id)
+            .ok_or_else(|| {
+                GardenError::Invalid("The retained source version is unknown.".into())
+            })?;
+        if asset != version.asset
+            || !asset.starts_with("original")
+            || Path::new(asset).components().count() != 1
+        {
+            return Err(GardenError::Invalid(
+                "The retained version's link is not a known original asset.".into(),
+            ));
+        }
+        let source_bundle = fs::canonicalize(self.source_dir(source_id)?)?;
+        let sources_root = fs::canonicalize(self.root.join("sources"))?;
+        if source_bundle.parent() != Some(sources_root.as_path()) {
+            return Err(GardenError::Invalid(
+                "The source bundle leaves the collection.".into(),
+            ));
+        }
+        let versions_dir = fs::canonicalize(source_bundle.join("versions"))?;
+        if versions_dir.parent() != Some(source_bundle.as_path()) {
+            return Err(GardenError::Invalid(
+                "The retained versions directory leaves its source bundle.".into(),
+            ));
+        }
+        let version_dir = fs::canonicalize(versions_dir.join(source_version_id))?;
+        if version_dir.parent() != Some(versions_dir.as_path()) {
+            return Err(GardenError::Invalid(
+                "The retained version leaves its source bundle.".into(),
+            ));
+        }
+        let original = fs::canonicalize(version_dir.join(asset))?;
+        if original.parent() != Some(version_dir.as_path()) {
+            return Err(GardenError::Invalid(
+                "The retained original leaves its version bundle.".into(),
             ));
         }
         Ok(original)
@@ -3139,6 +3313,25 @@ fn knowledge_search_content(header: &KnowledgePageHeader) -> String {
         }
     }
     fields.join(" ")
+}
+
+fn knowledge_header_supported_by(header: &KnowledgePageHeader, source_id: &str) -> bool {
+    header
+        .facts
+        .iter()
+        .flat_map(|fact| fact.supports.iter())
+        .chain(
+            header
+                .relationships
+                .iter()
+                .flat_map(|relationship| relationship.supports.iter()),
+        )
+        .any(|support| support.source_id == source_id)
+        || header
+            .tags
+            .iter()
+            .flat_map(|tag| tag.supports.iter())
+            .any(|support| support.source_id == source_id)
 }
 
 fn validate_iso_date(value: &str) -> Result<String> {

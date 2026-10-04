@@ -160,6 +160,12 @@ export interface GardenApi {
   openSource(sourceId: string): Promise<SourcePage>;
   openKnowledgePage(pageId: string): Promise<KnowledgePage>;
   openOriginal(sourceId: string): Promise<void>;
+  openOriginalVersion(
+    sourceId: string,
+    sourceVersionId: string,
+    asset: string,
+  ): Promise<void>;
+  openOriginalAsset(sourceId: string, asset: string): Promise<void>;
   onDrop(handler: (paths: string[]) => void): Promise<() => void>;
 }
 
@@ -179,6 +185,10 @@ export const desktopApi: GardenApi = {
   openSource: (sourceId) => invoke("open_source", { sourceId }),
   openKnowledgePage: (pageId) => invoke("open_knowledge_page", { pageId }),
   openOriginal: (sourceId) => invoke("open_original", { sourceId }),
+  openOriginalVersion: (sourceId, sourceVersionId, asset) =>
+    invoke("open_original_version", { sourceId, sourceVersionId, asset }),
+  openOriginalAsset: (sourceId, asset) =>
+    invoke("open_original_asset", { sourceId, asset }),
   async onDrop(handler) {
     return getCurrentWebview().onDragDropEvent(({ payload }) => {
       if (payload.type === "drop") handler(payload.paths);
