@@ -64,6 +64,21 @@ impl SemanticProvider for WholeInputProvider {
                     source_location: None,
                 },
             }],
+            facts: vec![FactDraft {
+                subject: "Office source document".into(),
+                property: "document_statement".into(),
+                value: source_text.to_owned(),
+                evidence: EvidenceDraft {
+                    quote: source_text.to_owned(),
+                    byte_start: 0,
+                    byte_end: source_text.len(),
+                    origin: "document_body".into(),
+                    qualifier: None,
+                    offset_basis: None,
+                    source_location: None,
+                },
+                record_key: Some("whole-input-projection".into()),
+            }],
             ..KnowledgeDraft::default()
         })
     }
@@ -2023,6 +2038,296 @@ fn partial_office_coverage_stays_inspectable_after_semantic_processing() {
         processed.info.versions_seen[0].coverage, "partial",
         "semantic success over a projection must not imply full package coverage"
     );
+}
+
+#[test]
+fn office_record_keys_preserve_multiple_fields_and_source_scope_across_revision() {
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/office");
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("multi-measurement.docx");
+    fs::copy(fixtures.join("source/multi-measurement.docx"), &source).unwrap();
+    let second_source = workspace.path().join("pressure-trial.docx");
+    fs::copy(fixtures.join("heldout/pressure-trial.docx"), &second_source).unwrap();
+    let slide_source = fixtures.join("source/multi-field.pptx");
+    let transport = Arc::new(ConfiguredSystemOneTransport {
+        roles: Mutex::new(VecDeque::from([
+            "complete_replacement".into(),
+            "complete_replacement".into(),
+            "complete_replacement".into(),
+            "complete_replacement".into(),
+        ])),
+    });
+    let provider =
+        JevSemanticProvider::with_transport("recorded-test-credential".into(), transport);
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(provider),
+    )
+    .unwrap();
+
+    let before_bytes = fs::read(&source).unwrap();
+    let first = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let first = app.open_source(&first.info.source_id).unwrap();
+    assert_eq!(first.info.semantic_state, "complete");
+    let first_page = app
+        .open_knowledge_page(&first.info.knowledge_pages[0].page_id)
+        .unwrap();
+    let first_frontmatter = first_page
+        .markdown
+        .strip_prefix("---\n")
+        .unwrap()
+        .split_once("\n---\n")
+        .unwrap()
+        .0;
+    let first_record: Value = serde_yaml_ng::from_str(first_frontmatter).unwrap();
+    let initial_rows = first_record["facts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|fact| fact["property"] == "table_row")
+        .collect::<Vec<_>>();
+    assert_eq!(initial_rows.len(), 2, "both measurements should survive");
+    let water = initial_rows
+        .iter()
+        .find(|fact| {
+            fact["value"]
+                .as_str()
+                .unwrap()
+                .contains("Water temperature")
+        })
+        .unwrap();
+    let oxygen = initial_rows
+        .iter()
+        .find(|fact| fact["value"].as_str().unwrap().contains("Dissolved oxygen"))
+        .unwrap();
+    assert_ne!(water["fact_id"], oxygen["fact_id"]);
+    assert!(water["record_key"]
+        .as_str()
+        .unwrap()
+        .contains("water-temperature"));
+    assert!(oxygen["record_key"]
+        .as_str()
+        .unwrap()
+        .contains("dissolved-oxygen"));
+    let water_id = water["fact_id"].as_str().unwrap().to_owned();
+    let water_key = water["record_key"].as_str().unwrap().to_owned();
+
+    let second = app
+        .import_source(&second_source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let second = app.open_source(&second.info.source_id).unwrap();
+    assert_eq!(second.info.semantic_state, "complete");
+    assert_ne!(first.info.source_id, second.info.source_id);
+    let first_page_ids = first
+        .info
+        .knowledge_pages
+        .iter()
+        .map(|page| page.page_id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    assert!(second
+        .info
+        .knowledge_pages
+        .iter()
+        .all(|page| !first_page_ids.contains(page.page_id.as_str())));
+
+    let slide = app
+        .import_source(&slide_source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let slide = app.open_source(&slide.info.source_id).unwrap();
+    assert_eq!(slide.info.semantic_state, "complete");
+    assert_ne!(first.info.source_id, slide.info.source_id);
+    assert!(slide
+        .info
+        .knowledge_pages
+        .iter()
+        .all(|page| !first_page_ids.contains(page.page_id.as_str())));
+    let slide_page = app
+        .open_knowledge_page(&slide.info.knowledge_pages[0].page_id)
+        .unwrap();
+    let slide_frontmatter = slide_page
+        .markdown
+        .strip_prefix("---\n")
+        .unwrap()
+        .split_once("\n---\n")
+        .unwrap()
+        .0;
+    let slide_record: Value = serde_yaml_ng::from_str(slide_frontmatter).unwrap();
+    let visible_facts = slide_record["facts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|fact| fact["property"] == "visible_slide_text")
+        .collect::<Vec<_>>();
+    assert_eq!(visible_facts.len(), 2, "both visible shapes should survive");
+    assert!(visible_facts
+        .iter()
+        .all(|fact| fact["origin"] == "slide_visible"));
+    assert_ne!(visible_facts[0]["fact_id"], visible_facts[1]["fact_id"]);
+    assert_ne!(
+        visible_facts[0]["record_key"],
+        visible_facts[1]["record_key"]
+    );
+    assert!(visible_facts
+        .iter()
+        .all(|fact| fact["record_key"].as_str().unwrap().contains("shape-id")));
+
+    fs::copy(
+        fixtures.join("source/multi-measurement-update.docx"),
+        &source,
+    )
+    .unwrap();
+    let updated = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    assert_eq!(updated.info.source_id, first.info.source_id);
+    app.resume_due_semantic_jobs().unwrap();
+    let updated = app.open_source(&first.info.source_id).unwrap();
+    assert_eq!(updated.info.semantic_state, "complete");
+    let updated_page = app
+        .open_knowledge_page(&updated.info.knowledge_pages[0].page_id)
+        .unwrap();
+    let updated_frontmatter = updated_page
+        .markdown
+        .strip_prefix("---\n")
+        .unwrap()
+        .split_once("\n---\n")
+        .unwrap()
+        .0;
+    let updated_record: Value = serde_yaml_ng::from_str(updated_frontmatter).unwrap();
+    let updated_rows = updated_record["facts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|fact| fact["property"] == "table_row")
+        .collect::<Vec<_>>();
+    assert_eq!(updated_rows.len(), 2);
+    let updated_water = updated_rows
+        .iter()
+        .find(|fact| {
+            fact["value"]
+                .as_str()
+                .unwrap()
+                .contains("Water temperature")
+        })
+        .unwrap();
+    assert_eq!(updated_water["fact_id"], water_id);
+    assert_eq!(updated_water["record_key"], water_key);
+    assert!(
+        updated_water["value"].as_str().unwrap().contains("15 °C"),
+        "updated fact must retain its stable field identity and new value: {updated_water}"
+    );
+    assert_eq!(
+        fs::read(app.original_path(&first.info.source_id).unwrap()).unwrap(),
+        fs::read(&source).unwrap()
+    );
+    assert_ne!(before_bytes, fs::read(&source).unwrap());
+}
+
+#[test]
+fn ordinary_report_without_event_identity_stays_recoverable_instead_of_panicking() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("field-report.txt");
+    fs::write(&source, "There were 12 visits on May 17, 2024.").unwrap();
+    let transport = Arc::new(ConfiguredSystemOneTransport {
+        roles: Mutex::new(VecDeque::from(["complete_replacement".into()])),
+    });
+    let provider =
+        JevSemanticProvider::with_transport("recorded-test-credential".into(), transport);
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(provider),
+    )
+    .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let current = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(current.info.semantic_state, "pending");
+    assert!(current
+        .info
+        .semantic_error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("No supported event identity"));
+    assert!(current
+        .body
+        .contains("There were 12 visits on May 17, 2024."));
+}
+
+#[test]
+fn office_repeated_facts_without_distinct_record_keys_stay_pending() {
+    let workspace = tempdir().unwrap();
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/office/source/multi-measurement.docx");
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::once(Ok(KnowledgeDraft::default()))),
+    )
+    .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    let rows = job
+        .source_text
+        .lines()
+        .filter(|line| line.contains("; channel=table]"))
+        .map(|line| line.split_once("] ").unwrap().1.trim().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(rows.len(), 2);
+    let evidence = |quote: &str| EvidenceDraft {
+        quote: quote.to_owned(),
+        byte_start: job.source_text.find(quote).unwrap(),
+        byte_end: job.source_text.find(quote).unwrap() + quote.len(),
+        origin: "table_cell".into(),
+        qualifier: None,
+        offset_basis: None,
+        source_location: None,
+    };
+    let first_quote = rows[0].as_str();
+    let second_quote = rows[1].as_str();
+    let draft = KnowledgeDraft {
+        entities: vec![EntityDraft {
+            kind: "document".into(),
+            label: "Imported document".into(),
+            evidence: evidence(first_quote),
+        }],
+        facts: vec![
+            FactDraft {
+                subject: "Imported document".into(),
+                property: "table_row".into(),
+                value: first_quote.into(),
+                evidence: evidence(first_quote),
+                record_key: None,
+            },
+            FactDraft {
+                subject: "Imported document".into(),
+                property: "table_row".into(),
+                value: second_quote.into(),
+                evidence: evidence(second_quote),
+                record_key: None,
+            },
+        ],
+        ..KnowledgeDraft::default()
+    };
+    app.finish_semantic_job(job, Ok(draft)).unwrap();
+    let current = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(current.info.semantic_state, "pending");
+    assert!(current
+        .info
+        .semantic_error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("distinct stable record identities"));
+    assert!(current.knowledge_pages.is_empty());
+    assert!(current.body.contains("Water temperature"));
+    assert!(current.body.contains("Dissolved oxygen"));
 }
 
 #[test]
