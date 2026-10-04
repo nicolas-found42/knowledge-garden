@@ -142,11 +142,14 @@ it("searches durable page results with combined filters and restores the exact r
         match_location: {
           record_id: "page-v17",
           source_id: "source-riverside",
+          source_version_id: "version-riverside-1",
           quote: "Observation V17",
           byte_start: 0,
           byte_end: 15,
           line_start: 1,
           line_end: 1,
+          offset_basis: "preserved_text",
+          source_location: null,
         },
       },
     ],
@@ -191,6 +194,11 @@ it("searches durable page results with combined filters and restores the exact r
     processing_status: "complete",
     offset: 0,
   });
+  expect(
+    await screen.findByText(
+      /Evidence · preserved source text · version version-r/,
+    ),
+  ).toBeTruthy();
   await user.click(
     await screen.findByRole("button", { name: "Riverside notes" }),
   );

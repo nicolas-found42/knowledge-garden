@@ -8,8 +8,8 @@ use knowledge_garden::semantic::{
 };
 use serde_json::Value;
 use std::collections::VecDeque;
-use std::fs;
 use std::sync::{Arc, Mutex};
+use std::{fs, path::Path};
 use tempfile::tempdir;
 
 struct RecordedProvider {
@@ -67,6 +67,35 @@ impl SemanticProvider for WholeInputProvider {
             ..KnowledgeDraft::default()
         })
     }
+}
+
+fn copy_collection(source: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(destination)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let target = destination.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_collection(&entry.path(), &target)?;
+        } else {
+            fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
+}
+
+fn export_recorded_search_collection(collection: &Path) {
+    let Some(destination) = std::env::var_os("KG_TICKET18_COLLECTION_EXPORT") else {
+        return;
+    };
+    let destination = Path::new(&destination);
+    assert!(
+        !destination.exists(),
+        "fixture export destination must be fresh"
+    );
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).unwrap();
+    }
+    copy_collection(collection, destination).unwrap();
 }
 
 struct RecordedSystemOneTransport {
@@ -976,6 +1005,7 @@ fn search_returns_frozen_page_set_from_titles_tags_keyword_and_current_metadata(
         .unwrap();
     assert!(no_match.pages.is_empty());
 
+    export_recorded_search_collection(&workspace.path().join("collection"));
     drop(app);
     fs::remove_dir_all(workspace.path().join("collection/.derived")).unwrap();
     let rebuilt = Application::open(workspace.path().join("collection")).unwrap();
@@ -2040,4 +2070,129 @@ fn a_second_process_cannot_write_the_same_collection_and_directories_are_rejecte
     assert!(app.open_source("../../outside").is_err());
     drop(app);
     assert!(Application::open(&collection).is_ok());
+}
+
+#[test]
+fn search_omits_superseded_source_text_and_locates_independent_support_after_rebuild() {
+    // Expected obsolete-value and active-support behavior is independent of any live model output.
+    let workspace = tempdir().unwrap();
+    let revision_one = workspace.path().join("reports/revision-1.txt");
+    let independent = workspace.path().join("notes/independent-duration.txt");
+    let revision_two = workspace.path().join("updates/revision-2.txt");
+    let pending_path = workspace.path().join("pending/unprocessed.txt");
+    let independent_text = "Independent report dated May 19, 2024.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 12. Duration: 10 minutes.\n";
+    fs::create_dir_all(revision_one.parent().unwrap()).unwrap();
+    fs::create_dir_all(independent.parent().unwrap()).unwrap();
+    fs::create_dir_all(revision_two.parent().unwrap()).unwrap();
+    fs::create_dir_all(pending_path.parent().unwrap()).unwrap();
+    fs::write(&revision_one, REVISION_1).unwrap();
+    fs::write(&independent, independent_text).unwrap();
+    fs::write(&revision_two, REVISION_2).unwrap();
+    fs::write(&pending_path, "PENDING-CONTENT-TRACER 88142").unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open_with_semantic_provider(
+        &collection,
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(replacement_recording(REVISION_1, 12, true)),
+            Ok(replacement_recording(independent_text, 12, true)),
+            Ok(replacement_recording(REVISION_2, 15, false)),
+        ])),
+    )
+    .unwrap();
+
+    let first = app
+        .import_source(&revision_one, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let independent_source = app
+        .import_source(&independent, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    app.import_source(&revision_two, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let current = app.open_source(&first.info.source_id).unwrap();
+    let event = current
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "event")
+        .unwrap();
+    let obsolete = app
+        .search_pages(PageSearchRequest {
+            query: "12 visits".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert!(
+        !obsolete.pages.iter().any(|result| result.page_id == first.info.page_id),
+        "superseded revision-1 source text must not be presented as an ordinary result: {obsolete:?}"
+    );
+    let active_support = app
+        .search_pages(PageSearchRequest {
+            query: "10 minutes".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap()
+        .pages
+        .into_iter()
+        .find(|result| result.page_id == event.page_id)
+        .expect("active independent duration result");
+    let location = active_support
+        .match_location
+        .expect("fact evidence location");
+    assert_eq!(active_support.source_id, first.info.source_id);
+    assert_eq!(location.source_id, independent_source.info.source_id);
+    assert_eq!(
+        location.source_version_id.as_deref(),
+        independent_source.info.current_version_id.as_deref()
+    );
+    assert_eq!(location.offset_basis, "preserved_text");
+    assert_eq!(location.quote, "Duration: 10 minutes.");
+    assert_eq!(
+        &independent_text[location.byte_start..location.byte_end],
+        location.quote
+    );
+
+    app.import_source(&pending_path, AcquisitionMethod::Picker)
+        .unwrap();
+    drop(app);
+    let mut reopened = Application::open(&collection).unwrap();
+    reopened.rebuild_index().unwrap();
+    let after_rebuild = reopened
+        .search_pages(PageSearchRequest {
+            query: "10 minutes".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap()
+        .pages
+        .into_iter()
+        .find(|result| result.page_id == event.page_id)
+        .expect("active support survives index rebuild");
+    let rebuilt_location = after_rebuild.match_location.unwrap();
+    assert_eq!(
+        rebuilt_location.source_id,
+        independent_source.info.source_id
+    );
+    assert_eq!(rebuilt_location.quote, "Duration: 10 minutes.");
+    let pending = reopened
+        .search_pages(PageSearchRequest {
+            query: "PENDING-CONTENT-TRACER".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert!(pending
+        .pages
+        .iter()
+        .any(|result| { result.title == "unprocessed" && result.processing_status == "pending" }));
+    let stale_after_rebuild = reopened
+        .search_pages(PageSearchRequest {
+            query: "12 visits".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert!(!stale_after_rebuild
+        .pages
+        .iter()
+        .any(|result| result.page_id == first.info.page_id));
 }

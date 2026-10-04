@@ -114,11 +114,15 @@ export interface PageSearchRequest {
 export interface SearchMatchLocation {
   record_id: string;
   source_id: string;
+  source_version_id: string | null;
   quote: string;
   byte_start: number;
   byte_end: number;
   line_start: number;
   line_end: number;
+  offset_basis:
+    "preserved_text" | "extracted_office_projection" | "web_visible_text";
+  source_location: string | null;
 }
 
 export interface PageResult {

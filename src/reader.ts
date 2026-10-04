@@ -546,6 +546,34 @@ export async function mountReader(
       const excerpt = element("p", result.excerpt || "No excerpt available.");
       excerpt.className = "result-excerpt";
       card.append(open, meta, excerpt);
+      if (result.match_location) {
+        const location = result.match_location;
+        const basisLabel =
+          location.offset_basis === "web_visible_text"
+            ? "visible web text"
+            : location.offset_basis === "extracted_office_projection"
+              ? "extracted Office text"
+              : "preserved source text";
+        const origin = element(
+          "p",
+          `Evidence · ${basisLabel} · version ${location.source_version_id?.slice(0, 12) ?? "unknown"}${location.line_start ? ` · line ${location.line_start}` : ""}${location.source_location ? ` · ${location.source_location}` : ""}`,
+        );
+        origin.className = "search-match-origin";
+        card.append(origin);
+        if (location.source_id !== result.source_id) {
+          const supportSource = element("button", "Open supporting source");
+          supportSource.type = "button";
+          supportSource.addEventListener("click", () => {
+            pushCurrentState();
+            void api
+              .openSource(location.source_id)
+              .then(showPage)
+              .then(() => highlightQuote(location.quote))
+              .catch(report);
+          });
+          card.append(supportSource);
+        }
+      }
       if (result.tags.length) {
         const tagLine = element(
           "p",
@@ -611,7 +639,11 @@ export async function mountReader(
       } else {
         showPage(await api.openSource(result.source_id));
       }
-      if (result.match_location) highlightQuote(result.match_location.quote);
+      if (
+        result.match_location &&
+        result.match_location.source_id === result.source_id
+      )
+        highlightQuote(result.match_location.quote);
       syncBackButton();
     } catch (error) {
       report(error);
