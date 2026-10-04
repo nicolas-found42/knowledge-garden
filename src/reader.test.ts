@@ -161,6 +161,17 @@ it("searches durable page results with combined filters and restores the exact r
     available_statuses: ["complete", "pending"],
   };
   api.searchPages = vi.fn(async (_request: PageSearchRequest) => results);
+  api.openSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: {
+      ...riverside.info,
+      semantic_state: "complete",
+      current_version_id: "version-riverside-1",
+      versions_seen: [
+        { source_version_id: "version-riverside-1", state: "superseded" },
+      ],
+    },
+  });
   const root = document.createElement("div");
   document.body.append(root);
   dispose = await mountReader(root, api);
@@ -207,6 +218,13 @@ it("searches durable page results with combined filters and restores the exact r
   expect(
     await screen.findByRole("article", { name: "Riverside notes" }),
   ).toBeTruthy();
+  await user.click(screen.getByText("Source information"));
+  expect(
+    screen.getByText(
+      "Superseded source version retained as history. Its original remains available.",
+    ),
+  ).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Open original" })).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Back" }));
   expect(
     await screen.findByRole("heading", { name: "Search your garden" }),

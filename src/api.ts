@@ -48,6 +48,8 @@ export interface SourceInfo {
   sha256: string;
   bytes: number;
   format: string;
+  current_version_id?: string | null;
+  versions_seen?: { source_version_id: string; state: string }[];
   extraction: ExtractionState;
   extraction_detail: string;
   extraction_coverage?: CoveragePart[] | null;

@@ -263,6 +263,9 @@ export async function mountReader(
     details.className = "source-info";
     details.append(element("summary", "Source information"));
     const definition = element("dl");
+    const currentVersion = next.info.versions_seen?.find(
+      (version) => version.source_version_id === next.info.current_version_id,
+    );
     const rows = [
       ["Original", next.info.original_name],
       ["Processing", labels[next.info.extraction]],
@@ -291,6 +294,12 @@ export async function mountReader(
       ["Source identity", next.info.source_id],
       ["Page identity", next.info.page_id],
     ];
+    if (currentVersion?.state === "superseded") {
+      rows.splice(3, 0, [
+        "Version status",
+        "Superseded source version retained as history. Its original remains available.",
+      ]);
+    }
     if (next.info.semantic_error)
       rows.push(["Semantic status", next.info.semantic_error]);
     for (const acquisition of next.info.acquisitions) {

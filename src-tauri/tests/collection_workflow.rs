@@ -1019,8 +1019,8 @@ fn search_returns_frozen_page_set_from_titles_tags_keyword_and_current_metadata(
         .unwrap();
     assert!(no_match.pages.is_empty());
 
-    export_recorded_search_collection(&workspace.path().join("collection"));
     drop(app);
+    export_recorded_search_collection(&workspace.path().join("collection"));
     fs::remove_dir_all(workspace.path().join("collection/.derived")).unwrap();
     let rebuilt = Application::open(workspace.path().join("collection")).unwrap();
     let after_restart = rebuilt
@@ -2224,11 +2224,14 @@ fn search_omits_superseded_source_text_and_locates_independent_support_after_reb
     let location = active_support
         .match_location
         .expect("fact evidence location");
-    assert_eq!(active_support.source_id, first.info.source_id);
+    let event_owner = app.open_knowledge_page(&event.page_id).unwrap();
+    assert_eq!(active_support.page_id, event.page_id);
+    assert_eq!(active_support.source_id, event_owner.source_id);
     assert_eq!(location.source_id, independent_source.info.source_id);
+    let independent_current = app.open_source(&independent_source.info.source_id).unwrap();
     assert_eq!(
         location.source_version_id.as_deref(),
-        independent_source.info.current_version_id.as_deref()
+        independent_current.info.current_version_id.as_deref()
     );
     assert_eq!(location.offset_basis, "preserved_text");
     assert_eq!(location.quote, "Duration: 10 minutes.");
@@ -2252,6 +2255,13 @@ fn search_omits_superseded_source_text_and_locates_independent_support_after_reb
         .into_iter()
         .find(|result| result.page_id == event.page_id)
         .expect("active support survives index rebuild");
+    assert_eq!(
+        after_rebuild.source_id,
+        reopened
+            .open_knowledge_page(&event.page_id)
+            .unwrap()
+            .source_id
+    );
     let rebuilt_location = after_rebuild.match_location.unwrap();
     assert_eq!(
         rebuilt_location.source_id,
