@@ -263,6 +263,9 @@ export async function mountReader(
     details.className = "source-info";
     details.append(element("summary", "Source information"));
     const definition = element("dl");
+    const currentVersion = next.info.versions_seen?.find(
+      (version) => version.source_version_id === next.info.current_version_id,
+    );
     const rows = [
       ["Original", next.info.original_name],
       ["Processing", labels[next.info.extraction]],
@@ -291,6 +294,12 @@ export async function mountReader(
       ["Source identity", next.info.source_id],
       ["Page identity", next.info.page_id],
     ];
+    if (currentVersion?.state === "superseded") {
+      rows.splice(3, 0, [
+        "Version status",
+        "Superseded source version retained as history. Its original remains available.",
+      ]);
+    }
     if (next.info.semantic_error)
       rows.push(["Semantic status", next.info.semantic_error]);
     for (const acquisition of next.info.acquisitions) {
@@ -559,6 +568,34 @@ export async function mountReader(
       const excerpt = element("p", result.excerpt || "No excerpt available.");
       excerpt.className = "result-excerpt";
       card.append(open, meta, excerpt);
+      if (result.match_location) {
+        const location = result.match_location;
+        const basisLabel =
+          location.offset_basis === "web_visible_text"
+            ? "visible web text"
+            : location.offset_basis === "extracted_office_projection"
+              ? "extracted Office text"
+              : "preserved source text";
+        const origin = element(
+          "p",
+          `Evidence · ${basisLabel} · version ${location.source_version_id?.slice(0, 12) ?? "unknown"}${location.line_start ? ` · line ${location.line_start}` : ""}${location.source_location ? ` · ${location.source_location}` : ""}`,
+        );
+        origin.className = "search-match-origin";
+        card.append(origin);
+        if (location.source_id !== result.source_id) {
+          const supportSource = element("button", "Open supporting source");
+          supportSource.type = "button";
+          supportSource.addEventListener("click", () => {
+            pushCurrentState();
+            void api
+              .openSource(location.source_id)
+              .then(showPage)
+              .then(() => highlightQuote(location.quote))
+              .catch(report);
+          });
+          card.append(supportSource);
+        }
+      }
       if (result.tags.length) {
         const tagLine = element(
           "p",
@@ -624,7 +661,11 @@ export async function mountReader(
       } else {
         showPage(await api.openSource(result.source_id));
       }
-      if (result.match_location) highlightQuote(result.match_location.quote);
+      if (
+        result.match_location &&
+        result.match_location.source_id === result.source_id
+      )
+        highlightQuote(result.match_location.quote);
       syncBackButton();
     } catch (error) {
       report(error);
