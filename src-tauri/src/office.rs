@@ -506,6 +506,11 @@ fn extract_docx(
                         .join("\n")
                 ));
                 for (row_idx, row) in rows.iter().enumerate() {
+                    // The first row is the header row used by the Markdown table above; do not
+                    // offer it to semantic processing as a factual data row.
+                    if row_idx == 0 {
+                        continue;
+                    }
                     let columns = rows
                         .first()
                         .map(|header| {
@@ -700,6 +705,10 @@ fn extract_pptx(
                             })
                             .collect();
                         for (row_index, row) in rows.iter().enumerate() {
+                            // The first row is rendered as this table's header, not as a data fact.
+                            if row_index == 0 {
+                                continue;
+                            }
                             let pairs = rows
                                 .first()
                                 .map(|header| {

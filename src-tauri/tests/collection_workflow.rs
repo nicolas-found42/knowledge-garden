@@ -46,6 +46,51 @@ impl SystemOneTransport for RecordedSystemOneTransport {
     }
 }
 
+struct RecordedOfficeJudgments {
+    requests: Mutex<Vec<Value>>,
+}
+
+impl SystemOneTransport for RecordedOfficeJudgments {
+    fn complete(
+        &self,
+        _api_key: &str,
+        request: &Value,
+    ) -> std::result::Result<Value, ProviderError> {
+        self.requests.lock().unwrap().push(request.clone());
+        let mut answers = serde_json::Map::new();
+        for (key, question) in request["questions"].as_object().unwrap() {
+            match question["type"].as_str() {
+                Some("noul") => {
+                    answers.insert(key.clone(), serde_json::json!({"type":"noul", "noul":0.99}));
+                }
+                Some("choice") => {
+                    let choice = if key == "event_date" {
+                        "none"
+                    } else if key.starts_with("event_identity") {
+                        "unclear"
+                    } else if key.starts_with("person_identity") {
+                        "uncertain"
+                    } else if question["criteria"].get("other").is_some() {
+                        "other"
+                    } else {
+                        "unclear"
+                    };
+                    answers.insert(
+                        key.clone(),
+                        serde_json::json!({
+                            "type":"choice",
+                            "choice":choice,
+                            "probabilities":{choice:0.99}
+                        }),
+                    );
+                }
+                _ => {}
+            }
+        }
+        Ok(serde_json::json!({"model":"jev-1.13", "answers":answers}))
+    }
+}
+
 fn v17_recording() -> KnowledgeDraft {
     let text = "Revision 1 dated May 18, 2024; observation V17 on May 17, 2024; observer Maya; location Riverside; 12 visits; duration 10 minutes. It possibly occurred at Riverside. A different person named Maya filed another report.";
     let evidence = |quote: &str| EvidenceDraft {
@@ -794,6 +839,300 @@ fn imports_a_source_into_a_readable_page_and_retains_exact_original_bytes() {
         app.open_source(&page.info.source_id).unwrap().markdown,
         page.markdown
     );
+}
+
+#[test]
+fn office_sources_form_located_qualified_knowledge_through_recorded_jev_judgments() {
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/office");
+    for (name, expected_channel, expected_text) in [
+        (
+            "source/field-visit.docx",
+            "DOCX table 1 row 2; channel=table",
+            "12 visits, excluding two unverified reports",
+        ),
+        (
+            "source/visit-summary.pptx",
+            "PPTX slide 1 speaker note 0; channel=speaker_notes",
+            "An unconfirmed correction suggests the count may be 14 visits",
+        ),
+        (
+            "source/general-measure.docx",
+            "DOCX table 1 row 2; channel=table",
+            "Provisional pending a second-instrument check.",
+        ),
+        (
+            "heldout/pressure-trial.docx",
+            "DOCX table 1 row 2; channel=table",
+            "18 kPa (provisional; gauge calibration pending).",
+        ),
+        (
+            "heldout/maintenance-briefing.pptx",
+            "PPTX slide 1 speaker note 0; channel=speaker_notes",
+            "Open only after an independent pressure gauge confirms less than 18 kPa.",
+        ),
+    ] {
+        let workspace = tempdir().unwrap();
+        let source = fixtures.join(name);
+        let transport = Arc::new(RecordedOfficeJudgments {
+            requests: Mutex::new(Vec::new()),
+        });
+        let provider = JevSemanticProvider::with_transport(
+            "recorded-test-credential".into(),
+            transport.clone(),
+        );
+        let mut app = Application::open_with_semantic_provider(
+            workspace.path().join("collection"),
+            Arc::new(provider),
+        )
+        .unwrap();
+        let imported = app
+            .import_source(&source, AcquisitionMethod::Picker)
+            .unwrap();
+        app.resume_due_semantic_jobs().unwrap();
+        let current = app.open_source(&imported.info.source_id).unwrap();
+        assert_eq!(
+            current.info.semantic_state,
+            "complete",
+            "{name}: {:?}",
+            (
+                current.info.semantic_error,
+                transport.requests.lock().unwrap()
+            )
+        );
+        assert!(!current.knowledge_pages.is_empty(), "{name}");
+        let pages = current
+            .knowledge_pages
+            .iter()
+            .map(|summary| app.open_knowledge_page(&summary.page_id).unwrap().markdown)
+            .collect::<Vec<_>>();
+        let markdown = pages.join("\n");
+        let headers = pages
+            .iter()
+            .map(|page| {
+                let yaml = page
+                    .strip_prefix("---\n")
+                    .unwrap()
+                    .split_once("\n---\n")
+                    .unwrap()
+                    .0;
+                serde_yaml_ng::from_str::<Value>(yaml).unwrap()
+            })
+            .collect::<Vec<_>>();
+        let facts = headers
+            .iter()
+            .flat_map(|header| header["facts"].as_array().unwrap().iter())
+            .collect::<Vec<_>>();
+        assert!(markdown.contains(expected_text), "{name}: {markdown}");
+        assert!(markdown.contains(expected_channel), "{name}: {markdown}");
+        if name.ends_with("visit-summary.pptx") {
+            assert!(
+                markdown.contains("12 visits"),
+                "visible slide count missing: {markdown}"
+            );
+            assert!(
+                markdown.contains("14 visits"),
+                "note correction missing: {markdown}"
+            );
+            assert!(
+                markdown.contains("unconfirmed"),
+                "note qualification missing: {markdown}"
+            );
+            assert!(
+                markdown.contains("slide_text"),
+                "visible slide origin missing: {markdown}"
+            );
+            let note_fact = facts
+                .iter()
+                .find(|fact| fact["property"] == "speaker_note")
+                .unwrap();
+            assert_eq!(note_fact["origin"], "speaker_note");
+            assert_eq!(
+                note_fact["evidence"]["source_location"],
+                "PPTX slide 1 speaker note 0; channel=speaker_notes"
+            );
+            assert!(note_fact["qualifier"]
+                .as_str()
+                .unwrap()
+                .contains("unconfirmed"));
+            let visible_fact = facts
+                .iter()
+                .find(|fact| {
+                    fact["property"] == "visible_slide_text" && fact["value"] == "12 visits"
+                })
+                .unwrap();
+            assert_eq!(visible_fact["origin"], "slide_visible");
+            assert_eq!(
+                visible_fact["evidence"]["source_location"],
+                "PPTX slide 1 visible text block 2; channel=slide_text"
+            );
+        } else if name.ends_with("field-visit.docx") {
+            assert!(
+                markdown.contains("Transect visits"),
+                "table header context missing: {markdown}"
+            );
+            assert!(
+                markdown.contains("unverified reports"),
+                "table qualification missing: {markdown}"
+            );
+            let row = facts
+                .iter()
+                .find(|fact| {
+                    fact["property"] == "table_row"
+                        && fact["value"].as_str().unwrap().contains("12 visits")
+                })
+                .unwrap();
+            assert_eq!(row["origin"], "table_cell");
+            assert!(row["value"].as_str().unwrap().contains(
+                "Measure: Transect visits; Result: 12 visits, excluding two unverified reports"
+            ));
+            assert!(row["qualifier"]
+                .as_str()
+                .unwrap()
+                .contains("excluding two unverified reports"));
+            assert!(!facts
+                .iter()
+                .any(|fact| fact["value"] == "Measure: Measure; Result: Result"));
+        } else if name.ends_with("general-measure.docx") {
+            assert!(
+                markdown.contains("Dissolved oxygen"),
+                "table header context missing: {markdown}"
+            );
+            assert!(
+                markdown.contains("7.4 mg/L"),
+                "measurement value missing: {markdown}"
+            );
+            assert!(
+                markdown.contains("Provisional pending a second-instrument check."),
+                "table qualification missing: {markdown}"
+            );
+            assert!(
+                markdown.contains("Sensor drift left the reading provisional"),
+                "body statement missing: {markdown}"
+            );
+            assert!(
+                !markdown.contains("Observation V"),
+                "a nonexistent event identity was inferred: {markdown}"
+            );
+            assert!(facts
+                .iter()
+                .any(|fact| fact["property"] == "document_statement"
+                    && fact["value"]
+                        .as_str()
+                        .unwrap()
+                        .contains("Sensor drift left the reading provisional")));
+            assert!(facts.iter().any(|fact| fact["property"] == "table_row" && fact["value"].as_str().unwrap().contains("Measurement: Dissolved oxygen; Result: 7.4 mg/L; Review: Provisional pending a second-instrument check.")));
+            assert!(!facts
+                .iter()
+                .any(|fact| fact["value"]
+                    == "Measurement: Measurement; Result: Result; Review: Review"));
+        } else if name.ends_with("pressure-trial.docx") {
+            let row = facts
+                .iter()
+                .find(|fact| fact["property"] == "table_row")
+                .unwrap();
+            assert!(row["value"]
+                .as_str()
+                .unwrap()
+                .contains("Discharge pressure"));
+            assert!(row["value"].as_str().unwrap().contains("18 kPa"));
+            assert!(row["qualifier"].as_str().unwrap().contains("provisional"));
+            assert!(row["qualifier"]
+                .as_str()
+                .unwrap()
+                .contains("calibration pending"));
+        } else {
+            assert!(markdown.contains("Valve setting: closed"));
+            assert!(markdown.contains("conditional, not a record that the valve was opened"));
+            assert!(facts
+                .iter()
+                .any(|fact| fact["property"] == "visible_slide_text"
+                    && fact["value"] == "Valve setting: closed"
+                    && fact["origin"] == "slide_visible"));
+            assert!(facts.iter().any(|fact| fact["property"] == "speaker_note"
+                && fact["value"].as_str().unwrap().contains("conditional")));
+            assert!(!facts
+                .iter()
+                .any(|fact| fact["value"] == "Valve was opened"
+                    || fact["property"] == "valve_opened"));
+        }
+        let requests = transport.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1, "{name}");
+        let body = requests[0].to_string();
+        assert!(
+            body.contains(expected_text),
+            "Jev judgment lacked candidate text: {body}"
+        );
+        assert!(
+            body.contains("channel=speaker_notes") || name.ends_with(".docx"),
+            "{name}"
+        );
+        assert_eq!(
+            fs::read(app.original_path(&current.info.source_id).unwrap()).unwrap(),
+            fs::read(source).unwrap()
+        );
+    }
+}
+
+#[test]
+fn office_processing_cannot_be_complete_without_a_content_bearing_fact() {
+    let workspace = tempdir().unwrap();
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/office/source/visit-summary.pptx");
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::once(Ok(KnowledgeDraft::default()))),
+    )
+    .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let current = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(current.info.semantic_state, "pending");
+    assert!(current
+        .info
+        .semantic_error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("no content-bearing facts"));
+    assert!(current.knowledge_pages.is_empty());
+    assert_eq!(
+        fs::read(app.original_path(&current.info.source_id).unwrap()).unwrap(),
+        fs::read(source).unwrap()
+    );
+}
+
+#[test]
+fn a_non_event_text_source_returns_recoverable_incomplete_semantics_instead_of_panicking() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("field-count.txt");
+    let source_text = "There were 12 visits on May 17, 2024.";
+    fs::write(&source, source_text).unwrap();
+    let transport = Arc::new(RecordedOfficeJudgments {
+        requests: Mutex::new(Vec::new()),
+    });
+    let provider =
+        JevSemanticProvider::with_transport("recorded-test-credential".into(), transport.clone());
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(provider),
+    )
+    .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let current = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(current.info.semantic_state, "pending");
+    assert!(current
+        .info
+        .semantic_error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("No supported event identity"));
+    assert!(current.body.contains(source_text));
+    assert!(current.knowledge_pages.is_empty());
+    assert_eq!(transport.requests.lock().unwrap().len(), 1);
 }
 
 #[test]

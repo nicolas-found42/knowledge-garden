@@ -627,6 +627,19 @@ impl Application {
             ));
         }
         match result {
+            Ok(draft)
+                if matches!(page.info.format.as_str(), "docx" | "pptx")
+                    && !draft
+                        .facts
+                        .iter()
+                        .any(|fact| !fact.property.eq_ignore_ascii_case("acquired_content")) =>
+            {
+                self.record_semantic_failure(
+                    &mut page,
+                    "Office semantic processing selected no content-bearing facts; coverage remains incomplete and will retry automatically.".into(),
+                    true,
+                )?;
+            }
             Ok(draft) => match self.publish_knowledge(&mut page, &job.source_text, draft) {
                 Ok(()) => {
                     page.info.semantic_state = "complete".into();
