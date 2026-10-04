@@ -47,6 +47,7 @@ function testApi(): GardenApi {
   return {
     chooseFile: vi.fn().mockResolvedValue("/tmp/Riverside notes.md"),
     importSource: vi.fn().mockResolvedValue(riverside),
+    importUrl: vi.fn().mockResolvedValue(riverside),
     listSources: vi.fn().mockResolvedValue({ sources: [], next_offset: null }),
     searchPages: vi.fn().mockResolvedValue({
       pages: [],
@@ -61,6 +62,65 @@ function testApi(): GardenApi {
     onDrop: vi.fn().mockResolvedValue(() => {}),
   };
 }
+
+it("retrieves only the supplied URL, displays its origin, and keeps a failed address available for explicit retry", async () => {
+  const api = testApi();
+  const page: SourcePage = {
+    ...riverside,
+    info: {
+      ...riverside.info,
+      title: "Riverside observation U5",
+      format: "html",
+      extraction: "structured_text",
+      extraction_detail: "Visible page text projected; original retained.",
+      acquisitions: [
+        {
+          path: "http://127.0.0.1:14335/a",
+          method: "url",
+          requested_url: "http://127.0.0.1:14335/a",
+          final_url: "http://127.0.0.1:14335/a",
+          http_status: 200,
+          content_type: "text/html",
+          received_at: "1790784000000",
+        },
+      ],
+    },
+    body: "# Riverside observation U5\n\n[destination report](http://127.0.0.1:14335/b)",
+  };
+  api.importUrl = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("HTTP 503"))
+    .mockResolvedValueOnce(page);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add URL" }));
+  const input = screen.getByLabelText("Web address") as HTMLInputElement;
+  await user.type(input, "http://127.0.0.1:14335/temporary");
+  await user.click(screen.getByRole("button", { name: "Retrieve this page" }));
+  await screen.findByText("HTTP 503");
+  expect(input.value).toBe("http://127.0.0.1:14335/temporary");
+  await user.click(screen.getByRole("button", { name: "Retrieve this page" }));
+  expect(api.importUrl).toHaveBeenNthCalledWith(
+    2,
+    "http://127.0.0.1:14335/temporary",
+  );
+  expect(
+    await screen.findByRole("article", { name: "Riverside observation U5" }),
+  ).toBeTruthy();
+  expect(screen.getByText("http://127.0.0.1:14335/a")).toBeTruthy();
+  expect(
+    screen
+      .getByRole("link", { name: "destination report" })
+      .getAttribute("href"),
+  ).toBe("http://127.0.0.1:14335/b");
+  expect(screen.getByText("200")).toBeTruthy();
+  expect(screen.getByText("text/html")).toBeTruthy();
+  expect(
+    screen.getByText("Page retained. Linked destinations were not retrieved."),
+  ).toBeTruthy();
+});
 
 it("searches durable page results with combined filters and restores the exact result view after opening one", async () => {
   const api = testApi();

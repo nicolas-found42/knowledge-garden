@@ -3,3 +3,4 @@ pub mod desktop;
 pub mod office;
 pub mod providers;
 pub mod semantic;
+pub mod web;
