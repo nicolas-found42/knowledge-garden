@@ -43,7 +43,29 @@ export async function mountReader(
   sourcesButton.setAttribute("aria-expanded", "false");
   const addButton = element("button", "Add source");
   addButton.className = "primary";
-  toolbar.append(brand, backButton, searchButton, sourcesButton, addButton);
+  const addUrlButton = element("button", "Add URL");
+  toolbar.append(
+    brand,
+    backButton,
+    searchButton,
+    sourcesButton,
+    addButton,
+    addUrlButton,
+  );
+  const urlForm = element("form");
+  urlForm.className = "url-form";
+  urlForm.hidden = true;
+  const urlLabel = element("label", "Web address");
+  const urlInput = element("input");
+  urlInput.type = "url";
+  urlInput.required = true;
+  urlInput.autocomplete = "off";
+  urlLabel.append(urlInput);
+  const acquireUrl = element("button", "Retrieve this page");
+  acquireUrl.type = "submit";
+  const cancelUrl = element("button", "Cancel");
+  cancelUrl.type = "button";
+  urlForm.append(urlLabel, acquireUrl, cancelUrl);
   const notice = element("p");
   notice.className = "notice";
   notice.setAttribute("role", "status");
@@ -64,7 +86,7 @@ export async function mountReader(
     ),
   );
   main.append(empty);
-  root.replaceChildren(toolbar, notice, sources, main);
+  root.replaceChildren(toolbar, notice, urlForm, sources, main);
   let page: SourcePage | null = null;
   let currentKnowledgePageId: string | null = null;
   let currentSourceId: string | null = null;
@@ -259,14 +281,33 @@ export async function mountReader(
     if (next.info.semantic_error)
       rows.push(["Semantic status", next.info.semantic_error]);
     for (const acquisition of next.info.acquisitions) {
-      rows.push(["Acquired from", acquisition.path]);
+      rows.push([
+        "Acquired from",
+        acquisition.requested_url ?? acquisition.path,
+      ]);
+      if (
+        acquisition.final_url &&
+        acquisition.final_url !== acquisition.requested_url
+      )
+        rows.push(["Final address", acquisition.final_url]);
+      if (
+        acquisition.http_status !== undefined &&
+        acquisition.http_status !== null
+      )
+        rows.push(["HTTP status", String(acquisition.http_status)]);
+      if (acquisition.content_type)
+        rows.push(["Content type", acquisition.content_type]);
       rows.push([
         "Received",
         new Date(Number(acquisition.received_at)).toLocaleString(),
       ]);
       rows.push([
         "Added by",
-        acquisition.method === "picker" ? "File picker" : "File drop",
+        acquisition.method === "picker"
+          ? "File picker"
+          : acquisition.method === "drop"
+            ? "File drop"
+            : "URL",
       ]);
     }
     for (const [label, value] of rows)
@@ -675,6 +716,42 @@ export async function mountReader(
       .chooseFile()
       .then((path) => (path ? importPaths([path], "picker") : undefined))
       .catch(report);
+  });
+
+  addUrlButton.addEventListener("click", () => {
+    urlForm.hidden = !urlForm.hidden;
+    if (!urlForm.hidden) urlInput.focus();
+  });
+  cancelUrl.addEventListener("click", () => {
+    urlForm.hidden = true;
+    urlInput.value = "";
+    message("");
+  });
+  urlForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (busy || disposed || !urlForm.reportValidity()) return;
+    busy = true;
+    acquireUrl.disabled = true;
+    main.setAttribute("aria-busy", "true");
+    message("Retrieving the supplied page…");
+    void api
+      .importUrl(urlInput.value)
+      .then((imported) => {
+        showPage(imported);
+        urlInput.value = "";
+        urlForm.hidden = true;
+        message("Page retained. Linked destinations were not retrieved.");
+      })
+      .catch((error: unknown) => {
+        report(error);
+      })
+      .finally(() => {
+        busy = false;
+        if (!disposed) {
+          acquireUrl.disabled = false;
+          main.removeAttribute("aria-busy");
+        }
+      });
   });
 
   function sourceButton(source: SourceSummary) {

@@ -62,6 +62,11 @@ it("imports a real temporary source through the reader and preserves visible con
       selected = call<SourcePage>("import", path, method);
       return selected;
     },
+    importUrl: async () => {
+      throw new Error(
+        "URL retrieval is exercised through the desktop API adapter.",
+      );
+    },
     listSources: async (offset) => call<SourceList>("list", String(offset)),
     searchPages: async () => ({
       pages: [],

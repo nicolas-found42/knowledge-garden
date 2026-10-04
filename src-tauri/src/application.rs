@@ -20,6 +20,7 @@ use uuid::Uuid;
 
 pub const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_PAGE_BYTES: u64 = (MAX_TEXT_BYTES * 3 + 64 * 1024) as u64;
+const MAX_REMOTE_BYTES: u64 = 32 * 1024 * 1024;
 const PAGE_SIZE: usize = 50;
 
 #[derive(Debug, Error)]
@@ -41,6 +42,7 @@ pub type Result<T> = std::result::Result<T, GardenError>;
 pub enum AcquisitionMethod {
     Picker,
     Drop,
+    Url,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -61,6 +63,14 @@ pub struct Acquisition {
     pub method: AcquisitionMethod,
     /// Milliseconds since the Unix epoch, stored as a string to avoid JS precision loss.
     pub received_at: String,
+    #[serde(default)]
+    pub requested_url: Option<String>,
+    #[serde(default)]
+    pub final_url: Option<String>,
+    #[serde(default)]
+    pub http_status: Option<u16>,
+    #[serde(default)]
+    pub content_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -262,6 +272,121 @@ impl Application {
         path: impl AsRef<Path>,
         method: AcquisitionMethod,
     ) -> Result<SourcePage> {
+        self.import_source_with_acquisition(path, method, None, None)
+    }
+
+    pub fn import_url(&mut self, input: &str) -> Result<SourcePage> {
+        let requested = reqwest::Url::parse(input)
+            .map_err(|_| GardenError::Invalid("Enter a valid HTTP or HTTPS URL.".into()))?;
+        if !matches!(requested.scheme(), "http" | "https")
+            || requested.host_str().is_none()
+            || !requested.username().is_empty()
+            || requested.password().is_some()
+        {
+            return Err(GardenError::Invalid(
+                "Enter a valid HTTP or HTTPS URL.".into(),
+            ));
+        }
+        let requested = requested.to_string();
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::limited(8))
+            .build()
+            .map_err(|_| GardenError::Invalid("Could not prepare the URL request.".into()))?;
+        let mut response = client
+            .get(&requested)
+            .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml,text/plain,application/vnd.openxmlformats-officedocument.*,application/octet-stream;q=0.5,*/*;q=0.1")
+            .send()
+            .map_err(|_| GardenError::Invalid("The URL could not be retrieved. Check it and retry.".into()))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(GardenError::Invalid(format!(
+                "URL acquisition returned HTTP {}; no source material was added.",
+                status.as_u16()
+            )));
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_REMOTE_BYTES)
+        {
+            return Err(GardenError::Invalid(
+                "The URL response exceeds the 32 MiB source limit; no source material was added."
+                    .into(),
+            ));
+        }
+        let final_url = response.url().to_string();
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(|value| {
+                value
+                    .split(';')
+                    .next()
+                    .unwrap_or(value)
+                    .trim()
+                    .to_ascii_lowercase()
+            });
+        let disposition_name = response
+            .headers()
+            .get(reqwest::header::CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(content_disposition_filename);
+        let (original_name, format) = url_name_and_format(
+            &final_url,
+            content_type.as_deref(),
+            disposition_name.as_deref(),
+        );
+        let staging = tempfile::tempdir_in(self.root.join(".staging"))?;
+        let remote_file = staging.path().join(&original_name);
+        let mut output = File::create(&remote_file)?;
+        let mut total = 0_u64;
+        let mut chunk = [0_u8; 64 * 1024];
+        loop {
+            let read = response.read(&mut chunk).map_err(|_| {
+                GardenError::Invalid(
+                    "The URL response could not be read completely; no source material was added."
+                        .into(),
+                )
+            })?;
+            if read == 0 {
+                break;
+            }
+            total = total.saturating_add(read as u64);
+            if total > MAX_REMOTE_BYTES {
+                return Err(GardenError::Invalid("The URL response exceeds the 32 MiB source limit; no source material was added.".into()));
+            }
+            output.write_all(&chunk[..read])?;
+        }
+        output.sync_all()?;
+        let acquisition = Acquisition {
+            path: requested.clone(),
+            method: AcquisitionMethod::Url,
+            received_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|e| GardenError::Invalid(e.to_string()))?
+                .as_millis()
+                .to_string(),
+            requested_url: Some(requested),
+            final_url: Some(final_url),
+            http_status: Some(status.as_u16()),
+            content_type,
+        };
+        self.import_source_with_acquisition(
+            &remote_file,
+            AcquisitionMethod::Url,
+            Some(acquisition),
+            Some(format),
+        )
+    }
+
+    fn import_source_with_acquisition(
+        &mut self,
+        path: impl AsRef<Path>,
+        method: AcquisitionMethod,
+        acquisition_override: Option<Acquisition>,
+        format_override: Option<String>,
+    ) -> Result<SourcePage> {
         let supplied_path = if path.as_ref().is_absolute() {
             path.as_ref().to_path_buf()
         } else {
@@ -280,7 +405,7 @@ impl Application {
             .to_string_lossy()
             .into_owned();
         let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-        let format = extension.to_lowercase();
+        let format = format_override.unwrap_or_else(|| extension.to_lowercase());
         let asset = if extension.len() <= 16
             && !extension.is_empty()
             && extension.chars().all(|c| c.is_ascii_alphanumeric())
@@ -316,31 +441,43 @@ impl Application {
         identity.update([0]);
         identity.update(digest.as_bytes());
         let source_id = format!("source-{:x}", identity.finalize());
-        let acquisition = Acquisition {
+        let received_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| GardenError::Invalid(e.to_string()))?
+            .as_millis()
+            .to_string();
+        let acquisition = acquisition_override.unwrap_or_else(|| Acquisition {
             path: supplied_path.to_string_lossy().into_owned(),
             method,
-            received_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|e| GardenError::Invalid(e.to_string()))?
-                .as_millis()
-                .to_string(),
-        };
+            received_at,
+            requested_url: None,
+            final_url: None,
+            http_status: None,
+            content_type: None,
+        });
         let destination = self.source_dir(&source_id)?;
         if destination.exists() {
             let existing = self.open_source(&source_id)?;
-            if !existing
-                .info
-                .acquisitions
-                .iter()
-                .any(|old| old.path == acquisition.path && old.method == acquisition.method)
-            {
+            if !existing.info.acquisitions.iter().any(|old| {
+                old.path == acquisition.path
+                    && old.method == acquisition.method
+                    && old.requested_url == acquisition.requested_url
+                    && old.final_url == acquisition.final_url
+            }) {
                 // Additional provenance has its own Markdown record; never rewrite an owner's page.
                 let contexts = destination.join("acquisitions");
                 fs::create_dir_all(&contexts)?;
                 let key = format!(
                     "{:x}",
                     Sha256::digest(
-                        format!("{}:{:?}", acquisition.path, acquisition.method).as_bytes()
+                        format!(
+                            "{}:{:?}:{:?}:{:?}",
+                            acquisition.path,
+                            acquisition.method,
+                            acquisition.requested_url,
+                            acquisition.final_url
+                        )
+                        .as_bytes()
                     )
                 );
                 let mut record = tempfile::NamedTempFile::new_in(&contexts)?;
@@ -358,77 +495,115 @@ impl Application {
             self.index_page(&existing.info)?;
             return self.open_source(&source_id);
         }
-        let (extraction, extraction_detail, text, office_projection, extraction_coverage) = if matches!(
-            format.as_str(),
-            "docx" | "pptx"
-        ) {
-            match crate::office::extract(
-                &staging.path().join(&asset),
-                &format,
-                path.file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .as_ref(),
-            ) {
-                Ok(projection) => {
-                    let extraction = if projection.partial {
-                        ExtractionState::PartialText
-                    } else {
-                        ExtractionState::StructuredText
-                    };
-                    (
-                        extraction,
-                        projection.detail.clone(),
-                        projection.semantic_text.clone(),
-                        Some(projection.clone()),
-                        Some(projection.coverage.clone()),
-                    )
-                }
-                Err(detail) => {
-                    let scope = if format == "docx" {
-                        CoverageScope::MainDocument
-                    } else {
-                        CoverageScope::SlideText
-                    };
-                    (
-                        ExtractionState::InvalidContainer,
-                        format!("Office container could not be read. {detail}"),
-                        String::new(),
-                        None,
-                        Some(vec![CoveragePart {
-                            scope,
-                            status: CoverageStatus::Failed,
-                            source_location: Some("package".into()),
-                            detail,
-                        }]),
-                    )
+        let web_result = if method == AcquisitionMethod::Url && format == "html" {
+            let mut projection_bytes = text_bytes.clone();
+            if count > MAX_TEXT_BYTES as u64 {
+                if let Err(error) = std::str::from_utf8(&projection_bytes) {
+                    if error.error_len().is_none() {
+                        projection_bytes.truncate(error.valid_up_to());
+                    }
                 }
             }
-        } else if !matches!(format.as_str(), "" | "txt" | "text" | "md" | "markdown") {
-            (
-                ExtractionState::Unsupported,
-                "This format is not supported by the text importer. The original is retained."
-                    .into(),
-                String::new(),
-                None,
-                None,
-            )
-        } else if count > MAX_TEXT_BYTES as u64 {
-            (
-                ExtractionState::TooLarge,
-                "Text exceeds the 2 MiB preview limit. The complete original is retained.".into(),
-                String::new(),
-                None,
-                None,
-            )
+            Some(crate::web::project(
+                &projection_bytes,
+                acquisition.final_url.as_deref().unwrap_or(""),
+            ))
         } else {
-            match String::from_utf8(text_bytes) {
+            None
+        };
+        let web_projection = web_result.as_ref().and_then(|result| result.as_ref().ok());
+        let (extraction, extraction_detail, text, office_projection, extraction_coverage) =
+            if let Some(Err(_)) = &web_result {
+                (ExtractionState::InvalidUtf8, "The downloaded HTML is not valid UTF-8. The exact original is retained without lossy extraction.".into(), String::new(), None, None)
+            } else if let Some(web) = web_projection {
+                if count > MAX_TEXT_BYTES as u64 {
+                    (ExtractionState::PartialText, format!("{} Only the first 2 MiB of the response was projected; the complete original is retained.", web.detail), web.semantic_text.clone(), None, None)
+                } else {
+                    (
+                        ExtractionState::StructuredText,
+                        web.detail.clone(),
+                        web.semantic_text.clone(),
+                        None,
+                        None,
+                    )
+                }
+            } else if method == AcquisitionMethod::Url
+                && acquisition.content_type.as_deref() == Some("text/plain")
+                && count <= MAX_TEXT_BYTES as u64
+            {
+                match String::from_utf8(text_bytes.clone()) {
+                Err(_) => (ExtractionState::InvalidUtf8, "The source is not valid UTF-8. The original is retained without lossy decoding.".into(), String::new(), None, None),
+                Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 response text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
+            }
+            } else if matches!(format.as_str(), "docx" | "pptx") {
+                match crate::office::extract(
+                    &staging.path().join(&asset),
+                    &format,
+                    path.file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .as_ref(),
+                ) {
+                    Ok(projection) => {
+                        let extraction = if projection.partial {
+                            ExtractionState::PartialText
+                        } else {
+                            ExtractionState::StructuredText
+                        };
+                        (
+                            extraction,
+                            projection.detail.clone(),
+                            projection.semantic_text.clone(),
+                            Some(projection.clone()),
+                            Some(projection.coverage.clone()),
+                        )
+                    }
+                    Err(detail) => {
+                        let scope = if format == "docx" {
+                            CoverageScope::MainDocument
+                        } else {
+                            CoverageScope::SlideText
+                        };
+                        (
+                            ExtractionState::InvalidContainer,
+                            format!("Office container could not be read. {detail}"),
+                            String::new(),
+                            None,
+                            Some(vec![CoveragePart {
+                                scope,
+                                status: CoverageStatus::Failed,
+                                source_location: Some("package".into()),
+                                detail,
+                            }]),
+                        )
+                    }
+                }
+            } else if !matches!(format.as_str(), "" | "txt" | "text" | "md" | "markdown") {
+                (
+                    ExtractionState::Unsupported,
+                    "This format is not supported by the text importer. The original is retained."
+                        .into(),
+                    String::new(),
+                    None,
+                    None,
+                )
+            } else if count > MAX_TEXT_BYTES as u64 {
+                (
+                    ExtractionState::TooLarge,
+                    "Text exceeds the 2 MiB preview limit. The complete original is retained."
+                        .into(),
+                    String::new(),
+                    None,
+                    None,
+                )
+            } else {
+                match String::from_utf8(text_bytes) {
                 Err(_) => (ExtractionState::InvalidUtf8, "The source is not valid UTF-8. The original is retained without lossy decoding.".into(), String::new(), None, None),
                 Ok(text) if text.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t')) =>
                     (ExtractionState::Unsupported, "The source contains binary control characters. The original is retained.".into(), String::new(), None, None),
                 Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 source text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
             }
-        };
+            };
         let line_count = if text.is_empty() {
             0
         } else {
@@ -438,11 +613,21 @@ impl Application {
             schema: 1,
             source_id,
             page_id: format!("page-{}", Uuid::new_v4()),
-            title: path
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned(),
+            title: web_projection
+                .as_ref()
+                .map(|web| {
+                    if web.title.is_empty() {
+                        original_name.clone()
+                    } else {
+                        web.title.clone()
+                    }
+                })
+                .unwrap_or_else(|| {
+                    path.file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned()
+                }),
             original_name,
             asset,
             sha256: digest,
@@ -469,7 +654,10 @@ impl Application {
             knowledge_pages: Vec::new(),
             semantic_decisions: Vec::new(),
         };
-        let body = source_body(&info, &text, office_projection.as_ref());
+        let body = web_projection
+            .as_ref()
+            .map(|web| web.markdown.replace("ORIGINAL_ASSET", &info.asset))
+            .unwrap_or_else(|| source_body(&info, &text, office_projection.as_ref()));
         let markdown = serialize_page(&info, &body)?;
         let mut page_file = File::create(staging.path().join("index.md"))?;
         page_file.write_all(markdown.as_bytes())?;
@@ -582,7 +770,30 @@ impl Application {
             {
                 continue;
             }
-            let text = if matches!(
+            let text = if page.info.format == "html"
+                && page
+                    .info
+                    .acquisitions
+                    .iter()
+                    .any(|acquisition| acquisition.method == AcquisitionMethod::Url)
+            {
+                let bytes = fs::read(self.original_path(&source_id)?)?;
+                let final_url = page
+                    .info
+                    .acquisitions
+                    .iter()
+                    .find_map(|acquisition| acquisition.final_url.as_deref())
+                    .unwrap_or("");
+                let mut prefix = bytes[..bytes.len().min(MAX_TEXT_BYTES)].to_vec();
+                if let Err(error) = std::str::from_utf8(&prefix) {
+                    if error.error_len().is_none() {
+                        prefix.truncate(error.valid_up_to());
+                    }
+                }
+                crate::web::project(&prefix, final_url)
+                    .map_err(GardenError::Invalid)?
+                    .semantic_text
+            } else if matches!(
                 page.info.extraction,
                 ExtractionState::StructuredText | ExtractionState::PartialText
             ) {
@@ -2013,6 +2224,58 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
     let fence = "`".repeat(3.max(longest_run + 1));
     format!("# {title}\n\n[Open original]({})\n\n## Source text · lines 1–{}\n\n{fence}text\n{text}\n{fence}\n",
         info.asset, info.line_count)
+}
+
+fn content_disposition_filename(header: &str) -> Option<String> {
+    let value = header.split(';').find_map(|part| {
+        let (key, value) = part.trim().split_once('=')?;
+        key.eq_ignore_ascii_case("filename")
+            .then(|| value.trim().trim_matches('"').to_owned())
+    })?;
+    safe_file_name(&value)
+}
+
+fn safe_file_name(value: &str) -> Option<String> {
+    let name = value.rsplit(['/', '\\']).next()?.trim();
+    if name.is_empty() || name == "." || name == ".." || name.chars().any(char::is_control) {
+        return None;
+    }
+    Some(name.to_owned())
+}
+
+fn url_name_and_format(
+    final_url: &str,
+    content_type: Option<&str>,
+    disposition: Option<&str>,
+) -> (String, String) {
+    let url_name = reqwest::Url::parse(final_url).ok().and_then(|url| {
+        url.path_segments()?
+            .rfind(|segment| !segment.is_empty())
+            .and_then(safe_file_name)
+    });
+    let mut name = disposition
+        .and_then(safe_file_name)
+        .or(url_name)
+        .unwrap_or_else(|| "download".into());
+    let ext = Path::new(&name)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let mime_format = match content_type.unwrap_or("") {
+        "text/html" | "application/xhtml+xml" => Some("html"),
+        "text/plain" => Some("txt"),
+        "text/markdown" => Some("md"),
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => Some("docx"),
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation" => Some("pptx"),
+        _ => None,
+    };
+    let format = mime_format.map(str::to_owned).unwrap_or(ext);
+    if Path::new(&name).extension().is_none() && !format.is_empty() {
+        name.push('.');
+        name.push_str(&format);
+    }
+    (name, format)
 }
 
 fn serialize_page(info: &SourceInfo, body: &str) -> Result<String> {

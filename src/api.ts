@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 
-export type AcquisitionMethod = "picker" | "drop";
+export type AcquisitionMethod = "picker" | "drop" | "url";
 export type ExtractionState =
   | "text_preserved"
   | "structured_text"
@@ -32,6 +32,10 @@ export interface Acquisition {
   path: string;
   method: AcquisitionMethod;
   received_at: string;
+  requested_url?: string | null;
+  final_url?: string | null;
+  http_status?: number | null;
+  content_type?: string | null;
 }
 
 export interface SourceInfo {
@@ -146,6 +150,7 @@ export interface PageSearchResults {
 export interface GardenApi {
   chooseFile(): Promise<string | null>;
   importSource(path: string, method: AcquisitionMethod): Promise<SourcePage>;
+  importUrl(url: string): Promise<SourcePage>;
   listSources(offset: number): Promise<SourceList>;
   searchPages(request: PageSearchRequest): Promise<PageSearchResults>;
   openSource(sourceId: string): Promise<SourcePage>;
@@ -164,6 +169,7 @@ export const desktopApi: GardenApi = {
     return typeof selected === "string" ? selected : null;
   },
   importSource: (path, method) => invoke("import_source", { path, method }),
+  importUrl: (url) => invoke("import_url", { url }),
   listSources: (offset) => invoke("list_sources", { offset }),
   searchPages: (request) => invoke("search_pages", { request }),
   openSource: (sourceId) => invoke("open_source", { sourceId }),
