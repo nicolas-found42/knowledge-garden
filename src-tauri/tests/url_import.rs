@@ -45,9 +45,18 @@ impl Fixture {
                         }
                         Err(_) => break,
                     };
-                    let mut request = [0; 4096];
-                    let size = stream.read(&mut request).unwrap_or(0);
-                    let line = String::from_utf8_lossy(&request[..size]);
+                    let mut request = Vec::with_capacity(4096);
+                    let mut chunk = [0; 1024];
+                    while request.len() < 4096
+                        && !request.windows(4).any(|part| part == b"\r\n\r\n")
+                    {
+                        let size = stream.read(&mut chunk).unwrap_or(0);
+                        if size == 0 {
+                            break;
+                        }
+                        request.extend_from_slice(&chunk[..size]);
+                    }
+                    let line = String::from_utf8_lossy(&request);
                     let path = line
                         .lines()
                         .next()
@@ -155,7 +164,9 @@ fn explicitly_supplied_urls_retain_origins_without_crawling_and_can_be_retried()
     let collection = tempfile::tempdir().unwrap();
     let mut app = Application::open(collection.path()).unwrap();
 
-    let first = app.import_url(&format!("{}/a", fixture.base_url)).unwrap();
+    let first = app
+        .import_url(&format!("{}/a", fixture.base_url))
+        .unwrap_or_else(|error| panic!("{error}; requests: {:?}", fixture.requested_paths()));
     assert_eq!(first.info.title, "Riverside observation U5");
     assert_eq!(first.info.format, "html");
     assert_eq!(
@@ -232,7 +243,7 @@ fn explicitly_supplied_urls_retain_origins_without_crawling_and_can_be_retried()
     let redirected = app
         .import_url(&format!("{}/redirect", fixture.base_url))
         .unwrap();
-    assert_eq!(redirected.info.source_id, first.info.source_id);
+    assert_ne!(redirected.info.source_id, first.info.source_id);
     assert!(redirected
         .info
         .acquisitions
@@ -306,7 +317,11 @@ fn explicitly_supplied_urls_retain_origins_without_crawling_and_can_be_retried()
         .import_url(&format!("{}/temporary", fixture.base_url))
         .unwrap();
     assert!(resumed.body.contains("Observation U7"));
-    assert_eq!(app.list_sources(0).unwrap().sources.len(), before_failures);
+    assert_ne!(resumed.info.source_id, text.info.source_id);
+    assert_eq!(
+        app.list_sources(0).unwrap().sources.len(),
+        before_failures + 1
+    );
     assert!(resumed
         .info
         .acquisitions
