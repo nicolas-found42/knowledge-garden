@@ -223,6 +223,10 @@ it("imports labeled DOCX and PPTX through the public reader with distinct locate
     expect(evidencePage.markdown).toContain(
       "offsets are not original package byte offsets",
     );
+    expect(evidencePage.markdown).toContain("extracted projection lines");
+    expect(evidencePage.markdown).toContain(
+      "The retained original opens as a fallback",
+    );
     if (fixture.endsWith(".pptx")) {
       expect(evidencePage.markdown).toContain(
         "unconfirmed note, not visible slide text",
