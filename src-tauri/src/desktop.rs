@@ -88,6 +88,49 @@ async fn open_original(engine: State<'_, Engine>, source_id: String) -> Result<(
     .await
 }
 
+#[tauri::command]
+async fn open_original_version(
+    engine: State<'_, Engine>,
+    source_id: String,
+    source_version_id: String,
+    asset: String,
+) -> Result<(), String> {
+    with_engine(&engine, move |app| {
+        let original = app.original_version_path(&source_id, &source_version_id, &asset)?;
+        let status = std::process::Command::new("/usr/bin/open")
+            .arg(original)
+            .status()?;
+        if !status.success() {
+            return Err(crate::application::GardenError::Invalid(
+                "macOS could not open the retained original version.".into(),
+            ));
+        }
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn open_original_asset(
+    engine: State<'_, Engine>,
+    source_id: String,
+    asset: String,
+) -> Result<(), String> {
+    with_engine(&engine, move |app| {
+        let original = app.original_asset_path(&source_id, &asset)?;
+        let status = std::process::Command::new("/usr/bin/open")
+            .arg(original)
+            .status()?;
+        if !status.success() {
+            return Err(crate::application::GardenError::Invalid(
+                "macOS could not open the retained original asset.".into(),
+            ));
+        }
+        Ok(())
+    })
+    .await
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -139,7 +182,9 @@ pub fn run() {
             open_knowledge_page,
             list_sources,
             search_pages,
-            open_original
+            open_original,
+            open_original_version,
+            open_original_asset
         ])
         .run(tauri::generate_context!())
         .expect("The Knowledge Garden application could not start");

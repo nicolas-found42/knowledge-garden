@@ -80,6 +80,12 @@ it("imports a real temporary source through the reader and preserves visible con
     openOriginal: async (id) => {
       openedOriginal = call<string>("original", id);
     },
+    openOriginalVersion: async (id, versionId, asset) => {
+      openedOriginal = call<string>("original-version", id, versionId, asset);
+    },
+    openOriginalAsset: async (id, asset) => {
+      openedOriginal = call<string>("original-asset", id, asset);
+    },
     onDrop: async (handler) => {
       dropFiles = handler;
       return () => {};

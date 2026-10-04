@@ -59,6 +59,8 @@ function testApi(): GardenApi {
     openSource: vi.fn().mockResolvedValue(riverside),
     openKnowledgePage: vi.fn(),
     openOriginal: vi.fn().mockResolvedValue(undefined),
+    openOriginalVersion: vi.fn().mockResolvedValue(undefined),
+    openOriginalAsset: vi.fn().mockResolvedValue(undefined),
     onDrop: vi.fn().mockResolvedValue(() => {}),
   };
 }
@@ -486,6 +488,7 @@ it("navigates collection pages using bounded source lists and prevents source HT
 
 it("opens linked knowledge pages, returns to their source, and opens the retained original", async () => {
   const digest = "b".repeat(64);
+  const oldVersion = "c".repeat(64);
   const source: SourcePage = {
     ...riverside,
     info: { ...riverside.info, source_id: `source-${digest}` },
@@ -496,7 +499,7 @@ it("opens linked knowledge pages, returns to their source, and opens the retaine
     source_id: source.info.source_id,
     title: "Observation V17",
     kind: "event",
-    markdown: `---\npage_id: page-v17\n---\n\n# Observation V17\n\n12 visits.\n\n[Source page](../sources/${digest}/index.md) · [Retained original](../sources/${digest}/original.txt)`,
+    markdown: `---\npage_id: page-v17\n---\n\n# Observation V17\n\n12 visits.\n\n[Source page](../sources/${digest}/index.md) · [Current original](../sources/${digest}/original.txt) · [Retained original](../sources/${digest}/versions/${oldVersion}/original.txt)`,
   };
   const api = testApi();
   api.importSource = vi.fn().mockResolvedValue(source);
@@ -523,6 +526,15 @@ it("opens linked knowledge pages, returns to their source, and opens the retaine
   expect(document.activeElement).toBe(
     screen.getByRole("link", { name: "Source page" }),
   );
+  await user.click(screen.getByRole("link", { name: "Current original" }));
+  expect(api.openOriginalAsset).toHaveBeenCalledWith(
+    source.info.source_id,
+    "original.txt",
+  );
   await user.click(screen.getByRole("link", { name: "Retained original" }));
-  expect(api.openOriginal).toHaveBeenCalledWith(source.info.source_id);
+  expect(api.openOriginalVersion).toHaveBeenCalledWith(
+    source.info.source_id,
+    oldVersion,
+    "original.txt",
+  );
 });

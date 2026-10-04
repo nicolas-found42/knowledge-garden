@@ -441,7 +441,16 @@ fn independently_acquired_duration_support_survives_replacement() {
     app.resume_due_semantic_jobs().unwrap();
     app.import_source(&revision_two, AcquisitionMethod::Picker)
         .unwrap();
-    app.resume_due_semantic_jobs().unwrap();
+    let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    app.set_publication_failpoint_for_test(1);
+    let error = app
+        .finish_semantic_job(job, Ok(replacement_recording(REVISION_2, 15, false)))
+        .unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("Injected publication interruption"));
+    drop(app);
+    let app = Application::open(workspace.path().join("collection")).unwrap();
 
     let event = app
         .open_source(&first.info.source_id)
@@ -473,6 +482,11 @@ fn independently_acquired_duration_support_survives_replacement() {
         second.info.asset
     );
     assert!(markdown.contains(&retained_link), "{markdown}");
+    let replaced_revision = app.open_source(&first.info.source_id).unwrap();
+    assert_eq!(
+        replaced_revision.info.versions_seen[0].state, "superseded",
+        "a uniquely replaced source version must be durably marked for search currentness"
+    );
     let relationship_section = markdown.split("## Relationships\n").nth(1).unwrap();
     assert!(
         relationship_section.contains(&format!(
@@ -1501,6 +1515,8 @@ fn complete_revision_does_not_withdraw_an_independent_same_numbered_supplement()
     assert!(!markdown.contains("value: 12 visits"), "{markdown}");
     assert!(markdown.contains("value: 10 minutes"), "{markdown}");
     assert!(markdown.contains(&timing_page.info.source_id), "{markdown}");
+    let timing_source = app.open_source(&timing_page.info.source_id).unwrap();
+    assert_ne!(timing_source.info.versions_seen[0].state, "superseded");
 }
 
 #[test]
@@ -1774,6 +1790,73 @@ fn imports_a_source_into_a_readable_page_and_retains_exact_original_bytes() {
         app.open_source(&page.info.source_id).unwrap().markdown,
         page.markdown
     );
+}
+
+#[test]
+fn a_retained_version_resolves_only_its_exact_known_original_asset() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("report.txt");
+    let first_bytes = REVISION_1.as_bytes();
+    let second_bytes = REVISION_2.as_bytes();
+    fs::write(&source, first_bytes).unwrap();
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(replacement_recording(REVISION_1, 12, true)),
+            Ok(replacement_recording(REVISION_2, 15, false)),
+        ])),
+    )
+    .unwrap();
+    let first = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let old_version = first.info.versions_seen[0].clone();
+
+    fs::write(&source, second_bytes).unwrap();
+    app.import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let current = app.open_source(&first.info.source_id).unwrap();
+
+    assert_eq!(
+        fs::read(
+            app.original_version_path(
+                &first.info.source_id,
+                &old_version.source_version_id,
+                &old_version.asset,
+            )
+            .unwrap()
+        )
+        .unwrap(),
+        first_bytes
+    );
+    assert_eq!(
+        fs::read(app.original_path(&first.info.source_id).unwrap()).unwrap(),
+        second_bytes
+    );
+    assert_eq!(
+        fs::read(
+            app.original_asset_path(&first.info.source_id, &current.info.asset)
+                .unwrap()
+        )
+        .unwrap(),
+        second_bytes
+    );
+    assert!(app
+        .original_asset_path(&first.info.source_id, "../../outside.txt")
+        .is_err());
+    assert!(app
+        .original_version_path(
+            &first.info.source_id,
+            &old_version.source_version_id,
+            "../../outside.txt",
+        )
+        .is_err());
+    assert!(app
+        .original_version_path(&first.info.source_id, &"f".repeat(64), &old_version.asset)
+        .is_err());
+    assert_eq!(current.info.source_id, first.info.source_id);
 }
 
 #[test]

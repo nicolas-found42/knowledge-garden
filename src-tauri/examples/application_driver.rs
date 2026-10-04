@@ -141,6 +141,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             output(app.open_knowledge_page(args.get(3).ok_or("missing knowledge page identity")?)?)
         }
         "original" => output(app.original_path(args.get(3).ok_or("missing source identity")?)?),
+        "original-version" => output(app.original_version_path(
+            args.get(3).ok_or("missing source identity")?,
+            args.get(4).ok_or("missing source version identity")?,
+            args.get(5).ok_or("missing retained asset")?,
+        )?),
+        "original-asset" => output(app.original_asset_path(
+            args.get(3).ok_or("missing source identity")?,
+            args.get(4).ok_or("missing retained asset")?,
+        )?),
         "claim" => {
             let jobs = app.claim_due_semantic_jobs(8)?;
             output(jobs.iter().map(|job| serde_json::json!({"source_id": job.source_id, "source_text": job.source_text})).collect::<Vec<_>>());
