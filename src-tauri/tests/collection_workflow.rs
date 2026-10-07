@@ -662,6 +662,35 @@ fn replacement_recording(text: &str, visits: u32, include_duration: bool) -> Kno
     }
 }
 
+fn reasoning_event_recording(text: &str) -> KnowledgeDraft {
+    let entity_quote = text.lines().next().unwrap();
+    let fact_quote = "Decision: Keep the source originals.";
+    let evidence = |quote: &str| EvidenceDraft {
+        quote: quote.to_owned(),
+        byte_start: text.find(quote).unwrap(),
+        byte_end: text.find(quote).unwrap() + quote.len(),
+        origin: "assistant_message".into(),
+        qualifier: None,
+        offset_basis: None,
+        source_location: None,
+    };
+    KnowledgeDraft {
+        entities: vec![EntityDraft {
+            kind: "reasoning_event".into(),
+            label: "Keep the source originals".into(),
+            evidence: evidence(entity_quote),
+        }],
+        facts: vec![FactDraft {
+            subject: "Keep the source originals".into(),
+            property: "decision".into(),
+            value: "Keep the source originals".into(),
+            evidence: evidence(fact_quote),
+            record_key: None,
+        }],
+        ..KnowledgeDraft::default()
+    }
+}
+
 fn recorded_update(text: &str, role: SourceUpdateRole) -> SourceUpdateDraft {
     let first_line = text.lines().next().unwrap_or(text);
     let (role_start, role_end) = text
@@ -4379,4 +4408,100 @@ fn newer_source_recovers_failed_initial_acquisition_from_its_own_candidate() {
         .unwrap(),
         REVISION_1
     );
+}
+
+#[test]
+fn same_label_reasoning_events_from_distinct_sessions_remain_distinct_after_restart_and_replay() {
+    let workspace = tempdir().unwrap();
+    let alpha_path = workspace.path().join("session-alpha.txt");
+    let beta_path = workspace.path().join("session-beta.txt");
+    let alpha_text = "Conversation session=session-alpha message=decision-04 speaker=assistant.\nDecision: Keep the source originals.\n";
+    let beta_text = "Conversation session=session-beta message=decision-09 speaker=assistant.\nDecision: Keep the source originals.\n";
+    fs::write(&alpha_path, alpha_text).unwrap();
+    fs::write(&beta_path, beta_text).unwrap();
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(reasoning_event_recording(alpha_text)),
+            Ok(reasoning_event_recording(beta_text)),
+        ])),
+    )
+    .unwrap();
+    let alpha_source = app
+        .import_source(&alpha_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let beta_source = app
+        .import_source(&beta_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let alpha = app.open_source(&alpha_source.info.source_id).unwrap();
+    let beta = app.open_source(&beta_source.info.source_id).unwrap();
+    let alpha_page = alpha
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "reasoning_event")
+        .unwrap();
+    let beta_page = beta
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "reasoning_event")
+        .unwrap();
+    assert_ne!(
+        alpha_page.page_id, beta_page.page_id,
+        "matching label and decision wording must not merge separate acquired sessions"
+    );
+    for (summary, source_id, session, message) in [
+        (
+            alpha_page,
+            &alpha.info.source_id,
+            "session-alpha",
+            "decision-04",
+        ),
+        (
+            beta_page,
+            &beta.info.source_id,
+            "session-beta",
+            "decision-09",
+        ),
+    ] {
+        let page = app.open_knowledge_page(&summary.page_id).unwrap();
+        assert_eq!(page.source_id, *source_id);
+        assert!(page.markdown.contains(session));
+        assert!(page.markdown.contains(message));
+        assert!(page.markdown.contains("Keep the source originals"));
+    }
+    let original_ids = [alpha_page.page_id.clone(), beta_page.page_id.clone()];
+    drop(app);
+
+    let mut reopened = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![])),
+    )
+    .unwrap();
+    reopened.rebuild_index().unwrap();
+    for path in [&alpha_path, &beta_path] {
+        reopened
+            .import_source(path, AcquisitionMethod::Picker)
+            .unwrap();
+    }
+    let results = reopened
+        .search_pages(PageSearchRequest {
+            query: "Keep the source originals".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    let current_ids = results
+        .pages
+        .iter()
+        .filter(|page| page.page_type == "knowledge" && page.kind == "reasoning_event")
+        .map(|page| page.page_id.clone())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        current_ids.len(),
+        2,
+        "two distinct reasoning targets remain navigable after restart/replay"
+    );
+    assert_eq!(current_ids, original_ids.into_iter().collect());
 }
