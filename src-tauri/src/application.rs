@@ -413,9 +413,7 @@ impl Application {
                     http_status.is_none_or(|code| matches!(code, 408 | 425 | 429) || code >= 500);
                 if restricted {
                     status.state = "restricted".into();
-                } else if !retryable {
-                    status.state = "failed".into();
-                } else if status.attempts >= 8 {
+                } else if !retryable || status.attempts >= 8 {
                     status.state = "failed".into();
                 } else {
                     status.state = "pending".into();
