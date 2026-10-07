@@ -77,6 +77,16 @@ pub struct Acquisition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UrlAcquisitionStatus {
+    pub url: String,
+    pub attempts: u32,
+    pub state: String,
+    pub retry_at: Option<u64>,
+    pub last_error: String,
+    pub previous_source_available: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceVersion {
     pub source_version_id: String,
     pub sha256: String,
@@ -356,6 +366,7 @@ impl Application {
             fail_after_publication_files: None,
         };
         app.rebuild_index()?;
+        app.recover_interrupted_url_acquisitions()?;
         Ok(app)
     }
 
@@ -368,6 +379,70 @@ impl Application {
     }
 
     pub fn import_url(&mut self, input: &str) -> Result<SourcePage> {
+        let url = reqwest::Url::parse(input)
+            .map_err(|_| GardenError::Invalid("Enter a valid HTTP or HTTPS URL.".into()))?
+            .to_string();
+        let mut status = self.read_url_status(&url)?.unwrap_or(UrlAcquisitionStatus {
+            url: url.clone(),
+            attempts: 0,
+            state: "pending".into(),
+            retry_at: None,
+            last_error: String::new(),
+            previous_source_available: self.source_for_origin(&url)?.is_some(),
+        });
+        status.attempts = status.attempts.saturating_add(1);
+        status.state = "processing".into();
+        status.retry_at = None;
+        self.write_url_status(&status)?;
+        match self.fetch_and_import_url(&url) {
+            Ok(page) => {
+                self.remove_url_status(&url)?;
+                Ok(page)
+            }
+            Err(error) => {
+                let msg = error.to_string();
+                status.last_error = msg.clone();
+                status.previous_source_available |= self.source_for_origin(&url)?.is_some();
+                let http_status = msg
+                    .split("HTTP ")
+                    .nth(1)
+                    .and_then(|rest| rest.get(..3))
+                    .and_then(|value| value.parse::<u16>().ok());
+                let restricted = matches!(http_status, Some(401 | 403));
+                let retryable =
+                    http_status.is_none_or(|code| matches!(code, 408 | 425 | 429) || code >= 500);
+                if restricted {
+                    status.state = "restricted".into();
+                } else if !retryable {
+                    status.state = "failed".into();
+                } else if status.attempts >= 8 {
+                    status.state = "failed".into();
+                } else {
+                    status.state = "pending".into();
+                    let delay = (5u64
+                        .saturating_mul(1u64 << status.attempts.saturating_sub(1).min(10)))
+                    .min(3600);
+                    status.retry_at = Some(
+                        (now_millis()?.min(u128::from(u64::MAX)) as u64)
+                            .saturating_add(delay * 1000),
+                    );
+                }
+                self.write_url_status(&status)?;
+                Err(GardenError::Invalid(format!(
+                    "{msg}{}",
+                    if status.state == "pending" {
+                        " Retry scheduled automatically; previous material remains available when present."
+                    } else if restricted {
+                        " Access is restricted; automatic retry stopped."
+                    } else {
+                        " Automatic retries exhausted; previous material remains available when present."
+                    }
+                )))
+            }
+        }
+    }
+
+    fn fetch_and_import_url(&mut self, input: &str) -> Result<SourcePage> {
         let requested = reqwest::Url::parse(input)
             .map_err(|_| GardenError::Invalid("Enter a valid HTTP or HTTPS URL.".into()))?;
         if !matches!(requested.scheme(), "http" | "https")
@@ -437,14 +512,26 @@ impl Application {
             output.write_all(&chunk[..read])?;
         }
         output.sync_all()?;
+        let mut received_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| GardenError::Invalid(e.to_string()))?
+            .as_millis();
+        if let Some(source_id) = self.source_for_origin(&requested)? {
+            if let Some(latest) = self
+                .open_source(&source_id)?
+                .info
+                .acquisitions
+                .iter()
+                .filter_map(|acquisition| acquisition.received_at.parse::<u128>().ok())
+                .max()
+            {
+                received_at = received_at.max(latest.saturating_add(1));
+            }
+        }
         let acquisition = Acquisition {
             path: requested.clone(),
             method: AcquisitionMethod::Url,
-            received_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|e| GardenError::Invalid(e.to_string()))?
-                .as_millis()
-                .to_string(),
+            received_at: received_at.to_string(),
             requested_url: Some(requested),
             final_url: Some(final_url),
             http_status: Some(status.as_u16()),
@@ -456,6 +543,92 @@ impl Application {
             Some(acquisition),
             Some(format),
         )
+    }
+
+    fn url_status_path(&self, url: &str) -> PathBuf {
+        let digest = Sha256::digest(url.as_bytes());
+        self.root
+            .join("url-acquisitions")
+            .join(format!("{:x}.json", digest))
+    }
+
+    fn read_url_status(&self, url: &str) -> Result<Option<UrlAcquisitionStatus>> {
+        let path = self.url_status_path(url);
+        if !path.exists() {
+            return Ok(None);
+        }
+        Ok(Some(serde_json::from_slice(&fs::read(path)?)?))
+    }
+
+    fn write_url_status(&self, status: &UrlAcquisitionStatus) -> Result<()> {
+        let path = self.url_status_path(&status.url);
+        fs::create_dir_all(path.parent().unwrap())?;
+        let temp = path.with_extension("tmp");
+        let mut file = File::create(&temp)?;
+        file.write_all(&serde_json::to_vec_pretty(status)?)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temp, &path)?;
+        sync_directory(path.parent().unwrap())?;
+        Ok(())
+    }
+
+    fn remove_url_status(&self, url: &str) -> Result<()> {
+        let path = self.url_status_path(url);
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
+    pub fn list_url_acquisitions(&self) -> Result<Vec<UrlAcquisitionStatus>> {
+        let dir = self.root.join("url-acquisitions");
+        if !dir.exists() {
+            return Ok(Vec::new());
+        }
+        let mut records = fs::read_dir(dir)?
+            .filter_map(|entry| match entry {
+                Ok(entry) if entry.path().extension().is_some_and(|ext| ext == "json") => {
+                    Some(Ok::<PathBuf, GardenError>(entry.path()))
+                }
+                Ok(_) => None,
+                Err(error) => Some(Err(error.into())),
+            })
+            .map(|path| Ok(serde_json::from_slice(&fs::read(path?)?)?))
+            .collect::<Result<Vec<UrlAcquisitionStatus>>>()?;
+        records.sort_by(|a, b| a.url.cmp(&b.url));
+        Ok(records)
+    }
+
+    fn recover_interrupted_url_acquisitions(&self) -> Result<()> {
+        for mut status in self.list_url_acquisitions()? {
+            if status.state == "processing" {
+                status.state = "pending".into();
+                status.retry_at = Some(0);
+                status.last_error =
+                    "The application restarted during retrieval; retry is queued.".into();
+                self.write_url_status(&status)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn resume_due_url_acquisitions(&mut self) -> Result<()> {
+        let now = now_millis()?.min(u128::from(u64::MAX)) as u64;
+        self.resume_due_url_acquisitions_at(now)
+    }
+
+    pub fn resume_due_url_acquisitions_at(&mut self, now: u64) -> Result<()> {
+        let due = self
+            .list_url_acquisitions()?
+            .into_iter()
+            .filter(|item| item.state == "pending" && item.retry_at.is_some_and(|at| at <= now))
+            .map(|item| item.url)
+            .collect::<Vec<_>>();
+        for url in due {
+            let _ = self.import_url(&url);
+        }
+        Ok(())
     }
 
     fn import_source_with_acquisition(
@@ -995,6 +1168,7 @@ impl Application {
                 .find(|version| version.source_version_id == source_version_id)
                 .cloned()
                 .ok_or_else(|| GardenError::Invalid("Pending source version is missing.".into()))?;
+            let version_received_at = version.received_at.clone();
             let candidate_path = if initial {
                 self.source_dir(&source_id)?.join(&version.asset)
             } else {
@@ -1002,6 +1176,17 @@ impl Application {
                     .join("versions")
                     .join(&source_version_id)
                     .join(&version.asset)
+            };
+            let acquisition_history = if page.info.format == "html"
+                && page
+                    .info
+                    .acquisitions
+                    .iter()
+                    .any(|acquisition| acquisition.method == AcquisitionMethod::Url)
+            {
+                self.open_source(&source_id)?.info.acquisitions
+            } else {
+                page.info.acquisitions.clone()
             };
             let text = if page.info.format == "html"
                 && page
@@ -1019,11 +1204,16 @@ impl Application {
                     )?;
                     continue;
                 }
-                let final_url = page
-                    .info
-                    .acquisitions
+                let final_url = acquisition_history
                     .iter()
-                    .find_map(|acquisition| acquisition.final_url.as_deref())
+                    .find(|acquisition| acquisition.received_at == version_received_at)
+                    .and_then(|acquisition| acquisition.final_url.as_deref())
+                    .or_else(|| {
+                        acquisition_history
+                            .iter()
+                            .rev()
+                            .find_map(|acquisition| acquisition.final_url.as_deref())
+                    })
                     .unwrap_or("");
                 let mut prefix = bytes[..bytes.len().min(MAX_TEXT_BYTES)].to_vec();
                 if let Err(error) = std::str::from_utf8(&prefix) {
@@ -1075,6 +1265,34 @@ impl Application {
                     GardenError::Invalid("The retained text source is no longer UTF-8.".into())
                 })?
             };
+            let prior_source_text = if initial {
+                None
+            } else if let Some(current_id) = page.info.current_version_id.as_deref() {
+                page.info
+                    .versions_seen
+                    .iter()
+                    .find(|version| version.source_version_id == current_id)
+                    .and_then(|version| {
+                        let root_path = self.source_dir(&source_id).ok()?.join(&version.asset);
+                        let version_path = self.version_original_path(&source_id, version).ok()?;
+                        let path = if root_path.is_file() {
+                            root_path
+                        } else {
+                            version_path
+                        };
+                        if matches!(version.format.as_str(), "docx" | "pptx") {
+                            self.extractor.extract(&path, &version.format, &page.info.title)
+                                .ok()
+                                .map(|projection| projection.semantic_text)
+                        } else {
+                            fs::read(path)
+                                .ok()
+                                .and_then(|bytes| String::from_utf8(bytes).ok())
+                        }
+                    })
+            } else {
+                None
+            };
             if initial {
                 page.info.semantic_state = "processing".into();
             } else {
@@ -1100,6 +1318,7 @@ impl Application {
                 source_version_id,
                 attempt,
                 source_text: text,
+                prior_source_text,
             });
         }
         Ok(jobs)
@@ -1440,7 +1659,9 @@ impl Application {
     pub fn resume_due_semantic_jobs(&mut self) -> Result<()> {
         let jobs = self.claim_due_semantic_jobs(4)?;
         for job in jobs {
-            let result = self.semantic_provider.form_knowledge(&job.source_text);
+            let result = self
+                .semantic_provider
+                .form_knowledge_with_prior(&job.source_text, job.prior_source_text.as_deref());
             self.finish_semantic_job(job, result)?;
         }
         Ok(())
@@ -1956,13 +2177,92 @@ impl Application {
                 && decision.certainty >= 0.8
                 && decision.certainty.is_finite()
         });
-        if !complete_replacement || !same_entity {
+        let stable_fact_key_overlap = if matches!(source.info.format.as_str(), "docx" | "pptx") {
+            draft.entities.iter().any(|entity| {
+                let page_id = stable_page_id(entity, &source.info.source_id);
+                let path = self.root.join("pages").join(format!("{page_id}.md"));
+                let Ok(existing) = read_knowledge_header(&path) else {
+                    return false;
+                };
+                draft
+                    .facts
+                    .iter()
+                    .filter(|fact| fact.subject == entity.label)
+                    .any(|fact| {
+                        fact.record_key.as_deref().is_some_and(|key| {
+                            existing.facts.iter().any(|record| {
+                                record.fact_id
+                                    == stable_fact_id(&page_id, &fact.property, Some(key))
+                            })
+                        })
+                    })
+            })
+        } else {
+            false
+        };
+        let complete_extraction = source
+            .info
+            .extraction_coverage
+            .as_ref()
+            .is_none_or(|parts| {
+                parts
+                    .iter()
+                    .all(|part| part.status == CoverageStatus::Complete)
+            });
+        let field_aligned_office_refresh = !complete_replacement
+            && draft
+                .source_update
+                .as_ref()
+                .is_some_and(|decision| decision.role == SourceUpdateRole::Unknown)
+            && matches!(source.info.format.as_str(), "docx" | "pptx")
+            && same_entity
+            && stable_fact_key_overlap
+            && complete_extraction
+            && !draft.facts.is_empty();
+        if (!complete_replacement && !field_aligned_office_refresh) || !same_entity {
             return self.retain_non_authoritative_update(
                 source,
                 source_version_id,
                 draft.source_update.as_ref(),
             );
         }
+        // Field-aligned Office refreshes continue through the ordinary version
+        // promotion path so the current metadata, original asset, and facts all
+        // refer to the same acquired version. `replacement_sources` remains empty
+        // for an unknown role, so omitted supports are retained.
+        let draft = if field_aligned_office_refresh {
+            let mut aligned = draft;
+            aligned.facts.retain(|fact| {
+                let Some(key) = fact.record_key.as_deref() else {
+                    return false;
+                };
+                let page_id = aligned
+                    .entities
+                    .iter()
+                    .find(|entity| entity.label == fact.subject)
+                    .map(|entity| stable_page_id(entity, &source.info.source_id));
+                let Some(page_id) = page_id else {
+                    return false;
+                };
+                let path = self.root.join("pages").join(format!("{page_id}.md"));
+                read_knowledge_header(&path).is_ok_and(|existing| {
+                    existing.facts.iter().any(|record| {
+                        record.fact_id == stable_fact_id(&page_id, &fact.property, Some(key))
+                    })
+                })
+            });
+            aligned.entities.retain(|entity| {
+                aligned
+                    .facts
+                    .iter()
+                    .any(|fact| fact.subject == entity.label)
+            });
+            aligned.relationships.clear();
+            aligned.tags.clear();
+            aligned
+        } else {
+            draft
+        };
         let current_id = source.info.current_version_id.clone().ok_or_else(|| {
             GardenError::Invalid("A replacement has no established current version.".into())
         })?;
@@ -2199,6 +2499,18 @@ impl Application {
             || incoming.update_confidence.is_none_or(|value| value < 0.8)
             || incoming.update_evidence.is_none()
         {
+            return Ok(std::collections::HashSet::new());
+        }
+        let complete_extraction = source
+            .info
+            .extraction_coverage
+            .as_ref()
+            .is_none_or(|parts| {
+                parts
+                    .iter()
+                    .all(|part| part.status == CoverageStatus::Complete)
+            });
+        if !complete_extraction {
             return Ok(std::collections::HashSet::new());
         }
 
@@ -3549,11 +3861,13 @@ fn fts_expression(query: &str) -> String {
 fn knowledge_search_content(header: &KnowledgePageHeader) -> String {
     let mut fields = vec![header.title.clone(), header.kind.clone()];
     for fact in &header.facts {
+        // Search current fact values, not evidence quotations. A correction's
+        // supporting sentence can repeat the rejected prior value ("15, not
+        // 12"); indexing that quote would make 12 look current again.
         fields.extend([
             fact.property.clone(),
             fact.value.clone(),
             fact.qualifier.clone().unwrap_or_default(),
-            fact.evidence.quote.clone(),
         ]);
     }
     for relationship in &header.relationships {

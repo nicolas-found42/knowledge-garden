@@ -65,7 +65,9 @@ export async function mountReader(
   acquireUrl.type = "submit";
   const cancelUrl = element("button", "Cancel");
   cancelUrl.type = "button";
-  urlForm.append(urlLabel, acquireUrl, cancelUrl);
+  const urlQueue = element("section");
+  urlQueue.setAttribute("aria-label", "URL acquisition status");
+  urlForm.append(urlLabel, acquireUrl, cancelUrl, urlQueue);
   const notice = element("p");
   notice.className = "notice";
   notice.setAttribute("role", "status");
@@ -128,6 +130,28 @@ export async function mountReader(
   }
   function report(error: unknown) {
     message(error instanceof Error ? error.message : String(error));
+  }
+
+  async function refreshUrlQueue() {
+    try {
+      const items = await api.listUrlAcquisitions();
+      urlQueue.replaceChildren();
+      if (!items.length) return;
+      urlQueue.append(element("h2", "URL acquisitions"));
+      for (const item of items) {
+        const row = element("p");
+        const retry = item.retry_at
+          ? ` Next retry: ${new Date(item.retry_at).toLocaleString()}.`
+          : "";
+        const previous = item.previous_source_available
+          ? " Previously retained source material remains available."
+          : "";
+        row.textContent = `${item.url} — ${item.state}; ${item.attempts} attempt(s). ${item.last_error}${retry}${previous}`;
+        urlQueue.append(row);
+      }
+    } catch (error) {
+      report(error);
+    }
   }
 
   function syncBackButton() {
@@ -807,7 +831,10 @@ export async function mountReader(
 
   addUrlButton.addEventListener("click", () => {
     urlForm.hidden = !urlForm.hidden;
-    if (!urlForm.hidden) urlInput.focus();
+    if (!urlForm.hidden) {
+      urlInput.focus();
+      void refreshUrlQueue();
+    }
   });
   cancelUrl.addEventListener("click", () => {
     urlForm.hidden = true;
@@ -831,6 +858,7 @@ export async function mountReader(
       })
       .catch((error: unknown) => {
         report(error);
+        void refreshUrlQueue();
       })
       .finally(() => {
         busy = false;
@@ -910,6 +938,7 @@ export async function mountReader(
     }
   }
   const refreshTimer = window.setInterval(() => {
+    if (!urlForm.hidden) void refreshUrlQueue();
     const current = page;
     const updating = ["pending", "processing"].includes(
       current?.info.update_status ?? "",

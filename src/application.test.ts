@@ -67,6 +67,7 @@ it("imports a real temporary source through the reader and preserves visible con
         "URL retrieval is exercised through the desktop API adapter.",
       );
     },
+    listUrlAcquisitions: async () => [],
     listSources: async (offset) => call<SourceList>("list", String(offset)),
     searchPages: async () => ({
       pages: [],

@@ -219,6 +219,52 @@ fn external_links(rels: &HashMap<String, Relationship>) -> Vec<String> {
     links
 }
 
+fn external_hyperlink_target<'a>(
+    rels: &'a HashMap<String, Relationship>,
+    relationship_id: &str,
+) -> Option<&'a str> {
+    rels.get(relationship_id)
+        .filter(|rel| rel.external && rel.kind.ends_with("/hyperlink"))
+        .map(|rel| rel.target.as_str())
+}
+
+fn word_hyperlinks(
+    paragraph: roxmltree::Node<'_, '_>,
+    rels: &HashMap<String, Relationship>,
+) -> Vec<(String, String)> {
+    paragraph
+        .descendants()
+        .filter(|node| node.is_element() && local_name(*node) == "hyperlink")
+        .filter_map(|node| {
+            let relationship_id = attr_local(node, "id")?;
+            let target = external_hyperlink_target(rels, &relationship_id)?;
+            let text = node_text(node);
+            (!text.is_empty()).then(|| (text, target.to_owned()))
+        })
+        .collect()
+}
+
+fn powerpoint_hyperlinks(
+    shape: roxmltree::Node<'_, '_>,
+    rels: &HashMap<String, Relationship>,
+) -> Vec<(String, String)> {
+    shape
+        .descendants()
+        .filter(|node| node.is_element() && local_name(*node) == "hlinkClick")
+        .filter_map(|node| {
+            let relationship_id = attr_local(node, "id")?;
+            let target = external_hyperlink_target(rels, &relationship_id)?;
+            let text = node
+                .ancestors()
+                .find(|ancestor| local_name(*ancestor) == "r")
+                .map(node_text)
+                .filter(|text| !text.is_empty())
+                .unwrap_or_else(|| node_text(shape));
+            (!text.is_empty()).then(|| (text, target.to_owned()))
+        })
+        .collect()
+}
+
 fn embedded_coverage(archive: &mut ZipArchive<std::fs::File>) -> Option<CoveragePart> {
     let mut gaps = Vec::new();
     let mut scanned_bytes = 0u64;
@@ -429,6 +475,7 @@ fn extract_docx(
         .ok_or("DOCX body part is missing.")?;
     let mut sections = vec!["## Document".to_owned()];
     let mut semantic = Vec::new();
+    let mut located_links = Vec::new();
     let mut paragraph_no = 0usize;
     let mut table_no = 0usize;
     for node in body.children().filter(|n| n.is_element()) {
@@ -465,6 +512,18 @@ fn extract_docx(
                     sections.push(format!("{text}  \n<!-- {location} -->"));
                 }
                 semantic.push(format!("[{location}; channel=main_document] {text}"));
+                for (index, (anchor, target)) in
+                    word_hyperlinks(node, &rels).into_iter().enumerate()
+                {
+                    let link_location = format!(
+                        "{location} hyperlink occurrence {}; channel=reference",
+                        index + 1
+                    );
+                    semantic.push(format!(
+                        "[{link_location}] {text} Link text: {anchor}. Destination: {target}"
+                    ));
+                    located_links.push((target, anchor, text.clone(), link_location));
+                }
             }
             "tbl" => {
                 table_no += 1;
@@ -539,8 +598,14 @@ fn extract_docx(
     }
     let links = external_links(&rels);
     if !links.is_empty() {
+        let occurrences = located_links
+            .iter()
+            .map(|(url, anchor, context, location)| {
+                format!("- `{url}` — {anchor}; occurrence in {location}: {context}")
+            })
+            .collect::<Vec<_>>();
         sections.push(format!(
-            "## Unfetched links\n\n{}",
+            "## Unfetched links\n\n{}{}",
             links
                 .iter()
                 .map(|url| format!(
@@ -548,7 +613,12 @@ fn extract_docx(
                     url.replace('`', "")
                 ))
                 .collect::<Vec<_>>()
-                .join("\n")
+                .join("\n"),
+            if occurrences.is_empty() {
+                String::new()
+            } else {
+                format!("\n\n### Located occurrences\n\n{}", occurrences.join("\n"))
+            }
         ));
     }
     let unsupported_parts = unsupported_document_parts(&rels);
@@ -791,6 +861,34 @@ fn extract_pptx(
                 HashMap::new()
             }
         };
+        let mut located_slide_links = Vec::new();
+        for shape in slide
+            .descendants()
+            .filter(|node| node.is_element() && local_name(*node) == "sp")
+        {
+            let context = node_text(shape);
+            if context.is_empty() {
+                continue;
+            }
+            let object_id = shape
+                .descendants()
+                .find(|node| node.is_element() && local_name(*node) == "cNvPr")
+                .and_then(|node| attr_local(node, "id"))
+                .unwrap_or_else(|| "unknown".into());
+            for (index, (anchor, target)) in powerpoint_hyperlinks(shape, &slide_rels)
+                .into_iter()
+                .enumerate()
+            {
+                let location = format!(
+                    "PPTX slide {slide_no} shape {object_id} hyperlink occurrence {}; channel=reference",
+                    index + 1
+                );
+                semantic.push(format!(
+                    "[{location}] {context} Link text: {anchor}. Destination: {target}"
+                ));
+                located_slide_links.push((target, anchor, context.clone(), location));
+            }
+        }
         if let Some(note_rel) = slide_rels
             .values()
             .find(|r| r.kind.ends_with("/notesSlide"))
@@ -861,8 +959,14 @@ fn extract_pptx(
         }
         let links = external_links(&slide_rels);
         if !links.is_empty() {
+            let occurrences = located_slide_links
+                .iter()
+                .map(|(url, anchor, context, location)| {
+                    format!("- `{url}` — {anchor}; occurrence in {location}: {context}")
+                })
+                .collect::<Vec<_>>();
             sections.push(format!(
-                "\n#### Unfetched links\n\n{}",
+                "\n#### Unfetched links\n\n{}{}",
                 links
                     .iter()
                     .map(|url| format!(
@@ -870,7 +974,15 @@ fn extract_pptx(
                         url.replace('`', "")
                     ))
                     .collect::<Vec<_>>()
-                    .join("\n")
+                    .join("\n"),
+                if occurrences.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "\n\n##### Located occurrences\n\n{}",
+                        occurrences.join("\n")
+                    )
+                }
             ));
         }
     }

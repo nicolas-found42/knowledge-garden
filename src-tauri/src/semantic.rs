@@ -63,6 +63,7 @@ pub struct SemanticJob {
     pub source_version_id: String,
     pub attempt: u32,
     pub source_text: String,
+    pub prior_source_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,6 +125,16 @@ pub trait SemanticProvider: Send + Sync {
         &self,
         source_text: &str,
     ) -> std::result::Result<KnowledgeDraft, ProviderError>;
+
+    /// Supplies the previous complete projection for source-version reconciliation.
+    /// Providers that do not use comparative context remain source compatible.
+    fn form_knowledge_with_prior(
+        &self,
+        source_text: &str,
+        _prior_source_text: Option<&str>,
+    ) -> std::result::Result<KnowledgeDraft, ProviderError> {
+        self.form_knowledge(source_text)
+    }
 }
 
 #[derive(Debug, Clone)]

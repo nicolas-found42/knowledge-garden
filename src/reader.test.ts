@@ -48,6 +48,7 @@ function testApi(): GardenApi {
     chooseFile: vi.fn().mockResolvedValue("/tmp/Riverside notes.md"),
     importSource: vi.fn().mockResolvedValue(riverside),
     importUrl: vi.fn().mockResolvedValue(riverside),
+    listUrlAcquisitions: vi.fn().mockResolvedValue([]),
     listSources: vi.fn().mockResolvedValue({ sources: [], next_offset: null }),
     searchPages: vi.fn().mockResolvedValue({
       pages: [],
@@ -118,6 +119,16 @@ it("retrieves only the supplied URL, displays its origin, and keeps a failed add
     .fn()
     .mockRejectedValueOnce(new Error("HTTP 503"))
     .mockResolvedValueOnce(page);
+  api.listUrlAcquisitions = vi.fn().mockResolvedValue([
+    {
+      url: "http://127.0.0.1:14335/temporary",
+      attempts: 1,
+      state: "pending",
+      retry_at: Date.now() + 60_000,
+      last_error: "HTTP 503",
+      previous_source_available: true,
+    },
+  ]);
   const root = document.createElement("div");
   document.body.append(root);
   dispose = await mountReader(root, api);
@@ -127,6 +138,8 @@ it("retrieves only the supplied URL, displays its origin, and keeps a failed add
   await user.type(input, "http://127.0.0.1:14335/temporary");
   await user.click(screen.getByRole("button", { name: "Retrieve this page" }));
   await screen.findByText("HTTP 503");
+  expect(await screen.findByText(/pending; 1 attempt/)).toBeTruthy();
+  expect(screen.getByText(/Previously retained source material remains available/)).toBeTruthy();
   expect(input.value).toBe("http://127.0.0.1:14335/temporary");
   await user.click(screen.getByRole("button", { name: "Retrieve this page" }));
   expect(api.importUrl).toHaveBeenNthCalledWith(
