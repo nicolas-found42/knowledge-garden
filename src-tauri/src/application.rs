@@ -2,7 +2,7 @@
 use crate::extraction::{LocalExtractor, SourceExtractor};
 use crate::meaning::{MeaningFilters, MeaningSearch};
 use crate::media::{
-    AudioProcessingInfo, AudioProcessor, NativeAudioProcessor, MAX_AUDIO_SEGMENT_MS,
+    AudioInfo, AudioProcessingInfo, AudioProcessor, NativeAudioProcessor, MAX_AUDIO_SEGMENT_MS,
 };
 use crate::office::{CoveragePart, CoverageScope, CoverageStatus, OfficeProjection};
 use crate::semantic::{
@@ -26,9 +26,18 @@ use thiserror::Error;
 use uuid::Uuid;
 
 pub const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
+
+fn is_audio_format(format: &str) -> bool {
+    matches!(
+        format,
+        "wav" | "wave" | "aiff" | "aif" | "caf" | "m4a" | "mp3" | "aac"
+    )
+}
 const MAX_PAGE_BYTES: u64 = (MAX_TEXT_BYTES * 3 + 64 * 1024) as u64;
 const PAGE_SIZE: usize = 50;
 const MAX_RETRYABLE_PROVIDER_FAILURES: u32 = 3;
+const MAX_AUDIO_FAILED_ATTEMPTS: u32 = 3;
+const MAX_AUDIO_INTERRUPTION_ATTEMPTS: u32 = 3;
 
 #[derive(Debug, Error)]
 pub enum GardenError {
@@ -176,6 +185,9 @@ pub struct SourceInfo {
     pub semantic_decisions: Vec<SemanticDecision>,
     #[serde(default)]
     pub audio_processing: Option<AudioProcessingInfo>,
+    /// In-progress recording replacement; the published audio transcript remains separate.
+    #[serde(default)]
+    pub pending_audio_processing: Option<AudioProcessingInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -791,10 +803,7 @@ impl Application {
             .into_owned();
         let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
         let format = format_override.unwrap_or_else(|| extension.to_lowercase());
-        let audio_format = matches!(
-            format.as_str(),
-            "wav" | "wave" | "aiff" | "aif" | "caf" | "m4a" | "mp3" | "aac"
-        );
+        let audio_format = is_audio_format(&format);
         let asset = if extension.len() <= 16
             && !extension.is_empty()
             && extension.chars().all(|c| c.is_ascii_alphanumeric())
@@ -859,6 +868,13 @@ impl Application {
         let destination = self.source_dir(&source_id)?;
         if destination.exists() {
             let mut existing = self.open_source(&source_id)?;
+            let inspected_audio = if audio_format {
+                self.audio_processor
+                    .inspect(&staging.path().join(&asset))
+                    .ok()
+            } else {
+                None
+            };
             let acquisition_exists = existing.info.acquisitions.iter().any(|old| {
                 old.path == acquisition.path
                     && old.method == acquisition.method
@@ -912,10 +928,31 @@ impl Application {
                 write_acquisition(&destination, &acquisition)?;
             }
             self.index_acquisition(&acquisition.path, &source_id)?;
-            let (extraction, extraction_detail, extraction_coverage) = if method
-                == AcquisitionMethod::Url
-                && format == "html"
-            {
+            let (extraction, extraction_detail, extraction_coverage) = if audio_format {
+                if let Some(audio) = inspected_audio.as_ref() {
+                    (
+                        ExtractionState::PartialText,
+                        "The changed audio original is retained as a new source version. Its transcript is reset and queued for bounded processing; the previous version's transcript is not evidence for this recording.".into(),
+                        Some(vec![CoveragePart {
+                            scope: CoverageScope::AudioRecording,
+                            status: CoverageStatus::Partial,
+                            source_location: Some("timeline".into()),
+                            detail: format!("The new recording is {} ms long. No transcript from a different source version is reused.", audio.duration_ms),
+                        }]),
+                    )
+                } else {
+                    (
+                        ExtractionState::Unsupported,
+                        "The changed audio original is retained, but the installed local media decoder could not inspect it.".into(),
+                        Some(vec![CoveragePart {
+                            scope: CoverageScope::AudioRecording,
+                            status: CoverageStatus::Failed,
+                            source_location: Some("audio decoder".into()),
+                            detail: "The changed source version could not be inspected for duration or audio segments.".into(),
+                        }]),
+                    )
+                }
+            } else if method == AcquisitionMethod::Url && format == "html" {
                 match crate::web::project(
                     &text_bytes,
                     acquisition.final_url.as_deref().unwrap_or(""),
@@ -977,6 +1014,21 @@ impl Application {
             existing.info.extraction = extraction;
             existing.info.extraction_detail = extraction_detail;
             existing.info.extraction_coverage = extraction_coverage;
+            if let Some(audio) = inspected_audio {
+                let candidate_audio = audio_processing_info(audio, &digest);
+                if existing.info.current_version_id.is_some() {
+                    existing.info.pending_audio_processing = Some(candidate_audio);
+                } else {
+                    existing.info.audio_processing = Some(candidate_audio);
+                }
+            } else if existing
+                .info
+                .pending_audio_processing
+                .as_ref()
+                .is_some_and(|audio| audio.source_version_id.as_deref() != Some(&digest))
+            {
+                existing.info.pending_audio_processing = None;
+            }
             existing.info.semantic_error = None;
             existing.info.semantic_retry_at = None;
             self.write_source_page(&existing)?;
@@ -1193,16 +1245,8 @@ impl Application {
             semantic_retry_at: None,
             knowledge_pages: Vec::new(),
             semantic_decisions: Vec::new(),
-            audio_processing: inspected_audio.map(|audio| AudioProcessingInfo {
-                state: "pending".into(),
-                duration_ms: audio.duration_ms,
-                next_start_ms: 0,
-                segment_duration_ms: MAX_AUDIO_SEGMENT_MS,
-                attempts: 0,
-                retry_at_ms: None,
-                detail: "Pinned local Whisper transcription is queued. Speaker attribution is unavailable; all speakers remain unidentified.".into(),
-                segments: Vec::new(),
-            }),
+            audio_processing: inspected_audio.map(|audio| audio_processing_info(audio, &digest)),
+            pending_audio_processing: None,
         };
         let body = web_projection
             .as_ref()
@@ -1347,11 +1391,21 @@ impl Application {
                 .and_then(|value| value.parse::<u128>().ok())
                 .unwrap_or(0);
             let has_pending_version = page.info.pending_version_id.is_some();
-            let audio_ready = page
+            let pending_version_id = page.info.pending_version_id.as_deref();
+            let pending_is_audio = page
                 .info
-                .audio_processing
-                .as_ref()
-                .is_none_or(|audio| audio.state == "complete");
+                .versions_seen
+                .iter()
+                .find(|version| Some(version.source_version_id.as_str()) == pending_version_id)
+                .is_some_and(|version| is_audio_format(&version.format));
+            let audio_ready = if pending_is_audio {
+                pending_version_id.is_some_and(|version_id| {
+                    candidate_audio_processing(&page.info, version_id)
+                        .is_some_and(|audio| audio.state == "complete")
+                })
+            } else {
+                true
+            };
             if (page.info.semantic_state == "pending"
                 || (has_pending_version && page.info.update_status.as_deref() == Some("pending")))
                 && audio_ready
@@ -1408,7 +1462,10 @@ impl Application {
             } else {
                 page.info.acquisitions.clone()
             };
-            let text = if let Some(audio) = &page.info.audio_processing {
+            let text = if is_audio_format(&version.format) {
+                let Some(audio) = candidate_audio_processing(&page.info, &source_version_id) else {
+                    continue;
+                };
                 if audio.state != "complete" {
                     continue;
                 }
@@ -1909,6 +1966,7 @@ impl Application {
                             });
                     match result {
                         Ok(()) => {
+                            promote_candidate_audio(&mut page.info, &job.source_version_id);
                             page.info.semantic_state = "complete".into();
                             page.info.semantic_error = None;
                             page.info.semantic_retry_at = None;
@@ -2115,13 +2173,23 @@ impl Application {
             }
             let source_id = read_page(&entry.path().join("index.md"))?.info.source_id;
             let mut page = self.open_source(&source_id)?;
-            let Some(audio) = page.info.audio_processing.as_mut() else {
+            let Some(pending_version_id) = page.info.pending_version_id.clone() else {
+                continue;
+            };
+            let Some(audio) = candidate_audio_processing_mut(&mut page.info, &pending_version_id)
+            else {
                 continue;
             };
             if audio.state == "processing" {
-                audio.state = "pending".into();
                 audio.retry_at_ms = None;
-                audio.detail = "A prior bounded segment was interrupted. The same time range is queued again; the retained original remains available.".into();
+                audio.processing_interruptions = audio.processing_interruptions.saturating_add(1);
+                if audio.processing_interruptions >= MAX_AUDIO_INTERRUPTION_ATTEMPTS {
+                    audio.state = "failed".into();
+                    audio.detail = "Audio transcription stopped after three interrupted segment attempts for this source version. The exact retained original and any previously published transcript remain available; a new source version has an independent recovery budget.".into();
+                } else {
+                    audio.state = "pending".into();
+                    audio.detail = format!("A bounded audio segment was interrupted ({}/{}). The same time range remains queued within this source version's interruption budget; the retained original remains available.", audio.processing_interruptions, MAX_AUDIO_INTERRUPTION_ATTEMPTS);
+                }
                 self.write_source_page(&page)?;
                 self.index_page(&page.info)?;
             }
@@ -2142,14 +2210,16 @@ impl Application {
             }
             let source_id = read_page(&entry.path().join("index.md"))?.info.source_id;
             let page = self.open_source(&source_id)?;
-            if let Some(audio) = &page.info.audio_processing {
-                if audio.state == "pending" && audio.retry_at_ms.unwrap_or(0) <= now {
-                    candidate = Some((
-                        source_id,
-                        page.info.pending_version_id.clone(),
-                        audio.clone(),
-                    ));
-                    break;
+            if let Some(pending_version_id) = page.info.pending_version_id.as_deref() {
+                if let Some(audio) = candidate_audio_processing(&page.info, pending_version_id) {
+                    if audio.state == "pending" && audio.retry_at_ms.unwrap_or(0) <= now {
+                        candidate = Some((
+                            source_id,
+                            page.info.pending_version_id.clone(),
+                            audio.clone(),
+                        ));
+                        break;
+                    }
                 }
             }
         }
@@ -2170,9 +2240,10 @@ impl Application {
         }
         {
             let mut page = self.open_source(&source_id)?;
-            let audio = page.info.audio_processing.as_mut().ok_or_else(|| {
-                GardenError::Invalid("Audio processing state disappeared.".into())
-            })?;
+            let audio =
+                candidate_audio_processing_mut(&mut page.info, &version_id).ok_or_else(|| {
+                    GardenError::Invalid("Pending audio processing state disappeared.".into())
+                })?;
             if audio.state != "pending" || audio.next_start_ms != start {
                 return Ok(());
             }
@@ -2193,8 +2264,14 @@ impl Application {
             })?;
         let root_asset = self.source_dir(&source_id)?.join(&version.asset);
         let version_asset = self.version_original_path(&source_id, version)?;
-        let path = if root_asset.is_file() {
-            root_asset
+        let path = if current_page.info.current_version_id.as_deref() == Some(version_id.as_str())
+            || current_page.info.current_version_id.is_none()
+        {
+            if version_asset.is_file() {
+                version_asset
+            } else {
+                root_asset
+            }
         } else {
             version_asset
         };
@@ -2212,7 +2289,8 @@ impl Application {
             {
                 let mut page = self.open_source(&source_id)?;
                 if page.info.pending_version_id.as_deref() != Some(&version_id) { return Ok(()); }
-                let audio = page.info.audio_processing.as_mut().ok_or_else(|| GardenError::Invalid("Audio processing state disappeared.".into()))?;
+                let audio = candidate_audio_processing_mut(&mut page.info, &version_id)
+                    .ok_or_else(|| GardenError::Invalid("Pending audio processing state disappeared.".into()))?;
                 let window_end = start.saturating_add(batch.processed_duration_ms);
                 audio.segments.retain(|segment| segment.end_ms <= start || segment.start_ms >= window_end);
                 for (index, mut segment) in batch.segments.into_iter().enumerate() {
@@ -2236,6 +2314,7 @@ impl Application {
                         page.info.pending_version_id = None;
                         page.info.update_status = None;
                         page.info.semantic_state = "unavailable".into();
+                        promote_candidate_audio(&mut page.info, &version_id);
                     } else {
                         page.info.semantic_state = "pending".into();
                     }
@@ -2261,14 +2340,20 @@ impl Application {
         if page.info.pending_version_id.as_deref() != Some(version_id) {
             return Ok(());
         }
-        let audio =
-            page.info.audio_processing.as_mut().ok_or_else(|| {
-                GardenError::Invalid("Audio processing state disappeared.".into())
-            })?;
-        let seconds = (1_u64 << audio.attempts.min(10)).min(3600);
-        audio.state = "pending".into();
-        audio.retry_at_ms = Some(now_millis()? as u64 + seconds * 1000);
-        audio.detail = format!("Local transcription could not finish this range: {error}. It will retry automatically; the retained original remains playable.");
+        let Some(audio) = candidate_audio_processing_mut(&mut page.info, version_id) else {
+            return Ok(());
+        };
+        audio.failed_attempts = audio.failed_attempts.saturating_add(1);
+        if audio.failed_attempts >= MAX_AUDIO_FAILED_ATTEMPTS {
+            audio.state = "failed".into();
+            audio.retry_at_ms = None;
+            audio.detail = format!("Local transcription stopped after {} failed attempts for this source version: {error}. The exact retained original and any previously published transcript remain available; a new source version has an independent retry budget.", audio.failed_attempts);
+        } else {
+            let seconds = (1_u64 << audio.attempts.min(10)).min(3600);
+            audio.state = "pending".into();
+            audio.retry_at_ms = Some(now_millis()? as u64 + seconds * 1000);
+            audio.detail = format!("Local transcription could not finish this range ({}/{} failed attempts): {error}. It will retry automatically within this source version's bounded budget; the retained original remains playable.", audio.failed_attempts, MAX_AUDIO_FAILED_ATTEMPTS);
+        }
         let body = source_body(&page.info, "", None);
         page.body = body.clone();
         page.markdown = serialize_page(&page.info, &body)?;
@@ -2284,9 +2369,10 @@ impl Application {
         page.info.pending_version_id = None;
         page.info.update_status = None;
         page.info.semantic_state = "unavailable".into();
-        if let Some(audio) = page.info.audio_processing.as_mut() {
+        if let Some(audio) = candidate_audio_processing_mut(&mut page.info, version_id) {
             audio.state = "complete".into();
         }
+        promote_candidate_audio(&mut page.info, version_id);
         let body = source_body(&page.info, "", None);
         page.body = body.clone();
         page.markdown = serialize_page(&page.info, &body)?;
@@ -5493,6 +5579,69 @@ fn audio_semantic_text(audio: &AudioProcessingInfo) -> String {
     lines
 }
 
+fn audio_processing_info(audio: AudioInfo, source_version_id: &str) -> AudioProcessingInfo {
+    AudioProcessingInfo {
+        source_version_id: Some(source_version_id.to_owned()),
+        state: "pending".into(),
+        duration_ms: audio.duration_ms,
+        next_start_ms: 0,
+        segment_duration_ms: MAX_AUDIO_SEGMENT_MS,
+        attempts: 0,
+        failed_attempts: 0,
+        processing_interruptions: 0,
+        retry_at_ms: None,
+        detail: "Pinned local Whisper transcription is queued for this retained source version. Speaker attribution is unavailable; all speakers remain unidentified.".into(),
+        segments: Vec::new(),
+    }
+}
+
+fn candidate_audio_processing<'a>(
+    info: &'a SourceInfo,
+    source_version_id: &str,
+) -> Option<&'a AudioProcessingInfo> {
+    info.pending_audio_processing
+        .as_ref()
+        .filter(|audio| audio.source_version_id.as_deref() == Some(source_version_id))
+        .or_else(|| {
+            info.current_version_id.is_none().then_some(())?;
+            info.audio_processing
+                .as_ref()
+                .filter(|audio| audio.source_version_id.as_deref() == Some(source_version_id))
+        })
+}
+
+fn candidate_audio_processing_mut<'a>(
+    info: &'a mut SourceInfo,
+    source_version_id: &str,
+) -> Option<&'a mut AudioProcessingInfo> {
+    if info
+        .pending_audio_processing
+        .as_ref()
+        .is_some_and(|audio| audio.source_version_id.as_deref() == Some(source_version_id))
+    {
+        return info.pending_audio_processing.as_mut();
+    }
+    if info.current_version_id.is_none()
+        && info
+            .audio_processing
+            .as_ref()
+            .is_some_and(|audio| audio.source_version_id.as_deref() == Some(source_version_id))
+    {
+        return info.audio_processing.as_mut();
+    }
+    None
+}
+
+fn promote_candidate_audio(info: &mut SourceInfo, source_version_id: &str) {
+    if info
+        .pending_audio_processing
+        .as_ref()
+        .is_some_and(|audio| audio.source_version_id.as_deref() == Some(source_version_id))
+    {
+        info.audio_processing = info.pending_audio_processing.take();
+    }
+}
+
 fn qualify_audio_evidence(draft: &mut KnowledgeDraft) {
     fn qualify(evidence: &mut EvidenceDraft) {
         evidence.offset_basis = Some("audio_transcript".into());
@@ -5539,7 +5688,12 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
     if let Some(projection) = office {
         return projection.markdown.replace("ORIGINAL_ASSET", &info.asset);
     }
-    if let Some(audio) = &info.audio_processing {
+    let published_audio = info.audio_processing.as_ref().filter(|audio| {
+        info.current_version_id.as_deref() == audio.source_version_id.as_deref()
+            || (info.current_version_id.is_none()
+                && info.pending_version_id.as_deref() == audio.source_version_id.as_deref())
+    });
+    if let Some(audio) = published_audio {
         let mut body = format!(
             "# {title}\n\n[Play retained original]({})\n\n**Audio processing:** {}. {}\n\n**Coverage:** {} of {} ms have been examined in bounded segments. Speaker identity is unavailable; speakers are left unidentified. Playback opens the retained original and may not seek precisely, so use the timestamp below in the player.\n\n## Time-located transcript\n\n",
             info.asset,
@@ -5593,6 +5747,12 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
                 body.push_str(&format!("### Not processed yet · {covered_end}–{} ms\n\nThis audio range has not been examined yet.\n", audio.duration_ms));
             }
         }
+        append_pending_audio_body(info, &mut body);
+        return body;
+    }
+    if info.pending_audio_processing.is_some() {
+        let mut body = format!("# {title}\n");
+        append_pending_audio_body(info, &mut body);
         return body;
     }
     if info.extraction != ExtractionState::TextPreserved {
@@ -5615,6 +5775,47 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
 
 fn audio_seek_href(source_id: &str, start_ms: u64) -> String {
     format!("?audio_seek={source_id}&at_ms={start_ms}")
+}
+
+fn append_pending_audio_body(info: &SourceInfo, body: &mut String) {
+    let Some(audio) = info.pending_audio_processing.as_ref() else {
+        return;
+    };
+    let Some(version) = info.versions_seen.iter().find(|version| {
+        Some(version.source_version_id.as_str()) == audio.source_version_id.as_deref()
+    }) else {
+        body.push_str("\n## Replacement recording\n\nThe replacement audio is pending, but its retained version identity could not be located. The current transcript remains attached to the prior original.\n");
+        return;
+    };
+    let source_short_id = info
+        .source_id
+        .strip_prefix("source-")
+        .unwrap_or(&info.source_id);
+    let original_href = format!(
+        "../sources/{source_short_id}/versions/{}/{asset}",
+        version.source_version_id,
+        asset = version.asset
+    );
+    body.push_str(&format!(
+        "\n## Replacement recording · {}\n\n**Coverage:** {} of {} ms processed. {}\n\n[Open this retained replacement original]({original_href})\n",
+        audio.state,
+        audio.next_start_ms.min(audio.duration_ms),
+        audio.duration_ms,
+        audio.detail.replace(['\n', '\r'], " ")
+    ));
+    if audio.segments.is_empty() {
+        body.push_str("\nNo replacement transcript passages are available yet. The previously published transcript and current original remain available above.\n");
+        return;
+    }
+    body.push_str("\n### Candidate transcript · not published\n\nThe following text is bound to the replacement original above and has not replaced current knowledge yet. Timestamps are estimates; compare the retained audio.\n");
+    for segment in &audio.segments {
+        body.push_str(&format!(
+            "\n- **{}–{} ms:** {}\n",
+            segment.start_ms,
+            segment.end_ms,
+            segment.text.replace(['\n', '\r'], " ")
+        ));
+    }
 }
 
 fn audio_start_from_locator(locator: &str) -> Option<u64> {
@@ -5731,6 +5932,20 @@ fn read_page(path: &Path) -> Result<SourcePage> {
             .then(|| info.sha256.clone());
         info.versions_seen.push(legacy);
     }
+    bind_legacy_audio_version(
+        &mut info.audio_processing,
+        &info.versions_seen,
+        info.current_version_id
+            .as_deref()
+            .or(info.pending_version_id.as_deref()),
+    );
+    bind_legacy_audio_version(
+        &mut info.pending_audio_processing,
+        &info.versions_seen,
+        info.pending_version_id
+            .as_deref()
+            .or(info.current_version_id.as_deref()),
+    );
     let knowledge_pages = info.knowledge_pages.clone();
     Ok(SourcePage {
         info,
@@ -5738,6 +5953,24 @@ fn read_page(path: &Path) -> Result<SourcePage> {
         body,
         knowledge_pages,
     })
+}
+
+fn bind_legacy_audio_version(
+    audio: &mut Option<AudioProcessingInfo>,
+    versions: &[SourceVersion],
+    version_id: Option<&str>,
+) {
+    if let Some(audio) = audio
+        .as_mut()
+        .filter(|audio| audio.source_version_id.is_none())
+    {
+        if let Some(version) = versions.iter().find(|version| {
+            Some(version.source_version_id.as_str()) == version_id
+                && is_audio_format(&version.format)
+        }) {
+            audio.source_version_id = Some(version.source_version_id.clone());
+        }
+    }
 }
 
 fn sync_directory(path: &Path) -> Result<()> {

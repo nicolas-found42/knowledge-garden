@@ -6,12 +6,17 @@ use knowledge_garden::{
     },
     semantic::{
         EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, SemanticProvider,
+        SourceUpdateDraft, SourceUpdateRole,
     },
 };
+use sha2::Digest;
 use std::{
     fs,
+    panic::{catch_unwind, AssertUnwindSafe},
     path::Path,
     sync::{Arc, Mutex},
+    thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tempfile::tempdir;
 
@@ -21,6 +26,53 @@ struct EmptyProvider;
 impl SemanticProvider for EmptyProvider {
     fn form_knowledge(&self, _text: &str) -> Result<KnowledgeDraft, ProviderError> {
         Ok(KnowledgeDraft::default())
+    }
+}
+
+struct VersionedAudioProvider;
+impl SemanticProvider for VersionedAudioProvider {
+    fn form_knowledge(&self, text: &str) -> Result<KnowledgeDraft, ProviderError> {
+        let quote = if text.contains("new recording words") {
+            "new recording words"
+        } else {
+            "old recording words"
+        };
+        let start = text.find(quote).unwrap();
+        let evidence = EvidenceDraft {
+            quote: quote.into(),
+            byte_start: start,
+            byte_end: start + quote.len(),
+            origin: "transcribed speech".into(),
+            qualifier: None,
+            offset_basis: None,
+            source_location: None,
+        };
+        Ok(KnowledgeDraft {
+            entities: vec![EntityDraft {
+                kind: "recording".into(),
+                label: "visit recording".into(),
+                evidence: evidence.clone(),
+            }],
+            facts: vec![FactDraft {
+                subject: "visit recording".into(),
+                property: "spoken words".into(),
+                value: quote.into(),
+                evidence: evidence.clone(),
+                record_key: None,
+            }],
+            source_update: Some(SourceUpdateDraft {
+                role: SourceUpdateRole::CompleteReplacement,
+                evidence,
+                certainty: 1.0,
+                source_date: None,
+                source_date_evidence: None,
+                source_date_certainty: 0.0,
+                source_revision: None,
+                source_revision_evidence: None,
+                source_revision_certainty: 0.0,
+            }),
+            ..KnowledgeDraft::default()
+        })
     }
 }
 
@@ -66,6 +118,120 @@ impl AudioProcessor for FixedAudio {
                 text: text.into(),
                 confidence: Some(0.51),
                 alternatives: vec!["An alternative phrase.".into()],
+                speaker: None,
+                speaker_state: "unidentified".into(),
+                final_result: true,
+            }],
+        })
+    }
+}
+
+struct VersionedAudio {
+    transcribed_assets: Arc<Mutex<Vec<Vec<u8>>>>,
+}
+
+struct FailingAudio;
+impl AudioProcessor for FailingAudio {
+    fn inspect(&self, _path: &Path) -> Result<AudioInfo, String> {
+        Ok(AudioInfo {
+            format: "wav".into(),
+            duration_ms: 1_000,
+            sample_rate: 48_000.0,
+            channels: 1,
+            codec: "test audio fixture".into(),
+        })
+    }
+    fn install_assets(&self) -> Result<(), String> {
+        Ok(())
+    }
+    fn transcribe_segment(
+        &self,
+        _path: &Path,
+        _start_ms: u64,
+        _duration_ms: u64,
+    ) -> Result<TranscriptionBatch, String> {
+        Err("deterministic fixture failure".into())
+    }
+}
+
+struct InterruptedAudio;
+impl AudioProcessor for InterruptedAudio {
+    fn inspect(&self, _path: &Path) -> Result<AudioInfo, String> {
+        Ok(AudioInfo {
+            format: "wav".into(),
+            duration_ms: 1_000,
+            sample_rate: 48_000.0,
+            channels: 1,
+            codec: "test audio fixture".into(),
+        })
+    }
+    fn install_assets(&self) -> Result<(), String> {
+        Ok(())
+    }
+    fn transcribe_segment(
+        &self,
+        _path: &Path,
+        _start_ms: u64,
+        _duration_ms: u64,
+    ) -> Result<TranscriptionBatch, String> {
+        panic!("fixture process interruption")
+    }
+}
+
+impl AudioProcessor for VersionedAudio {
+    fn inspect(&self, path: &Path) -> Result<AudioInfo, String> {
+        let bytes = fs::read(path).map_err(|error| error.to_string())?;
+        let duration_ms = if bytes == b"new waveform" {
+            2_000
+        } else {
+            1_000
+        };
+        Ok(AudioInfo {
+            format: "wav".into(),
+            duration_ms,
+            sample_rate: 48_000.0,
+            channels: 1,
+            codec: "test audio fixture".into(),
+        })
+    }
+
+    fn install_assets(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn transcribe_segment(
+        &self,
+        path: &Path,
+        start_ms: u64,
+        duration_ms: u64,
+    ) -> Result<TranscriptionBatch, String> {
+        let bytes = fs::read(path).map_err(|error| error.to_string())?;
+        self.transcribed_assets.lock().unwrap().push(bytes.clone());
+        let media_duration_ms = if bytes == b"new waveform" {
+            2_000
+        } else {
+            1_000
+        };
+        Ok(TranscriptionBatch {
+            schema: 1,
+            requested_start_ms: start_ms,
+            requested_duration_ms: duration_ms,
+            processed_duration_ms: duration_ms,
+            media_duration_ms,
+            state: "complete".into(),
+            coverage: "partial".into(),
+            detail: "Synthetic version-binding fixture.".into(),
+            segments: vec![TranscriptSegment {
+                segment_id: String::new(),
+                start_ms,
+                end_ms: start_ms + duration_ms,
+                text: if bytes == b"new waveform" {
+                    "new recording words".into()
+                } else {
+                    "old recording words".into()
+                },
+                confidence: None,
+                alternatives: Vec::new(),
                 speaker: None,
                 speaker_state: "unidentified".into(),
                 final_result: true,
@@ -248,6 +414,329 @@ fn imports_original_then_processes_bounded_resumable_audio_with_stable_passages(
         fs::read(restarted.original_path(&imported.info.source_id).unwrap()).unwrap(),
         bytes
     );
+}
+
+#[test]
+fn replacement_recording_resets_transcript_and_transcribes_the_pending_original_version() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("visit.wav");
+    let old_bytes = b"old waveform";
+    let new_bytes = b"new waveform";
+    fs::write(&source, old_bytes).unwrap();
+    let collection = workspace.path().join("collection");
+    let transcribed_assets = Arc::new(Mutex::new(Vec::new()));
+    let processor = Arc::new(VersionedAudio {
+        transcribed_assets: Arc::clone(&transcribed_assets),
+    });
+    let mut app = Application::open_with_all_providers(
+        &collection,
+        Arc::new(VersionedAudioProvider),
+        Arc::new(LocalExtractor),
+        processor,
+    )
+    .unwrap();
+
+    let first = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_audio_jobs().unwrap();
+    let first_job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    let first_draft = VersionedAudioProvider.form_knowledge(&first_job.source_text);
+    app.finish_semantic_job(first_job, first_draft).unwrap();
+    assert_eq!(
+        app.open_source(&first.info.source_id)
+            .unwrap()
+            .info
+            .current_version_id
+            .as_deref(),
+        Some(first.info.sha256.as_str())
+    );
+    assert_eq!(
+        app.open_source(&first.info.source_id)
+            .unwrap()
+            .info
+            .audio_processing
+            .as_ref()
+            .unwrap()
+            .state,
+        "complete"
+    );
+
+    fs::write(&source, new_bytes).unwrap();
+    let replacement = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    assert_eq!(replacement.info.source_id, first.info.source_id);
+    let replacement_version_id = format!("{:x}", sha2::Sha256::digest(new_bytes));
+    let prior_audio = replacement.info.audio_processing.as_ref().unwrap();
+    assert_eq!(prior_audio.state, "complete");
+    assert_eq!(
+        prior_audio.source_version_id.as_deref(),
+        Some(first.info.sha256.as_str())
+    );
+    assert!(prior_audio.segments[0].text.contains("old recording words"));
+    let audio = replacement.info.pending_audio_processing.as_ref().unwrap();
+    assert_eq!(audio.state, "pending");
+    assert_eq!(audio.duration_ms, 2_000);
+    assert_eq!(audio.next_start_ms, 0);
+    assert!(audio.segments.is_empty());
+    assert_eq!(
+        audio.source_version_id.as_deref(),
+        Some(replacement_version_id.as_str())
+    );
+    assert_eq!(
+        replacement.info.pending_version_id.as_deref(),
+        Some(replacement_version_id.as_str())
+    );
+    assert_eq!(
+        replacement.info.current_version_id.as_deref(),
+        Some(first.info.sha256.as_str())
+    );
+    assert_eq!(
+        fs::read(app.original_path(&first.info.source_id).unwrap()).unwrap(),
+        old_bytes
+    );
+    let replacement_version = replacement
+        .info
+        .versions_seen
+        .iter()
+        .find(|version| version.source_version_id == replacement_version_id)
+        .unwrap();
+    assert_eq!(
+        fs::read(
+            app.original_version_path(
+                &replacement.info.source_id,
+                &replacement_version_id,
+                &replacement_version.asset
+            )
+            .unwrap()
+        )
+        .unwrap(),
+        new_bytes
+    );
+
+    app.resume_due_audio_jobs().unwrap();
+    assert_eq!(
+        transcribed_assets.lock().unwrap().as_slice(),
+        &[old_bytes.to_vec(), new_bytes.to_vec()]
+    );
+    let after_transcription = app.open_source(&replacement.info.source_id).unwrap();
+    assert!(after_transcription
+        .body
+        .contains("[Play retained original](visit.wav)"));
+    assert!(after_transcription.body.contains("old recording words"));
+    assert!(after_transcription
+        .body
+        .contains("[Open this retained replacement original](../sources/"));
+    assert!(after_transcription
+        .body
+        .contains(&format!("/versions/{replacement_version_id}/visit.wav)")));
+    assert!(after_transcription
+        .body
+        .contains("Candidate transcript · not published"));
+    assert!(after_transcription.body.contains("new recording words"));
+    assert_eq!(
+        after_transcription
+            .info
+            .audio_processing
+            .as_ref()
+            .unwrap()
+            .segments[0]
+            .text,
+        "old recording words"
+    );
+    assert_eq!(
+        after_transcription
+            .info
+            .pending_audio_processing
+            .as_ref()
+            .unwrap()
+            .segments[0]
+            .text,
+        "new recording words"
+    );
+    assert_eq!(
+        after_transcription.info.current_version_id.as_deref(),
+        Some(first.info.sha256.as_str()),
+        "the old recording remains the current version until replacement semantics publish"
+    );
+    let new_job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    assert_eq!(new_job.source_version_id, replacement_version_id);
+    assert!(new_job.source_text.contains("new recording words"));
+    let replacement_draft = VersionedAudioProvider.form_knowledge(&new_job.source_text);
+    app.finish_semantic_job(new_job, replacement_draft).unwrap();
+    let published = app.open_source(&replacement.info.source_id).unwrap();
+    assert_eq!(
+        published.info.current_version_id.as_deref(),
+        Some(replacement_version_id.as_str())
+    );
+    assert_eq!(
+        published
+            .info
+            .audio_processing
+            .as_ref()
+            .unwrap()
+            .source_version_id
+            .as_deref(),
+        Some(replacement_version_id.as_str())
+    );
+    assert!(published.info.pending_audio_processing.is_none());
+    assert_eq!(
+        fs::read(app.original_path(&replacement.info.source_id).unwrap()).unwrap(),
+        new_bytes
+    );
+    assert_eq!(
+        fs::read(
+            app.original_version_path(
+                &replacement.info.source_id,
+                &first.info.sha256,
+                "original.wav"
+            )
+            .unwrap()
+        )
+        .unwrap(),
+        old_bytes
+    );
+}
+
+#[test]
+fn failed_audio_attempts_stop_at_a_durable_per_version_limit_and_new_version_resets_it() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("visit.wav");
+    fs::write(&source, b"first recording").unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open_with_all_providers(
+        &collection,
+        Arc::new(EmptyProvider),
+        Arc::new(LocalExtractor),
+        Arc::new(FailingAudio),
+    )
+    .unwrap();
+    let first = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+
+    for expected_attempt in 1..=3 {
+        if expected_attempt > 1 {
+            let current = app.open_source(&first.info.source_id).unwrap();
+            let retry_at = current
+                .info
+                .audio_processing
+                .as_ref()
+                .unwrap()
+                .retry_at_ms
+                .unwrap();
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            thread::sleep(Duration::from_millis(retry_at.saturating_sub(now)));
+        }
+        app.resume_due_audio_jobs().unwrap();
+        let current = app.open_source(&first.info.source_id).unwrap();
+        let audio = current.info.audio_processing.as_ref().unwrap();
+        assert_eq!(audio.attempts, expected_attempt);
+        assert_eq!(audio.failed_attempts, expected_attempt);
+        assert_eq!(
+            audio.source_version_id.as_deref(),
+            Some(first.info.sha256.as_str())
+        );
+        assert_eq!(
+            audio.state,
+            if expected_attempt == 3 {
+                "failed"
+            } else {
+                "pending"
+            }
+        );
+    }
+    app.resume_due_audio_jobs().unwrap();
+    let exhausted = app.open_source(&first.info.source_id).unwrap();
+    let exhausted_audio = exhausted.info.audio_processing.as_ref().unwrap();
+    assert_eq!(
+        exhausted_audio.attempts, 3,
+        "exhausted work is not repeated"
+    );
+    assert_eq!(exhausted_audio.retry_at_ms, None);
+    assert_eq!(
+        fs::read(app.original_path(&first.info.source_id).unwrap()).unwrap(),
+        b"first recording",
+        "the exact original stays playable after retries are exhausted"
+    );
+
+    fs::write(&source, b"second recording").unwrap();
+    let replacement = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    let new_audio = replacement.info.audio_processing.as_ref().unwrap();
+    assert_ne!(new_audio.source_version_id, Some(first.info.sha256.clone()));
+    assert_eq!(new_audio.attempts, 0);
+    assert_eq!(new_audio.failed_attempts, 0);
+    assert_eq!(new_audio.state, "pending");
+    assert_eq!(
+        fs::read(app.original_path(&first.info.source_id).unwrap()).unwrap(),
+        b"first recording"
+    );
+}
+
+#[test]
+fn interrupted_audio_segments_stop_after_a_durable_per_version_restart_budget() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("visit.wav");
+    let original = b"interrupted recording";
+    fs::write(&source, original).unwrap();
+    let collection = workspace.path().join("collection");
+    let first = {
+        let mut app = Application::open_with_all_providers(
+            &collection,
+            Arc::new(EmptyProvider),
+            Arc::new(LocalExtractor),
+            Arc::new(InterruptedAudio),
+        )
+        .unwrap();
+        app.import_source(&source, AcquisitionMethod::Picker)
+            .unwrap()
+    };
+
+    for expected_interruption in 1..=3 {
+        let mut app = Application::open_with_all_providers(
+            &collection,
+            Arc::new(EmptyProvider),
+            Arc::new(LocalExtractor),
+            Arc::new(InterruptedAudio),
+        )
+        .unwrap();
+        let interrupted = catch_unwind(AssertUnwindSafe(|| app.resume_due_audio_jobs()));
+        assert!(
+            interrupted.is_err(),
+            "fixture simulates an interrupted segment"
+        );
+        drop(app);
+
+        let reopened = Application::open_with_all_providers(
+            &collection,
+            Arc::new(EmptyProvider),
+            Arc::new(LocalExtractor),
+            Arc::new(InterruptedAudio),
+        )
+        .unwrap();
+        let page = reopened.open_source(&first.info.source_id).unwrap();
+        let audio = page.info.audio_processing.as_ref().unwrap();
+        assert_eq!(audio.attempts, expected_interruption);
+        assert_eq!(audio.processing_interruptions, expected_interruption);
+        assert_eq!(
+            audio.state,
+            if expected_interruption == 3 {
+                "failed"
+            } else {
+                "pending"
+            }
+        );
+        assert_eq!(
+            fs::read(reopened.original_path(&first.info.source_id).unwrap()).unwrap(),
+            original
+        );
+    }
 }
 
 struct AudioCorrectionProvider;
