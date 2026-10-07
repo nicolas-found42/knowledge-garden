@@ -1,5 +1,5 @@
 use knowledge_garden::application::{
-    AcquisitionMethod, Application, ExtractionState, PageSearchRequest,
+    AcquisitionMethod, Application, ExtractionState, PageSearchMode, PageSearchRequest,
 };
 use knowledge_garden::providers::{JevSemanticProvider, SystemOneTransport};
 use knowledge_garden::semantic::{
@@ -959,7 +959,7 @@ fn application_recovery_replays_an_actual_interrupted_replacement_transaction() 
         .contains("Injected publication interruption"));
     drop(app);
 
-    let app = Application::open(&collection).unwrap();
+    let mut app = Application::open(&collection).unwrap();
     let current = app.open_source(&first.info.source_id).unwrap();
     assert_eq!(current.info.semantic_state, "complete");
     assert_eq!(
@@ -1151,6 +1151,7 @@ fn search_returns_frozen_page_set_from_titles_tags_keyword_and_current_metadata(
 
     let combined = app
         .search_pages(PageSearchRequest {
+            mode: PageSearchMode::Keyword,
             query: "Riverside".into(),
             tags: vec!["#fieldwork".into()],
             date_from: Some("2024-05-01".into()),
@@ -1230,7 +1231,7 @@ fn search_returns_frozen_page_set_from_titles_tags_keyword_and_current_metadata(
     drop(app);
     export_recorded_search_collection(&workspace.path().join("collection"));
     fs::remove_dir_all(workspace.path().join("collection/.derived")).unwrap();
-    let rebuilt = Application::open(workspace.path().join("collection")).unwrap();
+    let mut rebuilt = Application::open(workspace.path().join("collection")).unwrap();
     let after_restart = rebuilt
         .search_pages(PageSearchRequest {
             query: "Riverside".into(),
@@ -3637,6 +3638,291 @@ fn repeated_bad_omission_drafts_stop_without_changing_current_original_or_facts(
     assert!(failed.info.semantic_retry_at.is_none());
     assert_eq!(
         fs::read_to_string(app.original_path(&first.info.source_id).unwrap()).unwrap(),
+        REVISION_1
+    );
+}
+
+#[test]
+fn repeated_quota_failures_exhaust_per_version_budget_without_rollback() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("report.docx");
+    let collection = workspace.path().join("collection");
+    let future_retry_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+        + 60 * 60 * 1000;
+    let newest = REVISION_2
+        .replace("revision 2 dated May 20", "revision 3 dated May 21")
+        .replace("Visits: 15.", "Visits: 18.");
+    let extractor = Arc::new(RecoveringProjection {
+        fails: std::sync::atomic::AtomicBool::new(false),
+        recovered: std::sync::atomic::AtomicBool::new(true),
+    });
+    let quota = || {
+        Err(ProviderError::recoverable(
+            "Provider quota exhausted".into(),
+        ))
+    };
+    let provider = Arc::new(RecordedProvider::sequence(vec![
+        Ok(replacement_recording(REVISION_1, 12, true)),
+        quota(),
+        Ok(replacement_recording(&newest, 18, false)),
+    ]));
+    fs::write(&path, REVISION_1).unwrap();
+    let mut app =
+        Application::open_with_providers(&collection, provider.clone(), extractor.clone()).unwrap();
+    let baseline = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let source = app.open_source(&baseline.info.source_id).unwrap();
+    let event = source
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "event")
+        .unwrap()
+        .page_id
+        .clone();
+
+    fs::write(&path, REVISION_2).unwrap();
+    let pending = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    let failed_version_id = pending.info.pending_version_id.clone().unwrap();
+    let failed_candidate = app
+        .original_version_path(
+            &baseline.info.source_id,
+            &failed_version_id,
+            "original.docx",
+        )
+        .unwrap();
+    assert_eq!(fs::read_to_string(&failed_candidate).unwrap(), REVISION_2);
+    let first = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    let stale_attempt = first.clone();
+    app.finish_semantic_job(first, quota()).unwrap();
+    assert_eq!(
+        app.open_source(&baseline.info.source_id)
+            .unwrap()
+            .info
+            .update_status
+            .as_deref(),
+        Some("pending")
+    );
+
+    drop(app);
+    let mut restarted = Application::open_with_providers(&collection, provider, extractor).unwrap();
+    restarted
+        .resume_due_semantic_jobs_at(future_retry_time)
+        .unwrap();
+    assert!(restarted
+        .open_knowledge_page(&event)
+        .unwrap()
+        .markdown
+        .contains("12 visits"));
+    assert!(restarted
+        .open_knowledge_page(&event)
+        .unwrap()
+        .markdown
+        .contains("10 minutes"));
+    let third = restarted
+        .claim_due_semantic_jobs_at(1, future_retry_time)
+        .unwrap()
+        .remove(0);
+    restarted.finish_semantic_job(third, quota()).unwrap();
+    let exhausted = restarted.open_source(&baseline.info.source_id).unwrap();
+    assert_eq!(exhausted.info.update_status.as_deref(), Some("failed"));
+    assert!(exhausted.info.semantic_retry_at.is_none());
+    assert!(restarted.claim_due_semantic_jobs(1).unwrap().is_empty());
+    assert_eq!(
+        fs::read_to_string(restarted.original_path(&baseline.info.source_id).unwrap()).unwrap(),
+        REVISION_1
+    );
+    assert_eq!(fs::read_to_string(&failed_candidate).unwrap(), REVISION_2);
+
+    fs::write(&path, &newest).unwrap();
+    let newer = restarted
+        .import_source(&path, AcquisitionMethod::Picker)
+        .unwrap();
+    assert_ne!(newer.info.pending_version_id, Some(failed_version_id));
+    let newest_version_id = newer.info.pending_version_id.clone().unwrap();
+    restarted
+        .resume_due_semantic_jobs_at(future_retry_time)
+        .unwrap();
+    assert_eq!(
+        restarted
+            .open_source(&baseline.info.source_id)
+            .unwrap()
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == newest_version_id)
+            .unwrap()
+            .retryable_provider_failures,
+        0
+    );
+    assert_eq!(
+        restarted
+            .open_source(&baseline.info.source_id)
+            .unwrap()
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == newest_version_id)
+            .unwrap()
+            .semantic_integrity_failures,
+        0
+    );
+    assert!(restarted
+        .finish_semantic_job(
+            stale_attempt,
+            Ok(replacement_recording(REVISION_2, 15, false))
+        )
+        .is_err());
+    let current = restarted.open_knowledge_page(&event).unwrap().markdown;
+    assert!(current.contains("18 visits"), "{current}");
+    assert_eq!(
+        fs::read_to_string(restarted.original_path(&baseline.info.source_id).unwrap()).unwrap(),
+        newest
+    );
+}
+
+#[test]
+fn repeated_initial_quota_failures_exhaust_the_same_persisted_budget() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("initial-report.txt");
+    let collection = workspace.path().join("collection");
+    let future_retry_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+        + 60 * 60 * 1000;
+    fs::write(&path, REVISION_1).unwrap();
+    let quota = || {
+        Err(ProviderError::recoverable(
+            "Provider quota exhausted".into(),
+        ))
+    };
+    let provider = Arc::new(RecordedProvider::sequence(vec![quota(), quota(), quota()]));
+    let mut app = Application::open_with_semantic_provider(&collection, provider.clone()).unwrap();
+    let imported = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs_at(future_retry_time).unwrap();
+    assert_eq!(
+        app.open_source(&imported.info.source_id)
+            .unwrap()
+            .info
+            .semantic_state,
+        "pending"
+    );
+
+    drop(app);
+    let mut restarted = Application::open_with_semantic_provider(&collection, provider).unwrap();
+    restarted
+        .resume_due_semantic_jobs_at(future_retry_time)
+        .unwrap();
+    restarted
+        .resume_due_semantic_jobs_at(future_retry_time)
+        .unwrap();
+    let failed = restarted.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(failed.info.semantic_state, "failed");
+    assert!(failed.info.semantic_retry_at.is_none());
+    assert!(restarted
+        .claim_due_semantic_jobs_at(1, future_retry_time)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        fs::read_to_string(restarted.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        REVISION_1
+    );
+    assert_eq!(failed.info.versions_seen[0].retryable_provider_failures, 3);
+    assert_eq!(failed.info.versions_seen[0].semantic_integrity_failures, 0);
+}
+
+#[test]
+fn newer_source_recovers_failed_initial_acquisition_from_its_own_candidate() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("initial-report.txt");
+    let collection = workspace.path().join("collection");
+    let future_retry_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+        + 60 * 60 * 1000;
+    let revised = REVISION_2.to_owned();
+    let quota = || {
+        Err(ProviderError::recoverable(
+            "Provider quota exhausted".into(),
+        ))
+    };
+    let provider = Arc::new(RecordedProvider::sequence(vec![quota(), quota()]));
+    fs::write(&path, REVISION_1).unwrap();
+    let mut app = Application::open_with_semantic_provider(&collection, provider.clone()).unwrap();
+    let initial = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    let stale_job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    let initial_version_id = stale_job.source_version_id.clone();
+    app.finish_semantic_job(stale_job.clone(), quota()).unwrap();
+    app.resume_due_semantic_jobs_at(future_retry_time).unwrap();
+    app.resume_due_semantic_jobs_at(future_retry_time).unwrap();
+    let failed_initial = app.open_source(&initial.info.source_id).unwrap();
+    assert_eq!(failed_initial.info.semantic_state, "failed");
+    assert_eq!(
+        failed_initial
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == initial_version_id)
+            .unwrap()
+            .retryable_provider_failures,
+        3
+    );
+
+    drop(app);
+    let mut reopened = Application::open_with_semantic_provider(&collection, provider).unwrap();
+    fs::write(&path, &revised).unwrap();
+    let replacement = reopened
+        .import_source(&path, AcquisitionMethod::Picker)
+        .unwrap();
+    assert_eq!(replacement.info.source_id, initial.info.source_id);
+    assert_eq!(replacement.info.semantic_state, "pending");
+    let replacement_version_id = replacement.info.pending_version_id.clone().unwrap();
+    let replacement_original = reopened
+        .original_version_path(
+            &initial.info.source_id,
+            &replacement_version_id,
+            "original.txt",
+        )
+        .unwrap();
+    assert_eq!(fs::read_to_string(&replacement_original).unwrap(), revised);
+
+    let replacement_job = reopened
+        .claim_due_semantic_jobs_at(1, future_retry_time)
+        .unwrap()
+        .remove(0);
+    assert_eq!(replacement_job.source_version_id, replacement_version_id);
+    assert_eq!(replacement_job.source_text, revised);
+    reopened
+        .finish_semantic_job(
+            replacement_job,
+            Ok(replacement_recording(&revised, 15, false)),
+        )
+        .unwrap();
+    assert!(reopened
+        .finish_semantic_job(stale_job, Ok(replacement_recording(REVISION_1, 12, true)),)
+        .is_err());
+
+    let current = reopened.open_source(&initial.info.source_id).unwrap();
+    assert_eq!(current.info.semantic_state, "complete");
+    assert_eq!(
+        current.info.current_version_id.as_deref(),
+        Some(replacement_version_id.as_str())
+    );
+    assert_eq!(
+        fs::read_to_string(reopened.original_path(&initial.info.source_id).unwrap()).unwrap(),
+        revised
+    );
+    assert_eq!(
+        fs::read_to_string(
+            reopened
+                .original_version_path(&initial.info.source_id, &initial_version_id, "original.txt")
+                .unwrap()
+        )
+        .unwrap(),
         REVISION_1
     );
 }

@@ -96,6 +96,11 @@ async fn open_original(engine: State<'_, Engine>, source_id: String) -> Result<(
 }
 
 #[tauri::command]
+async fn preview_original(engine: State<'_, Engine>, source_id: String) -> Result<String, String> {
+    with_engine(&engine, move |app| app.preview_original(&source_id)).await
+}
+
+#[tauri::command]
 async fn open_original_version(
     engine: State<'_, Engine>,
     source_id: String,
@@ -147,7 +152,11 @@ pub fn run() {
                 .unwrap_or(app.path().app_data_dir()?.join("collection"));
             let semantic_provider: Arc<dyn SemanticProvider> =
                 Arc::new(JevSemanticProvider::from_environment_and_keychain());
-            let engine = Arc::new(Mutex::new(Application::open(root)?));
+            let meaning_assets = app.path().resource_dir()?.join("meaning");
+            let engine = Arc::new(Mutex::new(Application::open_with_meaning_assets(
+                root,
+                Some(meaning_assets),
+            )?));
             let worker_app = Arc::clone(&engine);
             let worker_provider = Arc::clone(&semantic_provider);
             std::thread::Builder::new()
@@ -202,6 +211,7 @@ pub fn run() {
             list_sources,
             search_pages,
             open_original,
+            preview_original,
             open_original_version,
             open_original_asset
         ])

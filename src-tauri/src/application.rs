@@ -1,5 +1,6 @@
 //! Public, disk-backed collection operations. Markdown and originals are authoritative.
 use crate::extraction::{LocalExtractor, SourceExtractor};
+use crate::meaning::{MeaningFilters, MeaningSearch};
 use crate::media::{
     AudioProcessingInfo, AudioProcessor, NativeAudioProcessor, MAX_AUDIO_SEGMENT_MS,
 };
@@ -27,6 +28,7 @@ use uuid::Uuid;
 pub const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_PAGE_BYTES: u64 = (MAX_TEXT_BYTES * 3 + 64 * 1024) as u64;
 const PAGE_SIZE: usize = 50;
+const MAX_RETRYABLE_PROVIDER_FAILURES: u32 = 3;
 
 #[derive(Debug, Error)]
 pub enum GardenError {
@@ -127,6 +129,8 @@ pub struct SourceVersion {
     pub extraction_attempts: u32,
     #[serde(default)]
     pub semantic_integrity_failures: u32,
+    #[serde(default)]
+    pub retryable_provider_failures: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -200,6 +204,8 @@ pub struct PageSearchRequest {
     #[serde(default)]
     pub query: String,
     #[serde(default)]
+    pub mode: PageSearchMode,
+    #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
     pub date_from: Option<String>,
@@ -213,6 +219,14 @@ pub struct PageSearchRequest {
     pub offset: usize,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PageSearchMode {
+    #[default]
+    Keyword,
+    Meaning,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PageSearchResults {
     pub pages: Vec<PageResult>,
@@ -220,6 +234,7 @@ pub struct PageSearchResults {
     pub available_tags: Vec<String>,
     pub available_formats: Vec<String>,
     pub available_statuses: Vec<String>,
+    pub meaning_search_status: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,6 +251,8 @@ pub struct PageResult {
     pub extraction: ExtractionState,
     pub processing_status: String,
     pub matched_by: String,
+    #[serde(default)]
+    pub meaning_score: Option<f32>,
     pub match_location: Option<SearchMatchLocation>,
 }
 
@@ -266,6 +283,8 @@ pub struct Application {
     audio_processor: Arc<dyn AudioProcessor>,
     staged_publication: Vec<(PathBuf, Vec<u8>)>,
     fail_after_publication_files: Option<usize>,
+    meaning_search: Option<MeaningSearch>,
+    meaning_search_status: String,
 }
 
 fn semantic_pending() -> String {
@@ -281,11 +300,26 @@ impl Application {
     }
 
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
-        Self::open_inner(
+        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
+        Self::open_with_all_providers_and_meaning_assets(
             root,
             Arc::new(UnavailableProvider),
             Arc::new(LocalExtractor),
             Arc::new(NativeAudioProcessor),
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_meaning_assets(
+        root: impl AsRef<Path>,
+        meaning_assets: Option<impl AsRef<Path>>,
+    ) -> Result<Self> {
+        Self::open_with_all_providers_and_meaning_assets(
+            root,
+            Arc::new(UnavailableProvider),
+            Arc::new(LocalExtractor),
+            Arc::new(NativeAudioProcessor),
+            meaning_assets,
         )
     }
 
@@ -293,11 +327,27 @@ impl Application {
         root: impl AsRef<Path>,
         semantic_provider: Arc<dyn SemanticProvider>,
     ) -> Result<Self> {
-        Self::open_inner(
+        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
+        Self::open_with_all_providers_and_meaning_assets(
             root,
             semantic_provider,
             Arc::new(LocalExtractor),
             Arc::new(NativeAudioProcessor),
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_semantic_provider_and_meaning_assets(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        meaning_assets: Option<impl AsRef<Path>>,
+    ) -> Result<Self> {
+        Self::open_with_all_providers_and_meaning_assets(
+            root,
+            semantic_provider,
+            Arc::new(LocalExtractor),
+            Arc::new(NativeAudioProcessor),
+            meaning_assets,
         )
     }
 
@@ -306,11 +356,28 @@ impl Application {
         semantic_provider: Arc<dyn SemanticProvider>,
         extractor: Arc<dyn SourceExtractor>,
     ) -> Result<Self> {
-        Self::open_inner(
+        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
+        Self::open_with_all_providers_and_meaning_assets(
             root,
             semantic_provider,
             extractor,
             Arc::new(NativeAudioProcessor),
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_providers_and_meaning_assets(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
+        meaning_assets: Option<impl AsRef<Path>>,
+    ) -> Result<Self> {
+        Self::open_with_all_providers_and_meaning_assets(
+            root,
+            semantic_provider,
+            extractor,
+            Arc::new(NativeAudioProcessor),
+            meaning_assets,
         )
     }
 
@@ -320,7 +387,30 @@ impl Application {
         extractor: Arc<dyn SourceExtractor>,
         audio_processor: Arc<dyn AudioProcessor>,
     ) -> Result<Self> {
-        Self::open_inner(root, semantic_provider, extractor, audio_processor)
+        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
+        Self::open_inner(
+            root,
+            semantic_provider,
+            extractor,
+            audio_processor,
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_all_providers_and_meaning_assets(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
+        audio_processor: Arc<dyn AudioProcessor>,
+        meaning_assets: Option<impl AsRef<Path>>,
+    ) -> Result<Self> {
+        Self::open_inner(
+            root,
+            semantic_provider,
+            extractor,
+            audio_processor,
+            meaning_assets.map(|path| path.as_ref().to_path_buf()),
+        )
     }
 
     fn open_inner(
@@ -328,6 +418,7 @@ impl Application {
         semantic_provider: Arc<dyn SemanticProvider>,
         extractor: Arc<dyn SourceExtractor>,
         audio_processor: Arc<dyn AudioProcessor>,
+        meaning_assets: Option<PathBuf>,
     ) -> Result<Self> {
         fs::create_dir_all(root.as_ref())?;
         let root = fs::canonicalize(root)?;
@@ -384,6 +475,17 @@ impl Application {
                  tokenize = 'unicode61 remove_diacritics 2'
              );",
         )?;
+        let meaning_index_path = root.join(".derived").join("meaning.usearch");
+        let (meaning_search, meaning_search_status) = match meaning_assets {
+            Some(path) => match MeaningSearch::open(path, &meaning_index_path) {
+                Ok(engine) => (Some(engine), "ready".to_owned()),
+                Err(error) => (None, format!("missing_assets: {error}")),
+            },
+            None => (
+                None,
+                "missing_assets: the app bundle did not provide meaning-search assets".to_owned(),
+            ),
+        };
         let mut app = Self {
             root,
             index,
@@ -393,6 +495,8 @@ impl Application {
             audio_processor,
             staged_publication: Vec::new(),
             fail_after_publication_files: None,
+            meaning_search,
+            meaning_search_status,
         };
         app.rebuild_index()?;
         app.recover_interrupted_url_acquisitions()?;
@@ -780,11 +884,28 @@ impl Application {
                 &acquisition.received_at,
                 "pending",
             );
+            if existing.info.current_version_id.is_none() {
+                let previous_original = destination.join(&existing.info.asset);
+                if let Some(previous) = existing
+                    .info
+                    .versions_seen
+                    .iter()
+                    .find(|previous| previous.source_version_id == existing.info.sha256)
+                {
+                    let previous_path = self.version_original_path(&source_id, previous)?;
+                    if previous_original.exists() && !previous_path.exists() {
+                        write_atomic_from_file(&previous_path, &previous_original)?;
+                    }
+                }
+            }
             let version_path = self.version_original_path(&source_id, &version)?;
             write_atomic_from_file(&version_path, &staging.path().join(&asset))?;
             existing.info.versions_seen.push(version);
             existing.info.pending_version_id = Some(digest.clone());
             existing.info.update_status = Some("pending".into());
+            if existing.info.current_version_id.is_none() {
+                existing.info.semantic_state = "pending".into();
+            }
             if !acquisition_exists {
                 write_acquisition(&destination, &acquisition)?;
             }
@@ -803,7 +924,8 @@ impl Application {
                     Ok(web) => (ExtractionState::StructuredText, web.detail, None),
                     Err(detail) => (ExtractionState::InvalidUtf8, detail, None),
                 }
-            } else if matches!(format.as_str(), "docx" | "pptx") {
+            } else if matches!(format.as_str(), "docx" | "pptx") || crate::photo::is_photo(&format)
+            {
                 match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
@@ -914,7 +1036,8 @@ impl Application {
                 Err(_) => (ExtractionState::InvalidUtf8, "The source is not valid UTF-8. The original is retained without lossy decoding.".into(), String::new(), None, None),
                 Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 response text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
             }
-            } else if matches!(format.as_str(), "docx" | "pptx") {
+            } else if matches!(format.as_str(), "docx" | "pptx") || crate::photo::is_photo(&format)
+            {
                 match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
@@ -938,14 +1061,16 @@ impl Application {
                         )
                     }
                     Err(detail) => {
-                        let scope = if format == "docx" {
+                        let scope = if crate::photo::is_photo(&format) {
+                            CoverageScope::ImagePixels
+                        } else if format == "docx" {
                             CoverageScope::MainDocument
                         } else {
                             CoverageScope::SlideText
                         };
                         (
                             ExtractionState::InvalidContainer,
-                            format!("Office container could not be read. {detail}"),
+                            format!("Source container could not be read. {detail}"),
                             String::new(),
                             None,
                             Some(vec![CoveragePart {
@@ -1150,6 +1275,16 @@ impl Application {
     /// so the desktop can keep import and navigation responsive during a slow service call.
     pub fn claim_due_semantic_jobs(&mut self, max_jobs: usize) -> Result<Vec<SemanticJob>> {
         let now = now_millis()?;
+        self.claim_due_semantic_jobs_at(max_jobs, now)
+    }
+
+    /// Claim persisted work at an explicit scheduler time for deterministic lifecycle checks.
+    /// Production callers should use claim_due_semantic_jobs.
+    pub fn claim_due_semantic_jobs_at(
+        &mut self,
+        max_jobs: usize,
+        now: u128,
+    ) -> Result<Vec<SemanticJob>> {
         let mut due = Vec::new();
         for entry in fs::read_dir(self.root.join("sources"))? {
             if due.len() >= max_jobs {
@@ -1225,13 +1360,17 @@ impl Application {
                 .cloned()
                 .ok_or_else(|| GardenError::Invalid("Pending source version is missing.".into()))?;
             let version_received_at = version.received_at.clone();
-            let candidate_path = if initial {
+            let version_path = self
+                .source_dir(&source_id)?
+                .join("versions")
+                .join(&source_version_id)
+                .join(&version.asset);
+            let candidate_path = if version_path.exists() {
+                version_path
+            } else if initial {
                 self.source_dir(&source_id)?.join(&version.asset)
             } else {
-                self.source_dir(&source_id)?
-                    .join("versions")
-                    .join(&source_version_id)
-                    .join(&version.asset)
+                version_path
             };
             let acquisition_history = if page.info.format == "html"
                 && page
@@ -1343,7 +1482,9 @@ impl Application {
                         } else {
                             version_path
                         };
-                        if matches!(version.format.as_str(), "docx" | "pptx") {
+                        if matches!(version.format.as_str(), "docx" | "pptx")
+                            || crate::photo::is_photo(&version.format)
+                        {
                             self.extractor
                                 .extract(&path, &version.format, &page.info.title)
                                 .ok()
@@ -1683,13 +1824,16 @@ impl Application {
                 } else {
                     let prior_page = page.clone();
                     let update = draft.source_update.clone();
-                    let result = self
-                        .store_source_update(
-                            &mut page,
-                            &job.source_version_id,
-                            &job.source_text,
-                            update.as_ref(),
-                        )
+                    let result = crate::photo::validate_draft(&job.source_text, &draft)
+                        .map_err(GardenError::Invalid)
+                        .and_then(|()| {
+                            self.store_source_update(
+                                &mut page,
+                                &job.source_version_id,
+                                &job.source_text,
+                                update.as_ref(),
+                            )
+                        })
                         .and_then(|()| {
                             if initial {
                                 self.apply_field_aligned_corrections(
@@ -1732,26 +1876,7 @@ impl Application {
                 }
             }
             Err(error) => {
-                if initial {
-                    self.record_semantic_failure(&mut page, error.message, error.retryable, false)?
-                } else {
-                    let retryable = error.retryable;
-                    page.info.update_status =
-                        Some(if retryable { "pending" } else { "failed" }.into());
-                    page.info.semantic_error = Some(error.message.chars().take(300).collect());
-                    page.info.semantic_retry_at = retryable.then(|| {
-                        let delay = (1_u64 << page.info.semantic_attempts.min(12)).min(3600);
-                        (now_millis().unwrap_or(0) + u128::from(delay * 1000)).to_string()
-                    });
-                    if let Some(version) = page
-                        .info
-                        .versions_seen
-                        .iter_mut()
-                        .find(|version| version.source_version_id == job.source_version_id)
-                    {
-                        version.state = page.info.update_status.clone().unwrap_or_default();
-                    }
-                }
+                self.record_provider_failure(&mut page, error.message, error.retryable)?;
             }
         }
         if self.staged_publication.is_empty() {
@@ -1920,7 +2045,13 @@ impl Application {
     }
 
     pub fn resume_due_semantic_jobs(&mut self) -> Result<()> {
-        let jobs = self.claim_due_semantic_jobs(4)?;
+        self.resume_due_semantic_jobs_at(now_millis()?)
+    }
+
+    /// Resume work at an explicit scheduler time for deterministic retry tests.
+    /// Production callers should use resume_due_semantic_jobs.
+    pub fn resume_due_semantic_jobs_at(&mut self, now: u128) -> Result<()> {
+        let jobs = self.claim_due_semantic_jobs_at(4, now)?;
         for job in jobs {
             let result = self
                 .semantic_provider
@@ -2131,6 +2262,32 @@ impl Application {
         draft: KnowledgeDraft,
     ) -> Result<()> {
         let prior_pages = source.info.knowledge_pages.clone();
+        if source.info.current_version_id.is_none() {
+            if let Some(version_id) = source.info.pending_version_id.as_deref() {
+                if let Some(version) = source
+                    .info
+                    .versions_seen
+                    .iter()
+                    .find(|version| version.source_version_id == version_id)
+                    .cloned()
+                {
+                    let candidate = self.version_original_path(&source.info.source_id, &version)?;
+                    if candidate.exists() {
+                        self.staged_publication.push((
+                            self.source_dir(&source.info.source_id)?
+                                .join(&version.asset),
+                            fs::read(candidate)?,
+                        ));
+                        source.info.original_name = version.original_name.clone();
+                        source.info.asset = version.asset.clone();
+                        source.info.sha256 = version.sha256.clone();
+                        source.info.bytes = version.bytes;
+                        source.info.format = version.format.clone();
+                        source.info.line_count = source_text.lines().count();
+                    }
+                }
+            }
+        }
         if draft.entities.len() > 500
             || draft.facts.len() > 2_000
             || draft.relationships.len() > 2_000
@@ -2308,6 +2465,7 @@ impl Application {
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         "extracted Office projection; offsets are not original package byte offsets"
                     }
+                    EvidenceOffsetBasis::ExtractedImageProjection => "extracted image projection; offsets are not original image byte offsets",
                     EvidenceOffsetBasis::WebVisibleText => {
                         "extracted web visible-text projection; offsets are not downloaded HTML byte offsets"
                     }
@@ -2339,6 +2497,9 @@ impl Application {
                     EvidenceOffsetBasis::PreservedText => ("source lines", "source bytes"),
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         ("extracted projection lines", "extracted projection bytes")
+                    }
+                    EvidenceOffsetBasis::ExtractedImageProjection => {
+                        ("image projection lines", "image projection bytes")
                     }
                     EvidenceOffsetBasis::WebVisibleText => (
                         "visible-text projection lines",
@@ -2386,6 +2547,11 @@ impl Application {
                         "extracted projection bytes",
                         relationship.evidence.source_location.as_deref().map(|location| format!(" · original locator: {location}")).unwrap_or_default(),
                         "The original opens as a fallback; use the OOXML part and location above to find the extracted passage.",
+                    ),
+                    EvidenceOffsetBasis::ExtractedImageProjection => (
+                        "image projection lines", "image projection bytes",
+                        relationship.evidence.source_location.as_deref().map(|location| format!(" · image locator: {location}")).unwrap_or_default(),
+                        "Open the image preview or retained original using the normalized region locator; whole-image fallback when no region exists.",
                     ),
                     EvidenceOffsetBasis::WebVisibleText => (
                         "visible-text projection lines",
@@ -2820,7 +2986,9 @@ impl Application {
             .join("versions")
             .join(source_version_id)
             .join(&candidate.asset);
-        let office_projection = if matches!(candidate.format.as_str(), "docx" | "pptx") {
+        let office_projection = if matches!(candidate.format.as_str(), "docx" | "pptx")
+            || crate::photo::is_photo(&candidate.format)
+        {
             Some(
                 self.extractor
                     .extract(
@@ -3461,11 +3629,53 @@ impl Application {
             page.info.semantic_state = if retryable { "pending" } else { "failed" }.into();
         }
         page.info.semantic_error = Some(message.chars().take(300).collect());
-        let delay_seconds = (1_u64 << page.info.semantic_attempts.min(12)).min(3600);
+        let retry_attempt = if invalid_draft {
+            page.info.semantic_attempts
+        } else {
+            page.info
+                .versions_seen
+                .iter()
+                .find(|version| {
+                    Some(version.source_version_id.as_str())
+                        == page.info.pending_version_id.as_deref()
+                })
+                .map(|version| version.retryable_provider_failures)
+                .unwrap_or(page.info.semantic_attempts)
+        };
+        let delay_seconds = (1_u64 << retry_attempt.min(12)).min(3600);
         page.info.semantic_retry_at = retryable
             .then(|| (now_millis().unwrap_or(0) + u128::from(delay_seconds * 1000)).to_string());
         page.markdown = serialize_page(&page.info, &page.body)?;
         Ok(())
+    }
+
+    fn record_provider_failure(
+        &self,
+        page: &mut SourcePage,
+        message: String,
+        retryable: bool,
+    ) -> Result<()> {
+        let retryable = if retryable {
+            let version = page
+                .info
+                .versions_seen
+                .iter_mut()
+                .find(|version| {
+                    Some(version.source_version_id.as_str())
+                        == page.info.pending_version_id.as_deref()
+                })
+                .ok_or_else(|| {
+                    GardenError::Invalid(
+                        "The failed provider result has no pending source version.".into(),
+                    )
+                })?;
+            version.retryable_provider_failures =
+                version.retryable_provider_failures.saturating_add(1);
+            version.retryable_provider_failures < MAX_RETRYABLE_PROVIDER_FAILURES
+        } else {
+            false
+        };
+        self.record_semantic_failure(page, message, retryable, false)
     }
 
     fn write_source_page(&self, page: &SourcePage) -> Result<()> {
@@ -3499,6 +3709,16 @@ impl Application {
             ));
         }
         Ok(original)
+    }
+
+    pub fn preview_original(&self, source_id: &str) -> Result<String> {
+        let source = self.open_source(source_id)?;
+        if !crate::photo::is_photo(&source.info.format) {
+            return Err(GardenError::Invalid(
+                "This original is not a supported photograph.".into(),
+            ));
+        }
+        crate::photo::preview(&self.original_path(source_id)?).map_err(GardenError::Invalid)
     }
 
     pub fn original_asset_path(&self, source_id: &str, asset: &str) -> Result<PathBuf> {
@@ -3613,8 +3833,9 @@ impl Application {
         })
     }
 
-    pub fn search_pages(&self, request: PageSearchRequest) -> Result<PageSearchResults> {
+    pub fn search_pages(&mut self, request: PageSearchRequest) -> Result<PageSearchResults> {
         let query = request.query.trim();
+        let meaning_mode = request.mode == PageSearchMode::Meaning;
         let normalized_tags = request
             .tags
             .iter()
@@ -3645,9 +3866,54 @@ impl Application {
         }) {
             return Err(GardenError::Invalid("Unknown processing status.".into()));
         }
+        let format_filter = request.format.as_deref().filter(|value| !value.is_empty());
+        let has_metadata_filters = !normalized_tags.is_empty()
+            || date_from.is_some()
+            || date_to.is_some()
+            || format_filter.is_some()
+            || processing_status.is_some();
+        let meaning_filters = has_metadata_filters.then_some(MeaningFilters {
+            tags: &normalized_tags,
+            date_from: date_from.as_deref(),
+            date_to: date_to.as_deref(),
+            format: format_filter,
+            processing_status,
+        });
+        let meaning_ranked = if meaning_mode && !query.is_empty() {
+            let ranked = match self.meaning_search.as_mut() {
+                Some(engine) => {
+                    engine.ranked_pages(&self.index, query, 250, meaning_filters.as_ref())
+                }
+                None => Err(self.meaning_search_status.clone()),
+            };
+            match ranked {
+                Ok(items) => items,
+                Err(error) => {
+                    if !self.meaning_search_status.starts_with("missing_assets:") {
+                        self.meaning_search_status = format!("incomplete_index: {error}");
+                    }
+                    Vec::new()
+                }
+            }
+        } else {
+            Vec::new()
+        };
+        let meaning_scores = meaning_ranked.iter().cloned().collect::<HashMap<_, _>>();
         let mut where_parts = Vec::<String>::new();
         let mut values = Vec::<rusqlite::types::Value>::new();
-        if !query.is_empty() {
+        if meaning_mode {
+            if meaning_ranked.is_empty() {
+                where_parts.push("0 = 1".into());
+            } else {
+                let placeholders = vec!["?"; meaning_ranked.len()].join(", ");
+                where_parts.push(format!("page_search.page_id IN ({placeholders})"));
+                values.extend(
+                    meaning_ranked
+                        .iter()
+                        .map(|(page_id, _)| page_id.clone().into()),
+                );
+            }
+        } else if !query.is_empty() {
             where_parts.push("page_search MATCH ?".into());
             values.push(fts_expression(query).into());
         }
@@ -3666,7 +3932,7 @@ impl Application {
             where_parts.push("event_date IS NOT NULL AND event_date <= ?".into());
             values.push(to.into());
         }
-        if let Some(format) = request.format.as_deref().filter(|value| !value.is_empty()) {
+        if let Some(format) = format_filter {
             where_parts.push("lower(format) = lower(?)".into());
             values.push(format.to_lowercase().into());
         }
@@ -3679,27 +3945,41 @@ impl Application {
         } else {
             where_parts.join(" AND ")
         };
-        let excerpt = if query.is_empty() {
+        let excerpt = if query.is_empty() || meaning_mode {
             "substr(content, 1, 240)"
         } else {
             "snippet(page_search, 5, '', '', ' … ', 24)"
+        };
+        let search_order = if meaning_mode {
+            "title COLLATE NOCASE, page_id"
+        } else {
+            "CASE WHEN ? = '' THEN 0 WHEN lower(title) = lower(?) THEN 0
+              WHEN instr(lower(title), lower(?)) > 0 THEN 1 ELSE 2 END,
+             bm25(page_search), title COLLATE NOCASE, page_id"
         };
         let sql = format!(
             "SELECT page_id, source_id, page_type, title, kind, {excerpt} AS excerpt,
                     event_date, format, extraction, processing_status, match_location
              FROM page_search
              WHERE {where_sql}
-             ORDER BY CASE WHEN ? = '' THEN 0 WHEN lower(title) = lower(?) THEN 0
-                           WHEN instr(lower(title), lower(?)) > 0 THEN 1 ELSE 2 END,
-                      bm25(page_search), title COLLATE NOCASE, page_id
+             ORDER BY {search_order}
              LIMIT ? OFFSET ?"
         );
+        if !meaning_mode {
+            values.extend([
+                query.to_owned().into(),
+                query.to_owned().into(),
+                query.to_owned().into(),
+            ]);
+        }
         values.extend([
-            query.to_owned().into(),
-            query.to_owned().into(),
-            query.to_owned().into(),
-            ((PAGE_SIZE + 1) as i64).into(),
-            i64::try_from(request.offset)
+            (if meaning_mode {
+                251_i64
+            } else {
+                (PAGE_SIZE + 1) as i64
+            })
+            .into(),
+            i64::try_from(if meaning_mode { 0 } else { request.offset })
                 .map_err(|_| GardenError::Invalid("Invalid result offset.".into()))?
                 .into(),
         ]);
@@ -3746,6 +4026,7 @@ impl Application {
                     query,
                     &normalized_tags,
                 )?);
+            let meaning_score = meaning_scores.get(&page_id).copied();
             pages.push(PageResult {
                 page_id,
                 source_id: source_id.clone(),
@@ -3758,8 +4039,9 @@ impl Application {
                 event_date: event_date.clone(),
                 extraction: parse_extraction(&extraction)?,
                 processing_status,
-                matched_by: if !query.is_empty()
-                    && title.to_lowercase().contains(&query.to_lowercase())
+                matched_by: if meaning_mode {
+                    "meaning"
+                } else if !query.is_empty() && title.to_lowercase().contains(&query.to_lowercase())
                 {
                     "title"
                 } else if !normalized_tags.is_empty() {
@@ -3768,8 +4050,26 @@ impl Application {
                     "keyword"
                 }
                 .into(),
+                meaning_score,
                 match_location,
             });
+        }
+        if meaning_mode {
+            pages.sort_by(|left, right| {
+                meaning_scores
+                    .get(&right.page_id)
+                    .copied()
+                    .unwrap_or_default()
+                    .total_cmp(
+                        &meaning_scores
+                            .get(&left.page_id)
+                            .copied()
+                            .unwrap_or_default(),
+                    )
+            });
+            let start = request.offset.min(pages.len());
+            let end = start.saturating_add(PAGE_SIZE + 1).min(pages.len());
+            pages = pages.into_iter().skip(start).take(end - start).collect();
         }
         let next_offset = if pages.len() > PAGE_SIZE {
             pages.pop();
@@ -3800,6 +4100,7 @@ impl Application {
                 .into_iter()
                 .map(str::to_owned)
                 .collect(),
+            meaning_search_status: self.meaning_search_status.clone(),
         })
     }
 
@@ -3961,6 +4262,12 @@ impl Application {
             write_search_documents(&transaction, &documents)?;
         }
         transaction.commit()?;
+        if let Some(meaning) = self.meaning_search.as_mut() {
+            match meaning.sync(&self.index) {
+                Ok(()) => self.meaning_search_status = "ready".into(),
+                Err(error) => self.meaning_search_status = format!("incomplete_index: {error}"),
+            }
+        }
         Ok(())
     }
 
@@ -4224,6 +4531,7 @@ fn source_version(
         state: state.to_owned(),
         extraction_attempts: 1,
         semantic_integrity_failures: 0,
+        retryable_provider_failures: 0,
         coverage: if state == "complete" {
             "complete"
         } else if state == "unavailable" {
@@ -4507,6 +4815,7 @@ fn evidence_offset_basis_name(basis: EvidenceOffsetBasis) -> &'static str {
         EvidenceOffsetBasis::ExtractedOfficeProjection => "extracted_office_projection",
         EvidenceOffsetBasis::WebVisibleText => "web_visible_text",
         EvidenceOffsetBasis::AudioTranscript => "audio_transcript",
+        EvidenceOffsetBasis::ExtractedImageProjection => "extracted_image_projection",
     }
 }
 
@@ -4660,6 +4969,7 @@ enum EvidenceOffsetBasis {
     ExtractedOfficeProjection,
     WebVisibleText,
     AudioTranscript,
+    ExtractedImageProjection,
 }
 
 fn evidence_display_basis(
@@ -4677,6 +4987,11 @@ fn evidence_display_basis(
             "extracted projection lines",
             "extracted projection bytes",
             "The retained original opens as a fallback; use the OOXML part and locator above to find this passage.",
+        ),
+        EvidenceOffsetBasis::ExtractedImageProjection => (
+            "extracted image projection; offsets are not original image byte offsets",
+            "image projection lines", "image projection bytes",
+            "Open the image preview or retained original using normalized region coordinates; otherwise use the disclosed whole-image fallback.",
         ),
         EvidenceOffsetBasis::WebVisibleText => (
             "extracted web visible-text projection; offsets are not downloaded HTML byte offsets",
@@ -4867,6 +5182,12 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         {
             EvidenceOffsetBasis::AudioTranscript
         }
+        None if inferred_location
+            .as_deref()
+            .is_some_and(|locator| locator.starts_with("PHOTO ")) =>
+        {
+            EvidenceOffsetBasis::ExtractedImageProjection
+        }
         None => EvidenceOffsetBasis::PreservedText,
         Some("preserved_text") => EvidenceOffsetBasis::PreservedText,
         Some("office_projection") | Some("extracted_office_projection") => {
@@ -4874,6 +5195,7 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         }
         Some("web_visible_text") => EvidenceOffsetBasis::WebVisibleText,
         Some("audio_transcript") => EvidenceOffsetBasis::AudioTranscript,
+        Some("extracted_image_projection") => EvidenceOffsetBasis::ExtractedImageProjection,
         Some(_) => {
             return Err(GardenError::Invalid(
                 "Semantic evidence uses an unsupported offset basis.".into(),

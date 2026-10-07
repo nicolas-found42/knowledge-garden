@@ -18,7 +18,11 @@ export type CoverageScope =
   | "slide_text"
   | "speaker_notes"
   | "embedded_object"
-  | "audio_recording";
+  | "audio_recording"
+  | "image_pixels"
+  | "image_metadata"
+  | "image_text"
+  | "image_interpretation";
 
 export type CoverageStatus = "complete" | "partial" | "unsupported" | "failed";
 
@@ -135,6 +139,7 @@ export interface SourceList {
 
 export interface PageSearchRequest {
   query: string;
+  mode?: "keyword" | "meaning";
   tags: string[];
   date_from: string | null;
   date_to: string | null;
@@ -156,7 +161,8 @@ export interface SearchMatchLocation {
     | "preserved_text"
     | "extracted_office_projection"
     | "web_visible_text"
-    | "audio_transcript";
+    | "audio_transcript"
+    | "extracted_image_projection";
   source_location: string | null;
 }
 
@@ -173,8 +179,9 @@ export interface PageResult {
   extraction: ExtractionState;
   processing_status:
     "pending" | "processing" | "complete" | "failed" | "unavailable";
-  matched_by: "title" | "tag" | "keyword";
+  matched_by: "title" | "tag" | "keyword" | "meaning";
   match_location: SearchMatchLocation | null;
+  meaning_score?: number | null;
 }
 
 export interface PageSearchResults {
@@ -183,6 +190,7 @@ export interface PageSearchResults {
   available_tags: string[];
   available_formats: string[];
   available_statuses: string[];
+  meaning_search_status?: string;
 }
 
 /** The reader's application boundary. Desktop paths never come from page HTML. */
@@ -196,6 +204,7 @@ export interface GardenApi {
   openSource(sourceId: string): Promise<SourcePage>;
   openKnowledgePage(pageId: string): Promise<KnowledgePage>;
   openOriginal(sourceId: string): Promise<void>;
+  previewOriginal?(sourceId: string): Promise<string>;
   openOriginalVersion(
     sourceId: string,
     sourceVersionId: string,
@@ -231,6 +240,7 @@ export const desktopApi: GardenApi = {
   openSource: (sourceId) => invoke("open_source", { sourceId }),
   openKnowledgePage: (pageId) => invoke("open_knowledge_page", { pageId }),
   openOriginal: (sourceId) => invoke("open_original", { sourceId }),
+  previewOriginal: (sourceId) => invoke("preview_original", { sourceId }),
   openOriginalVersion: (sourceId, sourceVersionId, asset) =>
     invoke("open_original_version", { sourceId, sourceVersionId, asset }),
   openOriginalAsset: (sourceId, asset) =>
