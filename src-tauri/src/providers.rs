@@ -283,6 +283,8 @@ impl SemanticProvider for JevSemanticProvider {
             return self.form_conversation_knowledge(source_text);
         }
         let photo_mode = source_text.starts_with("[PHOTO ");
+        let audio_mode =
+            source_text.starts_with("Machine-generated transcript from retained audio.");
         let mut candidates = if photo_mode {
             Vec::new()
         } else {
@@ -293,7 +295,8 @@ impl SemanticProvider for JevSemanticProvider {
         let office_mode = !office_candidates.is_empty() || source_text.contains("; channel=");
         candidates.extend(office_candidates);
         candidates.sort_by_key(|candidate| (candidate.start, candidate.end));
-        if candidates.is_empty() {
+        if candidates.is_empty() && !(audio_mode && !audio_transcript_spans(source_text).is_empty())
+        {
             return Err(ProviderError::recoverable(
                 "Jev has no grounded candidate spans for this text yet; semantic coverage remains incomplete.".into(),
             ));
@@ -305,27 +308,25 @@ impl SemanticProvider for JevSemanticProvider {
         if update_spans.is_empty() || update_spans.len() > 64 {
             return Err(ProviderError::recoverable("Jev source-update classification has no bounded evidence spans; semantic coverage remains incomplete.".into()));
         }
-        if candidates
-            .iter()
-            .filter(|candidate| candidate.kind == CandidateKind::Event)
-            .count()
-            > 1
-        {
-            return Err(ProviderError::recoverable("This source contains multiple event identifiers; event-to-fact grouping is not yet supported, so semantic coverage remains incomplete.".into()));
-        }
         let mut questions = BTreeMap::<String, Value>::new();
         let mut update_questions = BTreeMap::<String, Value>::new();
-        let event_context = candidates
-            .iter()
-            .find(|candidate| candidate.kind == CandidateKind::Event)
-            .map(|candidate| candidate.value.as_str())
-            .unwrap_or("the described event");
+        let event_context = "the observation event described by this source";
         for (i, candidate) in candidates.iter().enumerate() {
             if candidate.kind == CandidateKind::Event {
-                questions.insert("event_identity".into(), json!({
+                let key = if candidates
+                    .iter()
+                    .filter(|c| c.kind == CandidateKind::Event)
+                    .count()
+                    == 1
+                {
+                    "event_identity".to_owned()
+                } else {
+                    format!("event_identity_{i}")
+                };
+                questions.insert(key, json!({
                     "type":"choice",
-                    "instructions":format!("Resolve the role of this exact candidate identifier `{}` using the whole source and the displayed source span. Short identifiers can name an observation even without the word 'Observation' immediately before them. Decide event when the source uses this ID to name an observation/event, including a person observing or recording that ID. Decide not_event only when the source identifies it as a different kind of thing (for example a revision number, a person, or a venue). Span: {}", candidate.value, candidate.quote),
-                    "criteria":{"event":"This identifier names an observation or event described by the source", "not_event":"This identifier names a different kind of thing, not the described observation/event", "unclear":"The source does not resolve the identifier's role"}
+                    "instructions":format!("Classify this exact candidate identifier `{}` using the whole source and its span. Distinguish an event described by this source from an event only referenced for comparison or negation. Short identifiers can name an observation even without the word 'Observation' immediately before them. Span: {}", candidate.value, candidate.quote),
+                    "criteria":{"event":"This identifier names an observation/event whose facts are described by this source", "referenced_event":"This identifier names a prior or other event mentioned only as context, contrast, negation, or a reference; this source does not describe its facts", "not_event":"This identifier names a different kind of thing, not an event", "unclear":"The source does not resolve the identifier's role"}
                 }));
                 continue;
             }
@@ -569,29 +570,45 @@ impl SemanticProvider for JevSemanticProvider {
         let mut decisions = Vec::new();
         let model = result_model;
         let mut accepted = Vec::new();
-        for candidate in candidates
+        for (i, candidate) in candidates
             .iter()
-            .filter(|candidate| candidate.kind == CandidateKind::Event)
+            .enumerate()
+            .filter(|(_, candidate)| candidate.kind == CandidateKind::Event)
         {
-            let Some((choice, confidence)) = validated.event_identity.as_ref() else {
+            let key = if candidates
+                .iter()
+                .filter(|c| c.kind == CandidateKind::Event)
+                .count()
+                == 1
+            {
+                "event_identity".to_owned()
+            } else {
+                format!("event_identity_{i}")
+            };
+            let Some((choice, confidence)) = validated.event_identity.get(&i) else {
                 return Err(ProviderError::recoverable(
                     "No supported event identity was found; semantic coverage remains incomplete and will retry automatically.".into(),
                 ));
             };
             decisions.push(SemanticDecision {
-                question: format!("event_identity:{}", candidate.value),
+                question: format!("{key}:{}", candidate.value),
                 model: model.clone(),
-                outcome: if choice == "event" && *confidence >= 0.55 {
-                    "event"
-                } else {
-                    "unresolved"
-                }
-                .into(),
+                outcome: choice.clone(),
                 probability: Some(*confidence),
             });
             if choice == "event" && *confidence >= 0.55 {
                 accepted.push(candidate);
+            } else if choice == "unclear" || *confidence < 0.55 {
+                return Err(ProviderError::recoverable(format!("Event identifier {} has an unresolved source role; semantic coverage remains incomplete.", candidate.value)));
             }
+        }
+        if accepted
+            .iter()
+            .filter(|candidate| candidate.kind == CandidateKind::Event)
+            .count()
+            > 1
+        {
+            return Err(ProviderError::recoverable("The source describes multiple events but per-event fact grouping is not supported; semantic coverage remains incomplete.".into()));
         }
         for candidate in candidates.iter().filter(|candidate| {
             matches!(candidate.kind, CandidateKind::Person | CandidateKind::Place)
@@ -677,11 +694,12 @@ impl SemanticProvider for JevSemanticProvider {
                 .iter()
                 .any(|candidate| candidate.kind == CandidateKind::Reference)
             && !office_mode
+            && !audio_mode
         {
-            if let Some((choice, probability)) = validated.event_identity.as_ref() {
-                return Err(ProviderError::recoverable(format!(
-                    "No supported event identity was found (Jev choice {choice}, probability {probability:.2}); semantic coverage remains incomplete and will retry automatically."
-                )));
+            if !validated.event_identity.is_empty() {
+                return Err(ProviderError::recoverable(
+                    "No described event was resolved from the source identifiers; semantic coverage remains incomplete and will retry automatically.".into(),
+                ));
             }
             return Err(ProviderError::recoverable(
                 "No supported event identity or acquired reference was found; semantic coverage remains incomplete and will retry automatically.".into(),
@@ -693,6 +711,27 @@ impl SemanticProvider for JevSemanticProvider {
             correction_alignments,
             ..KnowledgeDraft::default()
         };
+        if audio_mode && event.is_none() {
+            let span = audio_transcript_spans(source_text)
+                .into_iter()
+                .next()
+                .ok_or_else(|| ProviderError::recoverable(
+                    "The retained recording has no bounded transcript spans; semantic coverage remains incomplete and will retry automatically.".into(),
+                ))?;
+            draft.entities.push(EntityDraft {
+                kind: "audio_recording".into(),
+                label: "Recorded speech".into(),
+                evidence: EvidenceDraft {
+                    quote: span.quote,
+                    byte_start: span.start,
+                    byte_end: span.end,
+                    origin: "transcribed speech".into(),
+                    qualifier: Some("Recording-level anchor only; no event identity, date, or speaker identity is established.".into()),
+                    offset_basis: Some("audio_transcript".into()),
+                    source_location: None,
+                },
+            });
+        }
         draft.source_update = Some(validated.source_update.clone().unwrap());
         draft.decisions.push(SemanticDecision {
             question: "source_update_role".into(),
@@ -1046,8 +1085,176 @@ impl SemanticProvider for JevSemanticProvider {
                 });
             }
         }
+        if audio_mode {
+            let subject = event
+                .map(|event| event.value.as_str())
+                .unwrap_or("Recorded speech");
+            let speech_facts = self.audio_speech_act_facts(
+                source_text,
+                prior_source_text,
+                subject,
+                &model,
+                &mut draft.decisions,
+            )?;
+            draft.facts.extend(speech_facts);
+        }
         Ok(draft)
     }
+}
+
+impl JevSemanticProvider {
+    fn audio_speech_act_facts(
+        &self,
+        source_text: &str,
+        prior_source_text: Option<&str>,
+        subject: &str,
+        model: &str,
+        decisions: &mut Vec<SemanticDecision>,
+    ) -> std::result::Result<Vec<FactDraft>, ProviderError> {
+        let spans = audio_transcript_spans(source_text);
+        if spans.is_empty() {
+            return Ok(Vec::new());
+        }
+        if spans.len() > 64 {
+            return Err(ProviderError::recoverable(
+                "This recording produced more than 64 speech-act candidates; semantic coverage remains incomplete rather than silently truncating it.".into(),
+            ));
+        }
+        let mut questions = BTreeMap::<String, Value>::new();
+        for (index, span) in spans.iter().enumerate() {
+            questions.insert(
+                format!("audio_speech_act_{index}"),
+                json!({
+                    "type":"choice",
+                    "instructions":format!("Classify the communicative role of this exact, machine-generated transcript span. Classify only what the speaker appears to say, not whether the underlying claim is true. A question asks something; a decision states a chosen or recommended action while preserving tentative wording; reasoning gives an expressed rationale. Do not turn a question into a decision, a reason into a fact, or a proposal into an accomplished action. Choose not_speech_act for labels, IDs, fragments, or other spans. Exact transcript span: {}", span.quote),
+                    "criteria":{
+                        "question":"The speaker asks an explicit question.",
+                        "decision":"The speaker states a choice, recommendation, or intended action; the exact wording may remain tentative.",
+                        "reasoning":"The speaker gives an expressed explanation or rationale for a question, decision, or event.",
+                        "not_speech_act":"This span is not a supported question, decision, or reasoning statement."
+                    }
+                }),
+            );
+        }
+        let result = self.evaluate(
+            source_text,
+            prior_source_text,
+            Value::Object(questions.into_iter().collect()),
+        )?;
+        let answers = result
+            .get("answers")
+            .and_then(Value::as_object)
+            .ok_or_else(|| ProviderError::recoverable("Jev speech-act response has no typed answers; semantic coverage remains incomplete and will retry automatically.".into()))?;
+        let result_model = result
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or(model)
+            .to_owned();
+        let mut facts = Vec::new();
+        for (index, span) in spans.iter().enumerate() {
+            let key = format!("audio_speech_act_{index}");
+            let (choice, probability) = validated_choice(
+                answers,
+                &key,
+                &["question", "decision", "reasoning", "not_speech_act"],
+            )?;
+            if probability < SUPPORT_THRESHOLD {
+                return Err(ProviderError::recoverable(format!(
+                    "Jev could not classify transcript speech span {index} with sufficient support; semantic coverage remains incomplete and will retry automatically."
+                )));
+            }
+            decisions.push(SemanticDecision {
+                question: format!("audio_speech_act:{}", span.quote),
+                model: result_model.clone(),
+                outcome: choice.clone(),
+                probability: Some(probability),
+            });
+            let property = match choice.as_str() {
+                "question" => "spoken_question",
+                "decision" => "spoken_decision",
+                "reasoning" => "spoken_reasoning",
+                _ => continue,
+            };
+            facts.push(FactDraft {
+                subject: subject.to_owned(),
+                property: property.into(),
+                value: span.quote.clone(),
+                evidence: EvidenceDraft {
+                    quote: span.quote.clone(),
+                    byte_start: span.start,
+                    byte_end: span.end,
+                    origin: "transcribed speech".into(),
+                    qualifier: Some("This records the apparent speech act in an unverified machine transcript; it does not verify the underlying claim or establish that a proposed action occurred.".into()),
+                    offset_basis: Some("audio_transcript".into()),
+                    source_location: None,
+                },
+                record_key: None,
+            });
+        }
+        Ok(facts)
+    }
+}
+
+fn audio_transcript_spans(source_text: &str) -> Vec<SourceSpan> {
+    let mut spans = Vec::new();
+    let mut line_offset = 0;
+    for line in source_text.split_inclusive('\n') {
+        let line_without_newline = line.strip_suffix('\n').unwrap_or(line);
+        let Some(content_start) = line_without_newline
+            .strip_prefix("[AUDIO ")
+            .and_then(|_| line_without_newline.find("] ").map(|index| index + 2))
+        else {
+            line_offset += line.len();
+            continue;
+        };
+        let content = &line_without_newline[content_start..];
+        let mut start = 0;
+        for (index, character) in content.char_indices() {
+            if !matches!(character, '.' | '?' | '!') {
+                continue;
+            }
+            push_audio_sentence(
+                &mut spans,
+                content,
+                line_offset + content_start,
+                start,
+                index + character.len_utf8(),
+            );
+            start = index + character.len_utf8();
+        }
+        push_audio_sentence(
+            &mut spans,
+            content,
+            line_offset + content_start,
+            start,
+            content.len(),
+        );
+        line_offset += line.len();
+    }
+    spans
+}
+
+fn push_audio_sentence(
+    spans: &mut Vec<SourceSpan>,
+    content: &str,
+    content_offset: usize,
+    start: usize,
+    end: usize,
+) {
+    let Some(raw) = content.get(start..end) else {
+        return;
+    };
+    let leading = raw.len() - raw.trim_start().len();
+    let quote = raw.trim();
+    if quote.is_empty() {
+        return;
+    }
+    let span_start = content_offset + start + leading;
+    spans.push(SourceSpan {
+        quote: quote.to_owned(),
+        start: span_start,
+        end: span_start + quote.len(),
+    });
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1095,7 +1302,7 @@ struct ReportRevisionCandidate {
 
 #[derive(Default)]
 struct ValidatedAnswers {
-    event_identity: Option<(String, f64)>,
+    event_identity: HashMap<usize, (String, f64)>,
     event_date: Option<(String, f64)>,
     entity_roles: HashMap<usize, (String, f64)>,
     candidate_support: HashMap<usize, f64>,
@@ -1113,15 +1320,30 @@ fn validate_answers(
     report_revisions: &[ReportRevisionCandidate],
 ) -> std::result::Result<ValidatedAnswers, ProviderError> {
     let mut validated = ValidatedAnswers::default();
-    if candidates
+    let event_indices = candidates
         .iter()
-        .any(|candidate| candidate.kind == CandidateKind::Event)
-    {
-        validated.event_identity = Some(validated_choice(
-            answers,
-            "event_identity",
-            &["event", "not_event", "unclear"],
-        )?);
+        .enumerate()
+        .filter_map(|(index, candidate)| (candidate.kind == CandidateKind::Event).then_some(index))
+        .collect::<Vec<_>>();
+    for index in event_indices {
+        let key = if candidates
+            .iter()
+            .filter(|c| c.kind == CandidateKind::Event)
+            .count()
+            == 1
+        {
+            "event_identity".to_owned()
+        } else {
+            format!("event_identity_{index}")
+        };
+        validated.event_identity.insert(
+            index,
+            validated_choice(
+                answers,
+                &key,
+                &["event", "referenced_event", "not_event", "unclear"],
+            )?,
+        );
     }
     let mut date_choices = candidates
         .iter()

@@ -3,4 +3,5 @@ dist/
 src-tauri/target/
 src-tauri/gen/
 src-tauri/resources/meaning/
+src-tauri/resources/audio/
 .DS_Store

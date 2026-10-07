@@ -218,6 +218,9 @@ export async function mountReader(
       if (!link) return;
       event.preventDefault();
       const href = link.getAttribute("href") ?? "";
+      const audioSeekMatch = href.match(
+        /^\?audio_seek=(source-[a-f0-9]{64})&at_ms=(\d+)$/,
+      );
       const knowledgeMatch = href.match(
         /(?:\.\.\/)?pages\/(page-[a-zA-Z0-9-]+)\.md/,
       );
@@ -230,7 +233,20 @@ export async function mountReader(
       const originalMatch = href.match(
         /^(?:\.\.\/)?sources\/([a-f0-9]{64})\/(original(?:\.[a-zA-Z0-9]+)?)$/,
       );
-      if (href === originalAsset || href === `knowledge-original:${sourceId}`) {
+      if (audioSeekMatch) {
+        const timestampMs = Number(audioSeekMatch[2]);
+        void api
+          .openOriginal(audioSeekMatch[1])
+          .then(() => {
+            message(
+              `Opened the retained recording. Seek to ${Math.floor(timestampMs / 60000)}:${String(Math.floor(timestampMs / 1000) % 60).padStart(2, "0")} in your audio player; precise seeking is unavailable in this reader.`,
+            );
+          })
+          .catch(report);
+      } else if (
+        href === originalAsset ||
+        href === `knowledge-original:${sourceId}`
+      ) {
         void api.openOriginal(sourceId).catch(report);
       } else if (knowledgeMatch) {
         pushCurrentState();

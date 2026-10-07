@@ -27,7 +27,8 @@
     "active": true,
     "targets": ["app"],
     "resources": {
-      "resources/meaning/*": "meaning/"
+      "resources/meaning/*": "meaning/",
+      "resources/audio/*": "audio/"
     },
     "category": "Productivity",
     "shortDescription": "A durable local Markdown collection",

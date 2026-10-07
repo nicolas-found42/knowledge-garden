@@ -25,6 +25,9 @@ A typed connection between knowledge items, with direction where meaningful, qua
 **Evidence**:
 Acquired source content that supports a fact or relationship, together with its origin and location. A source's qualifications and uncertainty remain part of that support.
 
+**Transcript segment**:
+A passage recognized from a recording and associated with an approximate interval in the original audio. It is machine-transcribed evidence whose wording and speaker attribution remain unverified.
+
 **Event**:
 A distinct occurrence described by a source, including an observation or reasoning event. Its date is separate from the date on which the collection received or processed the source.
 

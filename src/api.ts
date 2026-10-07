@@ -19,6 +19,7 @@ export type CoverageScope =
   | "speaker_notes"
   | "embedded_object"
   | "conversation_messages"
+  | "audio_recording"
   | "image_pixels"
   | "image_metadata"
   | "image_text"
@@ -78,6 +79,32 @@ export interface SourceInfo {
     model: string;
     outcome: string;
     probability: number | null;
+  }[];
+  audio_processing?: AudioProcessingInfo | null;
+  pending_audio_processing?: AudioProcessingInfo | null;
+}
+
+export interface AudioProcessingInfo {
+  source_version_id: string | null;
+  state: "pending" | "processing" | "complete" | "unsupported" | "failed";
+  duration_ms: number;
+  next_start_ms: number;
+  segment_duration_ms: number;
+  attempts: number;
+  failed_attempts: number;
+  processing_interruptions: number;
+  retry_at_ms: number | null;
+  detail: string;
+  segments: {
+    segment_id: string;
+    start_ms: number;
+    end_ms: number;
+    text: string;
+    confidence: number | null;
+    alternatives: string[];
+    speaker: string | null;
+    speaker_state: string;
+    final_result: boolean;
   }[];
 }
 
@@ -140,6 +167,7 @@ export interface SearchMatchLocation {
     | "extracted_office_projection"
     | "extracted_conversation_projection"
     | "web_visible_text"
+    | "audio_transcript"
     | "extracted_image_projection";
   source_location: string | null;
 }
