@@ -1,6 +1,9 @@
 //! Public, disk-backed collection operations. Markdown and originals are authoritative.
 use crate::extraction::{LocalExtractor, SourceExtractor};
 use crate::meaning::{MeaningFilters, MeaningSearch};
+use crate::media::{
+    AudioProcessingInfo, AudioProcessor, NativeAudioProcessor, MAX_AUDIO_SEGMENT_MS,
+};
 use crate::office::{CoveragePart, CoverageScope, CoverageStatus, OfficeProjection};
 use crate::semantic::{
     CorrectionCandidateDraft, EntityDraft, EvidenceDraft, KnowledgeDraft, KnowledgePage,
@@ -171,6 +174,8 @@ pub struct SourceInfo {
     pub knowledge_pages: Vec<KnowledgePageSummary>,
     #[serde(default)]
     pub semantic_decisions: Vec<SemanticDecision>,
+    #[serde(default)]
+    pub audio_processing: Option<AudioProcessingInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -277,6 +282,7 @@ pub struct Application {
     _lock: File,
     semantic_provider: Arc<dyn SemanticProvider>,
     extractor: Arc<dyn SourceExtractor>,
+    audio_processor: Arc<dyn AudioProcessor>,
     staged_publication: Vec<(PathBuf, Vec<u8>)>,
     fail_after_publication_files: Option<usize>,
     meaning_search: Option<MeaningSearch>,
@@ -297,10 +303,11 @@ impl Application {
 
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
         let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
-        Self::open_with_providers_and_meaning_assets(
+        Self::open_with_all_providers_and_meaning_assets(
             root,
             Arc::new(UnavailableProvider),
             Arc::new(LocalExtractor),
+            Arc::new(NativeAudioProcessor),
             meaning_assets,
         )
     }
@@ -309,11 +316,12 @@ impl Application {
         root: impl AsRef<Path>,
         meaning_assets: Option<impl AsRef<Path>>,
     ) -> Result<Self> {
-        Self::open_with_providers_and_meaning_assets(
+        Self::open_with_all_providers_and_meaning_assets(
             root,
             Arc::new(UnavailableProvider),
             Arc::new(LocalExtractor),
-            meaning_assets.map(|path| path.as_ref().to_path_buf()),
+            Arc::new(NativeAudioProcessor),
+            meaning_assets,
         )
     }
 
@@ -322,10 +330,11 @@ impl Application {
         semantic_provider: Arc<dyn SemanticProvider>,
     ) -> Result<Self> {
         let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
-        Self::open_with_providers_and_meaning_assets(
+        Self::open_with_all_providers_and_meaning_assets(
             root,
             semantic_provider,
             Arc::new(LocalExtractor),
+            Arc::new(NativeAudioProcessor),
             meaning_assets,
         )
     }
@@ -335,11 +344,12 @@ impl Application {
         semantic_provider: Arc<dyn SemanticProvider>,
         meaning_assets: Option<impl AsRef<Path>>,
     ) -> Result<Self> {
-        Self::open_with_providers_and_meaning_assets(
+        Self::open_with_all_providers_and_meaning_assets(
             root,
             semantic_provider,
             Arc::new(LocalExtractor),
-            meaning_assets.map(|path| path.as_ref().to_path_buf()),
+            Arc::new(NativeAudioProcessor),
+            meaning_assets,
         )
     }
 
@@ -349,10 +359,11 @@ impl Application {
         extractor: Arc<dyn SourceExtractor>,
     ) -> Result<Self> {
         let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
-        Self::open_with_providers_and_meaning_assets(
+        Self::open_with_all_providers_and_meaning_assets(
             root,
             semantic_provider,
             extractor,
+            Arc::new(NativeAudioProcessor),
             meaning_assets,
         )
     }
@@ -363,10 +374,43 @@ impl Application {
         extractor: Arc<dyn SourceExtractor>,
         meaning_assets: Option<impl AsRef<Path>>,
     ) -> Result<Self> {
+        Self::open_with_all_providers_and_meaning_assets(
+            root,
+            semantic_provider,
+            extractor,
+            Arc::new(NativeAudioProcessor),
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_all_providers(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
+        audio_processor: Arc<dyn AudioProcessor>,
+    ) -> Result<Self> {
+        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
         Self::open_inner(
             root,
             semantic_provider,
             extractor,
+            audio_processor,
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_all_providers_and_meaning_assets(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
+        audio_processor: Arc<dyn AudioProcessor>,
+        meaning_assets: Option<impl AsRef<Path>>,
+    ) -> Result<Self> {
+        Self::open_inner(
+            root,
+            semantic_provider,
+            extractor,
+            audio_processor,
             meaning_assets.map(|path| path.as_ref().to_path_buf()),
         )
     }
@@ -375,6 +419,7 @@ impl Application {
         root: impl AsRef<Path>,
         semantic_provider: Arc<dyn SemanticProvider>,
         extractor: Arc<dyn SourceExtractor>,
+        audio_processor: Arc<dyn AudioProcessor>,
         meaning_assets: Option<PathBuf>,
     ) -> Result<Self> {
         fs::create_dir_all(root.as_ref())?;
@@ -449,6 +494,7 @@ impl Application {
             _lock: lock,
             semantic_provider,
             extractor,
+            audio_processor,
             staged_publication: Vec::new(),
             fail_after_publication_files: None,
             meaning_search,
@@ -456,6 +502,7 @@ impl Application {
         };
         app.rebuild_index()?;
         app.recover_interrupted_url_acquisitions()?;
+        app.recover_interrupted_audio_jobs()?;
         Ok(app)
     }
 
@@ -744,6 +791,10 @@ impl Application {
             .into_owned();
         let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
         let format = format_override.unwrap_or_else(|| extension.to_lowercase());
+        let audio_format = matches!(
+            format.as_str(),
+            "wav" | "wave" | "aiff" | "aif" | "caf" | "m4a" | "mp3" | "aac"
+        );
         let asset = if extension.len() <= 16
             && !extension.is_empty()
             && extension.chars().all(|c| c.is_ascii_alphanumeric())
@@ -949,8 +1000,23 @@ impl Application {
             None
         };
         let web_projection = web_result.as_ref().and_then(|result| result.as_ref().ok());
+        let inspected_audio = if audio_format {
+            self.audio_processor
+                .inspect(&staging.path().join(&asset))
+                .ok()
+        } else {
+            None
+        };
         let (extraction, extraction_detail, text, office_projection, extraction_coverage) =
-            if let Some(Err(_)) = &web_result {
+            if audio_format && inspected_audio.is_some() {
+                (ExtractionState::PartialText,
+                 "The exact audio original is retained. Pinned local Whisper transcription is queued in resumable segments; silence, overlap, speaker identity, and uncertain wording require review against playback.".into(),
+                String::new(), None, Some(vec![CoveragePart { scope: CoverageScope::AudioRecording, status: CoverageStatus::Partial, source_location: Some("timeline".into()), detail: "Automatic transcription is not complete or word-for-word verified; no diarization, silence detection, noise classification, or overlap attribution is available.".into() }]))
+            } else if audio_format {
+                (ExtractionState::Unsupported,
+                 "The exact audio original is retained, but this audio codec could not be inspected by the installed local media decoder.".into(),
+                 String::new(), None, Some(vec![CoveragePart { scope: CoverageScope::AudioRecording, status: CoverageStatus::Failed, source_location: Some("audio decoder".into()), detail: "The original format could not be inspected with this native decoder.".into() }]))
+            } else if let Some(Err(_)) = &web_result {
                 (ExtractionState::InvalidUtf8, "The downloaded HTML is not valid UTF-8. The exact original is retained without lossy extraction.".into(), String::new(), None, None)
             } else if let Some(web) = web_projection {
                 if count > MAX_TEXT_BYTES as u64 {
@@ -1127,6 +1193,16 @@ impl Application {
             semantic_retry_at: None,
             knowledge_pages: Vec::new(),
             semantic_decisions: Vec::new(),
+            audio_processing: inspected_audio.map(|audio| AudioProcessingInfo {
+                state: "pending".into(),
+                duration_ms: audio.duration_ms,
+                next_start_ms: 0,
+                segment_duration_ms: MAX_AUDIO_SEGMENT_MS,
+                attempts: 0,
+                retry_at_ms: None,
+                detail: "Pinned local Whisper transcription is queued. Speaker attribution is unavailable; all speakers remain unidentified.".into(),
+                segments: Vec::new(),
+            }),
         };
         let body = web_projection
             .as_ref()
@@ -1271,8 +1347,14 @@ impl Application {
                 .and_then(|value| value.parse::<u128>().ok())
                 .unwrap_or(0);
             let has_pending_version = page.info.pending_version_id.is_some();
+            let audio_ready = page
+                .info
+                .audio_processing
+                .as_ref()
+                .is_none_or(|audio| audio.state == "complete");
             if (page.info.semantic_state == "pending"
                 || (has_pending_version && page.info.update_status.as_deref() == Some("pending")))
+                && audio_ready
                 && retry_at <= now
             {
                 due.push(page.info.source_id);
@@ -1326,7 +1408,12 @@ impl Application {
             } else {
                 page.info.acquisitions.clone()
             };
-            let text = if page.info.format == "html"
+            let text = if let Some(audio) = &page.info.audio_processing {
+                if audio.state != "complete" {
+                    continue;
+                }
+                audio_semantic_text(audio)
+            } else if page.info.format == "html"
                 && page
                     .info
                     .acquisitions
@@ -1729,6 +1816,9 @@ impl Application {
         });
         match result {
             Ok(mut draft) => {
+                if page.info.audio_processing.is_some() {
+                    qualify_audio_evidence(&mut draft);
+                }
                 let is_office = matches!(page.info.format.as_str(), "docx" | "pptx");
                 let office_facts = draft
                     .facts
@@ -2017,6 +2107,200 @@ impl Application {
         Ok(())
     }
 
+    fn recover_interrupted_audio_jobs(&mut self) -> Result<()> {
+        for entry in fs::read_dir(self.root.join("sources"))? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let source_id = read_page(&entry.path().join("index.md"))?.info.source_id;
+            let mut page = self.open_source(&source_id)?;
+            let Some(audio) = page.info.audio_processing.as_mut() else {
+                continue;
+            };
+            if audio.state == "processing" {
+                audio.state = "pending".into();
+                audio.retry_at_ms = None;
+                audio.detail = "A prior bounded segment was interrupted. The same time range is queued again; the retained original remains available.".into();
+                self.write_source_page(&page)?;
+                self.index_page(&page.info)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Process at most one durable 30-second audio window. Native/model work is
+    /// deliberately performed after persisting `processing`; opening the collection
+    /// converts an interrupted window back to pending and retries its stable range.
+    pub fn resume_due_audio_jobs(&mut self) -> Result<()> {
+        let now = now_millis()? as u64;
+        let mut candidate = None;
+        for entry in fs::read_dir(self.root.join("sources"))? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let source_id = read_page(&entry.path().join("index.md"))?.info.source_id;
+            let page = self.open_source(&source_id)?;
+            if let Some(audio) = &page.info.audio_processing {
+                if audio.state == "pending" && audio.retry_at_ms.unwrap_or(0) <= now {
+                    candidate = Some((
+                        source_id,
+                        page.info.pending_version_id.clone(),
+                        audio.clone(),
+                    ));
+                    break;
+                }
+            }
+        }
+        let Some((source_id, version_id, snapshot)) = candidate else {
+            return Ok(());
+        };
+        let Some(version_id) = version_id else {
+            return Ok(());
+        };
+        let start = snapshot.next_start_ms;
+        let duration = snapshot
+            .segment_duration_ms
+            .min(MAX_AUDIO_SEGMENT_MS)
+            .min(snapshot.duration_ms.saturating_sub(start));
+        if duration == 0 {
+            self.finish_audio_collection(&source_id, &version_id)?;
+            return Ok(());
+        }
+        {
+            let mut page = self.open_source(&source_id)?;
+            let audio = page.info.audio_processing.as_mut().ok_or_else(|| {
+                GardenError::Invalid("Audio processing state disappeared.".into())
+            })?;
+            if audio.state != "pending" || audio.next_start_ms != start {
+                return Ok(());
+            }
+            audio.state = "processing".into();
+            audio.attempts = audio.attempts.saturating_add(1);
+            audio.detail = format!("Transcribing original audio from {start} to {} ms with the pinned local Whisper model. Speaker identity is unavailable.", start + duration);
+            self.write_source_page(&page)?;
+            self.index_page(&page.info)?;
+        }
+        let current_page = self.open_source(&source_id)?;
+        let version = current_page
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == version_id)
+            .ok_or_else(|| {
+                GardenError::Invalid("Pending audio source version is missing.".into())
+            })?;
+        let root_asset = self.source_dir(&source_id)?.join(&version.asset);
+        let version_asset = self.version_original_path(&source_id, version)?;
+        let path = if root_asset.is_file() {
+            root_asset
+        } else {
+            version_asset
+        };
+        let outcome = self.audio_processor.install_assets().and_then(|()| {
+            self.audio_processor
+                .transcribe_segment(&path, start, duration)
+        });
+        match outcome {
+            Ok(batch)
+                if batch.requested_start_ms == start
+                    && batch.requested_duration_ms == duration
+                    && batch.media_duration_ms.abs_diff(snapshot.duration_ms) <= 2
+                    && batch.processed_duration_ms > 0
+                    && batch.processed_duration_ms <= duration =>
+            {
+                let mut page = self.open_source(&source_id)?;
+                if page.info.pending_version_id.as_deref() != Some(&version_id) { return Ok(()); }
+                let audio = page.info.audio_processing.as_mut().ok_or_else(|| GardenError::Invalid("Audio processing state disappeared.".into()))?;
+                let window_end = start.saturating_add(batch.processed_duration_ms);
+                audio.segments.retain(|segment| segment.end_ms <= start || segment.start_ms >= window_end);
+                for (index, mut segment) in batch.segments.into_iter().enumerate() {
+                    if segment.start_ms < start || segment.start_ms >= window_end || segment.end_ms <= segment.start_ms {
+                        continue;
+                    }
+                    segment.end_ms = segment.end_ms.min(window_end);
+                    segment.segment_id = stable_audio_segment_id(&version_id, start, index);
+                    segment.speaker = None;
+                    segment.speaker_state = "unidentified".into();
+                    audio.segments.push(segment);
+                }
+                audio.segments.sort_by_key(|segment| (segment.start_ms, segment.end_ms, segment.segment_id.clone()));
+                audio.next_start_ms = window_end;
+                audio.state = if window_end >= audio.duration_ms { "complete" } else { "pending" }.into();
+                audio.retry_at_ms = None;
+            audio.detail = format!("{} ms examined. Local large-v3-turbo Whisper output is a best-guess transcript without calibrated confidence or alternatives. Silence, overlap, accent/noise effects, and unrecognized speech are not distinguishable from omitted words; timestamps are estimates and speakers remain unidentified. Compare the original.", audio.next_start_ms);
+                if audio.state == "complete" {
+                    if audio.segments.is_empty() {
+                        page.info.current_version_id = Some(version_id.clone());
+                        page.info.pending_version_id = None;
+                        page.info.update_status = None;
+                        page.info.semantic_state = "unavailable".into();
+                    } else {
+                        page.info.semantic_state = "pending".into();
+                    }
+                }
+                let body = source_body(&page.info, "", None);
+                page.body = body.clone();
+                page.markdown = serialize_page(&page.info, &body)?;
+                self.publish_updated_page(&page)?;
+            }
+            Ok(batch) => self.fail_audio_attempt(&source_id, &version_id, format!("The local recognizer returned an incomplete or misaligned result for {start}–{} ms (reported request {}–{} ms, media duration {} ms, examined {} ms). The same range remains resumable.", start + duration, batch.requested_start_ms, batch.requested_start_ms.saturating_add(batch.requested_duration_ms), batch.media_duration_ms, batch.processed_duration_ms))?,
+            Err(error) => self.fail_audio_attempt(&source_id, &version_id, error)?,
+        }
+        Ok(())
+    }
+
+    fn fail_audio_attempt(
+        &mut self,
+        source_id: &str,
+        version_id: &str,
+        error: String,
+    ) -> Result<()> {
+        let mut page = self.open_source(source_id)?;
+        if page.info.pending_version_id.as_deref() != Some(version_id) {
+            return Ok(());
+        }
+        let audio =
+            page.info.audio_processing.as_mut().ok_or_else(|| {
+                GardenError::Invalid("Audio processing state disappeared.".into())
+            })?;
+        let seconds = (1_u64 << audio.attempts.min(10)).min(3600);
+        audio.state = "pending".into();
+        audio.retry_at_ms = Some(now_millis()? as u64 + seconds * 1000);
+        audio.detail = format!("Local transcription could not finish this range: {error}. It will retry automatically; the retained original remains playable.");
+        let body = source_body(&page.info, "", None);
+        page.body = body.clone();
+        page.markdown = serialize_page(&page.info, &body)?;
+        self.publish_updated_page(&page)
+    }
+
+    fn finish_audio_collection(&mut self, source_id: &str, version_id: &str) -> Result<()> {
+        let mut page = self.open_source(source_id)?;
+        if page.info.pending_version_id.as_deref() != Some(version_id) {
+            return Ok(());
+        }
+        page.info.current_version_id = Some(version_id.into());
+        page.info.pending_version_id = None;
+        page.info.update_status = None;
+        page.info.semantic_state = "unavailable".into();
+        if let Some(audio) = page.info.audio_processing.as_mut() {
+            audio.state = "complete".into();
+        }
+        let body = source_body(&page.info, "", None);
+        page.body = body.clone();
+        page.markdown = serialize_page(&page.info, &body)?;
+        self.publish_updated_page(&page)
+    }
+
+    fn publish_updated_page(&mut self, page: &SourcePage) -> Result<()> {
+        write_atomic(
+            &self.page_path(&page.info.source_id)?,
+            page.markdown.as_bytes(),
+        )?;
+        self.index_page(&page.info)
+    }
+
     fn publish_knowledge(
         &mut self,
         source: &mut SourcePage,
@@ -2231,6 +2515,7 @@ impl Application {
                     EvidenceOffsetBasis::WebVisibleText => {
                         "extracted web visible-text projection; offsets are not downloaded HTML byte offsets"
                     }
+                    EvidenceOffsetBasis::AudioTranscript => "machine-generated transcript; audio wording and speaker remain unverified",
                 };
                 let locator = fact
                     .evidence
@@ -2238,6 +2523,22 @@ impl Application {
                     .as_deref()
                     .map(|value| format!(" · original locator: {value}"))
                     .unwrap_or_default();
+                let audio_link =
+                    if fact.evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript {
+                        fact.evidence
+                            .source_location
+                            .as_deref()
+                            .and_then(audio_start_from_locator)
+                            .map(|start_ms| {
+                                format!(
+                                    " · [Open audio at this timestamp]({})",
+                                    audio_seek_href(&source.info.source_id, start_ms)
+                                )
+                            })
+                            .unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
                 let (line_basis, byte_basis) = match fact.evidence.offset_basis {
                     EvidenceOffsetBasis::PreservedText => ("source lines", "source bytes"),
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
@@ -2250,18 +2551,24 @@ impl Application {
                         "visible-text projection lines",
                         "visible-text projection bytes",
                     ),
+                    EvidenceOffsetBasis::AudioTranscript => {
+                        ("transcript lines", "transcript bytes")
+                    }
                 };
-                let guidance = if fact.evidence.offset_basis != EvidenceOffsetBasis::PreservedText {
+                let guidance = if fact.evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript
+                {
+                    "The offsets refer to the transcript text. Open the retained original and seek manually to the timestamp; precise seeking is unavailable."
+                } else if fact.evidence.offset_basis != EvidenceOffsetBasis::PreservedText {
                     "The retained original opens as a fallback; the offsets above refer to the stated extracted projection."
                 } else {
                     "Original opens at the beginning; use these source lines and byte offsets to locate this passage."
                 };
                 body.push_str(&format!(
-                    "\n- **{}:** {}{}\n  - Fact identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Links: [Source page](../sources/{}/index.md) · [Retained original](../sources/{}/{})\n",
+                    "\n- **{}:** {}{}\n  - Fact identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Links: [Source page](../sources/{}/index.md) · [Retained original](../sources/{}/{}){}\n",
                     escape_markdown(&fact.property.replace('_', " ")), escape_markdown(&fact.value), fact.qualifier.as_deref().map(|q| format!(" ({})", escape_markdown(q))).unwrap_or_default(), fact.fact_id,
                     escape_markdown(&fact.evidence.quote), escape_markdown(&fact.origin), line_basis, fact.evidence.line_start, fact.evidence.line_end,
                     byte_basis, fact.evidence.byte_start, fact.evidence.byte_end, basis, locator, guidance, &source.info.source_id["source-".len()..],
-                    &source.info.source_id["source-".len()..], source.info.asset
+                    &source.info.source_id["source-".len()..], source.info.asset, audio_link
                 ));
             }
             body.push_str("\n## Relationships\n");
@@ -2298,14 +2605,32 @@ impl Application {
                         relationship.evidence.source_location.as_deref().map(|location| format!(" · original locator: {location}")).unwrap_or_default(),
                         "The retained original opens as a fallback; offsets refer to the stated web visible-text projection.",
                     ),
+                    EvidenceOffsetBasis::AudioTranscript => ("transcript lines", "transcript bytes", relationship.evidence.source_location.as_deref().map(|value| format!(" · audio locator: {value}")).unwrap_or_default(), "Open the retained original and seek manually to the timestamp; precise seeking is unavailable. The statement is machine-transcribed and unverified."),
                 };
+                let audio_link =
+                    if relationship.evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript {
+                        relationship
+                            .evidence
+                            .source_location
+                            .as_deref()
+                            .and_then(audio_start_from_locator)
+                            .map(|start_ms| {
+                                format!(
+                                    " · [Open audio at this timestamp]({})",
+                                    audio_seek_href(&source.info.source_id, start_ms)
+                                )
+                            })
+                            .unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
                 body.push_str(&format!(
-                    "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{}{}\n  - {}\n  - Links: [Source page](../sources/{}/index.md) · [Retained original](../sources/{}/{})\n",
+                    "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{}{}\n  - {}\n  - Links: [Source page](../sources/{}/index.md) · [Retained original](../sources/{}/{}){}\n",
                     escape_markdown(&from.0.label), from.1.page_id, escape_markdown(&relationship.kind.replace('_', " ")), escape_markdown(&to.0.label), to.1.page_id,
                     relationship.qualifier.as_deref().map(|q| format!(" (qualifier: {})", escape_markdown(q))).unwrap_or_default(), relationship.relationship_id,
                     escape_markdown(&relationship.evidence.quote), escape_markdown(&relationship.origin), line_basis, relationship.evidence.line_start, relationship.evidence.line_end,
                     byte_basis, relationship.evidence.byte_start, relationship.evidence.byte_end, locator, guidance, &source.info.source_id["source-".len()..],
-                    &source.info.source_id["source-".len()..], source.info.asset
+                    &source.info.source_id["source-".len()..], source.info.asset, audio_link
                 ));
             }
             body.push_str("\n## Tags\n");
@@ -3222,8 +3547,26 @@ impl Application {
                 .unwrap_or_default();
             let (basis, line_label, byte_label, guidance) =
                 evidence_display_basis(evidence.offset_basis);
+            let audio_link = if evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript {
+                evidence
+                    .source_location
+                    .as_deref()
+                    .and_then(audio_start_from_locator)
+                    .map(|start_ms| {
+                        let source_id = support
+                            .map(|value| value.source_id.as_str())
+                            .unwrap_or(&header.source_id);
+                        format!(
+                            " · [Open audio at this timestamp]({})",
+                            audio_seek_href(source_id, start_ms)
+                        )
+                    })
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
             body.push_str(&format!(
-                "\n- **{}:** {}{}\n  - Fact identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Source support count: {}\n  - Links: [Source page]({}) · [Retained original]({})\n",
+                "\n- **{}:** {}{}\n  - Fact identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Source support count: {}\n  - Links: [Source page]({}) · [Retained original]({}){}\n",
                 escape_markdown(&fact.property.replace('_', " ")),
                 escape_markdown(&fact.value),
                 fact.qualifier.as_deref().map(|q| format!(" ({})", escape_markdown(q))).unwrap_or_default(),
@@ -3242,6 +3585,7 @@ impl Application {
                 fact.supports.len(),
                 source_link,
                 original_link,
+                audio_link,
             ));
         }
         if header.facts.is_empty() {
@@ -3267,8 +3611,26 @@ impl Application {
                 .unwrap_or_default();
             let (basis, line_label, byte_label, guidance) =
                 evidence_display_basis(evidence.offset_basis);
+            let audio_link = if evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript {
+                evidence
+                    .source_location
+                    .as_deref()
+                    .and_then(audio_start_from_locator)
+                    .map(|start_ms| {
+                        let source_id = support
+                            .map(|value| value.source_id.as_str())
+                            .unwrap_or(&header.source_id);
+                        format!(
+                            " · [Open audio at this timestamp]({})",
+                            audio_seek_href(source_id, start_ms)
+                        )
+                    })
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
             body.push_str(&format!(
-                "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Source support count: {}\n  - Links: [Source page]({}) · [Retained original]({})\n",
+                "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Source support count: {}\n  - Links: [Source page]({}) · [Retained original]({}){}\n",
                 escape_markdown(labels.get(&rel.from_page_id).map(String::as_str).unwrap_or(&rel.from_page_id)), rel.from_page_id,
                 escape_markdown(&rel.kind.replace('_', " ")),
                 escape_markdown(labels.get(&rel.to_page_id).map(String::as_str).unwrap_or(&rel.to_page_id)), rel.to_page_id,
@@ -3281,6 +3643,7 @@ impl Application {
                 rel.supports.len(),
                 source_link,
                 original_link,
+                audio_link,
             ));
         }
         if header.relationships.is_empty() {
@@ -4500,6 +4863,7 @@ fn evidence_offset_basis_name(basis: EvidenceOffsetBasis) -> &'static str {
         EvidenceOffsetBasis::PreservedText => "preserved_text",
         EvidenceOffsetBasis::ExtractedOfficeProjection => "extracted_office_projection",
         EvidenceOffsetBasis::WebVisibleText => "web_visible_text",
+        EvidenceOffsetBasis::AudioTranscript => "audio_transcript",
         EvidenceOffsetBasis::ExtractedImageProjection => "extracted_image_projection",
     }
 }
@@ -4653,6 +5017,7 @@ enum EvidenceOffsetBasis {
     PreservedText,
     ExtractedOfficeProjection,
     WebVisibleText,
+    AudioTranscript,
     ExtractedImageProjection,
 }
 
@@ -4682,6 +5047,12 @@ fn evidence_display_basis(
             "visible-text projection lines",
             "visible-text projection bytes",
             "The retained original opens as a fallback; offsets refer to the stated web visible-text projection.",
+        ),
+        EvidenceOffsetBasis::AudioTranscript => (
+            "machine-generated audio transcript; offsets are transcript bytes, not audio bytes",
+            "transcript lines",
+            "transcript bytes",
+            "The retained original opens at the beginning; use the timestamp locator to seek manually. The reader cannot guarantee precise seeking.",
         ),
     }
 }
@@ -4856,6 +5227,12 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         }
         None if inferred_location
             .as_deref()
+            .is_some_and(|locator| locator.starts_with("AUDIO ")) =>
+        {
+            EvidenceOffsetBasis::AudioTranscript
+        }
+        None if inferred_location
+            .as_deref()
             .is_some_and(|locator| locator.starts_with("PHOTO ")) =>
         {
             EvidenceOffsetBasis::ExtractedImageProjection
@@ -4866,6 +5243,7 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
             EvidenceOffsetBasis::ExtractedOfficeProjection
         }
         Some("web_visible_text") => EvidenceOffsetBasis::WebVisibleText,
+        Some("audio_transcript") => EvidenceOffsetBasis::AudioTranscript,
         Some("extracted_image_projection") => EvidenceOffsetBasis::ExtractedImageProjection,
         Some(_) => {
             return Err(GardenError::Invalid(
@@ -5157,6 +5535,69 @@ fn now_millis() -> Result<u128> {
         .as_millis())
 }
 
+fn stable_audio_segment_id(version_id: &str, window_start_ms: u64, ordinal: usize) -> String {
+    let mut digest = Sha256::new();
+    digest.update(version_id.as_bytes());
+    digest.update(window_start_ms.to_be_bytes());
+    digest.update((ordinal as u64).to_be_bytes());
+    format!("audio-segment-{:x}", digest.finalize())
+}
+
+fn audio_semantic_text(audio: &AudioProcessingInfo) -> String {
+    let mut lines = String::from("Machine-generated transcript from retained audio. Wording and timestamps are unverified estimates; this local recognizer emits no calibrated confidence or alternatives, and speaker identity is unavailable.\n");
+    for segment in &audio.segments {
+        lines.push_str(&format!(
+            "[AUDIO {}–{} ms confidence={} speaker=unidentified] {}\n",
+            segment.start_ms,
+            segment.end_ms,
+            segment
+                .confidence
+                .map(|value| format!("{value:.2}"))
+                .unwrap_or_else(|| "unavailable".into()),
+            segment.text.replace(['\n', '\r'], " ")
+        ));
+    }
+    lines
+}
+
+fn qualify_audio_evidence(draft: &mut KnowledgeDraft) {
+    fn qualify(evidence: &mut EvidenceDraft) {
+        evidence.offset_basis = Some("audio_transcript".into());
+        let caution = "Machine transcription; wording and speaker identity are unverified. Compare the retained original recording.";
+        evidence.qualifier = Some(match evidence.qualifier.take() {
+            Some(existing) => format!("{existing}; {caution}"),
+            None => caution.into(),
+        });
+    }
+    for entity in &mut draft.entities {
+        qualify(&mut entity.evidence);
+    }
+    for fact in &mut draft.facts {
+        qualify(&mut fact.evidence);
+    }
+    for relationship in &mut draft.relationships {
+        qualify(&mut relationship.evidence);
+    }
+    for tag in &mut draft.tags {
+        qualify(&mut tag.evidence);
+    }
+    for correction in &mut draft.correction_candidates {
+        qualify(&mut correction.evidence);
+    }
+    for alignment in &mut draft.correction_alignments {
+        qualify(&mut alignment.candidate.evidence);
+    }
+    if let Some(update) = &mut draft.source_update {
+        qualify(&mut update.evidence);
+        if let Some(evidence) = &mut update.source_date_evidence {
+            qualify(evidence);
+        }
+        if let Some(evidence) = &mut update.source_revision_evidence {
+            qualify(evidence);
+        }
+    }
+}
+
 fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>) -> String {
     let title = info
         .title
@@ -5164,6 +5605,62 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
         .replace(['[', ']', '<', '>'], "");
     if let Some(projection) = office {
         return projection.markdown.replace("ORIGINAL_ASSET", &info.asset);
+    }
+    if let Some(audio) = &info.audio_processing {
+        let mut body = format!(
+            "# {title}\n\n[Play retained original]({})\n\n**Audio processing:** {}. {}\n\n**Coverage:** {} of {} ms have been examined in bounded segments. Speaker identity is unavailable; speakers are left unidentified. Playback opens the retained original and may not seek precisely, so use the timestamp below in the player.\n\n## Time-located transcript\n\n",
+            info.asset,
+            audio.state,
+            audio.detail,
+            audio.next_start_ms.min(audio.duration_ms),
+            audio.duration_ms
+        );
+        if audio.segments.is_empty() {
+            body.push_str("No transcript passages are available yet. The original recording remains playable.\n");
+            let examined = audio.next_start_ms.min(audio.duration_ms);
+            if examined > 0 {
+                body.push_str(&format!("\n## No recognized speech · 0–{examined} ms\n\nNo transcript passage was returned for the examined range. This does not distinguish silence, background noise, overlapping voices, or unintelligible speech. Review the original.\n"));
+            }
+            if examined < audio.duration_ms {
+                body.push_str(&format!(
+                    "\n## Not processed yet · {examined}–{} ms\n",
+                    audio.duration_ms
+                ));
+            }
+        } else {
+            let covered_end = audio.next_start_ms.min(audio.duration_ms);
+            let mut cursor_ms = 0_u64;
+            for segment in &audio.segments {
+                if segment.start_ms > cursor_ms {
+                    body.push_str(&format!("### No recognized speech · {}–{} ms\n\nThe recognizer returned no transcript passage for this interval. This does not distinguish silence, background noise, overlapping voices, or unintelligible speech. Review the original.\n\n", cursor_ms, segment.start_ms.min(covered_end)));
+                }
+                body.push_str(&format!(
+                    "### [{}–{} ms · confidence {} · speaker unidentified]({})\n\n{}\n\n",
+                    segment.start_ms,
+                    segment.end_ms,
+                    segment
+                        .confidence
+                        .map(|value| format!("{value:.2}"))
+                        .unwrap_or_else(|| "unavailable".into()),
+                    audio_seek_href(&info.source_id, segment.start_ms),
+                    segment.text.replace('\n', " ")
+                ));
+                cursor_ms = cursor_ms.max(segment.end_ms);
+                if !segment.alternatives.is_empty() {
+                    body.push_str(&format!(
+                        "Alternative recognition: {}.\n\n",
+                        segment.alternatives.join("; ")
+                    ));
+                }
+            }
+            if cursor_ms < covered_end {
+                body.push_str(&format!("### No recognized speech · {cursor_ms}–{covered_end} ms\n\nThe recognizer returned no transcript passage for this interval. This does not distinguish silence, background noise, overlapping voices, or unintelligible speech. Review the original.\n\n"));
+            }
+            if covered_end < audio.duration_ms {
+                body.push_str(&format!("### Not processed yet · {covered_end}–{} ms\n\nThis audio range has not been examined yet.\n", audio.duration_ms));
+            }
+        }
+        return body;
     }
     if info.extraction != ExtractionState::TextPreserved {
         return format!(
@@ -5181,6 +5678,15 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
     let fence = "`".repeat(3.max(longest_run + 1));
     format!("# {title}\n\n[Open original]({})\n\n## Source text · lines 1–{}\n\n{fence}text\n{text}\n{fence}\n",
         info.asset, info.line_count)
+}
+
+fn audio_seek_href(source_id: &str, start_ms: u64) -> String {
+    format!("?audio_seek={source_id}&at_ms={start_ms}")
+}
+
+fn audio_start_from_locator(locator: &str) -> Option<u64> {
+    let time = locator.strip_prefix("AUDIO ")?.split_once('–')?.0;
+    time.parse().ok()
 }
 
 fn content_disposition_filename(header: &str) -> Option<String> {
