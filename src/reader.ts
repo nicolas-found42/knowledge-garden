@@ -410,6 +410,22 @@ export async function mountReader(
     queryLabel.append(query);
     form.append(queryLabel);
 
+    const modeLabel = element("label", "Search mode");
+    const mode = element("select");
+    mode.name = "mode";
+    mode.setAttribute("aria-label", "Search mode");
+    for (const [value, label] of [
+      ["keyword", "Words and title"],
+      ["meaning", "Remembered meaning"],
+    ]) {
+      const option = element("option", label);
+      option.value = value;
+      mode.append(option);
+    }
+    mode.value = request.mode ?? "keyword";
+    modeLabel.append(mode);
+    form.append(modeLabel);
+
     const dates = element("div");
     dates.className = "search-row";
     for (const [name, labelText, value] of [
@@ -482,6 +498,7 @@ export async function mountReader(
       const data = new FormData(form);
       const next: PageSearchRequest = {
         query: String(data.get("query") ?? "").trim(),
+        mode: String(data.get("mode") ?? "keyword") as "keyword" | "meaning",
         tags: data.getAll("tag").map(String),
         date_from: String(data.get("date_from") ?? "") || null,
         date_to: String(data.get("date_to") ?? "") || null,
@@ -492,6 +509,18 @@ export async function mountReader(
       void runSearch(next, false).catch(report);
     });
     panel.append(heading, form);
+    if (
+      request.mode === "meaning" &&
+      results.meaning_search_status &&
+      results.meaning_search_status !== "ready"
+    ) {
+      panel.append(
+        element(
+          "p",
+          `Meaning search is unavailable: ${results.meaning_search_status}.`,
+        ),
+      );
+    }
 
     const active = element("div");
     active.className = "active-filters";
@@ -511,6 +540,11 @@ export async function mountReader(
       filters.push([
         `Words: ${request.query}`,
         () => ({ ...request, query: "", offset: 0 }),
+      ]);
+    if (request.mode === "meaning")
+      filters.push([
+        "Meaning search",
+        () => ({ ...request, mode: "keyword", offset: 0 }),
       ]);
     if (request.date_from)
       filters.push([

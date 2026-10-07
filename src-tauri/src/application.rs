@@ -1,4 +1,5 @@
 //! Public, disk-backed collection operations. Markdown and originals are authoritative.
+use crate::meaning::{MeaningFilters, MeaningSearch};
 use crate::office::{CoveragePart, CoverageScope, CoverageStatus, OfficeProjection};
 use crate::semantic::{
     EntityDraft, EvidenceDraft, KnowledgeDraft, KnowledgePage, KnowledgePageSummary, ProviderError,
@@ -179,6 +180,8 @@ pub struct PageSearchRequest {
     #[serde(default)]
     pub query: String,
     #[serde(default)]
+    pub mode: PageSearchMode,
+    #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
     pub date_from: Option<String>,
@@ -192,6 +195,14 @@ pub struct PageSearchRequest {
     pub offset: usize,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PageSearchMode {
+    #[default]
+    Keyword,
+    Meaning,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PageSearchResults {
     pub pages: Vec<PageResult>,
@@ -199,6 +210,7 @@ pub struct PageSearchResults {
     pub available_tags: Vec<String>,
     pub available_formats: Vec<String>,
     pub available_statuses: Vec<String>,
+    pub meaning_search_status: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -215,6 +227,8 @@ pub struct PageResult {
     pub extraction: ExtractionState,
     pub processing_status: String,
     pub matched_by: String,
+    #[serde(default)]
+    pub meaning_score: Option<f32>,
     pub match_location: Option<SearchMatchLocation>,
 }
 
@@ -243,6 +257,8 @@ pub struct Application {
     semantic_provider: Arc<dyn SemanticProvider>,
     staged_publication: Vec<(PathBuf, Vec<u8>)>,
     fail_after_publication_files: Option<usize>,
+    meaning_search: Option<MeaningSearch>,
+    meaning_search_status: String,
 }
 
 fn semantic_pending() -> String {
@@ -258,19 +274,45 @@ impl Application {
     }
 
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
-        Self::open_inner(root, Arc::new(UnavailableProvider))
+        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
+        Self::open_with_meaning_assets(root, meaning_assets)
+    }
+
+    pub fn open_with_meaning_assets(
+        root: impl AsRef<Path>,
+        meaning_assets: Option<impl AsRef<Path>>,
+    ) -> Result<Self> {
+        Self::open_inner(
+            root,
+            Arc::new(UnavailableProvider),
+            meaning_assets.map(|path| path.as_ref().to_path_buf()),
+        )
     }
 
     pub fn open_with_semantic_provider(
         root: impl AsRef<Path>,
         semantic_provider: Arc<dyn SemanticProvider>,
     ) -> Result<Self> {
-        Self::open_inner(root, semantic_provider)
+        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
+        Self::open_inner(root, semantic_provider, meaning_assets)
+    }
+
+    pub fn open_with_semantic_provider_and_meaning_assets(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        meaning_assets: Option<impl AsRef<Path>>,
+    ) -> Result<Self> {
+        Self::open_inner(
+            root,
+            semantic_provider,
+            meaning_assets.map(|path| path.as_ref().to_path_buf()),
+        )
     }
 
     fn open_inner(
         root: impl AsRef<Path>,
         semantic_provider: Arc<dyn SemanticProvider>,
+        meaning_assets: Option<PathBuf>,
     ) -> Result<Self> {
         fs::create_dir_all(root.as_ref())?;
         let root = fs::canonicalize(root)?;
@@ -327,6 +369,17 @@ impl Application {
                  tokenize = 'unicode61 remove_diacritics 2'
              );",
         )?;
+        let meaning_index_path = root.join(".derived").join("meaning.usearch");
+        let (meaning_search, meaning_search_status) = match meaning_assets {
+            Some(path) => match MeaningSearch::open(path, &meaning_index_path) {
+                Ok(engine) => (Some(engine), "ready".to_owned()),
+                Err(error) => (None, format!("missing_assets: {error}")),
+            },
+            None => (
+                None,
+                "missing_assets: the app bundle did not provide meaning-search assets".to_owned(),
+            ),
+        };
         let mut app = Self {
             root,
             index,
@@ -334,6 +387,8 @@ impl Application {
             semantic_provider,
             staged_publication: Vec::new(),
             fail_after_publication_files: None,
+            meaning_search,
+            meaning_search_status,
         };
         app.rebuild_index()?;
         Ok(app)
@@ -2640,8 +2695,9 @@ impl Application {
         })
     }
 
-    pub fn search_pages(&self, request: PageSearchRequest) -> Result<PageSearchResults> {
+    pub fn search_pages(&mut self, request: PageSearchRequest) -> Result<PageSearchResults> {
         let query = request.query.trim();
+        let meaning_mode = request.mode == PageSearchMode::Meaning;
         let normalized_tags = request
             .tags
             .iter()
@@ -2672,9 +2728,54 @@ impl Application {
         }) {
             return Err(GardenError::Invalid("Unknown processing status.".into()));
         }
+        let format_filter = request.format.as_deref().filter(|value| !value.is_empty());
+        let has_metadata_filters = !normalized_tags.is_empty()
+            || date_from.is_some()
+            || date_to.is_some()
+            || format_filter.is_some()
+            || processing_status.is_some();
+        let meaning_filters = has_metadata_filters.then_some(MeaningFilters {
+            tags: &normalized_tags,
+            date_from: date_from.as_deref(),
+            date_to: date_to.as_deref(),
+            format: format_filter,
+            processing_status,
+        });
+        let meaning_ranked = if meaning_mode && !query.is_empty() {
+            let ranked = match self.meaning_search.as_mut() {
+                Some(engine) => {
+                    engine.ranked_pages(&self.index, query, 250, meaning_filters.as_ref())
+                }
+                None => Err(self.meaning_search_status.clone()),
+            };
+            match ranked {
+                Ok(items) => items,
+                Err(error) => {
+                    if !self.meaning_search_status.starts_with("missing_assets:") {
+                        self.meaning_search_status = format!("incomplete_index: {error}");
+                    }
+                    Vec::new()
+                }
+            }
+        } else {
+            Vec::new()
+        };
+        let meaning_scores = meaning_ranked.iter().cloned().collect::<HashMap<_, _>>();
         let mut where_parts = Vec::<String>::new();
         let mut values = Vec::<rusqlite::types::Value>::new();
-        if !query.is_empty() {
+        if meaning_mode {
+            if meaning_ranked.is_empty() {
+                where_parts.push("0 = 1".into());
+            } else {
+                let placeholders = vec!["?"; meaning_ranked.len()].join(", ");
+                where_parts.push(format!("page_search.page_id IN ({placeholders})"));
+                values.extend(
+                    meaning_ranked
+                        .iter()
+                        .map(|(page_id, _)| page_id.clone().into()),
+                );
+            }
+        } else if !query.is_empty() {
             where_parts.push("page_search MATCH ?".into());
             values.push(fts_expression(query).into());
         }
@@ -2693,7 +2794,7 @@ impl Application {
             where_parts.push("event_date IS NOT NULL AND event_date <= ?".into());
             values.push(to.into());
         }
-        if let Some(format) = request.format.as_deref().filter(|value| !value.is_empty()) {
+        if let Some(format) = format_filter {
             where_parts.push("lower(format) = lower(?)".into());
             values.push(format.to_lowercase().into());
         }
@@ -2706,27 +2807,41 @@ impl Application {
         } else {
             where_parts.join(" AND ")
         };
-        let excerpt = if query.is_empty() {
+        let excerpt = if query.is_empty() || meaning_mode {
             "substr(content, 1, 240)"
         } else {
             "snippet(page_search, 5, '', '', ' … ', 24)"
+        };
+        let search_order = if meaning_mode {
+            "title COLLATE NOCASE, page_id"
+        } else {
+            "CASE WHEN ? = '' THEN 0 WHEN lower(title) = lower(?) THEN 0
+              WHEN instr(lower(title), lower(?)) > 0 THEN 1 ELSE 2 END,
+             bm25(page_search), title COLLATE NOCASE, page_id"
         };
         let sql = format!(
             "SELECT page_id, source_id, page_type, title, kind, {excerpt} AS excerpt,
                     event_date, format, extraction, processing_status, match_location
              FROM page_search
              WHERE {where_sql}
-             ORDER BY CASE WHEN ? = '' THEN 0 WHEN lower(title) = lower(?) THEN 0
-                           WHEN instr(lower(title), lower(?)) > 0 THEN 1 ELSE 2 END,
-                      bm25(page_search), title COLLATE NOCASE, page_id
+             ORDER BY {search_order}
              LIMIT ? OFFSET ?"
         );
+        if !meaning_mode {
+            values.extend([
+                query.to_owned().into(),
+                query.to_owned().into(),
+                query.to_owned().into(),
+            ]);
+        }
         values.extend([
-            query.to_owned().into(),
-            query.to_owned().into(),
-            query.to_owned().into(),
-            ((PAGE_SIZE + 1) as i64).into(),
-            i64::try_from(request.offset)
+            (if meaning_mode {
+                251_i64
+            } else {
+                (PAGE_SIZE + 1) as i64
+            })
+            .into(),
+            i64::try_from(if meaning_mode { 0 } else { request.offset })
                 .map_err(|_| GardenError::Invalid("Invalid result offset.".into()))?
                 .into(),
         ]);
@@ -2773,6 +2888,7 @@ impl Application {
                     query,
                     &normalized_tags,
                 )?);
+            let meaning_score = meaning_scores.get(&page_id).copied();
             pages.push(PageResult {
                 page_id,
                 source_id: source_id.clone(),
@@ -2785,8 +2901,9 @@ impl Application {
                 event_date: event_date.clone(),
                 extraction: parse_extraction(&extraction)?,
                 processing_status,
-                matched_by: if !query.is_empty()
-                    && title.to_lowercase().contains(&query.to_lowercase())
+                matched_by: if meaning_mode {
+                    "meaning"
+                } else if !query.is_empty() && title.to_lowercase().contains(&query.to_lowercase())
                 {
                     "title"
                 } else if !normalized_tags.is_empty() {
@@ -2795,8 +2912,26 @@ impl Application {
                     "keyword"
                 }
                 .into(),
+                meaning_score,
                 match_location,
             });
+        }
+        if meaning_mode {
+            pages.sort_by(|left, right| {
+                meaning_scores
+                    .get(&right.page_id)
+                    .copied()
+                    .unwrap_or_default()
+                    .total_cmp(
+                        &meaning_scores
+                            .get(&left.page_id)
+                            .copied()
+                            .unwrap_or_default(),
+                    )
+            });
+            let start = request.offset.min(pages.len());
+            let end = start.saturating_add(PAGE_SIZE + 1).min(pages.len());
+            pages = pages.into_iter().skip(start).take(end - start).collect();
         }
         let next_offset = if pages.len() > PAGE_SIZE {
             pages.pop();
@@ -2827,6 +2962,7 @@ impl Application {
                 .into_iter()
                 .map(str::to_owned)
                 .collect(),
+            meaning_search_status: self.meaning_search_status.clone(),
         })
     }
 
@@ -2988,6 +3124,12 @@ impl Application {
             write_search_documents(&transaction, &documents)?;
         }
         transaction.commit()?;
+        if let Some(meaning) = self.meaning_search.as_mut() {
+            match meaning.sync(&self.index) {
+                Ok(()) => self.meaning_search_status = "ready".into(),
+                Err(error) => self.meaning_search_status = format!("incomplete_index: {error}"),
+            }
+        }
         Ok(())
     }
 

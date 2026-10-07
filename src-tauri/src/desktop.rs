@@ -140,7 +140,11 @@ pub fn run() {
                 .unwrap_or(app.path().app_data_dir()?.join("collection"));
             let semantic_provider: Arc<dyn SemanticProvider> =
                 Arc::new(JevSemanticProvider::from_environment_and_keychain());
-            let engine = Arc::new(Mutex::new(Application::open(root)?));
+            let meaning_assets = app.path().resource_dir()?.join("meaning");
+            let engine = Arc::new(Mutex::new(Application::open_with_meaning_assets(
+                root,
+                Some(meaning_assets),
+            )?));
             let worker_app = Arc::clone(&engine);
             let worker_provider = Arc::clone(&semantic_provider);
             std::thread::Builder::new()

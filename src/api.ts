@@ -105,6 +105,7 @@ export interface SourceList {
 
 export interface PageSearchRequest {
   query: string;
+  mode?: "keyword" | "meaning";
   tags: string[];
   date_from: string | null;
   date_to: string | null;
@@ -140,8 +141,9 @@ export interface PageResult {
   extraction: ExtractionState;
   processing_status:
     "pending" | "processing" | "complete" | "failed" | "unavailable";
-  matched_by: "title" | "tag" | "keyword";
+  matched_by: "title" | "tag" | "keyword" | "meaning";
   match_location: SearchMatchLocation | null;
+  meaning_score?: number | null;
 }
 
 export interface PageSearchResults {
@@ -150,6 +152,7 @@ export interface PageSearchResults {
   available_tags: string[];
   available_formats: string[];
   available_statuses: string[];
+  meaning_search_status?: string;
 }
 
 /** The reader's application boundary. Desktop paths never come from page HTML. */

@@ -200,6 +200,7 @@ it("searches durable page results with combined filters and restores the exact r
   )?.[0] as PageSearchRequest;
   expect(request).toEqual({
     query: "Riverside",
+    mode: "keyword",
     tags: ["fieldwork"],
     date_from: "2024-05-01",
     date_to: null,
@@ -241,6 +242,52 @@ it("searches durable page results with combined filters and restores the exact r
   expect(document.activeElement).toBe(
     screen.getByRole("button", { name: "Riverside notes" }),
   );
+});
+
+it("sends remembered-meaning searches through shared page results and restores keyword mode from its filter", async () => {
+  const api = testApi();
+  api.searchPages = vi.fn().mockResolvedValue({
+    pages: [],
+    next_offset: null,
+    available_tags: [],
+    available_formats: [],
+    available_statuses: [],
+    meaning_search_status: "missing_assets: local bundle missing",
+  } satisfies PageSearchResults);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await screen.findByRole("heading", { name: "Search your garden" });
+  await user.type(
+    screen.getByRole("searchbox", { name: "Words or title" }),
+    "river notes",
+  );
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Search mode" }),
+    "meaning",
+  );
+  fireEvent.submit(root.querySelector(".search-form")!);
+  await waitFor(() => {
+    expect(api.searchPages).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: "river notes", mode: "meaning" }),
+    );
+  });
+  expect(await screen.findByText(/No matching pages/)).toBeTruthy();
+  expect(
+    screen.getByText(
+      /Meaning search is unavailable: missing_assets: local bundle missing/,
+    ),
+  ).toBeTruthy();
+  await user.click(
+    screen.getByRole("button", { name: "Remove Meaning search filter" }),
+  );
+  await waitFor(() => {
+    expect(api.searchPages).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: "river notes", mode: "keyword" }),
+    );
+  });
 });
 
 it("shows an explicit empty state and removable search filters", async () => {

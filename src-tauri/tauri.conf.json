@@ -26,6 +26,9 @@
   "bundle": {
     "active": true,
     "targets": ["app"],
+    "resources": {
+      "resources/meaning/*": "meaning/"
+    },
     "category": "Productivity",
     "shortDescription": "A durable local Markdown collection",
     "icon": ["icons/icon.icns", "icons/icon.png"]
