@@ -84,6 +84,69 @@ impl SemanticProvider for WholeInputProvider {
     }
 }
 
+struct PriorCaptureProvider(Mutex<Vec<(String, Option<String>)>>);
+
+impl SemanticProvider for PriorCaptureProvider {
+    fn form_knowledge(
+        &self,
+        source_text: &str,
+    ) -> std::result::Result<KnowledgeDraft, ProviderError> {
+        WholeInputProvider.form_knowledge(source_text)
+    }
+
+    fn form_knowledge_with_prior(
+        &self,
+        source_text: &str,
+        prior_source_text: Option<&str>,
+    ) -> std::result::Result<KnowledgeDraft, ProviderError> {
+        self.0
+            .lock()
+            .unwrap()
+            .push((source_text.to_owned(), prior_source_text.map(str::to_owned)));
+        self.form_knowledge(source_text)
+    }
+}
+
+#[test]
+fn office_revision_semantic_job_receives_previous_projection_separately() {
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/office/source");
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("working-measurement.docx");
+    fs::copy(fixtures.join("multi-measurement.docx"), &source).unwrap();
+    let provider = Arc::new(PriorCaptureProvider(Mutex::new(Vec::new())));
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        provider.clone(),
+    )
+    .unwrap();
+
+    let first = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    fs::copy(fixtures.join("multi-measurement-update.docx"), &source).unwrap();
+    app.import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let calls = provider.0.lock().unwrap();
+    let (incoming, prior) = calls.last().unwrap();
+    let prior = prior
+        .as_deref()
+        .expect("revisions include prior projection");
+    assert!(incoming.contains("15 °C"));
+    assert!(prior.contains("12 °C"));
+    assert!(!incoming.contains("12 °C"));
+    assert!(!prior.contains("15 °C"));
+    assert_eq!(
+        app.open_source(&first.info.source_id)
+            .unwrap()
+            .info
+            .source_id,
+        first.info.source_id
+    );
+}
+
 fn copy_collection(source: &Path, destination: &Path) -> std::io::Result<()> {
     fs::create_dir_all(destination)?;
     for entry in fs::read_dir(source)? {
@@ -121,6 +184,8 @@ struct ConfiguredSystemOneTransport {
     roles: Mutex<VecDeque<String>>,
 }
 
+struct ContextCapturingTransport(Mutex<Option<Value>>);
+
 impl SystemOneTransport for RecordedSystemOneTransport {
     fn complete(
         &self,
@@ -137,8 +202,12 @@ impl SystemOneTransport for ConfiguredSystemOneTransport {
         _api_key: &str,
         request: &Value,
     ) -> std::result::Result<Value, ProviderError> {
-        let role = self.roles.lock().unwrap().pop_front().unwrap();
         let questions = request["questions"].as_object().unwrap();
+        let role = if questions.contains_key("source_update_role") {
+            self.roles.lock().unwrap().pop_front().unwrap()
+        } else {
+            "unknown".into()
+        };
         let mut answers = serde_json::Map::new();
         for (key, question) in questions {
             match question["type"].as_str().unwrap_or_default() {
@@ -187,6 +256,90 @@ impl SystemOneTransport for ConfiguredSystemOneTransport {
         }
         Ok(serde_json::json!({"model":"typesafe/jev-1.13-recorded","answers":answers}))
     }
+}
+
+impl SystemOneTransport for ContextCapturingTransport {
+    fn complete(
+        &self,
+        _api_key: &str,
+        request: &Value,
+    ) -> std::result::Result<Value, ProviderError> {
+        *self.0.lock().unwrap() = Some(request.clone());
+        let mut answers = serde_json::Map::new();
+        for (key, question) in request["questions"].as_object().unwrap() {
+            match question["type"].as_str().unwrap_or_default() {
+                "noul" => {
+                    answers.insert(key.clone(), serde_json::json!({"type":"noul","noul":0.99}));
+                }
+                "choice" => {
+                    let criteria = question["criteria"].as_object().unwrap();
+                    let choice = match key.as_str() {
+                        "source_update_role" => "complete_replacement",
+                        "source_update_evidence" => "span_0",
+                        "source_order_date" | "source_order_revision" | "event_date" => "none",
+                        "event_identity" => "unclear",
+                        _ => criteria.keys().next().map(String::as_str).unwrap_or("none"),
+                    };
+                    answers.insert(
+                        key.clone(),
+                        serde_json::json!({"type":"choice","choice":choice,"probabilities":{choice:0.99}}),
+                    );
+                }
+                _ => {
+                    return Err(ProviderError::permanent(
+                        "Unexpected typed question.".into(),
+                    ))
+                }
+            }
+        }
+        Ok(serde_json::json!({"model":"typesafe/jev-1.13-capture","answers":answers}))
+    }
+}
+
+#[test]
+fn jev_update_question_receives_prior_snapshot_as_distinct_state() {
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/office/source");
+    let previous = knowledge_garden::office::extract(
+        &fixtures.join("multi-measurement.docx"),
+        "docx",
+        "working-measurement",
+    )
+    .unwrap();
+    let incoming = knowledge_garden::office::extract(
+        &fixtures.join("multi-measurement-update.docx"),
+        "docx",
+        "working-measurement",
+    )
+    .unwrap();
+    let transport = Arc::new(ContextCapturingTransport(Mutex::new(None)));
+    let provider =
+        JevSemanticProvider::with_transport("recorded-test-credential".into(), transport.clone());
+
+    provider
+        .form_knowledge_with_prior(&incoming.semantic_text, Some(&previous.semantic_text))
+        .unwrap();
+
+    let request = transport.0.lock().unwrap().clone().unwrap();
+    assert!(request["state"]["source_text"]
+        .as_str()
+        .unwrap()
+        .contains("15 °C"));
+    assert!(request["state"]["prior_source_projection"]
+        .as_str()
+        .unwrap()
+        .contains("12 °C"));
+    assert!(!request["state"]["source_text"]
+        .as_str()
+        .unwrap()
+        .contains("12 °C"));
+    assert!(!request["state"]["prior_source_projection"]
+        .as_str()
+        .unwrap()
+        .contains("15 °C"));
+    assert!(request["questions"]["source_update_role"]["instructions"]
+        .as_str()
+        .unwrap()
+        .contains("A provisional, estimated, or uncertain qualifier attached to one table row"));
 }
 
 fn v17_recording() -> KnowledgeDraft {
@@ -2217,7 +2370,7 @@ fn office_record_keys_preserve_multiple_fields_and_source_scope_across_revision(
             "complete_replacement".into(),
             "complete_replacement".into(),
             "complete_replacement".into(),
-            "complete_replacement".into(),
+            "unknown".into(),
         ])),
     });
     let provider =
@@ -2351,6 +2504,19 @@ fn office_record_keys_preserve_multiple_fields_and_source_scope_across_revision(
     app.resume_due_semantic_jobs().unwrap();
     let updated = app.open_source(&first.info.source_id).unwrap();
     assert_eq!(updated.info.semantic_state, "complete");
+    assert_eq!(updated.info.update_status, None);
+    assert_eq!(
+        updated.info.current_version_id.as_deref(),
+        updated
+            .info
+            .versions_seen
+            .last()
+            .map(|version| version.source_version_id.as_str())
+    );
+    assert_eq!(
+        updated.info.versions_seen.last().unwrap().update_role,
+        "unknown"
+    );
     let updated_page = app
         .open_knowledge_page(&updated.info.knowledge_pages[0].page_id)
         .unwrap();
@@ -2380,14 +2546,37 @@ fn office_record_keys_preserve_multiple_fields_and_source_scope_across_revision(
         .unwrap();
     assert_eq!(updated_water["fact_id"], water_id);
     assert_eq!(updated_water["record_key"], water_key);
+    assert!(updated_water["qualifier"]
+        .as_str()
+        .unwrap()
+        .contains("Provisional pending instrument calibration"));
     assert!(
         updated_water["value"].as_str().unwrap().contains("15 °C"),
         "updated fact must retain its stable field identity and new value: {updated_water}"
     );
+    let updated_oxygen = updated_rows
+        .iter()
+        .find(|fact| fact["value"].as_str().unwrap().contains("Dissolved oxygen"))
+        .unwrap();
+    assert_eq!(updated_oxygen["fact_id"], oxygen["fact_id"]);
+    assert!(updated_oxygen["value"]
+        .as_str()
+        .unwrap()
+        .contains("7.4 mg/L"));
     assert_eq!(
         fs::read(app.original_path(&first.info.source_id).unwrap()).unwrap(),
         fs::read(&source).unwrap()
     );
+    let prior_version = &updated.info.versions_seen[0];
+    let prior_original = workspace
+        .path()
+        .join("collection")
+        .join("sources")
+        .join(first.info.source_id.trim_start_matches("source-"))
+        .join("versions")
+        .join(&prior_version.source_version_id)
+        .join(&prior_version.asset);
+    assert_eq!(fs::read(prior_original).unwrap(), before_bytes);
     assert_ne!(before_bytes, fs::read(&source).unwrap());
 }
 
