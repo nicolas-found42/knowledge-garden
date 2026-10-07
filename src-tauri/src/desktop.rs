@@ -158,6 +158,9 @@ pub fn run() {
                         if let Err(error) = app.resume_due_url_acquisitions() {
                             eprintln!("URL acquisition queue could not resume work: {error}");
                         }
+                        if let Err(error) = app.resume_due_audio_jobs() {
+                            eprintln!("Audio transcription queue could not resume work: {error}");
+                        }
                     }
                     let jobs = match worker_app.lock() {
                         Ok(mut app) => match app.claim_due_semantic_jobs(2) {

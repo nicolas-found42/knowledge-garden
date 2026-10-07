@@ -17,7 +17,8 @@ export type CoverageScope =
   | "tables"
   | "slide_text"
   | "speaker_notes"
-  | "embedded_object";
+  | "embedded_object"
+  | "audio_recording";
 
 export type CoverageStatus = "complete" | "partial" | "unsupported" | "failed";
 
@@ -73,6 +74,28 @@ export interface SourceInfo {
     model: string;
     outcome: string;
     probability: number | null;
+  }[];
+  audio_processing?: AudioProcessingInfo | null;
+}
+
+export interface AudioProcessingInfo {
+  state: "pending" | "processing" | "complete" | "unsupported" | "failed";
+  duration_ms: number;
+  next_start_ms: number;
+  segment_duration_ms: number;
+  attempts: number;
+  retry_at_ms: number | null;
+  detail: string;
+  segments: {
+    segment_id: string;
+    start_ms: number;
+    end_ms: number;
+    text: string;
+    confidence: number | null;
+    alternatives: string[];
+    speaker: string | null;
+    speaker_state: string;
+    final_result: boolean;
   }[];
 }
 
@@ -130,7 +153,10 @@ export interface SearchMatchLocation {
   line_start: number;
   line_end: number;
   offset_basis:
-    "preserved_text" | "extracted_office_projection" | "web_visible_text";
+    | "preserved_text"
+    | "extracted_office_projection"
+    | "web_visible_text"
+    | "audio_transcript";
   source_location: string | null;
 }
 
