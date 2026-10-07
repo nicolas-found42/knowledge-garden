@@ -807,9 +807,6 @@ impl Application {
                     | ExtractionState::StructuredText
                     | ExtractionState::PartialText
             ) {
-                if !acquisition_exists {
-                    write_acquisition(&destination, &acquisition)?;
-                }
                 existing.info.update_status = Some("incomplete".into());
                 existing.info.semantic_error = Some(format!(
                     "The changed source version was retained, but {} prevented a complete replacement.",
@@ -824,10 +821,6 @@ impl Application {
             existing.info.extraction_coverage = extraction_coverage;
             existing.info.semantic_error = None;
             existing.info.semantic_retry_at = None;
-            if !acquisition_exists {
-                write_acquisition(&destination, &acquisition)?;
-            }
-            self.index_acquisition(&acquisition.path, &source_id)?;
             self.write_source_page(&existing)?;
             self.index_page(&existing.info)?;
             return self.open_source(&source_id);
@@ -4000,10 +3993,9 @@ fn find_text_match(text: &str, terms: &[String]) -> Option<(usize, usize)> {
 fn write_acquisition(destination: &Path, acquisition: &Acquisition) -> Result<()> {
     let contexts = destination.join("acquisitions");
     fs::create_dir_all(&contexts)?;
-    let key = format!(
-        "{:x}",
-        Sha256::digest(format!("{}:{:?}", acquisition.path, acquisition.method).as_bytes())
-    );
+    // One requested URL can have several independently acquired redirect contexts.
+    // Preserve each record instead of overwriting or colliding with its predecessor.
+    let key = format!("{:x}", Sha256::digest(serde_json::to_vec(acquisition)?));
     let mut record = tempfile::NamedTempFile::new_in(&contexts)?;
     write!(
         record,

@@ -27,6 +27,7 @@ struct Fixture {
     requests: Arc<Mutex<Vec<String>>>,
     temporary_available: Arc<AtomicBool>,
     redirect_to_localhost: Arc<AtomicBool>,
+    redirect_to_alias: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     worker: Option<thread::JoinHandle<()>>,
 }
@@ -40,14 +41,20 @@ impl Fixture {
             "http://localhost:{}/c",
             listener.local_addr().unwrap().port()
         );
+        let alias_redirect = format!(
+            "http://localhost:{}/alias",
+            listener.local_addr().unwrap().port()
+        );
         let requests = Arc::new(Mutex::new(Vec::new()));
         let temporary_available = Arc::new(AtomicBool::new(false));
         let redirect_to_localhost = Arc::new(AtomicBool::new(false));
+        let redirect_to_alias = Arc::new(AtomicBool::new(false));
         let stop = Arc::new(AtomicBool::new(false));
         let worker = {
             let requests = Arc::clone(&requests);
             let temporary_available = Arc::clone(&temporary_available);
             let redirect_to_localhost = Arc::clone(&redirect_to_localhost);
+            let redirect_to_alias = Arc::clone(&redirect_to_alias);
             let stop = Arc::clone(&stop);
             thread::spawn(move || {
                 while !stop.load(Ordering::Relaxed) {
@@ -107,6 +114,14 @@ impl Fixture {
                         "/a" => (200, "text/html; charset=utf-8", None, PAGE_A, None),
                         "/b" => (200, "text/html; charset=utf-8", None, PAGE_B, None),
                         "/c" => (200, "text/html; charset=utf-8", None, PAGE_C, None),
+                        "/alias" => (200, "text/html; charset=utf-8", None, PAGE_C, None),
+                        "/redirect" if redirect_to_alias.load(Ordering::Relaxed) => (
+                            302,
+                            "text/plain",
+                            None,
+                            b"".as_slice(),
+                            Some(alias_redirect.as_str()),
+                        ),
                         "/redirect" if redirect_to_localhost.load(Ordering::Relaxed) => (
                             302,
                             "text/plain",
@@ -187,6 +202,7 @@ impl Fixture {
             requests,
             temporary_available,
             redirect_to_localhost,
+            redirect_to_alias,
             stop,
             worker: Some(worker),
         }
@@ -319,6 +335,37 @@ fn latest_redirect_final_url_resolves_relative_links_for_source_updates() {
     assert!(!update_job
         .source_text
         .contains(&format!("{}/b", fixture.base_url)));
+}
+
+#[test]
+fn repeated_redirect_contexts_survive_identical_bytes_and_restart() {
+    let fixture = Fixture::start();
+    let collection = tempfile::tempdir().unwrap();
+    let requested = format!("{}/redirect", fixture.base_url);
+    let mut app = Application::open(collection.path()).unwrap();
+    let initial = app.import_url(&requested).unwrap();
+    fixture.redirect_to_localhost.store(true, Ordering::Relaxed);
+    app.import_url(&requested).unwrap();
+    fixture.redirect_to_alias.store(true, Ordering::Relaxed);
+    let latest = app.import_url(&requested).unwrap();
+    assert_eq!(latest.info.source_id, initial.info.source_id);
+    assert_eq!(
+        latest.info.versions_seen.len(),
+        2,
+        "same bytes retain one version"
+    );
+    drop(app);
+    let app = Application::open(collection.path()).unwrap();
+    let page = app.open_source(&initial.info.source_id).unwrap();
+    assert_eq!(page.info.acquisitions.len(), 3);
+    assert!(page.info.acquisitions.iter().any(|record| record
+        .final_url
+        .as_deref()
+        .is_some_and(|url| url.ends_with("/c"))));
+    assert!(page.info.acquisitions.iter().any(|record| record
+        .final_url
+        .as_deref()
+        .is_some_and(|url| url.ends_with("/alias"))));
 }
 
 #[test]
