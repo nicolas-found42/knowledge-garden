@@ -564,3 +564,55 @@ it("opens linked knowledge pages, returns to their source, and opens the retaine
     "original.txt",
   );
 });
+
+it("shows Office projection offsets, original locators, and fallback guidance in the reader", async () => {
+  const digest = "d".repeat(64);
+  const source: SourcePage = {
+    ...riverside,
+    info: {
+      ...riverside.info,
+      source_id: `source-${digest}`,
+      knowledge_pages: [
+        {
+          page_id: "page-field-visit",
+          title: "Riverside field visit",
+          kind: "event",
+          path: "pages/page-field-visit.md",
+        },
+      ],
+    },
+    body: `# Field report\n\n[Riverside field visit](pages/page-field-visit.md)`,
+  };
+  const knowledge = {
+    page_id: "page-field-visit",
+    source_id: source.info.source_id,
+    title: "Riverside field visit",
+    kind: "event",
+    markdown: `---\npage_id: page-field-visit\n---\n\n# Riverside field visit\n\n## Facts\n\n- **visit count:** 12 visits\n  - Evidence: “12 visits, excluding two unverified reports.”\n  - Origin: observed · extracted projection lines 2–2, extracted projection bytes 20–68 · extracted Office projection; offsets are not original package byte offsets · original locator: DOCX table 1 row 2; channel=table\n  - The retained original opens as a fallback; the offsets above refer to the stated extracted projection.\n  - Links: [Source page](../sources/${digest}/index.md) · [Retained original](../sources/${digest}/original.docx)`,
+  };
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(source);
+  api.openKnowledgePage = vi.fn().mockResolvedValue(knowledge);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(
+    await screen.findByRole("link", { name: "Riverside field visit" }),
+  );
+
+  expect(
+    await screen.findByText(
+      /extracted Office projection; offsets are not original package byte offsets/,
+    ),
+  ).toBeTruthy();
+  expect(screen.getByText(/DOCX table 1 row 2; channel=table/)).toBeTruthy();
+  expect(
+    screen.getByText(
+      /retained original opens as a fallback.*stated extracted projection/i,
+    ),
+  ).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Retained original" })).toBeTruthy();
+});
