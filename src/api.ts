@@ -49,7 +49,14 @@ export interface SourceInfo {
   bytes: number;
   format: string;
   current_version_id?: string | null;
-  versions_seen?: { source_version_id: string; state: string }[];
+  pending_version_id?: string | null;
+  update_status?:
+    "pending" | "processing" | "failed" | "incomplete" | "uncertain" | null;
+  versions_seen?: {
+    source_version_id: string;
+    state: string;
+    asset?: string;
+  }[];
   extraction: ExtractionState;
   extraction_detail: string;
   extraction_coverage?: CoveragePart[] | null;
@@ -160,6 +167,7 @@ export interface GardenApi {
   chooseFile(): Promise<string | null>;
   importSource(path: string, method: AcquisitionMethod): Promise<SourcePage>;
   importUrl(url: string): Promise<SourcePage>;
+  listUrlAcquisitions(): Promise<UrlAcquisitionStatus[]>;
   listSources(offset: number): Promise<SourceList>;
   searchPages(request: PageSearchRequest): Promise<PageSearchResults>;
   openSource(sourceId: string): Promise<SourcePage>;
@@ -174,6 +182,15 @@ export interface GardenApi {
   onDrop(handler: (paths: string[]) => void): Promise<() => void>;
 }
 
+export interface UrlAcquisitionStatus {
+  url: string;
+  attempts: number;
+  state: "processing" | "pending" | "restricted" | "failed";
+  retry_at: number | null;
+  last_error: string;
+  previous_source_available: boolean;
+}
+
 export const desktopApi: GardenApi = {
   async chooseFile() {
     const selected = await open({
@@ -185,6 +202,7 @@ export const desktopApi: GardenApi = {
   },
   importSource: (path, method) => invoke("import_source", { path, method }),
   importUrl: (url) => invoke("import_url", { url }),
+  listUrlAcquisitions: () => invoke("list_url_acquisitions"),
   listSources: (offset) => invoke("list_sources", { offset }),
   searchPages: (request) => invoke("search_pages", { request }),
   openSource: (sourceId) => invoke("open_source", { sourceId }),

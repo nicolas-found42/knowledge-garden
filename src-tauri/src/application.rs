@@ -1,9 +1,11 @@
 //! Public, disk-backed collection operations. Markdown and originals are authoritative.
+use crate::extraction::{LocalExtractor, SourceExtractor};
 use crate::meaning::{MeaningFilters, MeaningSearch};
 use crate::office::{CoveragePart, CoverageScope, CoverageStatus, OfficeProjection};
 use crate::semantic::{
-    EntityDraft, EvidenceDraft, KnowledgeDraft, KnowledgePage, KnowledgePageSummary, ProviderError,
-    SemanticDecision, SemanticJob, SemanticProvider, SourceUpdateRole,
+    CorrectionCandidateDraft, EntityDraft, EvidenceDraft, KnowledgeDraft, KnowledgePage,
+    KnowledgePageSummary, ProviderError, SemanticDecision, SemanticJob, SemanticProvider,
+    SourceUpdateRole,
 };
 use fs2::FileExt;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
@@ -77,6 +79,16 @@ pub struct Acquisition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UrlAcquisitionStatus {
+    pub url: String,
+    pub attempts: u32,
+    pub state: String,
+    pub retry_at: Option<u64>,
+    pub last_error: String,
+    pub previous_source_available: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceVersion {
     pub source_version_id: String,
     pub sha256: String,
@@ -109,6 +121,10 @@ pub struct SourceVersion {
     pub state: String,
     #[serde(default)]
     pub coverage: String,
+    #[serde(default)]
+    pub extraction_attempts: u32,
+    #[serde(default)]
+    pub semantic_integrity_failures: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -160,7 +176,7 @@ pub struct SourceSummary {
     pub extraction: ExtractionState,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourcePage {
     pub info: SourceInfo,
     pub markdown: String,
@@ -255,6 +271,7 @@ pub struct Application {
     // The lock survives for this application's lifetime, including across commands.
     _lock: File,
     semantic_provider: Arc<dyn SemanticProvider>,
+    extractor: Arc<dyn SourceExtractor>,
     staged_publication: Vec<(PathBuf, Vec<u8>)>,
     fail_after_publication_files: Option<usize>,
     meaning_search: Option<MeaningSearch>,
@@ -275,16 +292,22 @@ impl Application {
 
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
         let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
-        Self::open_with_meaning_assets(root, meaning_assets)
+        Self::open_with_providers_and_meaning_assets(
+            root,
+            Arc::new(UnavailableProvider),
+            Arc::new(LocalExtractor),
+            meaning_assets,
+        )
     }
 
     pub fn open_with_meaning_assets(
         root: impl AsRef<Path>,
         meaning_assets: Option<impl AsRef<Path>>,
     ) -> Result<Self> {
-        Self::open_inner(
+        Self::open_with_providers_and_meaning_assets(
             root,
             Arc::new(UnavailableProvider),
+            Arc::new(LocalExtractor),
             meaning_assets.map(|path| path.as_ref().to_path_buf()),
         )
     }
@@ -294,7 +317,12 @@ impl Application {
         semantic_provider: Arc<dyn SemanticProvider>,
     ) -> Result<Self> {
         let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
-        Self::open_inner(root, semantic_provider, meaning_assets)
+        Self::open_with_providers_and_meaning_assets(
+            root,
+            semantic_provider,
+            Arc::new(LocalExtractor),
+            meaning_assets,
+        )
     }
 
     pub fn open_with_semantic_provider_and_meaning_assets(
@@ -302,9 +330,38 @@ impl Application {
         semantic_provider: Arc<dyn SemanticProvider>,
         meaning_assets: Option<impl AsRef<Path>>,
     ) -> Result<Self> {
+        Self::open_with_providers_and_meaning_assets(
+            root,
+            semantic_provider,
+            Arc::new(LocalExtractor),
+            meaning_assets.map(|path| path.as_ref().to_path_buf()),
+        )
+    }
+
+    pub fn open_with_providers(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
+    ) -> Result<Self> {
+        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
+        Self::open_with_providers_and_meaning_assets(
+            root,
+            semantic_provider,
+            extractor,
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_providers_and_meaning_assets(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
+        meaning_assets: Option<impl AsRef<Path>>,
+    ) -> Result<Self> {
         Self::open_inner(
             root,
             semantic_provider,
+            extractor,
             meaning_assets.map(|path| path.as_ref().to_path_buf()),
         )
     }
@@ -312,6 +369,7 @@ impl Application {
     fn open_inner(
         root: impl AsRef<Path>,
         semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
         meaning_assets: Option<PathBuf>,
     ) -> Result<Self> {
         fs::create_dir_all(root.as_ref())?;
@@ -385,12 +443,14 @@ impl Application {
             index,
             _lock: lock,
             semantic_provider,
+            extractor,
             staged_publication: Vec::new(),
             fail_after_publication_files: None,
             meaning_search,
             meaning_search_status,
         };
         app.rebuild_index()?;
+        app.recover_interrupted_url_acquisitions()?;
         Ok(app)
     }
 
@@ -403,6 +463,68 @@ impl Application {
     }
 
     pub fn import_url(&mut self, input: &str) -> Result<SourcePage> {
+        let url = reqwest::Url::parse(input)
+            .map_err(|_| GardenError::Invalid("Enter a valid HTTP or HTTPS URL.".into()))?
+            .to_string();
+        let mut status = self.read_url_status(&url)?.unwrap_or(UrlAcquisitionStatus {
+            url: url.clone(),
+            attempts: 0,
+            state: "pending".into(),
+            retry_at: None,
+            last_error: String::new(),
+            previous_source_available: self.source_for_origin(&url)?.is_some(),
+        });
+        status.attempts = status.attempts.saturating_add(1);
+        status.state = "processing".into();
+        status.retry_at = None;
+        self.write_url_status(&status)?;
+        match self.fetch_and_import_url(&url) {
+            Ok(page) => {
+                self.remove_url_status(&url)?;
+                Ok(page)
+            }
+            Err(error) => {
+                let msg = error.to_string();
+                status.last_error = msg.clone();
+                status.previous_source_available |= self.source_for_origin(&url)?.is_some();
+                let http_status = msg
+                    .split("HTTP ")
+                    .nth(1)
+                    .and_then(|rest| rest.get(..3))
+                    .and_then(|value| value.parse::<u16>().ok());
+                let restricted = matches!(http_status, Some(401 | 403));
+                let retryable =
+                    http_status.is_none_or(|code| matches!(code, 408 | 425 | 429) || code >= 500);
+                if restricted {
+                    status.state = "restricted".into();
+                } else if !retryable || status.attempts >= 8 {
+                    status.state = "failed".into();
+                } else {
+                    status.state = "pending".into();
+                    let delay = (5u64
+                        .saturating_mul(1u64 << status.attempts.saturating_sub(1).min(10)))
+                    .min(3600);
+                    status.retry_at = Some(
+                        (now_millis()?.min(u128::from(u64::MAX)) as u64)
+                            .saturating_add(delay * 1000),
+                    );
+                }
+                self.write_url_status(&status)?;
+                Err(GardenError::Invalid(format!(
+                    "{msg}{}",
+                    if status.state == "pending" {
+                        " Retry scheduled automatically; previous material remains available when present."
+                    } else if restricted {
+                        " Access is restricted; automatic retry stopped."
+                    } else {
+                        " Automatic retries exhausted; previous material remains available when present."
+                    }
+                )))
+            }
+        }
+    }
+
+    fn fetch_and_import_url(&mut self, input: &str) -> Result<SourcePage> {
         let requested = reqwest::Url::parse(input)
             .map_err(|_| GardenError::Invalid("Enter a valid HTTP or HTTPS URL.".into()))?;
         if !matches!(requested.scheme(), "http" | "https")
@@ -472,14 +594,26 @@ impl Application {
             output.write_all(&chunk[..read])?;
         }
         output.sync_all()?;
+        let mut received_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| GardenError::Invalid(e.to_string()))?
+            .as_millis();
+        if let Some(source_id) = self.source_for_origin(&requested)? {
+            if let Some(latest) = self
+                .open_source(&source_id)?
+                .info
+                .acquisitions
+                .iter()
+                .filter_map(|acquisition| acquisition.received_at.parse::<u128>().ok())
+                .max()
+            {
+                received_at = received_at.max(latest.saturating_add(1));
+            }
+        }
         let acquisition = Acquisition {
             path: requested.clone(),
             method: AcquisitionMethod::Url,
-            received_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|e| GardenError::Invalid(e.to_string()))?
-                .as_millis()
-                .to_string(),
+            received_at: received_at.to_string(),
             requested_url: Some(requested),
             final_url: Some(final_url),
             http_status: Some(status.as_u16()),
@@ -491,6 +625,92 @@ impl Application {
             Some(acquisition),
             Some(format),
         )
+    }
+
+    fn url_status_path(&self, url: &str) -> PathBuf {
+        let digest = Sha256::digest(url.as_bytes());
+        self.root
+            .join("url-acquisitions")
+            .join(format!("{:x}.json", digest))
+    }
+
+    fn read_url_status(&self, url: &str) -> Result<Option<UrlAcquisitionStatus>> {
+        let path = self.url_status_path(url);
+        if !path.exists() {
+            return Ok(None);
+        }
+        Ok(Some(serde_json::from_slice(&fs::read(path)?)?))
+    }
+
+    fn write_url_status(&self, status: &UrlAcquisitionStatus) -> Result<()> {
+        let path = self.url_status_path(&status.url);
+        fs::create_dir_all(path.parent().unwrap())?;
+        let temp = path.with_extension("tmp");
+        let mut file = File::create(&temp)?;
+        file.write_all(&serde_json::to_vec_pretty(status)?)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temp, &path)?;
+        sync_directory(path.parent().unwrap())?;
+        Ok(())
+    }
+
+    fn remove_url_status(&self, url: &str) -> Result<()> {
+        let path = self.url_status_path(url);
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
+    pub fn list_url_acquisitions(&self) -> Result<Vec<UrlAcquisitionStatus>> {
+        let dir = self.root.join("url-acquisitions");
+        if !dir.exists() {
+            return Ok(Vec::new());
+        }
+        let mut records = fs::read_dir(dir)?
+            .filter_map(|entry| match entry {
+                Ok(entry) if entry.path().extension().is_some_and(|ext| ext == "json") => {
+                    Some(Ok::<PathBuf, GardenError>(entry.path()))
+                }
+                Ok(_) => None,
+                Err(error) => Some(Err(error.into())),
+            })
+            .map(|path| Ok(serde_json::from_slice(&fs::read(path?)?)?))
+            .collect::<Result<Vec<UrlAcquisitionStatus>>>()?;
+        records.sort_by(|a, b| a.url.cmp(&b.url));
+        Ok(records)
+    }
+
+    fn recover_interrupted_url_acquisitions(&self) -> Result<()> {
+        for mut status in self.list_url_acquisitions()? {
+            if status.state == "processing" {
+                status.state = "pending".into();
+                status.retry_at = Some(0);
+                status.last_error =
+                    "The application restarted during retrieval; retry is queued.".into();
+                self.write_url_status(&status)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn resume_due_url_acquisitions(&mut self) -> Result<()> {
+        let now = now_millis()?.min(u128::from(u64::MAX)) as u64;
+        self.resume_due_url_acquisitions_at(now)
+    }
+
+    pub fn resume_due_url_acquisitions_at(&mut self, now: u64) -> Result<()> {
+        let due = self
+            .list_url_acquisitions()?
+            .into_iter()
+            .filter(|item| item.state == "pending" && item.retry_at.is_some_and(|at| at <= now))
+            .map(|item| item.url)
+            .collect::<Vec<_>>();
+        for url in due {
+            let _ = self.import_url(&url);
+        }
+        Ok(())
     }
 
     fn import_source_with_acquisition(
@@ -601,6 +821,24 @@ impl Application {
                 self.index_acquisition(&acquisition.path, &source_id)?;
                 return self.open_source(&source_id);
             }
+            let version = source_version(
+                &digest,
+                count,
+                &original_name,
+                &asset,
+                &format,
+                &acquisition.received_at,
+                "pending",
+            );
+            let version_path = self.version_original_path(&source_id, &version)?;
+            write_atomic_from_file(&version_path, &staging.path().join(&asset))?;
+            existing.info.versions_seen.push(version);
+            existing.info.pending_version_id = Some(digest.clone());
+            existing.info.update_status = Some("pending".into());
+            if !acquisition_exists {
+                write_acquisition(&destination, &acquisition)?;
+            }
+            self.index_acquisition(&acquisition.path, &source_id)?;
             let (extraction, extraction_detail, extraction_coverage) = if method
                 == AcquisitionMethod::Url
                 && format == "html"
@@ -616,7 +854,7 @@ impl Application {
                     Err(detail) => (ExtractionState::InvalidUtf8, detail, None),
                 }
             } else if matches!(format.as_str(), "docx" | "pptx") {
-                match crate::office::extract(
+                match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
                     path.file_stem()
@@ -634,7 +872,7 @@ impl Application {
                         Some(projection.coverage),
                     ),
                     Err(detail) => {
-                        existing.info.update_status = Some("incomplete".into());
+                        existing.info.update_status = Some("pending".into());
                         existing.info.semantic_error = Some(format!(
                                 "The changed Office version was retained, but extraction failed: {detail}"
                             ));
@@ -653,9 +891,6 @@ impl Application {
                     | ExtractionState::StructuredText
                     | ExtractionState::PartialText
             ) {
-                if !acquisition_exists {
-                    write_acquisition(&destination, &acquisition)?;
-                }
                 existing.info.update_status = Some("incomplete".into());
                 existing.info.semantic_error = Some(format!(
                     "The changed source version was retained, but {} prevented a complete replacement.",
@@ -668,26 +903,8 @@ impl Application {
             existing.info.extraction = extraction;
             existing.info.extraction_detail = extraction_detail;
             existing.info.extraction_coverage = extraction_coverage;
-            let version = source_version(
-                &digest,
-                count,
-                &original_name,
-                &asset,
-                &format,
-                &acquisition.received_at,
-                "pending",
-            );
-            let version_path = self.version_original_path(&source_id, &version)?;
-            write_atomic_from_file(&version_path, &staging.path().join(&asset))?;
-            existing.info.versions_seen.push(version);
-            existing.info.pending_version_id = Some(digest);
-            existing.info.update_status = Some("pending".into());
             existing.info.semantic_error = None;
             existing.info.semantic_retry_at = None;
-            if !acquisition_exists {
-                write_acquisition(&destination, &acquisition)?;
-            }
-            self.index_acquisition(&acquisition.path, &source_id)?;
             self.write_source_page(&existing)?;
             self.index_page(&existing.info)?;
             return self.open_source(&source_id);
@@ -733,7 +950,7 @@ impl Application {
                 Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 response text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
             }
             } else if matches!(format.as_str(), "docx" | "pptx") {
-                match crate::office::extract(
+                match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
                     path.file_stem()
@@ -1022,9 +1239,11 @@ impl Application {
             let version = page
                 .info
                 .versions_seen
-                .iter_mut()
+                .iter()
                 .find(|version| version.source_version_id == source_version_id)
+                .cloned()
                 .ok_or_else(|| GardenError::Invalid("Pending source version is missing.".into()))?;
+            let version_received_at = version.received_at.clone();
             let candidate_path = if initial {
                 self.source_dir(&source_id)?.join(&version.asset)
             } else {
@@ -1032,6 +1251,17 @@ impl Application {
                     .join("versions")
                     .join(&source_version_id)
                     .join(&version.asset)
+            };
+            let acquisition_history = if page.info.format == "html"
+                && page
+                    .info
+                    .acquisitions
+                    .iter()
+                    .any(|acquisition| acquisition.method == AcquisitionMethod::Url)
+            {
+                self.open_source(&source_id)?.info.acquisitions
+            } else {
+                page.info.acquisitions.clone()
             };
             let text = if page.info.format == "html"
                 && page
@@ -1041,11 +1271,24 @@ impl Application {
                     .any(|acquisition| acquisition.method == AcquisitionMethod::Url)
             {
                 let bytes = fs::read(&candidate_path)?;
-                let final_url = page
-                    .info
-                    .acquisitions
+                if !initial && bytes.len() > MAX_TEXT_BYTES {
+                    self.record_extraction_recovery(
+                        &mut page,
+                        &source_version_id,
+                        "The retained HTML extends beyond the supported projection region; complete replacement coverage is unavailable.".into(),
+                    )?;
+                    continue;
+                }
+                let final_url = acquisition_history
                     .iter()
-                    .find_map(|acquisition| acquisition.final_url.as_deref())
+                    .find(|acquisition| acquisition.received_at == version_received_at)
+                    .and_then(|acquisition| acquisition.final_url.as_deref())
+                    .or_else(|| {
+                        acquisition_history
+                            .iter()
+                            .rev()
+                            .find_map(|acquisition| acquisition.final_url.as_deref())
+                    })
                     .unwrap_or("");
                 let mut prefix = bytes[..bytes.len().min(MAX_TEXT_BYTES)].to_vec();
                 if let Err(error) = std::str::from_utf8(&prefix) {
@@ -1060,14 +1303,73 @@ impl Application {
                 page.info.extraction,
                 ExtractionState::StructuredText | ExtractionState::PartialText
             ) {
-                crate::office::extract(&candidate_path, &page.info.format, &page.info.title)
-                    .map_err(GardenError::Invalid)?
-                    .semantic_text
+                let projection =
+                    match self
+                        .extractor
+                        .extract(&candidate_path, &version.format, &page.info.title)
+                    {
+                        Ok(projection) => projection,
+                        Err(detail) if !initial => {
+                            self.record_extraction_recovery(&mut page, &source_version_id, detail)?;
+                            continue;
+                        }
+                        Err(detail) => return Err(GardenError::Invalid(detail)),
+                    };
+                if !initial
+                    && (projection.partial
+                        || projection
+                            .coverage
+                            .iter()
+                            .any(|part| part.status != CoverageStatus::Complete))
+                {
+                    self.record_extraction_recovery(
+                        &mut page,
+                        &source_version_id,
+                        projection.detail,
+                    )?;
+                    continue;
+                }
+                page.info.extraction_coverage = Some(projection.coverage);
+                if !projection.partial {
+                    page.info.extraction = ExtractionState::StructuredText;
+                }
+                projection.semantic_text
             } else {
                 let bytes = fs::read(candidate_path)?;
                 String::from_utf8(bytes).map_err(|_| {
                     GardenError::Invalid("The retained text source is no longer UTF-8.".into())
                 })?
+            };
+            let prior_source_text = if initial {
+                let correction_candidates =
+                    crate::providers::correction_candidates_from_text(&text);
+                self.correction_prior_context(&correction_candidates)?
+            } else if let Some(current_id) = page.info.current_version_id.as_deref() {
+                page.info
+                    .versions_seen
+                    .iter()
+                    .find(|version| version.source_version_id == current_id)
+                    .and_then(|version| {
+                        let root_path = self.source_dir(&source_id).ok()?.join(&version.asset);
+                        let version_path = self.version_original_path(&source_id, version).ok()?;
+                        let path = if root_path.is_file() {
+                            root_path
+                        } else {
+                            version_path
+                        };
+                        if matches!(version.format.as_str(), "docx" | "pptx") {
+                            self.extractor
+                                .extract(&path, &version.format, &page.info.title)
+                                .ok()
+                                .map(|projection| projection.semantic_text)
+                        } else {
+                            fs::read(path)
+                                .ok()
+                                .and_then(|bytes| String::from_utf8(bytes).ok())
+                        }
+                    })
+            } else {
+                None
             };
             if initial {
                 page.info.semantic_state = "processing".into();
@@ -1079,7 +1381,14 @@ impl Application {
             page.info.semantic_error = None;
             page.info.semantic_retry_at = None;
             let attempt = page.info.semantic_attempts;
-            version.state = "processing".into();
+            if let Some(version) = page
+                .info
+                .versions_seen
+                .iter_mut()
+                .find(|version| version.source_version_id == source_version_id)
+            {
+                version.state = "processing".into();
+            }
             self.write_source_page(&page)?;
             self.index_page(&page.info)?;
             jobs.push(SemanticJob {
@@ -1087,9 +1396,228 @@ impl Application {
                 source_version_id,
                 attempt,
                 source_text: text,
+                prior_source_text,
             });
         }
         Ok(jobs)
+    }
+
+    fn record_extraction_recovery(
+        &mut self,
+        page: &mut SourcePage,
+        version_id: &str,
+        detail: String,
+    ) -> Result<()> {
+        let version = page
+            .info
+            .versions_seen
+            .iter_mut()
+            .find(|version| version.source_version_id == version_id)
+            .ok_or_else(|| {
+                GardenError::Invalid("The recovery source version is missing.".into())
+            })?;
+        version.extraction_attempts = version.extraction_attempts.saturating_add(1);
+        let exhausted = version.extraction_attempts >= 3;
+        version.coverage = "partial".into();
+        version.state = if exhausted { "failed" } else { "pending" }.into();
+        page.info.update_status = Some(version.state.clone());
+        page.info.semantic_error = Some(format!(
+            "Update {}: extraction has not established complete coverage. {}",
+            if exhausted { "failed" } else { "pending" },
+            detail.chars().take(200).collect::<String>()
+        ));
+        page.info.semantic_retry_at = if exhausted {
+            None
+        } else {
+            Some((now_millis()? + 2000).to_string())
+        };
+        self.write_source_page(page)?;
+        self.index_page(&page.info)?;
+        Ok(())
+    }
+
+    fn correction_prior_context(
+        &self,
+        candidates: &[CorrectionCandidateDraft],
+    ) -> Result<Option<String>> {
+        let mut labels = candidates
+            .iter()
+            .map(|candidate| candidate.event_label.as_str())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        labels.sort_unstable();
+        let mut context = String::new();
+        for label in labels {
+            let entity = EntityDraft {
+                kind: "event".into(),
+                label: label.to_owned(),
+                evidence: candidates
+                    .iter()
+                    .find(|candidate| candidate.event_label == label)
+                    .map(|candidate| candidate.evidence.clone())
+                    .expect("label came from a correction candidate"),
+            };
+            let page_id = stable_page_id(&entity, "");
+            let path = self.root.join("pages").join(format!("{page_id}.md"));
+            if !path.exists() {
+                continue;
+            }
+            let header = read_knowledge_header(&path)?;
+            if header.kind != "event" || header.title != label || header.facts.is_empty() {
+                continue;
+            }
+            context.push_str(&format!("Current published fields for event `{label}`:\n"));
+            for fact in &header.facts {
+                context.push_str(&format!(
+                    "- property `{}` = `{}`; current support: “{}”\n",
+                    fact.property, fact.value, fact.evidence.quote
+                ));
+            }
+        }
+        Ok((!context.is_empty()).then_some(context))
+    }
+
+    fn apply_field_aligned_corrections(
+        &self,
+        source: &SourcePage,
+        source_version_id: &str,
+        source_text: &str,
+        draft: &mut KnowledgeDraft,
+    ) -> Result<()> {
+        let recognized_candidates = crate::providers::correction_candidates_from_text(source_text);
+        if recognized_candidates.is_empty() && draft.correction_candidates.is_empty() {
+            return Ok(());
+        }
+        let uncertain = || {
+            GardenError::Invalid(
+                "An explicit correction could not be aligned to current event evidence; semantic processing will retry automatically.".into(),
+            )
+        };
+        let Some(update) = draft.source_update.as_ref() else {
+            return Err(uncertain());
+        };
+        if update.role != SourceUpdateRole::TargetedCorrection
+            || !update.certainty.is_finite()
+            || update.certainty < 0.8
+        {
+            return Err(uncertain());
+        }
+        if recognized_candidates.len() != draft.correction_candidates.len() {
+            return Err(uncertain());
+        }
+        for candidate in draft.correction_candidates.clone() {
+            if !recognized_candidates.iter().any(|recognized| {
+                recognized.event_label == candidate.event_label
+                    && recognized.property == candidate.property
+                    && recognized.previous_value == candidate.previous_value
+                    && recognized.corrected_value == candidate.corrected_value
+                    && recognized.evidence.quote == candidate.evidence.quote
+                    && recognized.evidence.byte_start == candidate.evidence.byte_start
+                    && recognized.evidence.byte_end == candidate.evidence.byte_end
+            }) {
+                return Err(uncertain());
+            }
+            let alignment = draft
+                .correction_alignments
+                .iter()
+                .find(|alignment| {
+                    alignment.candidate.event_label == candidate.event_label
+                        && alignment.candidate.property == candidate.property
+                        && alignment.candidate.previous_value == candidate.previous_value
+                        && alignment.candidate.corrected_value == candidate.corrected_value
+                        && alignment.candidate.evidence.quote == candidate.evidence.quote
+                        && alignment.candidate.evidence.byte_start == candidate.evidence.byte_start
+                        && alignment.candidate.evidence.byte_end == candidate.evidence.byte_end
+                })
+                .ok_or_else(uncertain)?;
+            if alignment.outcome != crate::semantic::FieldAlignmentOutcome::SameFieldCorrection
+                || !alignment.certainty.is_finite()
+                || alignment.certainty < 0.9
+            {
+                return Err(uncertain());
+            }
+            if candidate.property != "visit_count"
+                || validate_evidence(source_text, &candidate.evidence).is_err()
+            {
+                return Err(uncertain());
+            }
+            let entity = draft
+                .entities
+                .iter()
+                .find(|entity| entity.kind == "event" && entity.label == candidate.event_label)
+                .ok_or_else(uncertain)?;
+            let page_id = stable_page_id(entity, &source.info.source_id);
+            let path = self.root.join("pages").join(format!("{page_id}.md"));
+            if !path.exists() {
+                return Err(uncertain());
+            }
+            let header = read_knowledge_header(&path)?;
+            if header.kind != "event" || header.title != candidate.event_label {
+                return Err(uncertain());
+            }
+            let matching_facts = header
+                .facts
+                .iter()
+                .filter(|fact| {
+                    fact.property == candidate.property
+                        && normalized_visit_count(&fact.value)
+                            == normalized_visit_count(&candidate.previous_value)
+                })
+                .collect::<Vec<_>>();
+            let [prior_fact] = matching_facts.as_slice() else {
+                return Err(uncertain());
+            };
+            let Some(current_support) = self.latest_support(&prior_fact.supports)? else {
+                return Err(uncertain());
+            };
+            if normalized_visit_count(&current_support.value)
+                != normalized_visit_count(&candidate.previous_value)
+            {
+                return Err(uncertain());
+            }
+            let prior_source = read_page(&self.page_path(&current_support.source_id)?)?;
+            let prior_version = prior_source
+                .info
+                .versions_seen
+                .iter()
+                .find(|version| version.source_version_id == current_support.source_version_id)
+                .ok_or_else(uncertain)?;
+            let incoming_version = source
+                .info
+                .versions_seen
+                .iter()
+                .find(|version| version.source_version_id == source_version_id)
+                .ok_or_else(uncertain)?;
+            if compare_source_order(prior_version, incoming_version)
+                != Some(std::cmp::Ordering::Greater)
+            {
+                return Err(uncertain());
+            }
+            if !draft.facts.iter().any(|fact| {
+                fact.subject == candidate.event_label
+                    && fact.property == candidate.property
+                    && fact.value == candidate.corrected_value
+            }) {
+                draft.facts.push(crate::semantic::FactDraft {
+                    subject: candidate.event_label.clone(),
+                    property: candidate.property.clone(),
+                    value: candidate.corrected_value.clone(),
+                    evidence: candidate.evidence.clone(),
+                    record_key: None,
+                });
+            }
+            draft.decisions.push(SemanticDecision {
+                question: format!(
+                    "field_alignment:{}:{}",
+                    candidate.event_label, candidate.property
+                ),
+                model: alignment.model.clone(),
+                outcome: "same_field_correction".into(),
+                probability: Some(alignment.certainty),
+            });
+        }
+        Ok(())
     }
 
     pub fn finish_semantic_job(
@@ -1126,7 +1654,7 @@ impl Application {
             draft
         });
         match result {
-            Ok(draft) => {
+            Ok(mut draft) => {
                 let is_office = matches!(page.info.format.as_str(), "docx" | "pptx");
                 let office_facts = draft
                     .facts
@@ -1161,8 +1689,10 @@ impl Application {
                             "Office semantic processing selected no content-bearing facts; coverage remains incomplete and will retry automatically.".into()
                         },
                         true,
+                        true,
                     )?;
                 } else {
+                    let prior_page = page.clone();
                     let update = draft.source_update.clone();
                     let result = self
                         .store_source_update(
@@ -1173,6 +1703,18 @@ impl Application {
                         )
                         .and_then(|()| {
                             if initial {
+                                self.apply_field_aligned_corrections(
+                                    &page,
+                                    &job.source_version_id,
+                                    &job.source_text,
+                                    &mut draft,
+                                )?;
+                                if !draft.correction_candidates.is_empty() {
+                                    // Knowledge reconciliation ranks support through persisted
+                                    // source versions. Persist this still-pending source's
+                                    // validated date/order before it selects the current value.
+                                    self.write_source_page(&page)?;
+                                }
                                 // A first acquisition has no existing facts to withdraw. Even
                                 // an unknown/conditional relationship can publish the grounded
                                 // evidence it contains; the role only limits replacement scope.
@@ -1193,14 +1735,16 @@ impl Application {
                             page.info.semantic_retry_at = None;
                         }
                         Err(error) => {
-                            self.record_semantic_failure(&mut page, error.to_string(), true)?
+                            self.staged_publication.clear();
+                            page = prior_page;
+                            self.record_semantic_failure(&mut page, error.to_string(), true, true)?
                         }
                     }
                 }
             }
             Err(error) => {
                 if initial {
-                    self.record_semantic_failure(&mut page, error.message, error.retryable)?
+                    self.record_semantic_failure(&mut page, error.message, error.retryable, false)?
                 } else {
                     let retryable = error.retryable;
                     page.info.update_status =
@@ -1389,7 +1933,9 @@ impl Application {
     pub fn resume_due_semantic_jobs(&mut self) -> Result<()> {
         let jobs = self.claim_due_semantic_jobs(4)?;
         for job in jobs {
-            let result = self.semantic_provider.form_knowledge(&job.source_text);
+            let result = self
+                .semantic_provider
+                .form_knowledge_with_prior(&job.source_text, job.prior_source_text.as_deref());
             self.finish_semantic_job(job, result)?;
         }
         Ok(())
@@ -1726,6 +2272,7 @@ impl Application {
                     .cloned(),
             );
             mark_arrival_fallback(source, &replaced_sources);
+            check_omission_evidence(&old.facts, &[], &replaced_sources, source_text)?;
             old.facts = self.reconcile_facts(old.facts, Vec::new(), &replaced_sources)?;
             old.relationships =
                 self.reconcile_relationships(old.relationships, Vec::new(), &replaced_sources)?;
@@ -1753,6 +2300,7 @@ impl Application {
                         .cloned(),
                 );
                 mark_arrival_fallback(source, &replaced_sources);
+                check_omission_evidence(&old.facts, &header.facts, &replaced_sources, source_text)?;
                 header.facts = self.reconcile_facts(old.facts, header.facts, &replaced_sources)?;
                 header.relationships = self.reconcile_relationships(
                     old.relationships,
@@ -1903,13 +2451,92 @@ impl Application {
                 && decision.certainty >= 0.8
                 && decision.certainty.is_finite()
         });
-        if !complete_replacement || !same_entity {
+        let stable_fact_key_overlap = if matches!(source.info.format.as_str(), "docx" | "pptx") {
+            draft.entities.iter().any(|entity| {
+                let page_id = stable_page_id(entity, &source.info.source_id);
+                let path = self.root.join("pages").join(format!("{page_id}.md"));
+                let Ok(existing) = read_knowledge_header(&path) else {
+                    return false;
+                };
+                draft
+                    .facts
+                    .iter()
+                    .filter(|fact| fact.subject == entity.label)
+                    .any(|fact| {
+                        fact.record_key.as_deref().is_some_and(|key| {
+                            existing.facts.iter().any(|record| {
+                                record.fact_id
+                                    == stable_fact_id(&page_id, &fact.property, Some(key))
+                            })
+                        })
+                    })
+            })
+        } else {
+            false
+        };
+        let complete_extraction = source
+            .info
+            .extraction_coverage
+            .as_ref()
+            .is_none_or(|parts| {
+                parts
+                    .iter()
+                    .all(|part| part.status == CoverageStatus::Complete)
+            });
+        let field_aligned_office_refresh = !complete_replacement
+            && draft
+                .source_update
+                .as_ref()
+                .is_some_and(|decision| decision.role == SourceUpdateRole::Unknown)
+            && matches!(source.info.format.as_str(), "docx" | "pptx")
+            && same_entity
+            && stable_fact_key_overlap
+            && complete_extraction
+            && !draft.facts.is_empty();
+        if (!complete_replacement && !field_aligned_office_refresh) || !same_entity {
             return self.retain_non_authoritative_update(
                 source,
                 source_version_id,
                 draft.source_update.as_ref(),
             );
         }
+        // Field-aligned Office refreshes continue through the ordinary version
+        // promotion path so the current metadata, original asset, and facts all
+        // refer to the same acquired version. `replacement_sources` remains empty
+        // for an unknown role, so omitted supports are retained.
+        let draft = if field_aligned_office_refresh {
+            let mut aligned = draft;
+            aligned.facts.retain(|fact| {
+                let Some(key) = fact.record_key.as_deref() else {
+                    return false;
+                };
+                let page_id = aligned
+                    .entities
+                    .iter()
+                    .find(|entity| entity.label == fact.subject)
+                    .map(|entity| stable_page_id(entity, &source.info.source_id));
+                let Some(page_id) = page_id else {
+                    return false;
+                };
+                let path = self.root.join("pages").join(format!("{page_id}.md"));
+                read_knowledge_header(&path).is_ok_and(|existing| {
+                    existing.facts.iter().any(|record| {
+                        record.fact_id == stable_fact_id(&page_id, &fact.property, Some(key))
+                    })
+                })
+            });
+            aligned.entities.retain(|entity| {
+                aligned
+                    .facts
+                    .iter()
+                    .any(|fact| fact.subject == entity.label)
+            });
+            aligned.relationships.clear();
+            aligned.tags.clear();
+            aligned
+        } else {
+            draft
+        };
         let current_id = source.info.current_version_id.clone().ok_or_else(|| {
             GardenError::Invalid("A replacement has no established current version.".into())
         })?;
@@ -1971,16 +2598,17 @@ impl Application {
             .join(&candidate.asset);
         let office_projection = if matches!(candidate.format.as_str(), "docx" | "pptx") {
             Some(
-                crate::office::extract(
-                    &candidate_path,
-                    &candidate.format,
-                    Path::new(&candidate.original_name)
-                        .file_stem()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .as_ref(),
-                )
-                .map_err(GardenError::Invalid)?,
+                self.extractor
+                    .extract(
+                        &candidate_path,
+                        &candidate.format,
+                        Path::new(&candidate.original_name)
+                            .file_stem()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .as_ref(),
+                    )
+                    .map_err(GardenError::Invalid)?,
             )
         } else {
             None
@@ -2145,6 +2773,18 @@ impl Application {
             || incoming.update_confidence.is_none_or(|value| value < 0.8)
             || incoming.update_evidence.is_none()
         {
+            return Ok(std::collections::HashSet::new());
+        }
+        let complete_extraction = source
+            .info
+            .extraction_coverage
+            .as_ref()
+            .is_none_or(|parts| {
+                parts
+                    .iter()
+                    .all(|part| part.status == CoverageStatus::Complete)
+            });
+        if !complete_extraction {
             return Ok(std::collections::HashSet::new());
         }
 
@@ -2540,8 +3180,24 @@ impl Application {
         page: &mut SourcePage,
         message: String,
         retryable: bool,
+        invalid_draft: bool,
     ) -> Result<()> {
-        page.info.semantic_state = if retryable { "pending" } else { "failed" }.into();
+        let mut retryable = retryable;
+        if let Some(version) = page.info.versions_seen.iter_mut().find(|version| {
+            Some(version.source_version_id.as_str()) == page.info.pending_version_id.as_deref()
+        }) {
+            if invalid_draft {
+                version.semantic_integrity_failures =
+                    version.semantic_integrity_failures.saturating_add(1);
+                retryable &= version.semantic_integrity_failures < 3;
+            }
+            version.state = if retryable { "pending" } else { "failed" }.into();
+        }
+        if page.info.current_version_id.is_some() {
+            page.info.update_status = Some(if retryable { "pending" } else { "failed" }.into());
+        } else {
+            page.info.semantic_state = if retryable { "pending" } else { "failed" }.into();
+        }
         page.info.semantic_error = Some(message.chars().take(300).collect());
         let delay_seconds = (1_u64 << page.info.semantic_attempts.min(12)).min(3600);
         page.info.semantic_retry_at = retryable
@@ -3341,6 +3997,27 @@ fn classify_source(
     }
 }
 
+fn check_omission_evidence(
+    previous: &[FactRecord],
+    incoming: &[FactRecord],
+    removed_sources: &HashSet<String>,
+    text: &str,
+) -> Result<()> {
+    for fact in previous {
+        if incoming.iter().any(|next| next.fact_id == fact.fact_id) {
+            continue;
+        }
+        if fact.supports.iter().any(|support| {
+            removed_sources.contains(&support.source_id)
+                && !support.evidence.quote.trim().is_empty()
+                && text.contains(&support.evidence.quote)
+        }) {
+            return Err(GardenError::Invalid(format!("Replacement extraction omitted `{}` although its prior supporting quote remains present. Keep the last successful version and retry scoped extraction.", fact.property)));
+        }
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn source_version(
     digest: &str,
@@ -3370,6 +4047,8 @@ fn source_version(
         source_revision_evidence: None,
         source_revision_confidence: None,
         state: state.to_owned(),
+        extraction_attempts: 1,
+        semantic_integrity_failures: 0,
         coverage: if state == "complete" {
             "complete"
         } else if state == "unavailable" {
@@ -3404,6 +4083,18 @@ fn compare_source_order(
         return Some(incoming_revision.cmp(&current_revision));
     }
     None
+}
+
+fn normalized_visit_count(value: &str) -> Option<u64> {
+    let trimmed = value.trim();
+    let digits = trimmed
+        .strip_suffix(" visits")
+        .or_else(|| trimmed.strip_suffix(" visit"))
+        .unwrap_or(trimmed)
+        .trim();
+    (!digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()))
+        .then(|| digits.parse().ok())
+        .flatten()
 }
 
 fn write_search_documents(
@@ -3543,11 +4234,13 @@ fn fts_expression(query: &str) -> String {
 fn knowledge_search_content(header: &KnowledgePageHeader) -> String {
     let mut fields = vec![header.title.clone(), header.kind.clone()];
     for fact in &header.facts {
+        // Search current fact values, not evidence quotations. A correction's
+        // supporting sentence can repeat the rejected prior value ("15, not
+        // 12"); indexing that quote would make 12 look current again.
         fields.extend([
             fact.property.clone(),
             fact.value.clone(),
             fact.qualifier.clone().unwrap_or_default(),
-            fact.evidence.quote.clone(),
         ]);
     }
     for relationship in &header.relationships {
@@ -3681,10 +4374,9 @@ fn find_text_match(text: &str, terms: &[String]) -> Option<(usize, usize)> {
 fn write_acquisition(destination: &Path, acquisition: &Acquisition) -> Result<()> {
     let contexts = destination.join("acquisitions");
     fs::create_dir_all(&contexts)?;
-    let key = format!(
-        "{:x}",
-        Sha256::digest(format!("{}:{:?}", acquisition.path, acquisition.method).as_bytes())
-    );
+    // One requested URL can have several independently acquired redirect contexts.
+    // Preserve each record instead of overwriting or colliding with its predecessor.
+    let key = format!("{:x}", Sha256::digest(serde_json::to_vec(acquisition)?));
     let mut record = tempfile::NamedTempFile::new_in(&contexts)?;
     write!(
         record,

@@ -18,6 +18,7 @@ use std::{
 
 const PAGE_A: &[u8] = b"<!doctype html><html><head><title>Riverside observation U5</title></head><body><h1>Riverside observation U5</h1><p>Observation U5 took place on May 17, 2024. Observer: Maya. Location: Riverside. Visits: 4.</p><p>Reference: <a href='/b'>destination report</a>.</p><p>Another reference to <a href='/b'>the same report</a>; its contents have not been supplied in this page.</p><script>NEVER INDEX SCRIPT</script></body></html>";
 const PAGE_B: &[u8] = b"<!doctype html><html><head><title>Explicit destination evidence</title></head><body><h1>Explicit destination evidence</h1><p>DESTINATION-UNSEEN-91823</p><p>Observation U6. Visits: 8.</p></body></html>";
+const PAGE_C: &[u8] = b"<!doctype html><html><head><title>Updated redirected source</title></head><body><h1>Updated redirected source</h1><p>Observation U8. See <a href='/b'>current destination</a>.</p></body></html>";
 const TEXT_ASSET: &[u8] =
     b"Observation U7 took place on June 5, 2024. Observer: Noor. Location: Estuary. Visits: 6.\n";
 
@@ -25,6 +26,8 @@ struct Fixture {
     base_url: String,
     requests: Arc<Mutex<Vec<String>>>,
     temporary_available: Arc<AtomicBool>,
+    redirect_to_localhost: Arc<AtomicBool>,
+    redirect_to_alias: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     worker: Option<thread::JoinHandle<()>>,
 }
@@ -34,12 +37,24 @@ impl Fixture {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         listener.set_nonblocking(true).unwrap();
         let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let updated_redirect = format!(
+            "http://localhost:{}/c",
+            listener.local_addr().unwrap().port()
+        );
+        let alias_redirect = format!(
+            "http://localhost:{}/alias",
+            listener.local_addr().unwrap().port()
+        );
         let requests = Arc::new(Mutex::new(Vec::new()));
         let temporary_available = Arc::new(AtomicBool::new(false));
+        let redirect_to_localhost = Arc::new(AtomicBool::new(false));
+        let redirect_to_alias = Arc::new(AtomicBool::new(false));
         let stop = Arc::new(AtomicBool::new(false));
         let worker = {
             let requests = Arc::clone(&requests);
             let temporary_available = Arc::clone(&temporary_available);
+            let redirect_to_localhost = Arc::clone(&redirect_to_localhost);
+            let redirect_to_alias = Arc::clone(&redirect_to_alias);
             let stop = Arc::clone(&stop);
             thread::spawn(move || {
                 while !stop.load(Ordering::Relaxed) {
@@ -98,6 +113,22 @@ impl Fixture {
                     let (status, content_type, disposition, body, location) = match path.as_str() {
                         "/a" => (200, "text/html; charset=utf-8", None, PAGE_A, None),
                         "/b" => (200, "text/html; charset=utf-8", None, PAGE_B, None),
+                        "/c" => (200, "text/html; charset=utf-8", None, PAGE_C, None),
+                        "/alias" => (200, "text/html; charset=utf-8", None, PAGE_C, None),
+                        "/redirect" if redirect_to_alias.load(Ordering::Relaxed) => (
+                            302,
+                            "text/plain",
+                            None,
+                            b"".as_slice(),
+                            Some(alias_redirect.as_str()),
+                        ),
+                        "/redirect" if redirect_to_localhost.load(Ordering::Relaxed) => (
+                            302,
+                            "text/plain",
+                            None,
+                            b"".as_slice(),
+                            Some(updated_redirect.as_str()),
+                        ),
                         "/redirect" => (302, "text/plain", None, b"".as_slice(), Some("/a")),
                         "/asset.txt" => (
                             200,
@@ -170,6 +201,8 @@ impl Fixture {
             base_url,
             requests,
             temporary_available,
+            redirect_to_localhost,
+            redirect_to_alias,
             stop,
             worker: Some(worker),
         }
@@ -187,6 +220,152 @@ impl Drop for Fixture {
             worker.join().unwrap();
         }
     }
+}
+
+#[test]
+fn eligible_url_retry_resumes_from_persisted_queue_after_restart() {
+    let fixture = Fixture::start();
+    let collection = tempfile::tempdir().unwrap();
+    let url = format!("{}/temporary", fixture.base_url);
+    {
+        let mut app = Application::open(collection.path()).unwrap();
+        assert!(app.import_url(&url).is_err());
+        let record = app.list_url_acquisitions().unwrap().remove(0);
+        assert_eq!(record.state, "pending");
+    }
+    fixture.temporary_available.store(true, Ordering::Relaxed);
+    let mut reopened = Application::open(collection.path()).unwrap();
+    reopened.resume_due_url_acquisitions_at(u64::MAX).unwrap();
+    assert!(reopened.list_url_acquisitions().unwrap().is_empty());
+    assert_eq!(reopened.list_sources(0).unwrap().sources.len(), 1);
+    assert_eq!(
+        fixture
+            .requested_paths()
+            .iter()
+            .filter(|path| path.as_str() == "/temporary")
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn url_retry_budget_is_bounded_after_eight_total_attempts() {
+    let fixture = Fixture::start();
+    let collection = tempfile::tempdir().unwrap();
+    let url = format!("{}/temporary", fixture.base_url);
+    let mut app = Application::open(collection.path()).unwrap();
+    assert!(app.import_url(&url).is_err());
+    for _ in 0..7 {
+        app.resume_due_url_acquisitions_at(u64::MAX).unwrap();
+    }
+    let status = app.list_url_acquisitions().unwrap().remove(0);
+    assert_eq!(status.attempts, 8);
+    assert_eq!(status.state, "failed");
+    assert!(status.retry_at.is_none());
+    let request_count = fixture.requested_paths().len();
+    app.resume_due_url_acquisitions_at(u64::MAX).unwrap();
+    assert_eq!(fixture.requested_paths().len(), request_count);
+}
+
+#[test]
+fn latest_redirect_final_url_resolves_relative_links_for_source_updates() {
+    let fixture = Fixture::start();
+    let port = fixture.base_url.rsplit(':').next().unwrap();
+    let collection = tempfile::tempdir().unwrap();
+    let mut app = Application::open_with_semantic_provider(
+        collection.path(),
+        Arc::new(JevSemanticProvider::with_transport(
+            "recorded-test-key".into(),
+            Arc::new(UrlReferenceTransport),
+        )),
+    )
+    .unwrap();
+    let requested = format!("{}/redirect", fixture.base_url);
+    let initial = app.import_url(&requested).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    assert!(app
+        .open_source(&initial.info.source_id)
+        .unwrap()
+        .info
+        .current_version_id
+        .is_some());
+
+    fixture.redirect_to_localhost.store(true, Ordering::Relaxed);
+    let updated = app.import_url(&requested).unwrap();
+    assert_eq!(updated.info.source_id, initial.info.source_id);
+    let pending_id = updated.info.pending_version_id.as_deref().unwrap();
+    let pending_version = updated
+        .info
+        .versions_seen
+        .iter()
+        .find(|version| version.source_version_id == pending_id)
+        .unwrap();
+    assert_eq!(
+        updated
+            .info
+            .acquisitions
+            .last()
+            .and_then(|acquisition| acquisition.final_url.as_deref()),
+        Some(format!("http://localhost:{port}/c").as_str()),
+        "{:?}",
+        updated.info.acquisitions
+    );
+    assert_eq!(
+        pending_version.received_at,
+        updated.info.acquisitions.last().unwrap().received_at
+    );
+    assert!(updated.info.acquisitions.iter().any(|acquisition| {
+        acquisition.requested_url.as_deref() == Some(requested.as_str())
+            && acquisition.final_url.as_deref()
+                == Some(format!("http://localhost:{port}/c").as_str())
+    }));
+    let jobs = app.claim_due_semantic_jobs(20).unwrap();
+    let update_job = jobs
+        .iter()
+        .find(|job| job.source_id == updated.info.source_id)
+        .expect("changed redirect must schedule semantic source work");
+    assert!(update_job.source_text.contains("Observation U8"));
+    assert!(
+        update_job
+            .source_text
+            .contains(&format!("http://localhost:{port}/b")),
+        "{}",
+        update_job.source_text
+    );
+    assert!(!update_job
+        .source_text
+        .contains(&format!("{}/b", fixture.base_url)));
+}
+
+#[test]
+fn repeated_redirect_contexts_survive_identical_bytes_and_restart() {
+    let fixture = Fixture::start();
+    let collection = tempfile::tempdir().unwrap();
+    let requested = format!("{}/redirect", fixture.base_url);
+    let mut app = Application::open(collection.path()).unwrap();
+    let initial = app.import_url(&requested).unwrap();
+    fixture.redirect_to_localhost.store(true, Ordering::Relaxed);
+    app.import_url(&requested).unwrap();
+    fixture.redirect_to_alias.store(true, Ordering::Relaxed);
+    let latest = app.import_url(&requested).unwrap();
+    assert_eq!(latest.info.source_id, initial.info.source_id);
+    assert_eq!(
+        latest.info.versions_seen.len(),
+        2,
+        "same bytes retain one version"
+    );
+    drop(app);
+    let app = Application::open(collection.path()).unwrap();
+    let page = app.open_source(&initial.info.source_id).unwrap();
+    assert_eq!(page.info.acquisitions.len(), 3);
+    assert!(page.info.acquisitions.iter().any(|record| record
+        .final_url
+        .as_deref()
+        .is_some_and(|url| url.ends_with("/c"))));
+    assert!(page.info.acquisitions.iter().any(|record| record
+        .final_url
+        .as_deref()
+        .is_some_and(|url| url.ends_with("/alias"))));
 }
 
 #[test]
@@ -352,11 +531,33 @@ fn explicitly_supplied_urls_retain_origins_without_crawling_and_can_be_retried()
         .unwrap_err()
         .to_string()
         .contains("HTTP 403"));
+    let denied = app.list_url_acquisitions().unwrap();
+    assert_eq!(denied.len(), 1);
+    assert_eq!(denied[0].state, "restricted");
+    assert_eq!(denied[0].attempts, 1);
+    assert!(denied[0].retry_at.is_none());
+    assert!(app
+        .import_url(&format!("{}/missing", fixture.base_url))
+        .unwrap_err()
+        .to_string()
+        .contains("HTTP 404"));
+    let not_found = app
+        .list_url_acquisitions()
+        .unwrap()
+        .into_iter()
+        .find(|item| item.url.ends_with("/missing"))
+        .unwrap();
+    assert_eq!(not_found.state, "failed");
+    assert!(not_found.retry_at.is_none());
     assert!(app
         .import_url(&format!("{}/temporary", fixture.base_url))
         .unwrap_err()
         .to_string()
         .contains("HTTP 503"));
+    let pending = app.list_url_acquisitions().unwrap();
+    assert!(pending.iter().any(|item| item.url.ends_with("/temporary")
+        && item.state == "pending"
+        && item.retry_at.is_some()));
     assert_eq!(app.list_sources(0).unwrap().sources.len(), before_failures);
     fixture.temporary_available.store(true, Ordering::Relaxed);
     let resumed = app
@@ -509,4 +710,67 @@ fn repeated_url_references_keep_each_html_occurrence_context_in_knowledge_eviden
             .count(),
         2
     );
+}
+
+#[test]
+fn office_hyperlink_occurrences_are_source_located_references() {
+    let fixtures =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/office/source");
+    for (name, expected_context, expected_location) in [
+        (
+            "field-visit.docx",
+            "Methods reference: unacquired methods reference",
+            "DOCX paragraph",
+        ),
+        (
+            "visit-summary.pptx",
+            "Linked method: https://example.invalid/linked-method",
+            "PPTX slide",
+        ),
+    ] {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut app = Application::open_with_semantic_provider(
+            workspace.path().join("collection"),
+            Arc::new(JevSemanticProvider::with_transport(
+                "recorded-test-key".into(),
+                Arc::new(UrlReferenceTransport),
+            )),
+        )
+        .unwrap();
+        let imported = app
+            .import_source(
+                fixtures.join(name),
+                knowledge_garden::application::AcquisitionMethod::Picker,
+            )
+            .unwrap();
+        app.resume_due_semantic_jobs().unwrap();
+        let processed = app.open_source(&imported.info.source_id).unwrap();
+        assert_eq!(processed.info.semantic_state, "complete", "{name}");
+        let reference_pages = processed
+            .knowledge_pages
+            .iter()
+            .map(|summary| app.open_knowledge_page(&summary.page_id).unwrap().markdown)
+            .filter(|markdown| markdown.contains("property: acquired_content"))
+            .collect::<Vec<_>>();
+        assert_eq!(reference_pages.len(), 1, "{name}: {reference_pages:?}");
+        assert!(
+            reference_pages[0].contains(expected_context),
+            "{name}: {}",
+            reference_pages[0]
+        );
+        assert!(
+            reference_pages[0].contains("offset_basis: extracted_office_projection"),
+            "{name}"
+        );
+        assert!(
+            reference_pages[0].contains(&format!("source_location: {expected_location}")),
+            "{name}"
+        );
+        assert_eq!(processed.info.acquisitions.len(), 1, "{name}");
+        assert_eq!(
+            processed.info.acquisitions[0].method,
+            knowledge_garden::application::AcquisitionMethod::Picker,
+            "{name}"
+        );
+    }
 }

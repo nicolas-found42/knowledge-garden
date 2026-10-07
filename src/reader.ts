@@ -65,7 +65,9 @@ export async function mountReader(
   acquireUrl.type = "submit";
   const cancelUrl = element("button", "Cancel");
   cancelUrl.type = "button";
-  urlForm.append(urlLabel, acquireUrl, cancelUrl);
+  const urlQueue = element("section");
+  urlQueue.setAttribute("aria-label", "URL acquisition status");
+  urlForm.append(urlLabel, acquireUrl, cancelUrl, urlQueue);
   const notice = element("p");
   notice.className = "notice";
   notice.setAttribute("role", "status");
@@ -128,6 +130,28 @@ export async function mountReader(
   }
   function report(error: unknown) {
     message(error instanceof Error ? error.message : String(error));
+  }
+
+  async function refreshUrlQueue() {
+    try {
+      const items = await api.listUrlAcquisitions();
+      urlQueue.replaceChildren();
+      if (!items.length) return;
+      urlQueue.append(element("h2", "URL acquisitions"));
+      for (const item of items) {
+        const row = element("p");
+        const retry = item.retry_at
+          ? ` Next retry: ${new Date(item.retry_at).toLocaleString()}.`
+          : "";
+        const previous = item.previous_source_available
+          ? " Previously retained source material remains available."
+          : "";
+        row.textContent = `${item.url} — ${item.state}; ${item.attempts} attempt(s). ${item.last_error}${retry}${previous}`;
+        urlQueue.append(row);
+      }
+    } catch (error) {
+      report(error);
+    }
   }
 
   function syncBackButton() {
@@ -261,6 +285,36 @@ export async function mountReader(
       next.info.asset,
     );
     if (!article) return;
+    if (next.info.update_status) {
+      const failed = ["failed", "incomplete"].includes(next.info.update_status);
+      const label = failed
+        ? "Update failed"
+        : next.info.update_status === "uncertain"
+          ? "Update uncertain"
+          : "Update pending";
+      const notice = element(
+        "p",
+        `${label} · Showing the last successful version.`,
+      );
+      notice.className = "update-status";
+      article.prepend(notice);
+      const candidate = next.info.versions_seen?.find(
+        (version) => version.source_version_id === next.info.pending_version_id,
+      );
+      if (candidate?.asset) {
+        const openPending = element("button", "Open pending original");
+        openPending.addEventListener("click", () => {
+          void api
+            .openOriginalVersion(
+              next.info.source_id,
+              candidate.source_version_id,
+              candidate.asset!,
+            )
+            .catch(report);
+        });
+        notice.append(" ", openPending);
+      }
+    }
     const details = element("details");
     details.className = "source-info";
     details.append(element("summary", "Source information"));
@@ -811,7 +865,10 @@ export async function mountReader(
 
   addUrlButton.addEventListener("click", () => {
     urlForm.hidden = !urlForm.hidden;
-    if (!urlForm.hidden) urlInput.focus();
+    if (!urlForm.hidden) {
+      urlInput.focus();
+      void refreshUrlQueue();
+    }
   });
   cancelUrl.addEventListener("click", () => {
     urlForm.hidden = true;
@@ -835,6 +892,7 @@ export async function mountReader(
       })
       .catch((error: unknown) => {
         report(error);
+        void refreshUrlQueue();
       })
       .finally(() => {
         busy = false;
@@ -914,11 +972,15 @@ export async function mountReader(
     }
   }
   const refreshTimer = window.setInterval(() => {
+    if (!urlForm.hidden) void refreshUrlQueue();
     const current = page;
+    const updating = ["pending", "processing"].includes(
+      current?.info.update_status ?? "",
+    );
     if (
       !current ||
       disposed ||
-      current.info.semantic_state === "complete" ||
+      (current.info.semantic_state === "complete" && !updating) ||
       current.info.semantic_state === "failed" ||
       current.info.semantic_state === "unavailable"
     )
@@ -933,6 +995,7 @@ export async function mountReader(
         const scrollTop = main.querySelector("article")?.scrollTop ?? 0;
         if (
           next.info.semantic_state === current.info.semantic_state &&
+          next.info.update_status === current.info.update_status &&
           next.info.semantic_error === current.info.semantic_error &&
           next.info.knowledge_pages.length ===
             current.info.knowledge_pages.length
