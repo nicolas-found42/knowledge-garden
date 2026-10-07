@@ -1660,7 +1660,17 @@ fn candidates(text: &str) -> Vec<Candidate> {
     }
     let url_re = regex(r"https?://[^\s)>]+");
     for m in url_re.find_iter(text) {
-        let (start, end) = sentence_bounds(text, m.start(), m.end());
+        let office_line = text[..m.start()].rfind('\n').map_or(0, |index| index + 1);
+        let office_end = text[m.start()..]
+            .find('\n')
+            .map_or(text.len(), |index| m.start() + index);
+        let (start, end) = if let Some(("reference", content_start)) =
+            office_line_channel(&text[office_line..office_end])
+        {
+            (office_line + content_start, office_end)
+        } else {
+            sentence_bounds(text, m.start(), m.end())
+        };
         result.push(Candidate {
             kind: CandidateKind::Reference,
             value: m.as_str().trim_end_matches(['.', ',']).to_owned(),

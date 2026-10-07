@@ -76,6 +76,16 @@ pub struct Acquisition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UrlAcquisitionStatus {
+    pub url: String,
+    pub attempts: u32,
+    pub state: String,
+    pub retry_at: Option<u64>,
+    pub last_error: String,
+    pub previous_source_available: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceVersion {
     pub source_version_id: String,
     pub sha256: String,
@@ -336,6 +346,7 @@ impl Application {
             fail_after_publication_files: None,
         };
         app.rebuild_index()?;
+        app.recover_interrupted_url_acquisitions()?;
         Ok(app)
     }
 
@@ -348,6 +359,70 @@ impl Application {
     }
 
     pub fn import_url(&mut self, input: &str) -> Result<SourcePage> {
+        let url = reqwest::Url::parse(input)
+            .map_err(|_| GardenError::Invalid("Enter a valid HTTP or HTTPS URL.".into()))?
+            .to_string();
+        let mut status = self.read_url_status(&url)?.unwrap_or(UrlAcquisitionStatus {
+            url: url.clone(),
+            attempts: 0,
+            state: "pending".into(),
+            retry_at: None,
+            last_error: String::new(),
+            previous_source_available: self.source_for_origin(&url)?.is_some(),
+        });
+        status.attempts = status.attempts.saturating_add(1);
+        status.state = "processing".into();
+        status.retry_at = None;
+        self.write_url_status(&status)?;
+        match self.fetch_and_import_url(&url) {
+            Ok(page) => {
+                self.remove_url_status(&url)?;
+                Ok(page)
+            }
+            Err(error) => {
+                let msg = error.to_string();
+                status.last_error = msg.clone();
+                status.previous_source_available |= self.source_for_origin(&url)?.is_some();
+                let http_status = msg
+                    .split("HTTP ")
+                    .nth(1)
+                    .and_then(|rest| rest.get(..3))
+                    .and_then(|value| value.parse::<u16>().ok());
+                let restricted = matches!(http_status, Some(401 | 403));
+                let retryable =
+                    http_status.is_none_or(|code| matches!(code, 408 | 425 | 429) || code >= 500);
+                if restricted {
+                    status.state = "restricted".into();
+                } else if !retryable {
+                    status.state = "failed".into();
+                } else if status.attempts >= 8 {
+                    status.state = "failed".into();
+                } else {
+                    status.state = "pending".into();
+                    let delay = (5u64
+                        .saturating_mul(1u64 << status.attempts.saturating_sub(1).min(10)))
+                    .min(3600);
+                    status.retry_at = Some(
+                        (now_millis()?.min(u128::from(u64::MAX)) as u64)
+                            .saturating_add(delay * 1000),
+                    );
+                }
+                self.write_url_status(&status)?;
+                Err(GardenError::Invalid(format!(
+                    "{msg}{}",
+                    if status.state == "pending" {
+                        " Retry scheduled automatically; previous material remains available when present."
+                    } else if restricted {
+                        " Access is restricted; automatic retry stopped."
+                    } else {
+                        " Automatic retries exhausted; previous material remains available when present."
+                    }
+                )))
+            }
+        }
+    }
+
+    fn fetch_and_import_url(&mut self, input: &str) -> Result<SourcePage> {
         let requested = reqwest::Url::parse(input)
             .map_err(|_| GardenError::Invalid("Enter a valid HTTP or HTTPS URL.".into()))?;
         if !matches!(requested.scheme(), "http" | "https")
@@ -417,14 +492,26 @@ impl Application {
             output.write_all(&chunk[..read])?;
         }
         output.sync_all()?;
+        let mut received_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| GardenError::Invalid(e.to_string()))?
+            .as_millis();
+        if let Some(source_id) = self.source_for_origin(&requested)? {
+            if let Some(latest) = self
+                .open_source(&source_id)?
+                .info
+                .acquisitions
+                .iter()
+                .filter_map(|acquisition| acquisition.received_at.parse::<u128>().ok())
+                .max()
+            {
+                received_at = received_at.max(latest.saturating_add(1));
+            }
+        }
         let acquisition = Acquisition {
             path: requested.clone(),
             method: AcquisitionMethod::Url,
-            received_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|e| GardenError::Invalid(e.to_string()))?
-                .as_millis()
-                .to_string(),
+            received_at: received_at.to_string(),
             requested_url: Some(requested),
             final_url: Some(final_url),
             http_status: Some(status.as_u16()),
@@ -436,6 +523,92 @@ impl Application {
             Some(acquisition),
             Some(format),
         )
+    }
+
+    fn url_status_path(&self, url: &str) -> PathBuf {
+        let digest = Sha256::digest(url.as_bytes());
+        self.root
+            .join("url-acquisitions")
+            .join(format!("{:x}.json", digest))
+    }
+
+    fn read_url_status(&self, url: &str) -> Result<Option<UrlAcquisitionStatus>> {
+        let path = self.url_status_path(url);
+        if !path.exists() {
+            return Ok(None);
+        }
+        Ok(Some(serde_json::from_slice(&fs::read(path)?)?))
+    }
+
+    fn write_url_status(&self, status: &UrlAcquisitionStatus) -> Result<()> {
+        let path = self.url_status_path(&status.url);
+        fs::create_dir_all(path.parent().unwrap())?;
+        let temp = path.with_extension("tmp");
+        let mut file = File::create(&temp)?;
+        file.write_all(&serde_json::to_vec_pretty(status)?)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temp, &path)?;
+        sync_directory(path.parent().unwrap())?;
+        Ok(())
+    }
+
+    fn remove_url_status(&self, url: &str) -> Result<()> {
+        let path = self.url_status_path(url);
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
+    pub fn list_url_acquisitions(&self) -> Result<Vec<UrlAcquisitionStatus>> {
+        let dir = self.root.join("url-acquisitions");
+        if !dir.exists() {
+            return Ok(Vec::new());
+        }
+        let mut records = fs::read_dir(dir)?
+            .filter_map(|entry| match entry {
+                Ok(entry) if entry.path().extension().is_some_and(|ext| ext == "json") => {
+                    Some(Ok::<PathBuf, GardenError>(entry.path()))
+                }
+                Ok(_) => None,
+                Err(error) => Some(Err(error.into())),
+            })
+            .map(|path| Ok(serde_json::from_slice(&fs::read(path?)?)?))
+            .collect::<Result<Vec<UrlAcquisitionStatus>>>()?;
+        records.sort_by(|a, b| a.url.cmp(&b.url));
+        Ok(records)
+    }
+
+    fn recover_interrupted_url_acquisitions(&self) -> Result<()> {
+        for mut status in self.list_url_acquisitions()? {
+            if status.state == "processing" {
+                status.state = "pending".into();
+                status.retry_at = Some(0);
+                status.last_error =
+                    "The application restarted during retrieval; retry is queued.".into();
+                self.write_url_status(&status)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn resume_due_url_acquisitions(&mut self) -> Result<()> {
+        let now = now_millis()?.min(u128::from(u64::MAX)) as u64;
+        self.resume_due_url_acquisitions_at(now)
+    }
+
+    pub fn resume_due_url_acquisitions_at(&mut self, now: u64) -> Result<()> {
+        let due = self
+            .list_url_acquisitions()?
+            .into_iter()
+            .filter(|item| item.state == "pending" && item.retry_at.is_some_and(|at| at <= now))
+            .map(|item| item.url)
+            .collect::<Vec<_>>();
+        for url in due {
+            let _ = self.import_url(&url);
+        }
+        Ok(())
     }
 
     fn import_source_with_acquisition(
@@ -970,6 +1143,7 @@ impl Application {
                 .iter_mut()
                 .find(|version| version.source_version_id == source_version_id)
                 .ok_or_else(|| GardenError::Invalid("Pending source version is missing.".into()))?;
+            let version_received_at = version.received_at.clone();
             let candidate_path = if initial {
                 self.source_dir(&source_id)?.join(&version.asset)
             } else {
@@ -977,6 +1151,17 @@ impl Application {
                     .join("versions")
                     .join(&source_version_id)
                     .join(&version.asset)
+            };
+            let acquisition_history = if page.info.format == "html"
+                && page
+                    .info
+                    .acquisitions
+                    .iter()
+                    .any(|acquisition| acquisition.method == AcquisitionMethod::Url)
+            {
+                self.open_source(&source_id)?.info.acquisitions
+            } else {
+                page.info.acquisitions.clone()
             };
             let text = if page.info.format == "html"
                 && page
@@ -986,11 +1171,16 @@ impl Application {
                     .any(|acquisition| acquisition.method == AcquisitionMethod::Url)
             {
                 let bytes = fs::read(&candidate_path)?;
-                let final_url = page
-                    .info
-                    .acquisitions
+                let final_url = acquisition_history
                     .iter()
-                    .find_map(|acquisition| acquisition.final_url.as_deref())
+                    .find(|acquisition| acquisition.received_at == version_received_at)
+                    .and_then(|acquisition| acquisition.final_url.as_deref())
+                    .or_else(|| {
+                        acquisition_history
+                            .iter()
+                            .rev()
+                            .find_map(|acquisition| acquisition.final_url.as_deref())
+                    })
                     .unwrap_or("");
                 let mut prefix = bytes[..bytes.len().min(MAX_TEXT_BYTES)].to_vec();
                 if let Err(error) = std::str::from_utf8(&prefix) {
