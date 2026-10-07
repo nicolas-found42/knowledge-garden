@@ -93,9 +93,75 @@ pub fn preview(path: &Path) -> Result<String, String> {
 }
 
 /// Reject provenance laundering even when an external semantic judgment accepted it.
-pub fn validate_draft(source: &str, draft: &crate::semantic::KnowledgeDraft) -> Result<(), String> {
-    if !source.starts_with("[PHOTO ") {
+pub fn validate_draft(
+    source: &str,
+    source_format: &str,
+    draft: &crate::semantic::KnowledgeDraft,
+) -> Result<(), String> {
+    if !is_photo(source_format) {
+        let native_image_evidence = draft
+            .entities
+            .iter()
+            .map(|entity| &entity.evidence)
+            .chain(draft.facts.iter().map(|fact| &fact.evidence))
+            .chain(
+                draft
+                    .relationships
+                    .iter()
+                    .map(|relationship| &relationship.evidence),
+            )
+            .chain(draft.tags.iter().map(|tag| &tag.evidence))
+            .chain(
+                draft
+                    .correction_candidates
+                    .iter()
+                    .map(|candidate| &candidate.evidence),
+            )
+            .chain(
+                draft
+                    .correction_alignments
+                    .iter()
+                    .map(|alignment| &alignment.candidate.evidence),
+            )
+            .chain(draft.source_update.iter().flat_map(|update| {
+                [
+                    Some(&update.evidence),
+                    update.source_date_evidence.as_ref(),
+                    update.source_revision_evidence.as_ref(),
+                ]
+                .into_iter()
+                .flatten()
+            }))
+            .any(|evidence| {
+                evidence.origin.eq_ignore_ascii_case("observed_pixels")
+                    || evidence.offset_basis.as_deref() == Some("extracted_image_projection")
+                    || evidence
+                        .source_location
+                        .as_deref()
+                        .is_some_and(|location| location.starts_with("PHOTO "))
+            });
+        if source.starts_with("[PHOTO ")
+            || native_image_evidence
+            || draft.facts.iter().any(|fact| {
+                matches!(
+                    fact.property.to_ascii_lowercase().as_str(),
+                    "image_pixels"
+                        | "image_metadata"
+                        | "image_caption"
+                        | "image_text"
+                        | "image_interpretation"
+                )
+            })
+        {
+            return Err("Native photo evidence requires a retained image source version; supplied text cannot establish pixel provenance.".into());
+        }
         return Ok(());
+    }
+    if !source.starts_with("[PHOTO ") {
+        return Err(
+            "The retained image has no native photo projection; processing remains recoverable."
+                .into(),
+        );
     }
     fn channel<'a>(
         source: &'a str,
@@ -164,6 +230,8 @@ pub fn validate_draft(source: &str, draft: &crate::semantic::KnowledgeDraft) -> 
     }
     if !draft.relationships.is_empty()
         || !draft.tags.is_empty()
+        || !draft.correction_candidates.is_empty()
+        || !draft.correction_alignments.is_empty()
         || draft
             .source_update
             .as_ref()
