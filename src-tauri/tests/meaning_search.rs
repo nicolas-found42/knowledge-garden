@@ -220,7 +220,7 @@ fn grounded_update_draft(text: &str, is_replacement: bool) -> KnowledgeDraft {
 }
 
 #[test]
-fn meaning_index_keeps_last_successful_version_until_update_then_replaces_it() {
+fn meaning_index_replaces_current_version_and_recovers_interrupted_sync_after_restart() {
     let assets = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/meaning");
     let collection = tempdir().unwrap();
     let inputs = tempdir().unwrap();
@@ -242,6 +242,8 @@ fn meaning_index_keeps_last_successful_version_until_update_then_replaces_it() {
     let old_hit = app
         .search_pages(meaning_request("notes about the river trip"))
         .unwrap();
+    let index_path = collection.path().join(".derived/meaning.usearch");
+    let earlier_vector_file = fs::read(&index_path).unwrap();
     assert_eq!(old_hit.pages[0].source_id, initial.info.source_id);
     let old_source_page = app.open_source(&initial.info.source_id).unwrap();
     assert_eq!(old_source_page.knowledge_pages.len(), 1);
@@ -311,6 +313,44 @@ fn meaning_index_keeps_last_successful_version_until_update_then_replaces_it() {
         .unwrap();
     assert_eq!(rebuilt_hit.pages[0].title, "Noor activity");
     assert_eq!(rebuilt_hit.pages[0].page_id, current_knowledge_page_id);
+
+    // Model interruption after current SQLite hashes were recorded but before
+    // the matching vectors were published: restore the prior valid file and
+    // leave the sync marker that production writes before mutating metadata.
+    fs::write(&index_path, earlier_vector_file).unwrap();
+    fs::write(
+        collection.path().join(".derived/meaning.dirty"),
+        b"sync in progress",
+    )
+    .unwrap();
+    drop(app);
+
+    let mut reopened = Application::open_with_semantic_provider_and_meaning_assets(
+        collection.path(),
+        Arc::new(UnusedProvider),
+        Some(&assets),
+    )
+    .unwrap();
+    let after_restart = reopened
+        .search_pages(PageSearchRequest {
+            tags: vec!["garden".into()],
+            date_from: Some("2024-05-18".into()),
+            date_to: Some("2024-05-18".into()),
+            format: Some("txt".into()),
+            ..meaning_request("where did Noor grow tomatoes?")
+        })
+        .unwrap();
+    assert_eq!(after_restart.meaning_search_status, "ready");
+    assert_eq!(after_restart.pages[0].title, "Noor activity");
+    assert_eq!(after_restart.pages[0].page_id, current_knowledge_page_id);
+    let stale_query = reopened
+        .search_pages(meaning_request("notes about the river trip"))
+        .unwrap();
+    assert!(stale_query
+        .pages
+        .iter()
+        .all(|page| page.page_id != current_knowledge_page_id));
+    assert!(!collection.path().join(".derived/meaning.dirty").exists());
 }
 
 #[test]
