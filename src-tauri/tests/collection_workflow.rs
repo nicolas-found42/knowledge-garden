@@ -1,10 +1,11 @@
 use knowledge_garden::application::{
-    AcquisitionMethod, Application, ExtractionState, PageSearchRequest,
+    AcquisitionMethod, Application, ExtractionState, PageSearchMode, PageSearchRequest,
 };
 use knowledge_garden::providers::{JevSemanticProvider, SystemOneTransport};
 use knowledge_garden::semantic::{
-    EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, RelationshipDraft,
-    SemanticDecision, SemanticProvider, SourceUpdateDraft, SourceUpdateRole, TagDraft,
+    CorrectionAlignmentDraft, CorrectionCandidateDraft, EntityDraft, EvidenceDraft, FactDraft,
+    FieldAlignmentOutcome, KnowledgeDraft, ProviderError, RelationshipDraft, SemanticDecision,
+    SemanticProvider, SourceUpdateDraft, SourceUpdateRole, TagDraft,
 };
 use serde_json::Value;
 use std::collections::VecDeque;
@@ -274,10 +275,11 @@ impl SystemOneTransport for ContextCapturingTransport {
                 "choice" => {
                     let criteria = question["criteria"].as_object().unwrap();
                     let choice = match key.as_str() {
-                        "source_update_role" => "complete_replacement",
+                        "source_update_role" => "targeted_correction",
                         "source_update_evidence" => "span_0",
+                        name if name.starts_with("field_alignment_") => "same_field_correction",
                         "source_order_date" | "source_order_revision" | "event_date" => "none",
-                        "event_identity" => "unclear",
+                        "event_identity" => "event",
                         _ => criteria.keys().next().map(String::as_str).unwrap_or("none"),
                     };
                     answers.insert(
@@ -294,6 +296,36 @@ impl SystemOneTransport for ContextCapturingTransport {
         }
         Ok(serde_json::json!({"model":"typesafe/jev-1.13-capture","answers":answers}))
     }
+}
+
+#[test]
+fn jev_receives_exact_prior_field_context_for_explicit_correction_alignment() {
+    let incoming = "Correction dated May 19, 2024. For Observation V17: The visit total should read 15, not 12. This note corrects the count only.";
+    let prior = "Current published fields for event `Observation V17`:\n- property `visit_count` = `12 visits`; current support: ‘12 visits’";
+    let transport = Arc::new(ContextCapturingTransport(Mutex::new(None)));
+    let provider =
+        JevSemanticProvider::with_transport("recorded-test-credential".into(), transport.clone());
+
+    provider
+        .form_knowledge_with_prior(incoming, Some(prior))
+        .unwrap();
+
+    let request = transport.0.lock().unwrap().clone().unwrap();
+    assert!(request["questions"]["field_alignment_0"]["instructions"]
+        .as_str()
+        .unwrap()
+        .contains("same event and same property"));
+    assert!(request["questions"]["field_alignment_0"]["criteria"]
+        .get("conditional_or_rejected")
+        .is_some());
+    assert!(request["state"]["prior_source_projection"]
+        .as_str()
+        .unwrap()
+        .contains("12 visits"));
+    assert!(request["state"]["source_text"]
+        .as_str()
+        .unwrap()
+        .contains("15, not 12"));
 }
 
 #[test]
@@ -456,7 +488,15 @@ fn v17_recording() -> KnowledgeDraft {
         })
         .collect(),
         source_update: None,
+        ..KnowledgeDraft::default()
     }
+}
+
+fn ordered_v17_recording() -> KnowledgeDraft {
+    let mut draft = v17_recording();
+    let text = "Revision 1 dated May 18, 2024; observation V17 on May 17, 2024; observer Maya; location Riverside; 12 visits; duration 10 minutes. It possibly occurred at Riverside. A different person named Maya filed another report.";
+    draft.source_update = Some(recorded_update(text, SourceUpdateRole::Unknown));
+    draft
 }
 
 fn replacement_recording(text: &str, visits: u32, include_duration: bool) -> KnowledgeDraft {
@@ -919,7 +959,7 @@ fn application_recovery_replays_an_actual_interrupted_replacement_transaction() 
         .contains("Injected publication interruption"));
     drop(app);
 
-    let app = Application::open(&collection).unwrap();
+    let mut app = Application::open(&collection).unwrap();
     let current = app.open_source(&first.info.source_id).unwrap();
     assert_eq!(current.info.semantic_state, "complete");
     assert_eq!(
@@ -1111,6 +1151,7 @@ fn search_returns_frozen_page_set_from_titles_tags_keyword_and_current_metadata(
 
     let combined = app
         .search_pages(PageSearchRequest {
+            mode: PageSearchMode::Keyword,
             query: "Riverside".into(),
             tags: vec!["#fieldwork".into()],
             date_from: Some("2024-05-01".into()),
@@ -1190,7 +1231,7 @@ fn search_returns_frozen_page_set_from_titles_tags_keyword_and_current_metadata(
     drop(app);
     export_recorded_search_collection(&workspace.path().join("collection"));
     fs::remove_dir_all(workspace.path().join("collection/.derived")).unwrap();
-    let rebuilt = Application::open(workspace.path().join("collection")).unwrap();
+    let mut rebuilt = Application::open(workspace.path().join("collection")).unwrap();
     let after_restart = rebuilt
         .search_pages(PageSearchRequest {
             query: "Riverside".into(),
@@ -1298,6 +1339,14 @@ fn explicit_v17_count_only_correction_updates_just_the_count() {
         offset_basis: None,
         source_location: None,
     };
+    let correction_quote = "For Observation V17: The visit total should read 15, not 12.";
+    let correction_start = correction_text.find(correction_quote).unwrap();
+    let correction_evidence = EvidenceDraft {
+        quote: correction_quote.into(),
+        byte_start: correction_start,
+        byte_end: correction_start + correction_quote.len(),
+        ..evidence.clone()
+    };
     let update = recorded_update(correction_text, SourceUpdateRole::TargetedCorrection);
     let corrected = KnowledgeDraft {
         entities: vec![EntityDraft {
@@ -1319,12 +1368,31 @@ fn explicit_v17_count_only_correction_updates_just_the_count() {
             record_key: None,
         }],
         source_update: Some(update),
+        correction_candidates: vec![CorrectionCandidateDraft {
+            event_label: "Observation V17".into(),
+            property: "visit_count".into(),
+            previous_value: "12 visits".into(),
+            corrected_value: "15 visits".into(),
+            evidence: correction_evidence.clone(),
+        }],
+        correction_alignments: vec![CorrectionAlignmentDraft {
+            candidate: CorrectionCandidateDraft {
+                event_label: "Observation V17".into(),
+                property: "visit_count".into(),
+                previous_value: "12 visits".into(),
+                corrected_value: "15 visits".into(),
+                evidence: correction_evidence,
+            },
+            outcome: FieldAlignmentOutcome::SameFieldCorrection,
+            certainty: 0.99,
+            model: "test-jev".into(),
+        }],
         ..KnowledgeDraft::default()
     };
     let mut app = Application::open_with_semantic_provider(
         workspace.path().join("collection"),
         Arc::new(RecordedProvider::sequence(vec![
-            Ok(v17_recording()),
+            Ok(ordered_v17_recording()),
             Ok(corrected),
         ])),
     )
@@ -1347,7 +1415,7 @@ fn explicit_v17_count_only_correction_updates_just_the_count() {
         .find(|page| page.title == "Observation V17")
         .unwrap();
     let markdown = app.open_knowledge_page(&v17.page_id).unwrap().markdown;
-    assert!(markdown.contains("15 visits"));
+    assert!(markdown.contains("- **visit count:** 15 visits"));
     assert!(markdown.contains("May 17, 2024"));
     assert!(markdown.contains("Maya (observer)"));
     assert!(markdown.contains("Riverside"));
@@ -1358,10 +1426,13 @@ fn explicit_v17_count_only_correction_updates_just_the_count() {
             ..PageSearchRequest::default()
         })
         .unwrap();
-    assert!(current_count_search
-        .pages
-        .iter()
-        .any(|page| page.page_id == v17.page_id));
+    assert!(
+        current_count_search
+            .pages
+            .iter()
+            .any(|page| page.page_id == v17.page_id),
+        "corrected V17 missing from current count search: {current_count_search:?}"
+    );
     let old_count_search = app
         .search_pages(PageSearchRequest {
             query: "12 visits".into(),
@@ -1379,6 +1450,268 @@ fn explicit_v17_count_only_correction_updates_just_the_count() {
         .pages
         .iter()
         .any(|page| page.page_id == initial_source.info.page_id));
+}
+
+#[test]
+fn correction_with_wrong_stated_previous_value_stays_pending_and_preserves_current_count() {
+    let workspace = tempdir().unwrap();
+    let initial_path = workspace.path().join("V17.txt");
+    let initial_text = "Revision 1 dated May 18, 2024; observation V17 on May 17, 2024; observer Maya; location Riverside; 12 visits; duration 10 minutes. It possibly occurred at Riverside. A different person named Maya filed another report.";
+    fs::write(&initial_path, initial_text).unwrap();
+    let correction_path = workspace.path().join("correction.txt");
+    let correction_text = "Correction dated May 19, 2024. For Observation V17: The visit total should read 15, not 11.";
+    fs::write(&correction_path, correction_text).unwrap();
+    let correction_quote = "For Observation V17: The visit total should read 15, not 11.";
+    let correction_start = correction_text.find(correction_quote).unwrap();
+    let evidence = EvidenceDraft {
+        quote: correction_quote.into(),
+        byte_start: correction_start,
+        byte_end: correction_start + correction_quote.len(),
+        origin: "observed".into(),
+        qualifier: None,
+        offset_basis: None,
+        source_location: None,
+    };
+    let candidate = CorrectionCandidateDraft {
+        event_label: "Observation V17".into(),
+        property: "visit_count".into(),
+        previous_value: "11 visits".into(),
+        corrected_value: "15 visits".into(),
+        evidence,
+    };
+    let correction = KnowledgeDraft {
+        entities: vec![EntityDraft {
+            kind: "event".into(),
+            label: "Observation V17".into(),
+            evidence: EvidenceDraft {
+                quote: "Observation V17".into(),
+                byte_start: correction_text.find("Observation V17").unwrap(),
+                byte_end: correction_text.find("Observation V17").unwrap()
+                    + "Observation V17".len(),
+                origin: "observed".into(),
+                qualifier: None,
+                offset_basis: None,
+                source_location: None,
+            },
+        }],
+        source_update: Some(recorded_update(
+            correction_text,
+            SourceUpdateRole::TargetedCorrection,
+        )),
+        correction_alignments: vec![CorrectionAlignmentDraft {
+            candidate: candidate.clone(),
+            outcome: FieldAlignmentOutcome::SameFieldCorrection,
+            certainty: 0.99,
+            model: "test-jev".into(),
+        }],
+        correction_candidates: vec![candidate],
+        ..KnowledgeDraft::default()
+    };
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(ordered_v17_recording()),
+            Ok(correction),
+        ])),
+    )
+    .unwrap();
+    let initial = app
+        .import_source(&initial_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let incoming = app
+        .import_source(&correction_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    assert_eq!(
+        app.open_source(&incoming.info.source_id)
+            .unwrap()
+            .info
+            .semantic_state,
+        "pending"
+    );
+    let current_initial = app.open_source(&initial.info.source_id).unwrap();
+    assert_eq!(
+        current_initial.info.semantic_state, "complete",
+        "{:?}",
+        current_initial.info.semantic_error
+    );
+    let v17 = current_initial
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.title == "Observation V17")
+        .unwrap();
+    assert!(app
+        .open_knowledge_page(&v17.page_id)
+        .unwrap()
+        .markdown
+        .contains("- **visit count:** 12 visits"));
+}
+
+#[test]
+fn conditional_count_correction_stays_pending_and_preserves_current_count() {
+    let workspace = tempdir().unwrap();
+    let initial_path = workspace.path().join("V17.txt");
+    let initial_text = "Revision 1 dated May 18, 2024; observation V17 on May 17, 2024; observer Maya; location Riverside; 12 visits; duration 10 minutes. It possibly occurred at Riverside. A different person named Maya filed another report.";
+    fs::write(&initial_path, initial_text).unwrap();
+    let correction_path = workspace.path().join("conditional-correction.txt");
+    let correction_text = "Correction dated May 19, 2024. If approved, for Observation V17 the visit total should read 15, not 12.";
+    fs::write(&correction_path, correction_text).unwrap();
+    let correction_quote =
+        "If approved, for Observation V17 the visit total should read 15, not 12.";
+    let correction_start = correction_text.find(correction_quote).unwrap();
+    let candidate = CorrectionCandidateDraft {
+        event_label: "Observation V17".into(),
+        property: "visit_count".into(),
+        previous_value: "12 visits".into(),
+        corrected_value: "15 visits".into(),
+        evidence: EvidenceDraft {
+            quote: correction_quote.into(),
+            byte_start: correction_start,
+            byte_end: correction_start + correction_quote.len(),
+            origin: "observed".into(),
+            qualifier: None,
+            offset_basis: None,
+            source_location: None,
+        },
+    };
+    let correction = KnowledgeDraft {
+        entities: vec![EntityDraft {
+            kind: "event".into(),
+            label: "Observation V17".into(),
+            evidence: EvidenceDraft {
+                quote: "Observation V17".into(),
+                byte_start: correction_text.find("Observation V17").unwrap(),
+                byte_end: correction_text.find("Observation V17").unwrap()
+                    + "Observation V17".len(),
+                origin: "observed".into(),
+                qualifier: None,
+                offset_basis: None,
+                source_location: None,
+            },
+        }],
+        source_update: Some(recorded_update(
+            correction_text,
+            SourceUpdateRole::TargetedCorrection,
+        )),
+        correction_alignments: vec![CorrectionAlignmentDraft {
+            candidate: candidate.clone(),
+            outcome: FieldAlignmentOutcome::ConditionalOrRejected,
+            certainty: 0.99,
+            model: "test-jev".into(),
+        }],
+        correction_candidates: vec![candidate],
+        ..KnowledgeDraft::default()
+    };
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(ordered_v17_recording()),
+            Ok(correction),
+        ])),
+    )
+    .unwrap();
+    let initial = app
+        .import_source(&initial_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let incoming = app
+        .import_source(&correction_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    assert_eq!(
+        app.open_source(&incoming.info.source_id)
+            .unwrap()
+            .info
+            .semantic_state,
+        "pending"
+    );
+    let v17 = app
+        .open_source(&initial.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.title == "Observation V17")
+        .unwrap();
+    assert!(app
+        .open_knowledge_page(&v17.page_id)
+        .unwrap()
+        .markdown
+        .contains("- **visit count:** 12 visits"));
+}
+
+#[test]
+fn explicit_correction_without_alignment_stays_pending_and_preserves_current_count() {
+    let workspace = tempdir().unwrap();
+    let initial_path = workspace.path().join("V17.txt");
+    let initial_text = "Revision 1 dated May 18, 2024; observation V17 on May 17, 2024; observer Maya; location Riverside; 12 visits; duration 10 minutes. It possibly occurred at Riverside. A different person named Maya filed another report.";
+    fs::write(&initial_path, initial_text).unwrap();
+    let correction_path = workspace.path().join("unresolved-correction.txt");
+    let correction_text = "Correction dated May 19, 2024. For Observation V17: The visit total should read 15, not 12.";
+    fs::write(&correction_path, correction_text).unwrap();
+    let correction_quote = "For Observation V17: The visit total should read 15, not 12.";
+    let correction_start = correction_text.find(correction_quote).unwrap();
+    let candidate = CorrectionCandidateDraft {
+        event_label: "Observation V17".into(),
+        property: "visit_count".into(),
+        previous_value: "12 visits".into(),
+        corrected_value: "15 visits".into(),
+        evidence: EvidenceDraft {
+            quote: correction_quote.into(),
+            byte_start: correction_start,
+            byte_end: correction_start + correction_quote.len(),
+            origin: "observed".into(),
+            qualifier: None,
+            offset_basis: None,
+            source_location: None,
+        },
+    };
+    let unresolved = KnowledgeDraft {
+        source_update: Some(recorded_update(
+            correction_text,
+            SourceUpdateRole::TargetedCorrection,
+        )),
+        correction_candidates: vec![candidate],
+        ..KnowledgeDraft::default()
+    };
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(ordered_v17_recording()),
+            Ok(unresolved),
+        ])),
+    )
+    .unwrap();
+    let initial = app
+        .import_source(&initial_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let incoming = app
+        .import_source(&correction_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    assert_eq!(
+        app.open_source(&incoming.info.source_id)
+            .unwrap()
+            .info
+            .semantic_state,
+        "pending"
+    );
+    let v17 = app
+        .open_source(&initial.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.title == "Observation V17")
+        .unwrap();
+    assert!(app
+        .open_knowledge_page(&v17.page_id)
+        .unwrap()
+        .markdown
+        .contains("- **visit count:** 12 visits"));
 }
 
 #[test]
@@ -1458,6 +1791,7 @@ fn application_keeps_two_same_name_observers_as_distinct_evidence_backed_entitie
             probability: Some(0.98),
         }],
         source_update: None,
+        ..KnowledgeDraft::default()
     };
     let mut app = Application::open_with_semantic_provider(
         workspace.path().join("collection"),
@@ -3304,6 +3638,291 @@ fn repeated_bad_omission_drafts_stop_without_changing_current_original_or_facts(
     assert!(failed.info.semantic_retry_at.is_none());
     assert_eq!(
         fs::read_to_string(app.original_path(&first.info.source_id).unwrap()).unwrap(),
+        REVISION_1
+    );
+}
+
+#[test]
+fn repeated_quota_failures_exhaust_per_version_budget_without_rollback() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("report.docx");
+    let collection = workspace.path().join("collection");
+    let future_retry_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+        + 60 * 60 * 1000;
+    let newest = REVISION_2
+        .replace("revision 2 dated May 20", "revision 3 dated May 21")
+        .replace("Visits: 15.", "Visits: 18.");
+    let extractor = Arc::new(RecoveringProjection {
+        fails: std::sync::atomic::AtomicBool::new(false),
+        recovered: std::sync::atomic::AtomicBool::new(true),
+    });
+    let quota = || {
+        Err(ProviderError::recoverable(
+            "Provider quota exhausted".into(),
+        ))
+    };
+    let provider = Arc::new(RecordedProvider::sequence(vec![
+        Ok(replacement_recording(REVISION_1, 12, true)),
+        quota(),
+        Ok(replacement_recording(&newest, 18, false)),
+    ]));
+    fs::write(&path, REVISION_1).unwrap();
+    let mut app =
+        Application::open_with_providers(&collection, provider.clone(), extractor.clone()).unwrap();
+    let baseline = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let source = app.open_source(&baseline.info.source_id).unwrap();
+    let event = source
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "event")
+        .unwrap()
+        .page_id
+        .clone();
+
+    fs::write(&path, REVISION_2).unwrap();
+    let pending = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    let failed_version_id = pending.info.pending_version_id.clone().unwrap();
+    let failed_candidate = app
+        .original_version_path(
+            &baseline.info.source_id,
+            &failed_version_id,
+            "original.docx",
+        )
+        .unwrap();
+    assert_eq!(fs::read_to_string(&failed_candidate).unwrap(), REVISION_2);
+    let first = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    let stale_attempt = first.clone();
+    app.finish_semantic_job(first, quota()).unwrap();
+    assert_eq!(
+        app.open_source(&baseline.info.source_id)
+            .unwrap()
+            .info
+            .update_status
+            .as_deref(),
+        Some("pending")
+    );
+
+    drop(app);
+    let mut restarted = Application::open_with_providers(&collection, provider, extractor).unwrap();
+    restarted
+        .resume_due_semantic_jobs_at(future_retry_time)
+        .unwrap();
+    assert!(restarted
+        .open_knowledge_page(&event)
+        .unwrap()
+        .markdown
+        .contains("12 visits"));
+    assert!(restarted
+        .open_knowledge_page(&event)
+        .unwrap()
+        .markdown
+        .contains("10 minutes"));
+    let third = restarted
+        .claim_due_semantic_jobs_at(1, future_retry_time)
+        .unwrap()
+        .remove(0);
+    restarted.finish_semantic_job(third, quota()).unwrap();
+    let exhausted = restarted.open_source(&baseline.info.source_id).unwrap();
+    assert_eq!(exhausted.info.update_status.as_deref(), Some("failed"));
+    assert!(exhausted.info.semantic_retry_at.is_none());
+    assert!(restarted.claim_due_semantic_jobs(1).unwrap().is_empty());
+    assert_eq!(
+        fs::read_to_string(restarted.original_path(&baseline.info.source_id).unwrap()).unwrap(),
+        REVISION_1
+    );
+    assert_eq!(fs::read_to_string(&failed_candidate).unwrap(), REVISION_2);
+
+    fs::write(&path, &newest).unwrap();
+    let newer = restarted
+        .import_source(&path, AcquisitionMethod::Picker)
+        .unwrap();
+    assert_ne!(newer.info.pending_version_id, Some(failed_version_id));
+    let newest_version_id = newer.info.pending_version_id.clone().unwrap();
+    restarted
+        .resume_due_semantic_jobs_at(future_retry_time)
+        .unwrap();
+    assert_eq!(
+        restarted
+            .open_source(&baseline.info.source_id)
+            .unwrap()
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == newest_version_id)
+            .unwrap()
+            .retryable_provider_failures,
+        0
+    );
+    assert_eq!(
+        restarted
+            .open_source(&baseline.info.source_id)
+            .unwrap()
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == newest_version_id)
+            .unwrap()
+            .semantic_integrity_failures,
+        0
+    );
+    assert!(restarted
+        .finish_semantic_job(
+            stale_attempt,
+            Ok(replacement_recording(REVISION_2, 15, false))
+        )
+        .is_err());
+    let current = restarted.open_knowledge_page(&event).unwrap().markdown;
+    assert!(current.contains("18 visits"), "{current}");
+    assert_eq!(
+        fs::read_to_string(restarted.original_path(&baseline.info.source_id).unwrap()).unwrap(),
+        newest
+    );
+}
+
+#[test]
+fn repeated_initial_quota_failures_exhaust_the_same_persisted_budget() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("initial-report.txt");
+    let collection = workspace.path().join("collection");
+    let future_retry_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+        + 60 * 60 * 1000;
+    fs::write(&path, REVISION_1).unwrap();
+    let quota = || {
+        Err(ProviderError::recoverable(
+            "Provider quota exhausted".into(),
+        ))
+    };
+    let provider = Arc::new(RecordedProvider::sequence(vec![quota(), quota(), quota()]));
+    let mut app = Application::open_with_semantic_provider(&collection, provider.clone()).unwrap();
+    let imported = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs_at(future_retry_time).unwrap();
+    assert_eq!(
+        app.open_source(&imported.info.source_id)
+            .unwrap()
+            .info
+            .semantic_state,
+        "pending"
+    );
+
+    drop(app);
+    let mut restarted = Application::open_with_semantic_provider(&collection, provider).unwrap();
+    restarted
+        .resume_due_semantic_jobs_at(future_retry_time)
+        .unwrap();
+    restarted
+        .resume_due_semantic_jobs_at(future_retry_time)
+        .unwrap();
+    let failed = restarted.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(failed.info.semantic_state, "failed");
+    assert!(failed.info.semantic_retry_at.is_none());
+    assert!(restarted
+        .claim_due_semantic_jobs_at(1, future_retry_time)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        fs::read_to_string(restarted.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        REVISION_1
+    );
+    assert_eq!(failed.info.versions_seen[0].retryable_provider_failures, 3);
+    assert_eq!(failed.info.versions_seen[0].semantic_integrity_failures, 0);
+}
+
+#[test]
+fn newer_source_recovers_failed_initial_acquisition_from_its_own_candidate() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("initial-report.txt");
+    let collection = workspace.path().join("collection");
+    let future_retry_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+        + 60 * 60 * 1000;
+    let revised = REVISION_2.to_owned();
+    let quota = || {
+        Err(ProviderError::recoverable(
+            "Provider quota exhausted".into(),
+        ))
+    };
+    let provider = Arc::new(RecordedProvider::sequence(vec![quota(), quota()]));
+    fs::write(&path, REVISION_1).unwrap();
+    let mut app = Application::open_with_semantic_provider(&collection, provider.clone()).unwrap();
+    let initial = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    let stale_job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    let initial_version_id = stale_job.source_version_id.clone();
+    app.finish_semantic_job(stale_job.clone(), quota()).unwrap();
+    app.resume_due_semantic_jobs_at(future_retry_time).unwrap();
+    app.resume_due_semantic_jobs_at(future_retry_time).unwrap();
+    let failed_initial = app.open_source(&initial.info.source_id).unwrap();
+    assert_eq!(failed_initial.info.semantic_state, "failed");
+    assert_eq!(
+        failed_initial
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == initial_version_id)
+            .unwrap()
+            .retryable_provider_failures,
+        3
+    );
+
+    drop(app);
+    let mut reopened = Application::open_with_semantic_provider(&collection, provider).unwrap();
+    fs::write(&path, &revised).unwrap();
+    let replacement = reopened
+        .import_source(&path, AcquisitionMethod::Picker)
+        .unwrap();
+    assert_eq!(replacement.info.source_id, initial.info.source_id);
+    assert_eq!(replacement.info.semantic_state, "pending");
+    let replacement_version_id = replacement.info.pending_version_id.clone().unwrap();
+    let replacement_original = reopened
+        .original_version_path(
+            &initial.info.source_id,
+            &replacement_version_id,
+            "original.txt",
+        )
+        .unwrap();
+    assert_eq!(fs::read_to_string(&replacement_original).unwrap(), revised);
+
+    let replacement_job = reopened
+        .claim_due_semantic_jobs_at(1, future_retry_time)
+        .unwrap()
+        .remove(0);
+    assert_eq!(replacement_job.source_version_id, replacement_version_id);
+    assert_eq!(replacement_job.source_text, revised);
+    reopened
+        .finish_semantic_job(
+            replacement_job,
+            Ok(replacement_recording(&revised, 15, false)),
+        )
+        .unwrap();
+    assert!(reopened
+        .finish_semantic_job(stale_job, Ok(replacement_recording(REVISION_1, 12, true)),)
+        .is_err());
+
+    let current = reopened.open_source(&initial.info.source_id).unwrap();
+    assert_eq!(current.info.semantic_state, "complete");
+    assert_eq!(
+        current.info.current_version_id.as_deref(),
+        Some(replacement_version_id.as_str())
+    );
+    assert_eq!(
+        fs::read_to_string(reopened.original_path(&initial.info.source_id).unwrap()).unwrap(),
+        revised
+    );
+    assert_eq!(
+        fs::read_to_string(
+            reopened
+                .original_version_path(&initial.info.source_id, &initial_version_id, "original.txt")
+                .unwrap()
+        )
+        .unwrap(),
         REVISION_1
     );
 }

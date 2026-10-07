@@ -2,7 +2,7 @@
 name = "knowledge-garden"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [lib]
 name = "knowledge_garden"
@@ -29,3 +29,6 @@ reqwest = { version = "0.13", features = ["blocking", "json"] }
 html5ever = "=0.39.0"
 roxmltree = "=0.20.0"
 zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "load-dynamic"] }
+tokenizers = { version = "=0.23.2", default-features = false, features = ["onig"] }
+usearch = "=2.26.4"

@@ -1,9 +1,11 @@
 //! Public, disk-backed collection operations. Markdown and originals are authoritative.
 use crate::extraction::{LocalExtractor, SourceExtractor};
+use crate::meaning::{MeaningFilters, MeaningSearch};
 use crate::office::{CoveragePart, CoverageScope, CoverageStatus, OfficeProjection};
 use crate::semantic::{
-    EntityDraft, EvidenceDraft, KnowledgeDraft, KnowledgePage, KnowledgePageSummary, ProviderError,
-    SemanticDecision, SemanticJob, SemanticProvider, SourceUpdateRole,
+    CorrectionCandidateDraft, EntityDraft, EvidenceDraft, KnowledgeDraft, KnowledgePage,
+    KnowledgePageSummary, ProviderError, SemanticDecision, SemanticJob, SemanticProvider,
+    SourceUpdateRole,
 };
 use fs2::FileExt;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
@@ -23,6 +25,7 @@ use uuid::Uuid;
 pub const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_PAGE_BYTES: u64 = (MAX_TEXT_BYTES * 3 + 64 * 1024) as u64;
 const PAGE_SIZE: usize = 50;
+const MAX_RETRYABLE_PROVIDER_FAILURES: u32 = 3;
 
 #[derive(Debug, Error)]
 pub enum GardenError {
@@ -123,6 +126,8 @@ pub struct SourceVersion {
     pub extraction_attempts: u32,
     #[serde(default)]
     pub semantic_integrity_failures: u32,
+    #[serde(default)]
+    pub retryable_provider_failures: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -194,6 +199,8 @@ pub struct PageSearchRequest {
     #[serde(default)]
     pub query: String,
     #[serde(default)]
+    pub mode: PageSearchMode,
+    #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
     pub date_from: Option<String>,
@@ -207,6 +214,14 @@ pub struct PageSearchRequest {
     pub offset: usize,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PageSearchMode {
+    #[default]
+    Keyword,
+    Meaning,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PageSearchResults {
     pub pages: Vec<PageResult>,
@@ -214,6 +229,7 @@ pub struct PageSearchResults {
     pub available_tags: Vec<String>,
     pub available_formats: Vec<String>,
     pub available_statuses: Vec<String>,
+    pub meaning_search_status: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -230,6 +246,8 @@ pub struct PageResult {
     pub extraction: ExtractionState,
     pub processing_status: String,
     pub matched_by: String,
+    #[serde(default)]
+    pub meaning_score: Option<f32>,
     pub match_location: Option<SearchMatchLocation>,
 }
 
@@ -259,6 +277,8 @@ pub struct Application {
     extractor: Arc<dyn SourceExtractor>,
     staged_publication: Vec<(PathBuf, Vec<u8>)>,
     fail_after_publication_files: Option<usize>,
+    meaning_search: Option<MeaningSearch>,
+    meaning_search_status: String,
 }
 
 fn semantic_pending() -> String {
@@ -274,10 +294,24 @@ impl Application {
     }
 
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
-        Self::open_inner(
+        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
+        Self::open_with_providers_and_meaning_assets(
             root,
             Arc::new(UnavailableProvider),
             Arc::new(LocalExtractor),
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_meaning_assets(
+        root: impl AsRef<Path>,
+        meaning_assets: Option<impl AsRef<Path>>,
+    ) -> Result<Self> {
+        Self::open_with_providers_and_meaning_assets(
+            root,
+            Arc::new(UnavailableProvider),
+            Arc::new(LocalExtractor),
+            meaning_assets.map(|path| path.as_ref().to_path_buf()),
         )
     }
 
@@ -285,7 +319,26 @@ impl Application {
         root: impl AsRef<Path>,
         semantic_provider: Arc<dyn SemanticProvider>,
     ) -> Result<Self> {
-        Self::open_inner(root, semantic_provider, Arc::new(LocalExtractor))
+        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
+        Self::open_with_providers_and_meaning_assets(
+            root,
+            semantic_provider,
+            Arc::new(LocalExtractor),
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_semantic_provider_and_meaning_assets(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        meaning_assets: Option<impl AsRef<Path>>,
+    ) -> Result<Self> {
+        Self::open_with_providers_and_meaning_assets(
+            root,
+            semantic_provider,
+            Arc::new(LocalExtractor),
+            meaning_assets.map(|path| path.as_ref().to_path_buf()),
+        )
     }
 
     pub fn open_with_providers(
@@ -293,13 +346,34 @@ impl Application {
         semantic_provider: Arc<dyn SemanticProvider>,
         extractor: Arc<dyn SourceExtractor>,
     ) -> Result<Self> {
-        Self::open_inner(root, semantic_provider, extractor)
+        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
+        Self::open_with_providers_and_meaning_assets(
+            root,
+            semantic_provider,
+            extractor,
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_providers_and_meaning_assets(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
+        meaning_assets: Option<impl AsRef<Path>>,
+    ) -> Result<Self> {
+        Self::open_inner(
+            root,
+            semantic_provider,
+            extractor,
+            meaning_assets.map(|path| path.as_ref().to_path_buf()),
+        )
     }
 
     fn open_inner(
         root: impl AsRef<Path>,
         semantic_provider: Arc<dyn SemanticProvider>,
         extractor: Arc<dyn SourceExtractor>,
+        meaning_assets: Option<PathBuf>,
     ) -> Result<Self> {
         fs::create_dir_all(root.as_ref())?;
         let root = fs::canonicalize(root)?;
@@ -356,6 +430,17 @@ impl Application {
                  tokenize = 'unicode61 remove_diacritics 2'
              );",
         )?;
+        let meaning_index_path = root.join(".derived").join("meaning.usearch");
+        let (meaning_search, meaning_search_status) = match meaning_assets {
+            Some(path) => match MeaningSearch::open(path, &meaning_index_path) {
+                Ok(engine) => (Some(engine), "ready".to_owned()),
+                Err(error) => (None, format!("missing_assets: {error}")),
+            },
+            None => (
+                None,
+                "missing_assets: the app bundle did not provide meaning-search assets".to_owned(),
+            ),
+        };
         let mut app = Self {
             root,
             index,
@@ -364,6 +449,8 @@ impl Application {
             extractor,
             staged_publication: Vec::new(),
             fail_after_publication_files: None,
+            meaning_search,
+            meaning_search_status,
         };
         app.rebuild_index()?;
         app.recover_interrupted_url_acquisitions()?;
@@ -746,11 +833,28 @@ impl Application {
                 &acquisition.received_at,
                 "pending",
             );
+            if existing.info.current_version_id.is_none() {
+                let previous_original = destination.join(&existing.info.asset);
+                if let Some(previous) = existing
+                    .info
+                    .versions_seen
+                    .iter()
+                    .find(|previous| previous.source_version_id == existing.info.sha256)
+                {
+                    let previous_path = self.version_original_path(&source_id, previous)?;
+                    if previous_original.exists() && !previous_path.exists() {
+                        write_atomic_from_file(&previous_path, &previous_original)?;
+                    }
+                }
+            }
             let version_path = self.version_original_path(&source_id, &version)?;
             write_atomic_from_file(&version_path, &staging.path().join(&asset))?;
             existing.info.versions_seen.push(version);
             existing.info.pending_version_id = Some(digest.clone());
             existing.info.update_status = Some("pending".into());
+            if existing.info.current_version_id.is_none() {
+                existing.info.semantic_state = "pending".into();
+            }
             if !acquisition_exists {
                 write_acquisition(&destination, &acquisition)?;
             }
@@ -1095,6 +1199,16 @@ impl Application {
     /// so the desktop can keep import and navigation responsive during a slow service call.
     pub fn claim_due_semantic_jobs(&mut self, max_jobs: usize) -> Result<Vec<SemanticJob>> {
         let now = now_millis()?;
+        self.claim_due_semantic_jobs_at(max_jobs, now)
+    }
+
+    /// Claim persisted work at an explicit scheduler time for deterministic lifecycle checks.
+    /// Production callers should use claim_due_semantic_jobs.
+    pub fn claim_due_semantic_jobs_at(
+        &mut self,
+        max_jobs: usize,
+        now: u128,
+    ) -> Result<Vec<SemanticJob>> {
         let mut due = Vec::new();
         for entry in fs::read_dir(self.root.join("sources"))? {
             if due.len() >= max_jobs {
@@ -1164,13 +1278,17 @@ impl Application {
                 .cloned()
                 .ok_or_else(|| GardenError::Invalid("Pending source version is missing.".into()))?;
             let version_received_at = version.received_at.clone();
-            let candidate_path = if initial {
+            let version_path = self
+                .source_dir(&source_id)?
+                .join("versions")
+                .join(&source_version_id)
+                .join(&version.asset);
+            let candidate_path = if version_path.exists() {
+                version_path
+            } else if initial {
                 self.source_dir(&source_id)?.join(&version.asset)
             } else {
-                self.source_dir(&source_id)?
-                    .join("versions")
-                    .join(&source_version_id)
-                    .join(&version.asset)
+                version_path
             };
             let acquisition_history = if page.info.format == "html"
                 && page
@@ -1261,7 +1379,9 @@ impl Application {
                 })?
             };
             let prior_source_text = if initial {
-                None
+                let correction_candidates =
+                    crate::providers::correction_candidates_from_text(&text);
+                self.correction_prior_context(&correction_candidates)?
             } else if let Some(current_id) = page.info.current_version_id.as_deref() {
                 page.info
                     .versions_seen
@@ -1356,6 +1476,190 @@ impl Application {
         Ok(())
     }
 
+    fn correction_prior_context(
+        &self,
+        candidates: &[CorrectionCandidateDraft],
+    ) -> Result<Option<String>> {
+        let mut labels = candidates
+            .iter()
+            .map(|candidate| candidate.event_label.as_str())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        labels.sort_unstable();
+        let mut context = String::new();
+        for label in labels {
+            let entity = EntityDraft {
+                kind: "event".into(),
+                label: label.to_owned(),
+                evidence: candidates
+                    .iter()
+                    .find(|candidate| candidate.event_label == label)
+                    .map(|candidate| candidate.evidence.clone())
+                    .expect("label came from a correction candidate"),
+            };
+            let page_id = stable_page_id(&entity, "");
+            let path = self.root.join("pages").join(format!("{page_id}.md"));
+            if !path.exists() {
+                continue;
+            }
+            let header = read_knowledge_header(&path)?;
+            if header.kind != "event" || header.title != label || header.facts.is_empty() {
+                continue;
+            }
+            context.push_str(&format!("Current published fields for event `{label}`:\n"));
+            for fact in &header.facts {
+                context.push_str(&format!(
+                    "- property `{}` = `{}`; current support: “{}”\n",
+                    fact.property, fact.value, fact.evidence.quote
+                ));
+            }
+        }
+        Ok((!context.is_empty()).then_some(context))
+    }
+
+    fn apply_field_aligned_corrections(
+        &self,
+        source: &SourcePage,
+        source_version_id: &str,
+        source_text: &str,
+        draft: &mut KnowledgeDraft,
+    ) -> Result<()> {
+        let recognized_candidates = crate::providers::correction_candidates_from_text(source_text);
+        if recognized_candidates.is_empty() && draft.correction_candidates.is_empty() {
+            return Ok(());
+        }
+        let uncertain = || {
+            GardenError::Invalid(
+                "An explicit correction could not be aligned to current event evidence; semantic processing will retry automatically.".into(),
+            )
+        };
+        let Some(update) = draft.source_update.as_ref() else {
+            return Err(uncertain());
+        };
+        if update.role != SourceUpdateRole::TargetedCorrection
+            || !update.certainty.is_finite()
+            || update.certainty < 0.8
+        {
+            return Err(uncertain());
+        }
+        if recognized_candidates.len() != draft.correction_candidates.len() {
+            return Err(uncertain());
+        }
+        for candidate in draft.correction_candidates.clone() {
+            if !recognized_candidates.iter().any(|recognized| {
+                recognized.event_label == candidate.event_label
+                    && recognized.property == candidate.property
+                    && recognized.previous_value == candidate.previous_value
+                    && recognized.corrected_value == candidate.corrected_value
+                    && recognized.evidence.quote == candidate.evidence.quote
+                    && recognized.evidence.byte_start == candidate.evidence.byte_start
+                    && recognized.evidence.byte_end == candidate.evidence.byte_end
+            }) {
+                return Err(uncertain());
+            }
+            let alignment = draft
+                .correction_alignments
+                .iter()
+                .find(|alignment| {
+                    alignment.candidate.event_label == candidate.event_label
+                        && alignment.candidate.property == candidate.property
+                        && alignment.candidate.previous_value == candidate.previous_value
+                        && alignment.candidate.corrected_value == candidate.corrected_value
+                        && alignment.candidate.evidence.quote == candidate.evidence.quote
+                        && alignment.candidate.evidence.byte_start == candidate.evidence.byte_start
+                        && alignment.candidate.evidence.byte_end == candidate.evidence.byte_end
+                })
+                .ok_or_else(uncertain)?;
+            if alignment.outcome != crate::semantic::FieldAlignmentOutcome::SameFieldCorrection
+                || !alignment.certainty.is_finite()
+                || alignment.certainty < 0.9
+            {
+                return Err(uncertain());
+            }
+            if candidate.property != "visit_count"
+                || validate_evidence(source_text, &candidate.evidence).is_err()
+            {
+                return Err(uncertain());
+            }
+            let entity = draft
+                .entities
+                .iter()
+                .find(|entity| entity.kind == "event" && entity.label == candidate.event_label)
+                .ok_or_else(uncertain)?;
+            let page_id = stable_page_id(entity, &source.info.source_id);
+            let path = self.root.join("pages").join(format!("{page_id}.md"));
+            if !path.exists() {
+                return Err(uncertain());
+            }
+            let header = read_knowledge_header(&path)?;
+            if header.kind != "event" || header.title != candidate.event_label {
+                return Err(uncertain());
+            }
+            let matching_facts = header
+                .facts
+                .iter()
+                .filter(|fact| {
+                    fact.property == candidate.property
+                        && normalized_visit_count(&fact.value)
+                            == normalized_visit_count(&candidate.previous_value)
+                })
+                .collect::<Vec<_>>();
+            let [prior_fact] = matching_facts.as_slice() else {
+                return Err(uncertain());
+            };
+            let Some(current_support) = self.latest_support(&prior_fact.supports)? else {
+                return Err(uncertain());
+            };
+            if normalized_visit_count(&current_support.value)
+                != normalized_visit_count(&candidate.previous_value)
+            {
+                return Err(uncertain());
+            }
+            let prior_source = read_page(&self.page_path(&current_support.source_id)?)?;
+            let prior_version = prior_source
+                .info
+                .versions_seen
+                .iter()
+                .find(|version| version.source_version_id == current_support.source_version_id)
+                .ok_or_else(uncertain)?;
+            let incoming_version = source
+                .info
+                .versions_seen
+                .iter()
+                .find(|version| version.source_version_id == source_version_id)
+                .ok_or_else(uncertain)?;
+            if compare_source_order(prior_version, incoming_version)
+                != Some(std::cmp::Ordering::Greater)
+            {
+                return Err(uncertain());
+            }
+            if !draft.facts.iter().any(|fact| {
+                fact.subject == candidate.event_label
+                    && fact.property == candidate.property
+                    && fact.value == candidate.corrected_value
+            }) {
+                draft.facts.push(crate::semantic::FactDraft {
+                    subject: candidate.event_label.clone(),
+                    property: candidate.property.clone(),
+                    value: candidate.corrected_value.clone(),
+                    evidence: candidate.evidence.clone(),
+                    record_key: None,
+                });
+            }
+            draft.decisions.push(SemanticDecision {
+                question: format!(
+                    "field_alignment:{}:{}",
+                    candidate.event_label, candidate.property
+                ),
+                model: alignment.model.clone(),
+                outcome: "same_field_correction".into(),
+                probability: Some(alignment.certainty),
+            });
+        }
+        Ok(())
+    }
+
     pub fn finish_semantic_job(
         &mut self,
         job: SemanticJob,
@@ -1390,7 +1694,7 @@ impl Application {
             draft
         });
         match result {
-            Ok(draft) => {
+            Ok(mut draft) => {
                 let is_office = matches!(page.info.format.as_str(), "docx" | "pptx");
                 let office_facts = draft
                     .facts
@@ -1442,6 +1746,18 @@ impl Application {
                         })
                         .and_then(|()| {
                             if initial {
+                                self.apply_field_aligned_corrections(
+                                    &page,
+                                    &job.source_version_id,
+                                    &job.source_text,
+                                    &mut draft,
+                                )?;
+                                if !draft.correction_candidates.is_empty() {
+                                    // Knowledge reconciliation ranks support through persisted
+                                    // source versions. Persist this still-pending source's
+                                    // validated date/order before it selects the current value.
+                                    self.write_source_page(&page)?;
+                                }
                                 // A first acquisition has no existing facts to withdraw. Even
                                 // an unknown/conditional relationship can publish the grounded
                                 // evidence it contains; the role only limits replacement scope.
@@ -1470,26 +1786,7 @@ impl Application {
                 }
             }
             Err(error) => {
-                if initial {
-                    self.record_semantic_failure(&mut page, error.message, error.retryable, false)?
-                } else {
-                    let retryable = error.retryable;
-                    page.info.update_status =
-                        Some(if retryable { "pending" } else { "failed" }.into());
-                    page.info.semantic_error = Some(error.message.chars().take(300).collect());
-                    page.info.semantic_retry_at = retryable.then(|| {
-                        let delay = (1_u64 << page.info.semantic_attempts.min(12)).min(3600);
-                        (now_millis().unwrap_or(0) + u128::from(delay * 1000)).to_string()
-                    });
-                    if let Some(version) = page
-                        .info
-                        .versions_seen
-                        .iter_mut()
-                        .find(|version| version.source_version_id == job.source_version_id)
-                    {
-                        version.state = page.info.update_status.clone().unwrap_or_default();
-                    }
-                }
+                self.record_provider_failure(&mut page, error.message, error.retryable)?;
             }
         }
         if self.staged_publication.is_empty() {
@@ -1658,7 +1955,13 @@ impl Application {
     }
 
     pub fn resume_due_semantic_jobs(&mut self) -> Result<()> {
-        let jobs = self.claim_due_semantic_jobs(4)?;
+        self.resume_due_semantic_jobs_at(now_millis()?)
+    }
+
+    /// Resume work at an explicit scheduler time for deterministic retry tests.
+    /// Production callers should use resume_due_semantic_jobs.
+    pub fn resume_due_semantic_jobs_at(&mut self, now: u128) -> Result<()> {
+        let jobs = self.claim_due_semantic_jobs_at(4, now)?;
         for job in jobs {
             let result = self
                 .semantic_provider
@@ -1675,6 +1978,32 @@ impl Application {
         draft: KnowledgeDraft,
     ) -> Result<()> {
         let prior_pages = source.info.knowledge_pages.clone();
+        if source.info.current_version_id.is_none() {
+            if let Some(version_id) = source.info.pending_version_id.as_deref() {
+                if let Some(version) = source
+                    .info
+                    .versions_seen
+                    .iter()
+                    .find(|version| version.source_version_id == version_id)
+                    .cloned()
+                {
+                    let candidate = self.version_original_path(&source.info.source_id, &version)?;
+                    if candidate.exists() {
+                        self.staged_publication.push((
+                            self.source_dir(&source.info.source_id)?
+                                .join(&version.asset),
+                            fs::read(candidate)?,
+                        ));
+                        source.info.original_name = version.original_name.clone();
+                        source.info.asset = version.asset.clone();
+                        source.info.sha256 = version.sha256.clone();
+                        source.info.bytes = version.bytes;
+                        source.info.format = version.format.clone();
+                        source.info.line_count = source_text.lines().count();
+                    }
+                }
+            }
+        }
         if draft.entities.len() > 500
             || draft.facts.len() > 2_000
             || draft.relationships.len() > 2_000
@@ -2937,11 +3266,53 @@ impl Application {
             page.info.semantic_state = if retryable { "pending" } else { "failed" }.into();
         }
         page.info.semantic_error = Some(message.chars().take(300).collect());
-        let delay_seconds = (1_u64 << page.info.semantic_attempts.min(12)).min(3600);
+        let retry_attempt = if invalid_draft {
+            page.info.semantic_attempts
+        } else {
+            page.info
+                .versions_seen
+                .iter()
+                .find(|version| {
+                    Some(version.source_version_id.as_str())
+                        == page.info.pending_version_id.as_deref()
+                })
+                .map(|version| version.retryable_provider_failures)
+                .unwrap_or(page.info.semantic_attempts)
+        };
+        let delay_seconds = (1_u64 << retry_attempt.min(12)).min(3600);
         page.info.semantic_retry_at = retryable
             .then(|| (now_millis().unwrap_or(0) + u128::from(delay_seconds * 1000)).to_string());
         page.markdown = serialize_page(&page.info, &page.body)?;
         Ok(())
+    }
+
+    fn record_provider_failure(
+        &self,
+        page: &mut SourcePage,
+        message: String,
+        retryable: bool,
+    ) -> Result<()> {
+        let retryable = if retryable {
+            let version = page
+                .info
+                .versions_seen
+                .iter_mut()
+                .find(|version| {
+                    Some(version.source_version_id.as_str())
+                        == page.info.pending_version_id.as_deref()
+                })
+                .ok_or_else(|| {
+                    GardenError::Invalid(
+                        "The failed provider result has no pending source version.".into(),
+                    )
+                })?;
+            version.retryable_provider_failures =
+                version.retryable_provider_failures.saturating_add(1);
+            version.retryable_provider_failures < MAX_RETRYABLE_PROVIDER_FAILURES
+        } else {
+            false
+        };
+        self.record_semantic_failure(page, message, retryable, false)
     }
 
     fn write_source_page(&self, page: &SourcePage) -> Result<()> {
@@ -3099,8 +3470,9 @@ impl Application {
         })
     }
 
-    pub fn search_pages(&self, request: PageSearchRequest) -> Result<PageSearchResults> {
+    pub fn search_pages(&mut self, request: PageSearchRequest) -> Result<PageSearchResults> {
         let query = request.query.trim();
+        let meaning_mode = request.mode == PageSearchMode::Meaning;
         let normalized_tags = request
             .tags
             .iter()
@@ -3131,9 +3503,54 @@ impl Application {
         }) {
             return Err(GardenError::Invalid("Unknown processing status.".into()));
         }
+        let format_filter = request.format.as_deref().filter(|value| !value.is_empty());
+        let has_metadata_filters = !normalized_tags.is_empty()
+            || date_from.is_some()
+            || date_to.is_some()
+            || format_filter.is_some()
+            || processing_status.is_some();
+        let meaning_filters = has_metadata_filters.then_some(MeaningFilters {
+            tags: &normalized_tags,
+            date_from: date_from.as_deref(),
+            date_to: date_to.as_deref(),
+            format: format_filter,
+            processing_status,
+        });
+        let meaning_ranked = if meaning_mode && !query.is_empty() {
+            let ranked = match self.meaning_search.as_mut() {
+                Some(engine) => {
+                    engine.ranked_pages(&self.index, query, 250, meaning_filters.as_ref())
+                }
+                None => Err(self.meaning_search_status.clone()),
+            };
+            match ranked {
+                Ok(items) => items,
+                Err(error) => {
+                    if !self.meaning_search_status.starts_with("missing_assets:") {
+                        self.meaning_search_status = format!("incomplete_index: {error}");
+                    }
+                    Vec::new()
+                }
+            }
+        } else {
+            Vec::new()
+        };
+        let meaning_scores = meaning_ranked.iter().cloned().collect::<HashMap<_, _>>();
         let mut where_parts = Vec::<String>::new();
         let mut values = Vec::<rusqlite::types::Value>::new();
-        if !query.is_empty() {
+        if meaning_mode {
+            if meaning_ranked.is_empty() {
+                where_parts.push("0 = 1".into());
+            } else {
+                let placeholders = vec!["?"; meaning_ranked.len()].join(", ");
+                where_parts.push(format!("page_search.page_id IN ({placeholders})"));
+                values.extend(
+                    meaning_ranked
+                        .iter()
+                        .map(|(page_id, _)| page_id.clone().into()),
+                );
+            }
+        } else if !query.is_empty() {
             where_parts.push("page_search MATCH ?".into());
             values.push(fts_expression(query).into());
         }
@@ -3152,7 +3569,7 @@ impl Application {
             where_parts.push("event_date IS NOT NULL AND event_date <= ?".into());
             values.push(to.into());
         }
-        if let Some(format) = request.format.as_deref().filter(|value| !value.is_empty()) {
+        if let Some(format) = format_filter {
             where_parts.push("lower(format) = lower(?)".into());
             values.push(format.to_lowercase().into());
         }
@@ -3165,27 +3582,41 @@ impl Application {
         } else {
             where_parts.join(" AND ")
         };
-        let excerpt = if query.is_empty() {
+        let excerpt = if query.is_empty() || meaning_mode {
             "substr(content, 1, 240)"
         } else {
             "snippet(page_search, 5, '', '', ' … ', 24)"
+        };
+        let search_order = if meaning_mode {
+            "title COLLATE NOCASE, page_id"
+        } else {
+            "CASE WHEN ? = '' THEN 0 WHEN lower(title) = lower(?) THEN 0
+              WHEN instr(lower(title), lower(?)) > 0 THEN 1 ELSE 2 END,
+             bm25(page_search), title COLLATE NOCASE, page_id"
         };
         let sql = format!(
             "SELECT page_id, source_id, page_type, title, kind, {excerpt} AS excerpt,
                     event_date, format, extraction, processing_status, match_location
              FROM page_search
              WHERE {where_sql}
-             ORDER BY CASE WHEN ? = '' THEN 0 WHEN lower(title) = lower(?) THEN 0
-                           WHEN instr(lower(title), lower(?)) > 0 THEN 1 ELSE 2 END,
-                      bm25(page_search), title COLLATE NOCASE, page_id
+             ORDER BY {search_order}
              LIMIT ? OFFSET ?"
         );
+        if !meaning_mode {
+            values.extend([
+                query.to_owned().into(),
+                query.to_owned().into(),
+                query.to_owned().into(),
+            ]);
+        }
         values.extend([
-            query.to_owned().into(),
-            query.to_owned().into(),
-            query.to_owned().into(),
-            ((PAGE_SIZE + 1) as i64).into(),
-            i64::try_from(request.offset)
+            (if meaning_mode {
+                251_i64
+            } else {
+                (PAGE_SIZE + 1) as i64
+            })
+            .into(),
+            i64::try_from(if meaning_mode { 0 } else { request.offset })
                 .map_err(|_| GardenError::Invalid("Invalid result offset.".into()))?
                 .into(),
         ]);
@@ -3232,6 +3663,7 @@ impl Application {
                     query,
                     &normalized_tags,
                 )?);
+            let meaning_score = meaning_scores.get(&page_id).copied();
             pages.push(PageResult {
                 page_id,
                 source_id: source_id.clone(),
@@ -3244,8 +3676,9 @@ impl Application {
                 event_date: event_date.clone(),
                 extraction: parse_extraction(&extraction)?,
                 processing_status,
-                matched_by: if !query.is_empty()
-                    && title.to_lowercase().contains(&query.to_lowercase())
+                matched_by: if meaning_mode {
+                    "meaning"
+                } else if !query.is_empty() && title.to_lowercase().contains(&query.to_lowercase())
                 {
                     "title"
                 } else if !normalized_tags.is_empty() {
@@ -3254,8 +3687,26 @@ impl Application {
                     "keyword"
                 }
                 .into(),
+                meaning_score,
                 match_location,
             });
+        }
+        if meaning_mode {
+            pages.sort_by(|left, right| {
+                meaning_scores
+                    .get(&right.page_id)
+                    .copied()
+                    .unwrap_or_default()
+                    .total_cmp(
+                        &meaning_scores
+                            .get(&left.page_id)
+                            .copied()
+                            .unwrap_or_default(),
+                    )
+            });
+            let start = request.offset.min(pages.len());
+            let end = start.saturating_add(PAGE_SIZE + 1).min(pages.len());
+            pages = pages.into_iter().skip(start).take(end - start).collect();
         }
         let next_offset = if pages.len() > PAGE_SIZE {
             pages.pop();
@@ -3286,6 +3737,7 @@ impl Application {
                 .into_iter()
                 .map(str::to_owned)
                 .collect(),
+            meaning_search_status: self.meaning_search_status.clone(),
         })
     }
 
@@ -3447,6 +3899,12 @@ impl Application {
             write_search_documents(&transaction, &documents)?;
         }
         transaction.commit()?;
+        if let Some(meaning) = self.meaning_search.as_mut() {
+            match meaning.sync(&self.index) {
+                Ok(()) => self.meaning_search_status = "ready".into(),
+                Err(error) => self.meaning_search_status = format!("incomplete_index: {error}"),
+            }
+        }
         Ok(())
     }
 
@@ -3710,6 +4168,7 @@ fn source_version(
         state: state.to_owned(),
         extraction_attempts: 1,
         semantic_integrity_failures: 0,
+        retryable_provider_failures: 0,
         coverage: if state == "complete" {
             "complete"
         } else if state == "unavailable" {
@@ -3744,6 +4203,18 @@ fn compare_source_order(
         return Some(incoming_revision.cmp(&current_revision));
     }
     None
+}
+
+fn normalized_visit_count(value: &str) -> Option<u64> {
+    let trimmed = value.trim();
+    let digits = trimmed
+        .strip_suffix(" visits")
+        .or_else(|| trimmed.strip_suffix(" visit"))
+        .unwrap_or(trimmed)
+        .trim();
+    (!digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()))
+        .then(|| digits.parse().ok())
+        .flatten()
 }
 
 fn write_search_documents(

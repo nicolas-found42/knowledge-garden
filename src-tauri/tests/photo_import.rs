@@ -239,7 +239,7 @@ fn photo_channel_records_are_durable_searchable_and_reopen_with_region_context()
         original
     );
     drop(app);
-    let reopened = Application::open(collection.path()).unwrap();
+    let mut reopened = Application::open(collection.path()).unwrap();
     let results = reopened
         .search_pages(PageSearchRequest {
             query: "RIVER SURVEY".into(),
