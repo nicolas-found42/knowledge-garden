@@ -1128,6 +1128,107 @@ fn import_forms_linked_knowledge_pages_with_typed_facts_qualifiers_and_exact_evi
 }
 
 #[test]
+fn explicit_v17_count_only_correction_updates_just_the_count() {
+    let workspace = tempdir().unwrap();
+    let initial_path = workspace.path().join("V17.txt");
+    let initial_text = "Revision 1 dated May 18, 2024; observation V17 on May 17, 2024; observer Maya; location Riverside; 12 visits; duration 10 minutes. It possibly occurred at Riverside. A different person named Maya filed another report.";
+    fs::write(&initial_path, initial_text).unwrap();
+    let correction_path = workspace.path().join("correction.txt");
+    let correction_text = "Correction dated May 19, 2024. For Observation V17: The visit total should read 15, not 12. This note corrects the count only.";
+    fs::write(&correction_path, correction_text).unwrap();
+    let evidence = EvidenceDraft {
+        quote: correction_text.to_owned(),
+        byte_start: 0,
+        byte_end: correction_text.len(),
+        origin: "observed".into(),
+        qualifier: None,
+        offset_basis: None,
+        source_location: None,
+    };
+    let update = recorded_update(correction_text, SourceUpdateRole::TargetedCorrection);
+    let corrected = KnowledgeDraft {
+        entities: vec![EntityDraft {
+            kind: "event".into(),
+            label: "Observation V17".into(),
+            evidence: EvidenceDraft {
+                quote: "Observation V17".into(),
+                byte_start: correction_text.find("Observation V17").unwrap(),
+                byte_end: correction_text.find("Observation V17").unwrap()
+                    + "Observation V17".len(),
+                ..evidence.clone()
+            },
+        }],
+        facts: vec![FactDraft {
+            subject: "Observation V17".into(),
+            property: "visit_count".into(),
+            value: "15 visits".into(),
+            evidence: evidence.clone(),
+            record_key: None,
+        }],
+        source_update: Some(update),
+        ..KnowledgeDraft::default()
+    };
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(v17_recording()),
+            Ok(corrected),
+        ])),
+    )
+    .unwrap();
+    let initial_source = app
+        .import_source(&initial_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    app.import_source(&correction_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let v17 = app
+        .search_pages(PageSearchRequest {
+            query: "Observation V17".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap()
+        .pages
+        .into_iter()
+        .find(|page| page.title == "Observation V17")
+        .unwrap();
+    let markdown = app.open_knowledge_page(&v17.page_id).unwrap().markdown;
+    assert!(markdown.contains("15 visits"));
+    assert!(markdown.contains("May 17, 2024"));
+    assert!(markdown.contains("Maya (observer)"));
+    assert!(markdown.contains("Riverside"));
+    assert!(markdown.contains("10 minutes"));
+    let current_count_search = app
+        .search_pages(PageSearchRequest {
+            query: "15 visits".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert!(current_count_search
+        .pages
+        .iter()
+        .any(|page| page.page_id == v17.page_id));
+    let old_count_search = app
+        .search_pages(PageSearchRequest {
+            query: "12 visits".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert!(
+        !old_count_search
+            .pages
+            .iter()
+            .any(|page| page.page_id == v17.page_id),
+        "rejected value should not make the current event searchable: {old_count_search:?}"
+    );
+    assert!(old_count_search
+        .pages
+        .iter()
+        .any(|page| page.page_id == initial_source.info.page_id));
+}
+
+#[test]
 fn application_keeps_two_same_name_observers_as_distinct_evidence_backed_entities() {
     let workspace = tempdir().unwrap();
     let source = workspace.path().join("two-mayas.txt");
