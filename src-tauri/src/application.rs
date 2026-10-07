@@ -5697,7 +5697,11 @@ fn draft_has_audio_provenance(draft: &KnowledgeDraft) -> bool {
     }) || draft.facts.iter().any(|fact| {
         matches!(
             fact.property.as_str(),
-            "spoken_question" | "spoken_decision" | "spoken_reasoning" | "audio_speaker"
+            "spoken_message"
+                | "spoken_question"
+                | "spoken_decision"
+                | "spoken_reasoning"
+                | "audio_speaker"
         ) || audio_evidence(&fact.evidence)
     }) || draft.relationships.iter().any(|relationship| {
         matches!(relationship.kind.as_str(), "audio_speaker" | "speaker")

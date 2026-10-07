@@ -134,6 +134,62 @@ impl SystemOneTransport for SpeechActTransport {
     }
 }
 
+struct OneUncertainSpeechActTransport;
+impl SystemOneTransport for OneUncertainSpeechActTransport {
+    fn complete(&self, api_key: &str, request: &Value) -> Result<Value, ProviderError> {
+        let mut response = <SpeechActTransport as SystemOneTransport>::complete(
+            &SpeechActTransport,
+            api_key,
+            request,
+        )?;
+        if let Some(answer) = response
+            .get_mut("answers")
+            .and_then(Value::as_object_mut)
+            .and_then(|answers| answers.get_mut("audio_speech_act_0"))
+        {
+            answer["probabilities"] = json!({
+                "question": 0.55,
+                "decision": 0.25,
+                "reasoning": 0.10,
+                "not_speech_act": 0.10
+            });
+        }
+        Ok(response)
+    }
+}
+
+struct InvalidSpeechActAnswerTransport {
+    defect: &'static str,
+}
+impl SystemOneTransport for InvalidSpeechActAnswerTransport {
+    fn complete(&self, api_key: &str, request: &Value) -> Result<Value, ProviderError> {
+        let mut response = <SpeechActTransport as SystemOneTransport>::complete(
+            &SpeechActTransport,
+            api_key,
+            request,
+        )?;
+        if let Some(answers) = response.get_mut("answers").and_then(Value::as_object_mut) {
+            match self.defect {
+                "missing_answer" => {
+                    answers.remove("audio_speech_act_0");
+                }
+                "invalid_probability" => {
+                    if let Some(answer) = answers.get_mut("audio_speech_act_0") {
+                        answer["probabilities"]["question"] = json!("not a probability");
+                    }
+                }
+                "unsupported_choice" => {
+                    if let Some(answer) = answers.get_mut("audio_speech_act_0") {
+                        answer["choice"] = json!("event_occurred");
+                    }
+                }
+                _ => unreachable!("the test supplies a fixed malformed-response variant"),
+            }
+        }
+        Ok(response)
+    }
+}
+
 struct EmptyProvider;
 impl SemanticProvider for EmptyProvider {
     fn form_knowledge(&self, _text: &str) -> Result<KnowledgeDraft, ProviderError> {
@@ -1398,6 +1454,146 @@ fn speech_acts_without_event_identity_link_to_a_recording_anchor_not_an_invented
         .knowledge_pages
         .iter()
         .all(|page| page.kind != "event"));
+}
+
+#[test]
+fn valid_low_confidence_speech_intent_stays_a_qualified_message_while_confident_neighbors_publish()
+{
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("uncertain-spoken-observation.wav");
+    let original = b"frozen synthetic recording bytes with one uncertain Jev intent";
+    fs::write(&source, original).unwrap();
+    let semantic = Arc::new(JevSemanticProvider::with_transport(
+        "recorded-test-key".into(),
+        Arc::new(OneUncertainSpeechActTransport),
+    ));
+    let mut app = Application::open_with_all_providers(
+        workspace.path().join("collection"),
+        semantic,
+        Arc::new(LocalExtractor),
+        Arc::new(SpeechActAudio {
+            transcript: SPEECH_ACT_NO_EVENT_TRANSCRIPT,
+        }),
+    )
+    .unwrap();
+
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_audio_jobs().unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let published = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(
+        published.info.semantic_state, "complete",
+        "one valid but uncertain intent should not erase its confident neighbors: {:?}",
+        published.info.semantic_error
+    );
+    assert!(published.info.semantic_error.is_none());
+    assert_eq!(
+        fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        original
+    );
+    assert!(published.body.contains("speakers are left unidentified"));
+
+    let uncertain = published
+        .info
+        .semantic_decisions
+        .iter()
+        .find(|decision| {
+            decision
+                .question
+                .contains("should we inspect the bridge today?")
+        })
+        .expect("the low-confidence candidate and probability remain diagnosable");
+    assert_eq!(uncertain.outcome, "question");
+    assert_eq!(uncertain.probability, Some(0.55));
+    assert!(uncertain.model.contains("frozen-speech-fixture"));
+
+    let recording = published
+        .info
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "audio_recording" && page.title == "Recorded speech")
+        .expect("speech without an event identifier stays on its recording anchor");
+    let markdown = app
+        .open_knowledge_page(&recording.page_id)
+        .unwrap()
+        .markdown;
+    assert!(markdown.contains("**spoken message:**"), "{markdown}");
+    assert!(
+        markdown.contains("should we inspect the bridge today?"),
+        "{markdown}"
+    );
+    assert!(markdown.contains("intent is uncertain"), "{markdown}");
+    assert!(markdown.contains("0.55"), "{markdown}");
+    assert!(!markdown.contains("**spoken question:**"), "{markdown}");
+    assert!(markdown.contains("**spoken decision:**"), "{markdown}");
+    assert!(markdown.contains("**spoken reasoning:**"), "{markdown}");
+}
+
+#[test]
+fn malformed_speech_intent_responses_remain_pending_and_keep_the_original_after_reopen() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("malformed-spoken-observation.wav");
+    let original = b"frozen synthetic recording bytes with malformed Jev answer cases";
+    fs::write(&source, original).unwrap();
+
+    for defect in [
+        "missing_answer",
+        "invalid_probability",
+        "unsupported_choice",
+    ] {
+        let collection = workspace.path().join(defect);
+        let semantic = Arc::new(JevSemanticProvider::with_transport(
+            "recorded-test-key".into(),
+            Arc::new(InvalidSpeechActAnswerTransport { defect }),
+        ));
+        let mut app = Application::open_with_all_providers(
+            &collection,
+            semantic.clone(),
+            Arc::new(LocalExtractor),
+            Arc::new(SpeechActAudio {
+                transcript: SPEECH_ACT_NO_EVENT_TRANSCRIPT,
+            }),
+        )
+        .unwrap();
+        let imported = app
+            .import_source(&source, AcquisitionMethod::Picker)
+            .unwrap();
+        app.resume_due_audio_jobs().unwrap();
+        app.resume_due_semantic_jobs().unwrap();
+
+        let pending = app.open_source(&imported.info.source_id).unwrap();
+        assert_eq!(pending.info.semantic_state, "pending", "{defect}");
+        assert!(pending.info.semantic_error.is_some(), "{defect}");
+        assert!(pending.info.knowledge_pages.is_empty(), "{defect}");
+        assert_eq!(
+            fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
+            original,
+            "{defect}"
+        );
+
+        drop(app);
+        let reopened = Application::open_with_all_providers(
+            &collection,
+            semantic,
+            Arc::new(LocalExtractor),
+            Arc::new(SpeechActAudio {
+                transcript: SPEECH_ACT_NO_EVENT_TRANSCRIPT,
+            }),
+        )
+        .unwrap();
+        let persisted = reopened.open_source(&imported.info.source_id).unwrap();
+        assert_eq!(persisted.info.semantic_state, "pending", "{defect}");
+        assert!(persisted.info.semantic_error.is_some(), "{defect}");
+        assert!(persisted.info.knowledge_pages.is_empty(), "{defect}");
+        assert_eq!(
+            fs::read(reopened.original_path(&imported.info.source_id).unwrap()).unwrap(),
+            original,
+            "{defect}"
+        );
+    }
 }
 
 #[test]
