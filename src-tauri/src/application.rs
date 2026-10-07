@@ -1,6 +1,9 @@
 //! Public, disk-backed collection operations. Markdown and originals are authoritative.
 use crate::extraction::{LocalExtractor, SourceExtractor};
 use crate::meaning::{MeaningFilters, MeaningSearch};
+use crate::media::{
+    AudioInfo, AudioProcessingInfo, AudioProcessor, NativeAudioProcessor, MAX_AUDIO_SEGMENT_MS,
+};
 use crate::office::{CoveragePart, CoverageScope, CoverageStatus, OfficeProjection};
 use crate::semantic::{
     CorrectionCandidateDraft, EntityDraft, EvidenceDraft, KnowledgeDraft, KnowledgePage,
@@ -22,10 +25,21 @@ use std::{
 use thiserror::Error;
 use uuid::Uuid;
 
+const MAX_URL_ATTEMPTS: u32 = 8;
+
 pub const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
+
+fn is_audio_format(format: &str) -> bool {
+    matches!(
+        format,
+        "wav" | "wave" | "aiff" | "aif" | "caf" | "m4a" | "mp3" | "aac"
+    )
+}
 const MAX_PAGE_BYTES: u64 = (MAX_TEXT_BYTES * 3 + 64 * 1024) as u64;
 const PAGE_SIZE: usize = 50;
 const MAX_RETRYABLE_PROVIDER_FAILURES: u32 = 3;
+const MAX_AUDIO_FAILED_ATTEMPTS: u32 = 3;
+const MAX_AUDIO_INTERRUPTION_ATTEMPTS: u32 = 3;
 
 #[derive(Debug, Error)]
 pub enum GardenError {
@@ -128,6 +142,8 @@ pub struct SourceVersion {
     pub semantic_integrity_failures: u32,
     #[serde(default)]
     pub retryable_provider_failures: u32,
+    #[serde(default)]
+    pub processing_interruptions: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -169,6 +185,11 @@ pub struct SourceInfo {
     pub knowledge_pages: Vec<KnowledgePageSummary>,
     #[serde(default)]
     pub semantic_decisions: Vec<SemanticDecision>,
+    #[serde(default)]
+    pub audio_processing: Option<AudioProcessingInfo>,
+    /// In-progress recording replacement; the published audio transcript remains separate.
+    #[serde(default)]
+    pub pending_audio_processing: Option<AudioProcessingInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -271,14 +292,23 @@ pub struct SearchMatchLocation {
 pub struct Application {
     root: PathBuf,
     index: Connection,
-    // The lock survives for this application's lifetime, including across commands.
-    _lock: File,
     semantic_provider: Arc<dyn SemanticProvider>,
     extractor: Arc<dyn SourceExtractor>,
+    audio_processor: Arc<dyn AudioProcessor>,
     staged_publication: Vec<(PathBuf, Vec<u8>)>,
     fail_after_publication_files: Option<usize>,
     meaning_search: Option<MeaningSearch>,
     meaning_search_status: String,
+    // Declared last so the collection lock releases after the index and providers drop.
+    _lock: CollectionLock,
+}
+
+struct CollectionLock(File);
+
+impl Drop for CollectionLock {
+    fn drop(&mut self) {
+        let _ = FileExt::unlock(&self.0);
+    }
 }
 
 fn semantic_pending() -> String {
@@ -295,10 +325,11 @@ impl Application {
 
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
         let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
-        Self::open_with_providers_and_meaning_assets(
+        Self::open_with_all_providers_and_meaning_assets(
             root,
             Arc::new(UnavailableProvider),
             Arc::new(LocalExtractor),
+            Arc::new(NativeAudioProcessor),
             meaning_assets,
         )
     }
@@ -307,11 +338,12 @@ impl Application {
         root: impl AsRef<Path>,
         meaning_assets: Option<impl AsRef<Path>>,
     ) -> Result<Self> {
-        Self::open_with_providers_and_meaning_assets(
+        Self::open_with_all_providers_and_meaning_assets(
             root,
             Arc::new(UnavailableProvider),
             Arc::new(LocalExtractor),
-            meaning_assets.map(|path| path.as_ref().to_path_buf()),
+            Arc::new(NativeAudioProcessor),
+            meaning_assets,
         )
     }
 
@@ -320,10 +352,11 @@ impl Application {
         semantic_provider: Arc<dyn SemanticProvider>,
     ) -> Result<Self> {
         let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
-        Self::open_with_providers_and_meaning_assets(
+        Self::open_with_all_providers_and_meaning_assets(
             root,
             semantic_provider,
             Arc::new(LocalExtractor),
+            Arc::new(NativeAudioProcessor),
             meaning_assets,
         )
     }
@@ -333,11 +366,12 @@ impl Application {
         semantic_provider: Arc<dyn SemanticProvider>,
         meaning_assets: Option<impl AsRef<Path>>,
     ) -> Result<Self> {
-        Self::open_with_providers_and_meaning_assets(
+        Self::open_with_all_providers_and_meaning_assets(
             root,
             semantic_provider,
             Arc::new(LocalExtractor),
-            meaning_assets.map(|path| path.as_ref().to_path_buf()),
+            Arc::new(NativeAudioProcessor),
+            meaning_assets,
         )
     }
 
@@ -347,10 +381,11 @@ impl Application {
         extractor: Arc<dyn SourceExtractor>,
     ) -> Result<Self> {
         let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
-        Self::open_with_providers_and_meaning_assets(
+        Self::open_with_all_providers_and_meaning_assets(
             root,
             semantic_provider,
             extractor,
+            Arc::new(NativeAudioProcessor),
             meaning_assets,
         )
     }
@@ -361,10 +396,43 @@ impl Application {
         extractor: Arc<dyn SourceExtractor>,
         meaning_assets: Option<impl AsRef<Path>>,
     ) -> Result<Self> {
+        Self::open_with_all_providers_and_meaning_assets(
+            root,
+            semantic_provider,
+            extractor,
+            Arc::new(NativeAudioProcessor),
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_all_providers(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
+        audio_processor: Arc<dyn AudioProcessor>,
+    ) -> Result<Self> {
+        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
         Self::open_inner(
             root,
             semantic_provider,
             extractor,
+            audio_processor,
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_all_providers_and_meaning_assets(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
+        audio_processor: Arc<dyn AudioProcessor>,
+        meaning_assets: Option<impl AsRef<Path>>,
+    ) -> Result<Self> {
+        Self::open_inner(
+            root,
+            semantic_provider,
+            extractor,
+            audio_processor,
             meaning_assets.map(|path| path.as_ref().to_path_buf()),
         )
     }
@@ -373,6 +441,7 @@ impl Application {
         root: impl AsRef<Path>,
         semantic_provider: Arc<dyn SemanticProvider>,
         extractor: Arc<dyn SourceExtractor>,
+        audio_processor: Arc<dyn AudioProcessor>,
         meaning_assets: Option<PathBuf>,
     ) -> Result<Self> {
         fs::create_dir_all(root.as_ref())?;
@@ -444,16 +513,18 @@ impl Application {
         let mut app = Self {
             root,
             index,
-            _lock: lock,
             semantic_provider,
             extractor,
+            audio_processor,
             staged_publication: Vec::new(),
             fail_after_publication_files: None,
             meaning_search,
             meaning_search_status,
+            _lock: CollectionLock(lock),
         };
         app.rebuild_index()?;
         app.recover_interrupted_url_acquisitions()?;
+        app.recover_interrupted_audio_jobs()?;
         Ok(app)
     }
 
@@ -500,7 +571,9 @@ impl Application {
                     http_status.is_none_or(|code| matches!(code, 408 | 425 | 429) || code >= 500);
                 if restricted {
                     status.state = "restricted".into();
-                } else if !retryable || status.attempts >= 8 {
+                } else if !retryable {
+                    status.state = "failed".into();
+                } else if status.attempts >= MAX_URL_ATTEMPTS {
                     status.state = "failed".into();
                 } else {
                     status.state = "pending".into();
@@ -519,8 +592,10 @@ impl Application {
                         " Retry scheduled automatically; previous material remains available when present."
                     } else if restricted {
                         " Access is restricted; automatic retry stopped."
-                    } else {
+                    } else if retryable {
                         " Automatic retries exhausted; previous material remains available when present."
+                    } else {
+                        " Automatic retry stopped because this response is permanent; previous material remains available when present."
                     }
                 )))
             }
@@ -688,10 +763,16 @@ impl Application {
     fn recover_interrupted_url_acquisitions(&self) -> Result<()> {
         for mut status in self.list_url_acquisitions()? {
             if status.state == "processing" {
-                status.state = "pending".into();
-                status.retry_at = Some(0);
-                status.last_error =
-                    "The application restarted during retrieval; retry is queued.".into();
+                if status.attempts >= MAX_URL_ATTEMPTS {
+                    status.state = "failed".into();
+                    status.retry_at = None;
+                    status.last_error = "The application restarted during the final permitted retrieval attempt; the retry budget is exhausted.".into();
+                } else {
+                    status.state = "pending".into();
+                    status.retry_at = Some(0);
+                    status.last_error =
+                        "The application restarted during retrieval; retry is queued.".into();
+                }
                 self.write_url_status(&status)?;
             }
         }
@@ -742,6 +823,7 @@ impl Application {
             .into_owned();
         let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
         let format = format_override.unwrap_or_else(|| extension.to_lowercase());
+        let audio_format = is_audio_format(&format);
         let asset = if extension.len() <= 16
             && !extension.is_empty()
             && extension.chars().all(|c| c.is_ascii_alphanumeric())
@@ -806,6 +888,13 @@ impl Application {
         let destination = self.source_dir(&source_id)?;
         if destination.exists() {
             let mut existing = self.open_source(&source_id)?;
+            let inspected_audio = if audio_format {
+                self.audio_processor
+                    .inspect(&staging.path().join(&asset))
+                    .ok()
+            } else {
+                None
+            };
             let acquisition_exists = existing.info.acquisitions.iter().any(|old| {
                 old.path == acquisition.path
                     && old.method == acquisition.method
@@ -859,10 +948,31 @@ impl Application {
                 write_acquisition(&destination, &acquisition)?;
             }
             self.index_acquisition(&acquisition.path, &source_id)?;
-            let (extraction, extraction_detail, extraction_coverage) = if method
-                == AcquisitionMethod::Url
-                && format == "html"
-            {
+            let (extraction, extraction_detail, extraction_coverage) = if audio_format {
+                if let Some(audio) = inspected_audio.as_ref() {
+                    (
+                        ExtractionState::PartialText,
+                        "The changed audio original is retained as a new source version. Its transcript is reset and queued for bounded processing; the previous version's transcript is not evidence for this recording.".into(),
+                        Some(vec![CoveragePart {
+                            scope: CoverageScope::AudioRecording,
+                            status: CoverageStatus::Partial,
+                            source_location: Some("timeline".into()),
+                            detail: format!("The new recording is {} ms long. No transcript from a different source version is reused.", audio.duration_ms),
+                        }]),
+                    )
+                } else {
+                    (
+                        ExtractionState::Unsupported,
+                        "The changed audio original is retained, but the installed local media decoder could not inspect it.".into(),
+                        Some(vec![CoveragePart {
+                            scope: CoverageScope::AudioRecording,
+                            status: CoverageStatus::Failed,
+                            source_location: Some("audio decoder".into()),
+                            detail: "The changed source version could not be inspected for duration or audio segments.".into(),
+                        }]),
+                    )
+                }
+            } else if method == AcquisitionMethod::Url && format == "html" {
                 match crate::web::project(
                     &text_bytes,
                     acquisition.final_url.as_deref().unwrap_or(""),
@@ -873,7 +983,8 @@ impl Application {
                     Ok(web) => (ExtractionState::StructuredText, web.detail, None),
                     Err(detail) => (ExtractionState::InvalidUtf8, detail, None),
                 }
-            } else if matches!(format.as_str(), "docx" | "pptx") {
+            } else if matches!(format.as_str(), "docx" | "pptx") || crate::photo::is_photo(&format)
+            {
                 match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
@@ -923,6 +1034,21 @@ impl Application {
             existing.info.extraction = extraction;
             existing.info.extraction_detail = extraction_detail;
             existing.info.extraction_coverage = extraction_coverage;
+            if let Some(audio) = inspected_audio {
+                let candidate_audio = audio_processing_info(audio, &digest);
+                if existing.info.current_version_id.is_some() {
+                    existing.info.pending_audio_processing = Some(candidate_audio);
+                } else {
+                    existing.info.audio_processing = Some(candidate_audio);
+                }
+            } else if existing
+                .info
+                .pending_audio_processing
+                .as_ref()
+                .is_some_and(|audio| audio.source_version_id.as_deref() != Some(&digest))
+            {
+                existing.info.pending_audio_processing = None;
+            }
             existing.info.semantic_error = None;
             existing.info.semantic_retry_at = None;
             self.write_source_page(&existing)?;
@@ -946,8 +1072,23 @@ impl Application {
             None
         };
         let web_projection = web_result.as_ref().and_then(|result| result.as_ref().ok());
+        let inspected_audio = if audio_format {
+            self.audio_processor
+                .inspect(&staging.path().join(&asset))
+                .ok()
+        } else {
+            None
+        };
         let (extraction, extraction_detail, text, office_projection, extraction_coverage) =
-            if let Some(Err(_)) = &web_result {
+            if audio_format && inspected_audio.is_some() {
+                (ExtractionState::PartialText,
+                 "The exact audio original is retained. Pinned local Whisper transcription is queued in resumable segments; silence, overlap, speaker identity, and uncertain wording require review against playback.".into(),
+                String::new(), None, Some(vec![CoveragePart { scope: CoverageScope::AudioRecording, status: CoverageStatus::Partial, source_location: Some("timeline".into()), detail: "Automatic transcription is not complete or word-for-word verified; no diarization, silence detection, noise classification, or overlap attribution is available.".into() }]))
+            } else if audio_format {
+                (ExtractionState::Unsupported,
+                 "The exact audio original is retained, but this audio codec could not be inspected by the installed local media decoder.".into(),
+                 String::new(), None, Some(vec![CoveragePart { scope: CoverageScope::AudioRecording, status: CoverageStatus::Failed, source_location: Some("audio decoder".into()), detail: "The original format could not be inspected with this native decoder.".into() }]))
+            } else if let Some(Err(_)) = &web_result {
                 (ExtractionState::InvalidUtf8, "The downloaded HTML is not valid UTF-8. The exact original is retained without lossy extraction.".into(), String::new(), None, None)
             } else if let Some(web) = web_projection {
                 if count > MAX_TEXT_BYTES as u64 {
@@ -969,7 +1110,8 @@ impl Application {
                 Err(_) => (ExtractionState::InvalidUtf8, "The source is not valid UTF-8. The original is retained without lossy decoding.".into(), String::new(), None, None),
                 Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 response text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
             }
-            } else if matches!(format.as_str(), "docx" | "pptx") {
+            } else if matches!(format.as_str(), "docx" | "pptx") || crate::photo::is_photo(&format)
+            {
                 match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
@@ -993,14 +1135,16 @@ impl Application {
                         )
                     }
                     Err(detail) => {
-                        let scope = if format == "docx" {
+                        let scope = if crate::photo::is_photo(&format) {
+                            CoverageScope::ImagePixels
+                        } else if format == "docx" {
                             CoverageScope::MainDocument
                         } else {
                             CoverageScope::SlideText
                         };
                         (
                             ExtractionState::InvalidContainer,
-                            format!("Office container could not be read. {detail}"),
+                            format!("Source container could not be read. {detail}"),
                             String::new(),
                             None,
                             Some(vec![CoveragePart {
@@ -1121,6 +1265,8 @@ impl Application {
             semantic_retry_at: None,
             knowledge_pages: Vec::new(),
             semantic_decisions: Vec::new(),
+            audio_processing: inspected_audio.map(|audio| audio_processing_info(audio, &digest)),
+            pending_audio_processing: None,
         };
         let body = web_projection
             .as_ref()
@@ -1220,17 +1366,40 @@ impl Application {
                 || page.info.update_status.as_deref() == Some("processing")
             {
                 let mut interrupted = page;
+                let active_version = interrupted.info.pending_version_id.clone();
+                let interruptions = interrupted
+                    .info
+                    .versions_seen
+                    .iter_mut()
+                    .find(|version| Some(&version.source_version_id) == active_version.as_ref())
+                    .map(|version| {
+                        version.processing_interruptions =
+                            version.processing_interruptions.saturating_add(1);
+                        version.state = if version.processing_interruptions >= 3 {
+                            "failed"
+                        } else {
+                            "pending"
+                        }
+                        .into();
+                        version.processing_interruptions
+                    });
+                let exhausted = interruptions.is_none_or(|count| count >= 3);
+                let state = if exhausted { "failed" } else { "pending" };
                 if interrupted.info.current_version_id.is_none() {
-                    interrupted.info.semantic_state = "pending".into();
+                    interrupted.info.semantic_state = state.into();
                 } else {
-                    interrupted.info.update_status = Some("pending".into());
+                    interrupted.info.update_status = Some(state.into());
                 }
-                interrupted.info.semantic_error = Some(
-                    "A previous semantic run was interrupted; automatic retry is scheduled.".into(),
-                );
+                interrupted.info.semantic_error = Some(if interruptions.is_none() {
+                    "Interrupted processing has no retained version identity; recovery failed without changing the prior content or original.".into()
+                } else if exhausted {
+                    "Semantic recovery failed after three interrupted attempts without new evidence; retained originals and the prior successful content remain available.".into()
+                } else {
+                    "A previous semantic run was interrupted; automatic retry is scheduled within this version's finite interruption budget.".into()
+                });
                 let delay_seconds = (1_u64 << interrupted.info.semantic_attempts.min(12)).min(3600);
                 interrupted.info.semantic_retry_at =
-                    Some((now + u128::from(delay_seconds * 1000)).to_string());
+                    (!exhausted).then(|| (now + u128::from(delay_seconds * 1000)).to_string());
                 self.write_source_page(&interrupted)?;
                 self.index_page(&interrupted.info)?;
                 continue;
@@ -1242,8 +1411,27 @@ impl Application {
                 .and_then(|value| value.parse::<u128>().ok())
                 .unwrap_or(0);
             let has_pending_version = page.info.pending_version_id.is_some();
+            let pending_version_id = page.info.pending_version_id.as_deref();
+            let pending_is_audio = page
+                .info
+                .versions_seen
+                .iter()
+                .find(|version| Some(version.source_version_id.as_str()) == pending_version_id)
+                .is_some_and(|version| is_audio_format(&version.format));
+            let audio_ready = if pending_is_audio {
+                pending_version_id.is_some_and(|version_id| {
+                    candidate_audio_processing(&page.info, version_id).is_some_and(|audio| {
+                        audio.state == "complete"
+                            && (page.info.current_version_id.is_none()
+                                || !audio.segments.is_empty())
+                    })
+                })
+            } else {
+                true
+            };
             if (page.info.semantic_state == "pending"
                 || (has_pending_version && page.info.update_status.as_deref() == Some("pending")))
+                && audio_ready
                 && retry_at <= now
             {
                 due.push(page.info.source_id);
@@ -1297,7 +1485,15 @@ impl Application {
             } else {
                 page.info.acquisitions.clone()
             };
-            let text = if page.info.format == "html"
+            let text = if is_audio_format(&version.format) {
+                let Some(audio) = candidate_audio_processing(&page.info, &source_version_id) else {
+                    continue;
+                };
+                if audio.state != "complete" {
+                    continue;
+                }
+                audio_semantic_text(audio)
+            } else if page.info.format == "html"
                 && page
                     .info
                     .acquisitions
@@ -1375,9 +1571,13 @@ impl Application {
                 })?
             };
             let prior_source_text = if initial {
-                let correction_candidates =
-                    crate::providers::correction_candidates_from_text(&text);
-                self.correction_prior_context(&correction_candidates)?
+                if text.starts_with("[PHOTO ") {
+                    None
+                } else {
+                    let correction_candidates =
+                        crate::providers::correction_candidates_from_text(&text);
+                    self.correction_prior_context(&correction_candidates)?
+                }
             } else if let Some(current_id) = page.info.current_version_id.as_deref() {
                 page.info
                     .versions_seen
@@ -1391,7 +1591,9 @@ impl Application {
                         } else {
                             version_path
                         };
-                        if matches!(version.format.as_str(), "docx" | "pptx") {
+                        if matches!(version.format.as_str(), "docx" | "pptx")
+                            || crate::photo::is_photo(&version.format)
+                        {
                             self.extractor
                                 .extract(&path, &version.format, &page.info.title)
                                 .ok()
@@ -1482,31 +1684,47 @@ impl Application {
             .collect::<Vec<_>>();
         labels.sort_unstable();
         let mut context = String::new();
+        let pages_dir = self.root.join("pages");
+        if !pages_dir.try_exists()? {
+            return Ok(None);
+        }
         for label in labels {
-            let entity = EntityDraft {
-                kind: "event".into(),
-                label: label.to_owned(),
-                evidence: candidates
-                    .iter()
-                    .find(|candidate| candidate.event_label == label)
-                    .map(|candidate| candidate.evidence.clone())
-                    .expect("label came from a correction candidate"),
-            };
-            let page_id = stable_page_id(&entity, "");
-            let path = self.root.join("pages").join(format!("{page_id}.md"));
-            if !path.exists() {
+            let mut matching_events = Vec::new();
+            for entry in fs::read_dir(&pages_dir)? {
+                let path = entry?.path();
+                if path.extension().and_then(|value| value.to_str()) != Some("md") {
+                    continue;
+                }
+                let header = read_knowledge_header(&path)?;
+                if header.kind == "event" && header.title == label && !header.facts.is_empty() {
+                    matching_events.push(header);
+                }
+            }
+            if matching_events.is_empty() {
                 continue;
             }
-            let header = read_knowledge_header(&path)?;
-            if header.kind != "event" || header.title != label || header.facts.is_empty() {
-                continue;
-            }
-            context.push_str(&format!("Current published fields for event `{label}`:\n"));
-            for fact in &header.facts {
-                context.push_str(&format!(
-                    "- property `{}` = `{}`; current support: “{}”\n",
-                    fact.property, fact.value, fact.evidence.quote
-                ));
+            context.push_str(&format!(
+                "Current published event candidates for label `{label}` ({} separate page(s); label alone does not identify the target):\n",
+                matching_events.len()
+            ));
+            for header in matching_events {
+                context.push_str(&format!("- page `{}`:\n", header.page_id));
+                for fact in &header.facts {
+                    let current = self.latest_support(&fact.supports)?;
+                    context.push_str(&format!(
+                        "  - property `{}` = `{}`; current support: “{}”\n",
+                        fact.property,
+                        current
+                            .as_ref()
+                            .map_or(fact.value.as_str(), |support| support.value.as_str()),
+                        current
+                            .as_ref()
+                            .map_or(fact.evidence.quote.as_str(), |support| support
+                                .evidence
+                                .quote
+                                .as_str())
+                    ));
+                }
             }
         }
         Ok((!context.is_empty()).then_some(context))
@@ -1518,10 +1736,15 @@ impl Application {
         source_version_id: &str,
         source_text: &str,
         draft: &mut KnowledgeDraft,
-    ) -> Result<()> {
+    ) -> Result<HashMap<String, String>> {
+        if source_text.starts_with("[PHOTO ") {
+            // The independent photo guard only admits exact qualified channel facts.
+            // A printed or supplied correction is not an authenticated event update.
+            return Ok(HashMap::new());
+        }
         let recognized_candidates = crate::providers::correction_candidates_from_text(source_text);
         if recognized_candidates.is_empty() && draft.correction_candidates.is_empty() {
-            return Ok(());
+            return Ok(HashMap::new());
         }
         let uncertain = || {
             GardenError::Invalid(
@@ -1540,6 +1763,7 @@ impl Application {
         if recognized_candidates.len() != draft.correction_candidates.len() {
             return Err(uncertain());
         }
+        let mut identity_overrides = HashMap::new();
         for candidate in draft.correction_candidates.clone() {
             if !recognized_candidates.iter().any(|recognized| {
                 recognized.event_label == candidate.event_label
@@ -1576,40 +1800,17 @@ impl Application {
             {
                 return Err(uncertain());
             }
-            let entity = draft
+            draft
                 .entities
                 .iter()
                 .find(|entity| entity.kind == "event" && entity.label == candidate.event_label)
                 .ok_or_else(uncertain)?;
-            let page_id = stable_page_id(entity, &source.info.source_id);
-            let path = self.root.join("pages").join(format!("{page_id}.md"));
-            if !path.exists() {
-                return Err(uncertain());
-            }
-            let header = read_knowledge_header(&path)?;
-            if header.kind != "event" || header.title != candidate.event_label {
-                return Err(uncertain());
-            }
-            let matching_facts = header
-                .facts
-                .iter()
-                .filter(|fact| {
-                    fact.property == candidate.property
-                        && normalized_visit_count(&fact.value)
-                            == normalized_visit_count(&candidate.previous_value)
-                })
-                .collect::<Vec<_>>();
-            let [prior_fact] = matching_facts.as_slice() else {
-                return Err(uncertain());
-            };
-            let Some(current_support) = self.latest_support(&prior_fact.supports)? else {
-                return Err(uncertain());
-            };
-            if normalized_visit_count(&current_support.value)
-                != normalized_visit_count(&candidate.previous_value)
-            {
-                return Err(uncertain());
-            }
+            let (page_id, prior_fact) = self
+                .unique_current_event_for_correction(&candidate)?
+                .ok_or_else(uncertain)?;
+            let current_support = self
+                .latest_support(&prior_fact.supports)?
+                .ok_or_else(uncertain)?;
             let prior_source = read_page(&self.page_path(&current_support.source_id)?)?;
             let prior_version = prior_source
                 .info
@@ -1625,6 +1826,12 @@ impl Application {
                 .ok_or_else(uncertain)?;
             if compare_source_order(prior_version, incoming_version)
                 != Some(std::cmp::Ordering::Greater)
+            {
+                return Err(uncertain());
+            }
+            if identity_overrides
+                .insert(candidate.event_label.clone(), page_id.clone())
+                .is_some_and(|existing| existing != page_id)
             {
                 return Err(uncertain());
             }
@@ -1651,7 +1858,233 @@ impl Application {
                 probability: Some(alignment.certainty),
             });
         }
-        Ok(())
+        Ok(identity_overrides)
+    }
+
+    fn unique_current_event_for_correction(
+        &self,
+        candidate: &CorrectionCandidateDraft,
+    ) -> Result<Option<(String, FactRecord)>> {
+        let pages_dir = self.root.join("pages");
+        if !pages_dir.try_exists()? {
+            return Ok(None);
+        }
+        let mut targets = Vec::new();
+        for entry in fs::read_dir(pages_dir)? {
+            let path = entry?.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("md") {
+                continue;
+            }
+            let header = read_knowledge_header(&path)?;
+            if header.kind != "event" || header.title != candidate.event_label {
+                continue;
+            }
+            for fact in header.facts.iter().filter(|fact| {
+                fact.property == candidate.property
+                    && normalized_visit_count(&fact.value)
+                        == normalized_visit_count(&candidate.previous_value)
+            }) {
+                let Some(current) = self.latest_support(&fact.supports)? else {
+                    continue;
+                };
+                if normalized_visit_count(&current.value)
+                    == normalized_visit_count(&candidate.previous_value)
+                {
+                    targets.push((header.page_id.clone(), fact.clone()));
+                }
+            }
+        }
+        Ok((targets.len() == 1).then(|| targets.remove(0)))
+    }
+
+    fn align_same_event_pages(
+        &self,
+        source: &SourcePage,
+        source_version_id: &str,
+        source_text: &str,
+        draft: &KnowledgeDraft,
+        mut identity_overrides: HashMap<String, String>,
+    ) -> Result<HashMap<String, String>> {
+        let Some(incoming_version) = source
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == source_version_id)
+        else {
+            return Err(GardenError::Invalid(
+                "The active source version is missing its retained update role.".into(),
+            ));
+        };
+        if incoming_version
+            .update_confidence
+            .is_none_or(|confidence| confidence < 0.8)
+            || incoming_version.update_evidence.is_none()
+            || !matches!(
+                incoming_version.update_role.as_str(),
+                "supplement" | "complete_replacement"
+            )
+        {
+            return Ok(identity_overrides);
+        }
+
+        let pages_dir = self.root.join("pages");
+        if !pages_dir.exists() {
+            return Ok(identity_overrides);
+        }
+        for entity in draft
+            .entities
+            .iter()
+            .filter(|entity| entity.kind.eq_ignore_ascii_case("event"))
+        {
+            if identity_overrides.contains_key(&entity.label)
+                || explicitly_distinct_event_text(source_text, &entity.evidence)
+            {
+                continue;
+            }
+            let incoming_date = draft
+                .facts
+                .iter()
+                .filter(|fact| {
+                    fact.subject == entity.label
+                        && fact.property.eq_ignore_ascii_case("occurred_on")
+                })
+                .collect::<Vec<_>>();
+            let incoming_date = match incoming_date.as_slice() {
+                [fact] if validate_evidence(source_text, &fact.evidence).is_ok() => {
+                    parse_date_value(&fact.value)
+                        .or_else(|| event_date_from_evidence(&entity.evidence.quote))
+                }
+                [] => event_date_from_evidence(&entity.evidence.quote),
+                _ => continue,
+            };
+            if incoming_date.is_none() && incoming_version.update_role != "supplement" {
+                continue;
+            }
+
+            let mut matching_pages = Vec::<(String, SourceVersion)>::new();
+            for entry in fs::read_dir(&pages_dir)? {
+                let path = entry?.path();
+                if path.extension().and_then(|value| value.to_str()) != Some("md") {
+                    continue;
+                }
+                let header = read_knowledge_header(&path)?;
+                if header.kind != "event" || header.title != entity.label {
+                    continue;
+                }
+                let prior_version = if let Some(incoming_date) = &incoming_date {
+                    let date_facts = header
+                        .facts
+                        .iter()
+                        .filter(|fact| fact.property.eq_ignore_ascii_case("occurred_on"))
+                        .collect::<Vec<_>>();
+                    let current_date = match date_facts.as_slice() {
+                        [fact] => self
+                            .latest_support(&fact.supports)?
+                            .and_then(|support| parse_date_value(&support.value)),
+                        [] => event_date_from_evidence(&header.evidence.quote)
+                            .or(self.retained_event_date(&header, &entity.label)?),
+                        _ => None,
+                    };
+                    if current_date.as_deref() != Some(incoming_date.as_str()) {
+                        continue;
+                    }
+                    let current_support = if let [fact] = date_facts.as_slice() {
+                        self.latest_support(&fact.supports)?
+                    } else {
+                        None
+                    };
+                    let prior_source_id = current_support
+                        .as_ref()
+                        .map(|support| support.source_id.as_str())
+                        .unwrap_or(header.source_id.as_str());
+                    let prior_version_id = current_support
+                        .as_ref()
+                        .map(|support| support.source_version_id.as_str());
+                    let prior_source = read_page(&self.page_path(prior_source_id)?)?;
+                    let target_version_id = prior_version_id
+                        .map(str::to_owned)
+                        .or_else(|| prior_source.info.current_version_id.clone());
+                    prior_source.info.versions_seen.into_iter().find(|version| {
+                        Some(version.source_version_id.as_str()) == target_version_id.as_deref()
+                    })
+                } else if incoming_version.update_role == "supplement" {
+                    let prior_source = read_page(&self.page_path(&header.source_id)?)?;
+                    let current_id = prior_source.info.current_version_id.as_deref();
+                    prior_source
+                        .info
+                        .versions_seen
+                        .into_iter()
+                        .find(|version| Some(version.source_version_id.as_str()) == current_id)
+                } else {
+                    None
+                };
+                if let Some(prior_version) = prior_version {
+                    matching_pages.push((header.page_id, prior_version));
+                }
+            }
+            if matching_pages.is_empty() {
+                continue;
+            }
+            if matching_pages.len() != 1 {
+                return Err(GardenError::Invalid(
+                    "A source update names multiple same-date events; event identity remains uncertain and will retry automatically.".into(),
+                ));
+            }
+            let (page_id, prior_version) = matching_pages.remove(0);
+            let order = compare_source_order(&prior_version, incoming_version);
+            let explicit_same_record = source_text
+                .to_ascii_lowercase()
+                .contains("same observation record")
+                || source_text.to_ascii_lowercase().contains("same-record");
+            if order.is_none()
+                && !explicit_same_record
+                && incoming_version.update_role != "supplement"
+                && !(incoming_version.update_role == "complete_replacement"
+                    && incoming_version.source_date.is_none()
+                    && incoming_version.source_revision.is_none())
+            {
+                return Err(GardenError::Invalid(
+                    "A cross-source event update lacks reliable identity or ordering evidence; processing will retry automatically.".into(),
+                ));
+            }
+            identity_overrides.insert(entity.label.clone(), page_id);
+        }
+        Ok(identity_overrides)
+    }
+
+    fn retained_event_date(
+        &self,
+        page: &KnowledgePageHeader,
+        label: &str,
+    ) -> Result<Option<String>> {
+        let mut dates = HashSet::new();
+        for fact in &page.facts {
+            for support in &fact.supports {
+                let source = read_page(&self.page_path(&support.source_id)?)?;
+                let Some(version) = source
+                    .info
+                    .versions_seen
+                    .iter()
+                    .find(|version| version.source_version_id == support.source_version_id)
+                else {
+                    continue;
+                };
+                let path = if source.info.current_version_id.as_deref()
+                    == Some(version.source_version_id.as_str())
+                {
+                    self.source_dir(&support.source_id)?.join(&version.asset)
+                } else {
+                    self.version_original_path(&support.source_id, version)?
+                };
+                let Ok(text) = fs::read_to_string(path) else {
+                    continue;
+                };
+                if let Some(date) = event_date_for_label(&text, label) {
+                    dates.insert(date);
+                }
+            }
+        }
+        Ok((dates.len() == 1).then(|| dates.into_iter().next().unwrap()))
     }
 
     pub fn finish_semantic_job(
@@ -1689,89 +2122,137 @@ impl Application {
         });
         match result {
             Ok(mut draft) => {
-                let is_office = matches!(page.info.format.as_str(), "docx" | "pptx");
-                let office_facts = draft
-                    .facts
+                let source_format = page
+                    .info
+                    .versions_seen
                     .iter()
-                    .filter(|fact| !fact.property.eq_ignore_ascii_case("acquired_content"))
-                    .collect::<Vec<_>>();
-                let mut office_keys = HashMap::<(&str, &str), Vec<Option<&str>>>::new();
-                if is_office {
-                    for fact in &office_facts {
-                        office_keys
-                            .entry((&fact.subject, &fact.property))
-                            .or_default()
-                            .push(fact.record_key.as_deref());
-                    }
-                }
-                let office_identity_is_unambiguous = !is_office
-                    || office_keys.values().all(|keys| {
-                        keys.len() == 1
-                            || (keys
-                                .iter()
-                                .all(|key| key.is_some_and(|key| !key.trim().is_empty()))
-                                && keys.iter().flatten().collect::<HashSet<_>>().len()
-                                    == keys.len())
-                    });
-                let has_office_content = !is_office || !office_facts.is_empty();
-                if !has_office_content || !office_identity_is_unambiguous {
+                    .find(|version| version.source_version_id == job.source_version_id)
+                    .map(|version| version.format.clone())
+                    .ok_or_else(|| {
+                        GardenError::Invalid(
+                            "The active source version is missing its retained format.".into(),
+                        )
+                    })?;
+                let version_audio = is_audio_format(&source_format)
+                    && candidate_audio_processing(&page.info, &job.source_version_id).is_some();
+                if draft_has_audio_provenance(&draft) && !version_audio {
                     self.record_semantic_failure(
                         &mut page,
-                        if has_office_content {
-                            "Office semantic processing could not assign distinct stable record identities to repeated facts; coverage remains incomplete and will retry automatically.".into()
-                        } else {
-                            "Office semantic processing selected no content-bearing facts; coverage remains incomplete and will retry automatically.".into()
-                        },
+                        "Audio transcript evidence is not bound to retained audio processing for this source version; semantic coverage remains incomplete and will retry automatically.".into(),
                         true,
                         true,
                     )?;
                 } else {
-                    let prior_page = page.clone();
-                    let update = draft.source_update.clone();
-                    let result = self
-                        .store_source_update(
-                            &mut page,
-                            &job.source_version_id,
-                            &job.source_text,
-                            update.as_ref(),
-                        )
-                        .and_then(|()| {
-                            if initial {
-                                self.apply_field_aligned_corrections(
-                                    &page,
-                                    &job.source_version_id,
-                                    &job.source_text,
-                                    &mut draft,
-                                )?;
-                                if !draft.correction_candidates.is_empty() {
-                                    // Knowledge reconciliation ranks support through persisted
-                                    // source versions. Persist this still-pending source's
-                                    // validated date/order before it selects the current value.
-                                    self.write_source_page(&page)?;
-                                }
-                                // A first acquisition has no existing facts to withdraw. Even
-                                // an unknown/conditional relationship can publish the grounded
-                                // evidence it contains; the role only limits replacement scope.
-                                self.publish_knowledge(&mut page, &job.source_text, draft)
-                            } else {
-                                self.apply_replacement(
-                                    &mut page,
-                                    &job.source_version_id,
-                                    &job.source_text,
-                                    draft,
-                                )
-                            }
-                        });
-                    match result {
-                        Ok(()) => {
-                            page.info.semantic_state = "complete".into();
-                            page.info.semantic_error = None;
-                            page.info.semantic_retry_at = None;
+                    if version_audio {
+                        qualify_audio_evidence(&mut draft);
+                    }
+                    let is_office = matches!(page.info.format.as_str(), "docx" | "pptx");
+                    let office_facts = draft
+                        .facts
+                        .iter()
+                        .filter(|fact| !fact.property.eq_ignore_ascii_case("acquired_content"))
+                        .collect::<Vec<_>>();
+                    let mut office_keys = HashMap::<(&str, &str), Vec<Option<&str>>>::new();
+                    if is_office {
+                        for fact in &office_facts {
+                            office_keys
+                                .entry((&fact.subject, &fact.property))
+                                .or_default()
+                                .push(fact.record_key.as_deref());
                         }
-                        Err(error) => {
-                            self.staged_publication.clear();
-                            page = prior_page;
-                            self.record_semantic_failure(&mut page, error.to_string(), true, true)?
+                    }
+                    let office_identity_is_unambiguous = !is_office
+                        || office_keys.values().all(|keys| {
+                            keys.len() == 1
+                                || (keys
+                                    .iter()
+                                    .all(|key| key.is_some_and(|key| !key.trim().is_empty()))
+                                    && keys.iter().flatten().collect::<HashSet<_>>().len()
+                                        == keys.len())
+                        });
+                    let has_office_content = !is_office || !office_facts.is_empty();
+                    if !has_office_content || !office_identity_is_unambiguous {
+                        self.record_semantic_failure(
+                            &mut page,
+                            if has_office_content {
+                                "Office semantic processing could not assign distinct stable record identities to repeated facts; coverage remains incomplete and will retry automatically.".into()
+                            } else {
+                                "Office semantic processing selected no content-bearing facts; coverage remains incomplete and will retry automatically.".into()
+                            },
+                            true,
+                            true,
+                        )?;
+                    } else {
+                        let prior_page = page.clone();
+                        let update = draft.source_update.clone();
+                        let result =
+                            crate::photo::validate_draft(&job.source_text, &source_format, &draft)
+                                .map_err(GardenError::Invalid)
+                                .and_then(|()| {
+                                    self.store_source_update(
+                                        &mut page,
+                                        &job.source_version_id,
+                                        &job.source_text,
+                                        update.as_ref(),
+                                    )
+                                })
+                                .and_then(|()| {
+                                    if initial {
+                                        let identity_overrides = self
+                                            .apply_field_aligned_corrections(
+                                                &page,
+                                                &job.source_version_id,
+                                                &job.source_text,
+                                                &mut draft,
+                                            )?;
+                                        let identity_overrides = self.align_same_event_pages(
+                                            &page,
+                                            &job.source_version_id,
+                                            &job.source_text,
+                                            &draft,
+                                            identity_overrides,
+                                        )?;
+                                        if !draft.correction_candidates.is_empty() {
+                                            // Knowledge reconciliation ranks support through persisted
+                                            // source versions. Persist this still-pending source's
+                                            // validated date/order before it selects the current value.
+                                            self.write_source_page(&page)?;
+                                        }
+                                        // A first acquisition has no existing facts to withdraw. Even
+                                        // an unknown/conditional relationship can publish the grounded
+                                        // evidence it contains; the role only limits replacement scope.
+                                        self.publish_knowledge(
+                                            &mut page,
+                                            &job.source_text,
+                                            draft,
+                                            &identity_overrides,
+                                        )
+                                    } else {
+                                        self.apply_replacement(
+                                            &mut page,
+                                            &job.source_version_id,
+                                            &job.source_text,
+                                            draft,
+                                        )
+                                    }
+                                });
+                        match result {
+                            Ok(()) => {
+                                promote_candidate_audio(&mut page.info, &job.source_version_id);
+                                page.info.semantic_state = "complete".into();
+                                page.info.semantic_error = None;
+                                page.info.semantic_retry_at = None;
+                            }
+                            Err(error) => {
+                                self.staged_publication.clear();
+                                page = prior_page;
+                                self.record_semantic_failure(
+                                    &mut page,
+                                    error.to_string(),
+                                    true,
+                                    true,
+                                )?
+                            }
                         }
                     }
                 }
@@ -1962,11 +2443,244 @@ impl Application {
         Ok(())
     }
 
+    fn recover_interrupted_audio_jobs(&mut self) -> Result<()> {
+        for entry in fs::read_dir(self.root.join("sources"))? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let source_id = read_page(&entry.path().join("index.md"))?.info.source_id;
+            let mut page = self.open_source(&source_id)?;
+            let Some(pending_version_id) = page.info.pending_version_id.clone() else {
+                continue;
+            };
+            let Some(audio) = candidate_audio_processing_mut(&mut page.info, &pending_version_id)
+            else {
+                continue;
+            };
+            if audio.state == "processing" {
+                audio.retry_at_ms = None;
+                audio.processing_interruptions = audio.processing_interruptions.saturating_add(1);
+                if audio.processing_interruptions >= MAX_AUDIO_INTERRUPTION_ATTEMPTS {
+                    audio.state = "failed".into();
+                    audio.detail = "Audio transcription stopped after three interrupted segment attempts for this source version. The exact retained original and any previously published transcript remain available; a new source version has an independent recovery budget.".into();
+                } else {
+                    audio.state = "pending".into();
+                    audio.detail = format!("A bounded audio segment was interrupted ({}/{}). The same time range remains queued within this source version's interruption budget; the retained original remains available.", audio.processing_interruptions, MAX_AUDIO_INTERRUPTION_ATTEMPTS);
+                }
+                self.write_source_page(&page)?;
+                self.index_page(&page.info)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Process at most one durable 30-second audio window. Native/model work is
+    /// deliberately performed after persisting `processing`; opening the collection
+    /// converts an interrupted window back to pending and retries its stable range.
+    pub fn resume_due_audio_jobs(&mut self) -> Result<()> {
+        let now = now_millis()? as u64;
+        let mut candidate = None;
+        for entry in fs::read_dir(self.root.join("sources"))? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let source_id = read_page(&entry.path().join("index.md"))?.info.source_id;
+            let page = self.open_source(&source_id)?;
+            if let Some(pending_version_id) = page.info.pending_version_id.as_deref() {
+                if let Some(audio) = candidate_audio_processing(&page.info, pending_version_id) {
+                    if audio.state == "pending" && audio.retry_at_ms.unwrap_or(0) <= now {
+                        candidate = Some((
+                            source_id,
+                            page.info.pending_version_id.clone(),
+                            audio.clone(),
+                        ));
+                        break;
+                    }
+                }
+            }
+        }
+        let Some((source_id, version_id, snapshot)) = candidate else {
+            return Ok(());
+        };
+        let Some(version_id) = version_id else {
+            return Ok(());
+        };
+        let start = snapshot.next_start_ms;
+        let duration = snapshot
+            .segment_duration_ms
+            .min(MAX_AUDIO_SEGMENT_MS)
+            .min(snapshot.duration_ms.saturating_sub(start));
+        if duration == 0 {
+            self.finish_audio_collection(&source_id, &version_id)?;
+            return Ok(());
+        }
+        {
+            let mut page = self.open_source(&source_id)?;
+            let audio =
+                candidate_audio_processing_mut(&mut page.info, &version_id).ok_or_else(|| {
+                    GardenError::Invalid("Pending audio processing state disappeared.".into())
+                })?;
+            if audio.state != "pending" || audio.next_start_ms != start {
+                return Ok(());
+            }
+            audio.state = "processing".into();
+            audio.attempts = audio.attempts.saturating_add(1);
+            audio.detail = format!("Transcribing original audio from {start} to {} ms with the pinned local Whisper model. Speaker identity is unavailable.", start + duration);
+            self.write_source_page(&page)?;
+            self.index_page(&page.info)?;
+        }
+        let current_page = self.open_source(&source_id)?;
+        let version = current_page
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == version_id)
+            .ok_or_else(|| {
+                GardenError::Invalid("Pending audio source version is missing.".into())
+            })?;
+        let root_asset = self.source_dir(&source_id)?.join(&version.asset);
+        let version_asset = self.version_original_path(&source_id, version)?;
+        let path = if current_page.info.current_version_id.as_deref() == Some(version_id.as_str())
+            || current_page.info.current_version_id.is_none()
+        {
+            if version_asset.is_file() {
+                version_asset
+            } else {
+                root_asset
+            }
+        } else {
+            version_asset
+        };
+        let outcome = self.audio_processor.install_assets().and_then(|()| {
+            self.audio_processor
+                .transcribe_segment(&path, start, duration)
+        });
+        match outcome {
+            Ok(batch)
+                if batch.requested_start_ms == start
+                    && batch.requested_duration_ms == duration
+                    && batch.media_duration_ms.abs_diff(snapshot.duration_ms) <= 2
+                    && batch.processed_duration_ms > 0
+                    && batch.processed_duration_ms <= duration =>
+            {
+                let mut page = self.open_source(&source_id)?;
+                if page.info.pending_version_id.as_deref() != Some(&version_id) { return Ok(()); }
+                let replacement = page.info.current_version_id.is_some();
+                let (complete, no_segments) = {
+                    let audio = candidate_audio_processing_mut(&mut page.info, &version_id)
+                        .ok_or_else(|| GardenError::Invalid("Pending audio processing state disappeared.".into()))?;
+                    let window_end = start.saturating_add(batch.processed_duration_ms);
+                    audio.segments.retain(|segment| segment.end_ms <= start || segment.start_ms >= window_end);
+                    for (index, mut segment) in batch.segments.into_iter().enumerate() {
+                        if segment.start_ms < start || segment.start_ms >= window_end || segment.end_ms <= segment.start_ms {
+                            continue;
+                        }
+                        segment.end_ms = segment.end_ms.min(window_end);
+                        segment.segment_id = stable_audio_segment_id(&version_id, start, index);
+                        segment.speaker = None;
+                        segment.speaker_state = "unidentified".into();
+                        audio.segments.push(segment);
+                    }
+                    audio.segments.sort_by_key(|segment| (segment.start_ms, segment.end_ms, segment.segment_id.clone()));
+                    audio.next_start_ms = window_end;
+                    audio.state = if window_end >= audio.duration_ms { "complete" } else { "pending" }.into();
+                    audio.retry_at_ms = None;
+                    audio.detail = format!("{} ms examined. Local large-v3-turbo Whisper output is a best-guess transcript without calibrated confidence or alternatives. Silence, overlap, accent/noise effects, and unrecognized speech are not distinguishable from omitted words; timestamps are estimates and speakers remain unidentified. Compare the original.", audio.next_start_ms);
+                    if audio.state == "complete" && audio.segments.is_empty() && replacement {
+                        audio.detail = format!("{} ms examined. No speech passage was recognized in this replacement. This does not distinguish silence, background noise, overlap, or unintelligible speech. The prior published transcript and original remain current; compare this exact candidate original.", audio.next_start_ms);
+                    }
+                    (audio.state == "complete", audio.segments.is_empty())
+                };
+                if complete && no_segments {
+                    if replacement {
+                        page.info.update_status = Some("pending".into());
+                        page.info.semantic_error = Some("The replacement audio was examined, but no speech passage was recognized. This does not prove silence; the prior published transcript and original remain current, and the exact replacement original is retained as an unpublished version.".into());
+                    } else {
+                        page.info.current_version_id = Some(version_id.clone());
+                        page.info.pending_version_id = None;
+                        page.info.update_status = None;
+                        page.info.semantic_state = "unavailable".into();
+                        promote_candidate_audio(&mut page.info, &version_id);
+                    }
+                } else if complete {
+                    page.info.semantic_state = "pending".into();
+                }
+                let body = source_body(&page.info, "", None);
+                page.body = body.clone();
+                page.markdown = serialize_page(&page.info, &body)?;
+                self.publish_updated_page(&page)?;
+            }
+            Ok(batch) => self.fail_audio_attempt(&source_id, &version_id, format!("The local recognizer returned an incomplete or misaligned result for {start}–{} ms (reported request {}–{} ms, media duration {} ms, examined {} ms). The same range remains resumable.", start + duration, batch.requested_start_ms, batch.requested_start_ms.saturating_add(batch.requested_duration_ms), batch.media_duration_ms, batch.processed_duration_ms))?,
+            Err(error) => self.fail_audio_attempt(&source_id, &version_id, error)?,
+        }
+        Ok(())
+    }
+
+    fn fail_audio_attempt(
+        &mut self,
+        source_id: &str,
+        version_id: &str,
+        error: String,
+    ) -> Result<()> {
+        let mut page = self.open_source(source_id)?;
+        if page.info.pending_version_id.as_deref() != Some(version_id) {
+            return Ok(());
+        }
+        let Some(audio) = candidate_audio_processing_mut(&mut page.info, version_id) else {
+            return Ok(());
+        };
+        audio.failed_attempts = audio.failed_attempts.saturating_add(1);
+        if audio.failed_attempts >= MAX_AUDIO_FAILED_ATTEMPTS {
+            audio.state = "failed".into();
+            audio.retry_at_ms = None;
+            audio.detail = format!("Local transcription stopped after {} failed attempts for this source version: {error}. The exact retained original and any previously published transcript remain available; a new source version has an independent retry budget.", audio.failed_attempts);
+        } else {
+            let seconds = (1_u64 << audio.attempts.min(10)).min(3600);
+            audio.state = "pending".into();
+            audio.retry_at_ms = Some(now_millis()? as u64 + seconds * 1000);
+            audio.detail = format!("Local transcription could not finish this range ({}/{} failed attempts): {error}. It will retry automatically within this source version's bounded budget; the retained original remains playable.", audio.failed_attempts, MAX_AUDIO_FAILED_ATTEMPTS);
+        }
+        let body = source_body(&page.info, "", None);
+        page.body = body.clone();
+        page.markdown = serialize_page(&page.info, &body)?;
+        self.publish_updated_page(&page)
+    }
+
+    fn finish_audio_collection(&mut self, source_id: &str, version_id: &str) -> Result<()> {
+        let mut page = self.open_source(source_id)?;
+        if page.info.pending_version_id.as_deref() != Some(version_id) {
+            return Ok(());
+        }
+        page.info.current_version_id = Some(version_id.into());
+        page.info.pending_version_id = None;
+        page.info.update_status = None;
+        page.info.semantic_state = "unavailable".into();
+        if let Some(audio) = candidate_audio_processing_mut(&mut page.info, version_id) {
+            audio.state = "complete".into();
+        }
+        promote_candidate_audio(&mut page.info, version_id);
+        let body = source_body(&page.info, "", None);
+        page.body = body.clone();
+        page.markdown = serialize_page(&page.info, &body)?;
+        self.publish_updated_page(&page)
+    }
+
+    fn publish_updated_page(&mut self, page: &SourcePage) -> Result<()> {
+        write_atomic(
+            &self.page_path(&page.info.source_id)?,
+            page.markdown.as_bytes(),
+        )?;
+        self.index_page(&page.info)
+    }
+
     fn publish_knowledge(
         &mut self,
         source: &mut SourcePage,
         source_text: &str,
         draft: KnowledgeDraft,
+        identity_overrides: &HashMap<String, String>,
     ) -> Result<()> {
         let prior_pages = source.info.knowledge_pages.clone();
         if source.info.current_version_id.is_none() {
@@ -2014,7 +2728,12 @@ impl Application {
                     "Semantic entity has no type or label.".into(),
                 ));
             }
-            let page_id = stable_page_id(entity, &source.info.source_id);
+            let page_id = identity_overrides
+                .get(&entity.label)
+                .cloned()
+                .unwrap_or_else(|| {
+                    stable_page_id(entity, &source.info.source_id, Some(source_text))
+                });
             let summary = KnowledgePageSummary {
                 page_id: page_id.clone(),
                 title: entity.label.clone(),
@@ -2172,9 +2891,11 @@ impl Application {
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         "extracted Office projection; offsets are not original package byte offsets"
                     }
+                    EvidenceOffsetBasis::ExtractedImageProjection => "extracted image projection; offsets are not original image byte offsets",
                     EvidenceOffsetBasis::WebVisibleText => {
                         "extracted web visible-text projection; offsets are not downloaded HTML byte offsets"
                     }
+                    EvidenceOffsetBasis::AudioTranscript => "machine-generated transcript; audio wording and speaker remain unverified",
                 };
                 let locator = fact
                     .evidence
@@ -2182,27 +2903,52 @@ impl Application {
                     .as_deref()
                     .map(|value| format!(" · original locator: {value}"))
                     .unwrap_or_default();
+                let audio_link =
+                    if fact.evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript {
+                        fact.evidence
+                            .source_location
+                            .as_deref()
+                            .and_then(audio_start_from_locator)
+                            .map(|start_ms| {
+                                format!(
+                                    " · [Open audio at this timestamp]({})",
+                                    audio_seek_href(&source.info.source_id, start_ms)
+                                )
+                            })
+                            .unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
                 let (line_basis, byte_basis) = match fact.evidence.offset_basis {
                     EvidenceOffsetBasis::PreservedText => ("source lines", "source bytes"),
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         ("extracted projection lines", "extracted projection bytes")
                     }
+                    EvidenceOffsetBasis::ExtractedImageProjection => {
+                        ("image projection lines", "image projection bytes")
+                    }
                     EvidenceOffsetBasis::WebVisibleText => (
                         "visible-text projection lines",
                         "visible-text projection bytes",
                     ),
+                    EvidenceOffsetBasis::AudioTranscript => {
+                        ("transcript lines", "transcript bytes")
+                    }
                 };
-                let guidance = if fact.evidence.offset_basis != EvidenceOffsetBasis::PreservedText {
+                let guidance = if fact.evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript
+                {
+                    "The offsets refer to the transcript text. Open the retained original and seek manually to the timestamp; precise seeking is unavailable."
+                } else if fact.evidence.offset_basis != EvidenceOffsetBasis::PreservedText {
                     "The retained original opens as a fallback; the offsets above refer to the stated extracted projection."
                 } else {
                     "Original opens at the beginning; use these source lines and byte offsets to locate this passage."
                 };
                 body.push_str(&format!(
-                    "\n- **{}:** {}{}\n  - Fact identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Links: [Source page](../sources/{}/index.md) · [Retained original](../sources/{}/{})\n",
+                    "\n- **{}:** {}{}\n  - Fact identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Links: [Source page](../sources/{}/index.md) · [Retained original](../sources/{}/{}){}\n",
                     escape_markdown(&fact.property.replace('_', " ")), escape_markdown(&fact.value), fact.qualifier.as_deref().map(|q| format!(" ({})", escape_markdown(q))).unwrap_or_default(), fact.fact_id,
                     escape_markdown(&fact.evidence.quote), escape_markdown(&fact.origin), line_basis, fact.evidence.line_start, fact.evidence.line_end,
                     byte_basis, fact.evidence.byte_start, fact.evidence.byte_end, basis, locator, guidance, &source.info.source_id["source-".len()..],
-                    &source.info.source_id["source-".len()..], source.info.asset
+                    &source.info.source_id["source-".len()..], source.info.asset, audio_link
                 ));
             }
             body.push_str("\n## Relationships\n");
@@ -2228,20 +2974,43 @@ impl Application {
                         relationship.evidence.source_location.as_deref().map(|location| format!(" · original locator: {location}")).unwrap_or_default(),
                         "The original opens as a fallback; use the OOXML part and location above to find the extracted passage.",
                     ),
+                    EvidenceOffsetBasis::ExtractedImageProjection => (
+                        "image projection lines", "image projection bytes",
+                        relationship.evidence.source_location.as_deref().map(|location| format!(" · image locator: {location}")).unwrap_or_default(),
+                        "Open the image preview or retained original using the normalized region locator; whole-image fallback when no region exists.",
+                    ),
                     EvidenceOffsetBasis::WebVisibleText => (
                         "visible-text projection lines",
                         "visible-text projection bytes",
                         relationship.evidence.source_location.as_deref().map(|location| format!(" · original locator: {location}")).unwrap_or_default(),
                         "The retained original opens as a fallback; offsets refer to the stated web visible-text projection.",
                     ),
+                    EvidenceOffsetBasis::AudioTranscript => ("transcript lines", "transcript bytes", relationship.evidence.source_location.as_deref().map(|value| format!(" · audio locator: {value}")).unwrap_or_default(), "Open the retained original and seek manually to the timestamp; precise seeking is unavailable. The statement is machine-transcribed and unverified."),
                 };
+                let audio_link =
+                    if relationship.evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript {
+                        relationship
+                            .evidence
+                            .source_location
+                            .as_deref()
+                            .and_then(audio_start_from_locator)
+                            .map(|start_ms| {
+                                format!(
+                                    " · [Open audio at this timestamp]({})",
+                                    audio_seek_href(&source.info.source_id, start_ms)
+                                )
+                            })
+                            .unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
                 body.push_str(&format!(
-                    "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{}{}\n  - {}\n  - Links: [Source page](../sources/{}/index.md) · [Retained original](../sources/{}/{})\n",
+                    "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{}{}\n  - {}\n  - Links: [Source page](../sources/{}/index.md) · [Retained original](../sources/{}/{}){}\n",
                     escape_markdown(&from.0.label), from.1.page_id, escape_markdown(&relationship.kind.replace('_', " ")), escape_markdown(&to.0.label), to.1.page_id,
                     relationship.qualifier.as_deref().map(|q| format!(" (qualifier: {})", escape_markdown(q))).unwrap_or_default(), relationship.relationship_id,
                     escape_markdown(&relationship.evidence.quote), escape_markdown(&relationship.origin), line_basis, relationship.evidence.line_start, relationship.evidence.line_end,
                     byte_basis, relationship.evidence.byte_start, relationship.evidence.byte_end, locator, guidance, &source.info.source_id["source-".len()..],
-                    &source.info.source_id["source-".len()..], source.info.asset
+                    &source.info.source_id["source-".len()..], source.info.asset, audio_link
                 ));
             }
             body.push_str("\n## Tags\n");
@@ -2357,6 +3126,43 @@ impl Application {
                 header.tags = self.reconcile_tags(old.tags, header.tags, &replaced_sources);
             }
             *markdown = self.render_knowledge_page(header, &draft_labels)?;
+        }
+        // A replacement can remove an old source's relationship to a scoped
+        // person page that is not itself in the incoming draft. Reconcile those
+        // foreign pages before deciding whether the source still supports current
+        // knowledge, withdrawing only the replaced source's own support records.
+        for source_id in foreign_replacement_sources.iter() {
+            let source_path = self.page_path(source_id)?;
+            if !source_path.exists() {
+                continue;
+            }
+            let replaced_source = read_page(&source_path)?;
+            for summary in &replaced_source.info.knowledge_pages {
+                if contents.contains_key(&summary.page_id) {
+                    continue;
+                }
+                let page_path = self.root.join(&summary.path);
+                if !page_path.exists() {
+                    continue;
+                }
+                let mut header = read_knowledge_header(&page_path)?;
+                ensure_legacy_supports(&mut header);
+                if !knowledge_header_supported_by(&header, source_id) {
+                    continue;
+                }
+                let removed_source = std::collections::HashSet::from([source_id.clone()]);
+                header.facts = self.reconcile_facts(header.facts, Vec::new(), &removed_source)?;
+                header.relationships = self.reconcile_relationships(
+                    header.relationships,
+                    Vec::new(),
+                    &removed_source,
+                )?;
+                header.tags = self.reconcile_tags(header.tags, Vec::new(), &removed_source);
+                contents.insert(
+                    summary.page_id.clone(),
+                    self.render_knowledge_page(header, &std::collections::HashMap::new())?,
+                );
+            }
         }
         for source_id in foreign_replacement_sources {
             let path = self.page_path(&source_id)?;
@@ -2500,7 +3306,7 @@ impl Application {
         });
         let stable_fact_key_overlap = if matches!(source.info.format.as_str(), "docx" | "pptx") {
             draft.entities.iter().any(|entity| {
-                let page_id = stable_page_id(entity, &source.info.source_id);
+                let page_id = stable_page_id(entity, &source.info.source_id, Some(source_text));
                 let path = self.root.join("pages").join(format!("{page_id}.md"));
                 let Ok(existing) = read_knowledge_header(&path) else {
                     return false;
@@ -2561,7 +3367,9 @@ impl Application {
                     .entities
                     .iter()
                     .find(|entity| entity.label == fact.subject)
-                    .map(|entity| stable_page_id(entity, &source.info.source_id));
+                    .map(|entity| {
+                        stable_page_id(entity, &source.info.source_id, Some(source_text))
+                    });
                 let Some(page_id) = page_id else {
                     return false;
                 };
@@ -2643,7 +3451,9 @@ impl Application {
             .join("versions")
             .join(source_version_id)
             .join(&candidate.asset);
-        let office_projection = if matches!(candidate.format.as_str(), "docx" | "pptx") {
+        let office_projection = if matches!(candidate.format.as_str(), "docx" | "pptx")
+            || crate::photo::is_photo(&candidate.format)
+        {
             Some(
                 self.extractor
                     .extract(
@@ -2726,7 +3536,7 @@ impl Application {
             .into();
         }
         source.body = source_body(&source.info, source_text, office_projection.as_ref());
-        self.publish_knowledge(source, source_text, draft)
+        self.publish_knowledge(source, source_text, draft, &HashMap::new())
     }
 
     fn reconcile_facts(
@@ -3154,8 +3964,26 @@ impl Application {
                 .unwrap_or_default();
             let (basis, line_label, byte_label, guidance) =
                 evidence_display_basis(evidence.offset_basis);
+            let audio_link = if evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript {
+                evidence
+                    .source_location
+                    .as_deref()
+                    .and_then(audio_start_from_locator)
+                    .map(|start_ms| {
+                        let source_id = support
+                            .map(|value| value.source_id.as_str())
+                            .unwrap_or(&header.source_id);
+                        format!(
+                            " · [Open audio at this timestamp]({})",
+                            audio_seek_href(source_id, start_ms)
+                        )
+                    })
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
             body.push_str(&format!(
-                "\n- **{}:** {}{}\n  - Fact identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Source support count: {}\n  - Links: [Source page]({}) · [Retained original]({})\n",
+                "\n- **{}:** {}{}\n  - Fact identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Source support count: {}\n  - Links: [Source page]({}) · [Retained original]({}){}\n",
                 escape_markdown(&fact.property.replace('_', " ")),
                 escape_markdown(&fact.value),
                 fact.qualifier.as_deref().map(|q| format!(" ({})", escape_markdown(q))).unwrap_or_default(),
@@ -3174,6 +4002,7 @@ impl Application {
                 fact.supports.len(),
                 source_link,
                 original_link,
+                audio_link,
             ));
         }
         if header.facts.is_empty() {
@@ -3199,8 +4028,26 @@ impl Application {
                 .unwrap_or_default();
             let (basis, line_label, byte_label, guidance) =
                 evidence_display_basis(evidence.offset_basis);
+            let audio_link = if evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript {
+                evidence
+                    .source_location
+                    .as_deref()
+                    .and_then(audio_start_from_locator)
+                    .map(|start_ms| {
+                        let source_id = support
+                            .map(|value| value.source_id.as_str())
+                            .unwrap_or(&header.source_id);
+                        format!(
+                            " · [Open audio at this timestamp]({})",
+                            audio_seek_href(source_id, start_ms)
+                        )
+                    })
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
             body.push_str(&format!(
-                "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Source support count: {}\n  - Links: [Source page]({}) · [Retained original]({})\n",
+                "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Source support count: {}\n  - Links: [Source page]({}) · [Retained original]({}){}\n",
                 escape_markdown(labels.get(&rel.from_page_id).map(String::as_str).unwrap_or(&rel.from_page_id)), rel.from_page_id,
                 escape_markdown(&rel.kind.replace('_', " ")),
                 escape_markdown(labels.get(&rel.to_page_id).map(String::as_str).unwrap_or(&rel.to_page_id)), rel.to_page_id,
@@ -3213,6 +4060,7 @@ impl Application {
                 rel.supports.len(),
                 source_link,
                 original_link,
+                audio_link,
             ));
         }
         if header.relationships.is_empty() {
@@ -3326,6 +4174,16 @@ impl Application {
             ));
         }
         Ok(original)
+    }
+
+    pub fn preview_original(&self, source_id: &str) -> Result<String> {
+        let source = self.open_source(source_id)?;
+        if !crate::photo::is_photo(&source.info.format) {
+            return Err(GardenError::Invalid(
+                "This original is not a supported photograph.".into(),
+            ));
+        }
+        crate::photo::preview(&self.original_path(source_id)?).map_err(GardenError::Invalid)
     }
 
     pub fn original_asset_path(&self, source_id: &str, asset: &str) -> Result<PathBuf> {
@@ -4139,6 +4997,7 @@ fn source_version(
         extraction_attempts: 1,
         semantic_integrity_failures: 0,
         retryable_provider_failures: 0,
+        processing_interruptions: 0,
         coverage: if state == "complete" {
             "complete"
         } else if state == "unavailable" {
@@ -4421,6 +5280,8 @@ fn evidence_offset_basis_name(basis: EvidenceOffsetBasis) -> &'static str {
         EvidenceOffsetBasis::PreservedText => "preserved_text",
         EvidenceOffsetBasis::ExtractedOfficeProjection => "extracted_office_projection",
         EvidenceOffsetBasis::WebVisibleText => "web_visible_text",
+        EvidenceOffsetBasis::AudioTranscript => "audio_transcript",
+        EvidenceOffsetBasis::ExtractedImageProjection => "extracted_image_projection",
     }
 }
 
@@ -4525,6 +5386,38 @@ fn parse_date_value(value: &str) -> Option<String> {
     Some(format!("{year:04}-{month:02}-{day:02}"))
 }
 
+fn event_date_from_evidence(evidence: &str) -> Option<String> {
+    let pattern = regex::Regex::new(
+        r"(?i)\b(?:[0-9]{4}-[0-9]{2}-[0-9]{2}|(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+[0-9]{1,2},?\s+[0-9]{4})\b",
+    )
+    .ok()?;
+    let mut dates = pattern.find_iter(evidence);
+    let value = dates.next()?.as_str();
+    dates
+        .next()
+        .is_none()
+        .then(|| parse_date_value(value))
+        .flatten()
+}
+
+fn event_date_for_label(source_text: &str, label: &str) -> Option<String> {
+    let lower_text = source_text.to_lowercase();
+    let lower_label = label.to_lowercase();
+    let mut dates = HashSet::new();
+    for (start, _) in lower_text.match_indices(&lower_label) {
+        let after_label = start + lower_label.len();
+        let tail = source_text.get(after_label..)?;
+        let sentence = tail
+            .split(|character: char| ".!?\n".contains(character))
+            .next()
+            .unwrap_or(tail);
+        if let Some(date) = event_date_from_evidence(sentence) {
+            dates.insert(date);
+        }
+    }
+    (dates.len() == 1).then(|| dates.into_iter().next().unwrap())
+}
+
 fn read_bounded_text(path: &Path, max_bytes: u64) -> Result<String> {
     let mut text = String::new();
     File::open(path)?
@@ -4573,6 +5466,8 @@ enum EvidenceOffsetBasis {
     PreservedText,
     ExtractedOfficeProjection,
     WebVisibleText,
+    AudioTranscript,
+    ExtractedImageProjection,
 }
 
 fn evidence_display_basis(
@@ -4591,11 +5486,22 @@ fn evidence_display_basis(
             "extracted projection bytes",
             "The retained original opens as a fallback; use the OOXML part and locator above to find this passage.",
         ),
+        EvidenceOffsetBasis::ExtractedImageProjection => (
+            "extracted image projection; offsets are not original image byte offsets",
+            "image projection lines", "image projection bytes",
+            "Open the image preview or retained original using normalized region coordinates; otherwise use the disclosed whole-image fallback.",
+        ),
         EvidenceOffsetBasis::WebVisibleText => (
             "extracted web visible-text projection; offsets are not downloaded HTML byte offsets",
             "visible-text projection lines",
             "visible-text projection bytes",
             "The retained original opens as a fallback; offsets refer to the stated web visible-text projection.",
+        ),
+        EvidenceOffsetBasis::AudioTranscript => (
+            "machine-generated audio transcript; offsets are transcript bytes, not audio bytes",
+            "transcript lines",
+            "transcript bytes",
+            "The retained original opens at the beginning; use the timestamp locator to seek manually. The reader cannot guarantee precise seeking.",
         ),
     }
 }
@@ -4768,12 +5674,26 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         {
             EvidenceOffsetBasis::ExtractedOfficeProjection
         }
+        None if inferred_location
+            .as_deref()
+            .is_some_and(|locator| locator.starts_with("AUDIO ")) =>
+        {
+            EvidenceOffsetBasis::AudioTranscript
+        }
+        None if inferred_location
+            .as_deref()
+            .is_some_and(|locator| locator.starts_with("PHOTO ")) =>
+        {
+            EvidenceOffsetBasis::ExtractedImageProjection
+        }
         None => EvidenceOffsetBasis::PreservedText,
         Some("preserved_text") => EvidenceOffsetBasis::PreservedText,
         Some("office_projection") | Some("extracted_office_projection") => {
             EvidenceOffsetBasis::ExtractedOfficeProjection
         }
         Some("web_visible_text") => EvidenceOffsetBasis::WebVisibleText,
+        Some("audio_transcript") => EvidenceOffsetBasis::AudioTranscript,
+        Some("extracted_image_projection") => EvidenceOffsetBasis::ExtractedImageProjection,
         Some(_) => {
             return Err(GardenError::Invalid(
                 "Semantic evidence uses an unsupported offset basis.".into(),
@@ -4793,19 +5713,112 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
     })
 }
 
-fn stable_page_id(entity: &EntityDraft, source_id: &str) -> String {
+fn stable_page_id(entity: &EntityDraft, source_id: &str, source_text: Option<&str>) -> String {
     let mut digest = Sha256::new();
-    digest.update(entity.kind.to_lowercase().as_bytes());
+    let kind = entity.kind.to_ascii_lowercase();
+    digest.update(kind.as_bytes());
     digest.update([0]);
-    digest.update(entity.label.to_lowercase().as_bytes());
+    if kind == "reasoning_event" {
+        digest.update(source_id.as_bytes());
+        digest.update([0]);
+        if let Some(locator) = reasoning_event_locator(entity, source_text) {
+            // Stable message keys come from the acquired text, never from a
+            // provider locator annotation. Offsets can move as earlier turns change.
+            digest.update(locator.as_bytes());
+        } else {
+            digest.update(entity.label.to_lowercase().as_bytes());
+            digest.update([0]);
+            // Without a canonical acquired message key, keep the event local to
+            // this source and evidence occurrence.
+            digest.update(entity.evidence.byte_start.to_be_bytes());
+            digest.update(entity.evidence.byte_end.to_be_bytes());
+        }
+    } else {
+        digest.update(entity.label.to_lowercase().as_bytes());
+    }
     if matches!(
-        entity.kind.to_ascii_lowercase().as_str(),
-        "document" | "presentation"
+        kind.as_str(),
+        "person" | "event" | "document" | "presentation"
     ) {
         digest.update([0]);
         digest.update(source_id.as_bytes());
     }
     format!("page-{:x}", digest.finalize())
+}
+
+fn explicitly_distinct_event_text(source_text: &str, evidence: &EvidenceDraft) -> bool {
+    if evidence.byte_start >= evidence.byte_end
+        || evidence.byte_end > source_text.len()
+        || !source_text.is_char_boundary(evidence.byte_start)
+        || !source_text.is_char_boundary(evidence.byte_end)
+        || source_text.get(evidence.byte_start..evidence.byte_end) != Some(&evidence.quote)
+    {
+        return false;
+    }
+    let Some(before) = source_text.get(..evidence.byte_start) else {
+        return false;
+    };
+    let sentence_start = before
+        .rfind(|character: char| ".!?\n".contains(character))
+        .map_or(0, |position| position + 1);
+    let prefix = before[sentence_start..]
+        .split_whitespace()
+        .next_back()
+        .unwrap_or("");
+    matches!(
+        prefix
+            .trim_matches(|character: char| !character.is_ascii_alphanumeric())
+            .to_ascii_lowercase()
+            .as_str(),
+        "another" | "different" | "distinct" | "independent" | "separate"
+    )
+}
+
+fn reasoning_event_locator(entity: &EntityDraft, source_text: Option<&str>) -> Option<String> {
+    let source_text = source_text?;
+    let evidence = &entity.evidence;
+    if evidence.byte_start >= evidence.byte_end
+        || evidence.byte_end > source_text.len()
+        || !source_text.is_char_boundary(evidence.byte_start)
+        || !source_text.is_char_boundary(evidence.byte_end)
+        || source_text.get(evidence.byte_start..evidence.byte_end) != Some(&evidence.quote)
+    {
+        return None;
+    }
+    let line_start = source_text[..evidence.byte_start]
+        .rfind('\n')
+        .map_or(0, |newline| newline + 1);
+    let evidence_line = source_text.get(line_start..)?.split('\n').next()?;
+    let is_locator_line = |line: &str| {
+        let normalized = line.trim();
+        normalized.starts_with("[CONVERSATION ") || normalized.starts_with("CONVERSATION ")
+    };
+    let locator = if is_locator_line(evidence_line) {
+        evidence_line.trim()
+    } else {
+        source_text[..line_start]
+            .lines()
+            .rev()
+            .find(|line| is_locator_line(line))?
+            .trim()
+    };
+    let fields = locator
+        .split(|character: char| character.is_whitespace() || matches!(character, ';' | '[' | ']'));
+    let value = |key: &str| {
+        fields
+            .clone()
+            .find_map(|field| field.strip_prefix(&format!("{key}=")))
+            .filter(|value| !value.is_empty())
+    };
+    let session = value("session")?;
+    let message = value("message")?;
+    let mut identity = format!("session={session};message={message}");
+    if let Some(part) = value("part") {
+        identity.push_str(&format!(";part={part}"));
+    } else if let Some(channel) = value("channel") {
+        identity.push_str(&format!(";channel={channel}"));
+    }
+    Some(identity)
 }
 
 fn stable_fact_id(subject_page_id: &str, property: &str, record_key: Option<&str>) -> String {
@@ -4999,6 +6012,181 @@ fn now_millis() -> Result<u128> {
         .as_millis())
 }
 
+fn stable_audio_segment_id(version_id: &str, window_start_ms: u64, ordinal: usize) -> String {
+    let mut digest = Sha256::new();
+    digest.update(version_id.as_bytes());
+    digest.update(window_start_ms.to_be_bytes());
+    digest.update((ordinal as u64).to_be_bytes());
+    format!("audio-segment-{:x}", digest.finalize())
+}
+
+fn audio_semantic_text(audio: &AudioProcessingInfo) -> String {
+    let mut lines = String::from("Machine-generated transcript from retained audio. Wording and timestamps are unverified estimates; this local recognizer emits no calibrated confidence or alternatives, and speaker identity is unavailable.\n");
+    for segment in &audio.segments {
+        lines.push_str(&format!(
+            "[AUDIO {}–{} ms confidence={} speaker=unidentified] {}\n",
+            segment.start_ms,
+            segment.end_ms,
+            segment
+                .confidence
+                .map(|value| format!("{value:.2}"))
+                .unwrap_or_else(|| "unavailable".into()),
+            segment.text.replace(['\n', '\r'], " ")
+        ));
+    }
+    lines
+}
+
+fn audio_processing_info(audio: AudioInfo, source_version_id: &str) -> AudioProcessingInfo {
+    AudioProcessingInfo {
+        source_version_id: Some(source_version_id.to_owned()),
+        state: "pending".into(),
+        duration_ms: audio.duration_ms,
+        next_start_ms: 0,
+        segment_duration_ms: MAX_AUDIO_SEGMENT_MS,
+        attempts: 0,
+        failed_attempts: 0,
+        processing_interruptions: 0,
+        retry_at_ms: None,
+        detail: "Pinned local Whisper transcription is queued for this retained source version. Speaker attribution is unavailable; all speakers remain unidentified.".into(),
+        segments: Vec::new(),
+    }
+}
+
+fn candidate_audio_processing<'a>(
+    info: &'a SourceInfo,
+    source_version_id: &str,
+) -> Option<&'a AudioProcessingInfo> {
+    info.pending_audio_processing
+        .as_ref()
+        .filter(|audio| audio.source_version_id.as_deref() == Some(source_version_id))
+        .or_else(|| {
+            info.current_version_id.is_none().then_some(())?;
+            info.audio_processing
+                .as_ref()
+                .filter(|audio| audio.source_version_id.as_deref() == Some(source_version_id))
+        })
+}
+
+fn candidate_audio_processing_mut<'a>(
+    info: &'a mut SourceInfo,
+    source_version_id: &str,
+) -> Option<&'a mut AudioProcessingInfo> {
+    if info
+        .pending_audio_processing
+        .as_ref()
+        .is_some_and(|audio| audio.source_version_id.as_deref() == Some(source_version_id))
+    {
+        return info.pending_audio_processing.as_mut();
+    }
+    if info.current_version_id.is_none()
+        && info
+            .audio_processing
+            .as_ref()
+            .is_some_and(|audio| audio.source_version_id.as_deref() == Some(source_version_id))
+    {
+        return info.audio_processing.as_mut();
+    }
+    None
+}
+
+fn promote_candidate_audio(info: &mut SourceInfo, source_version_id: &str) {
+    if info
+        .pending_audio_processing
+        .as_ref()
+        .is_some_and(|audio| audio.source_version_id.as_deref() == Some(source_version_id))
+    {
+        info.audio_processing = info.pending_audio_processing.take();
+    }
+}
+
+fn draft_has_audio_provenance(draft: &KnowledgeDraft) -> bool {
+    fn audio_evidence(evidence: &EvidenceDraft) -> bool {
+        evidence.offset_basis.as_deref() == Some("audio_transcript")
+            || evidence.origin.eq_ignore_ascii_case("transcribed speech")
+            || evidence
+                .source_location
+                .as_deref()
+                .is_some_and(|location| location.starts_with("AUDIO "))
+    }
+
+    draft.entities.iter().any(|entity| {
+        matches!(
+            entity.kind.as_str(),
+            "audio_recording" | "audio_speaker" | "speaker"
+        ) || audio_evidence(&entity.evidence)
+    }) || draft.facts.iter().any(|fact| {
+        matches!(
+            fact.property.as_str(),
+            "spoken_question" | "spoken_decision" | "spoken_reasoning" | "audio_speaker"
+        ) || audio_evidence(&fact.evidence)
+    }) || draft.relationships.iter().any(|relationship| {
+        matches!(relationship.kind.as_str(), "audio_speaker" | "speaker")
+            || audio_evidence(&relationship.evidence)
+    }) || draft.tags.iter().any(|tag| audio_evidence(&tag.evidence))
+        || draft
+            .correction_candidates
+            .iter()
+            .any(|candidate| audio_evidence(&candidate.evidence))
+        || draft
+            .correction_alignments
+            .iter()
+            .any(|alignment| audio_evidence(&alignment.candidate.evidence))
+        || draft.source_update.as_ref().is_some_and(|update| {
+            audio_evidence(&update.evidence)
+                || update
+                    .source_date_evidence
+                    .as_ref()
+                    .is_some_and(audio_evidence)
+                || update
+                    .source_revision_evidence
+                    .as_ref()
+                    .is_some_and(audio_evidence)
+        })
+        || draft
+            .decisions
+            .iter()
+            .any(|decision| decision.question.starts_with("audio_speech_act:"))
+}
+
+fn qualify_audio_evidence(draft: &mut KnowledgeDraft) {
+    fn qualify(evidence: &mut EvidenceDraft) {
+        evidence.offset_basis = Some("audio_transcript".into());
+        let caution = "Machine transcription; wording and speaker identity are unverified. Compare the retained original recording.";
+        evidence.qualifier = Some(match evidence.qualifier.take() {
+            Some(existing) => format!("{existing}; {caution}"),
+            None => caution.into(),
+        });
+    }
+    for entity in &mut draft.entities {
+        qualify(&mut entity.evidence);
+    }
+    for fact in &mut draft.facts {
+        qualify(&mut fact.evidence);
+    }
+    for relationship in &mut draft.relationships {
+        qualify(&mut relationship.evidence);
+    }
+    for tag in &mut draft.tags {
+        qualify(&mut tag.evidence);
+    }
+    for correction in &mut draft.correction_candidates {
+        qualify(&mut correction.evidence);
+    }
+    for alignment in &mut draft.correction_alignments {
+        qualify(&mut alignment.candidate.evidence);
+    }
+    if let Some(update) = &mut draft.source_update {
+        qualify(&mut update.evidence);
+        if let Some(evidence) = &mut update.source_date_evidence {
+            qualify(evidence);
+        }
+        if let Some(evidence) = &mut update.source_revision_evidence {
+            qualify(evidence);
+        }
+    }
+}
+
 fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>) -> String {
     let title = info
         .title
@@ -5006,6 +6194,73 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
         .replace(['[', ']', '<', '>'], "");
     if let Some(projection) = office {
         return projection.markdown.replace("ORIGINAL_ASSET", &info.asset);
+    }
+    let published_audio = info.audio_processing.as_ref().filter(|audio| {
+        info.current_version_id.as_deref() == audio.source_version_id.as_deref()
+            || (info.current_version_id.is_none()
+                && info.pending_version_id.as_deref() == audio.source_version_id.as_deref())
+    });
+    if let Some(audio) = published_audio {
+        let mut body = format!(
+            "# {title}\n\n[Play retained original]({})\n\n**Audio processing:** {}. {}\n\n**Coverage:** {} of {} ms have been examined in bounded segments. Speaker identity is unavailable; speakers are left unidentified. Playback opens the retained original and may not seek precisely, so use the timestamp below in the player.\n\n## Time-located transcript\n\n",
+            info.asset,
+            audio.state,
+            audio.detail,
+            audio.next_start_ms.min(audio.duration_ms),
+            audio.duration_ms
+        );
+        if audio.segments.is_empty() {
+            body.push_str("No transcript passages are available yet. The original recording remains playable.\n");
+            let examined = audio.next_start_ms.min(audio.duration_ms);
+            if examined > 0 {
+                body.push_str(&format!("\n## No recognized speech · 0–{examined} ms\n\nNo transcript passage was returned for the examined range. This does not distinguish silence, background noise, overlapping voices, or unintelligible speech. Review the original.\n"));
+            }
+            if examined < audio.duration_ms {
+                body.push_str(&format!(
+                    "\n## Not processed yet · {examined}–{} ms\n",
+                    audio.duration_ms
+                ));
+            }
+        } else {
+            let covered_end = audio.next_start_ms.min(audio.duration_ms);
+            let mut cursor_ms = 0_u64;
+            for segment in &audio.segments {
+                if segment.start_ms > cursor_ms {
+                    body.push_str(&format!("### No recognized speech · {}–{} ms\n\nThe recognizer returned no transcript passage for this interval. This does not distinguish silence, background noise, overlapping voices, or unintelligible speech. Review the original.\n\n", cursor_ms, segment.start_ms.min(covered_end)));
+                }
+                body.push_str(&format!(
+                    "### [{}–{} ms · confidence {} · speaker unidentified]({})\n\n{}\n\n",
+                    segment.start_ms,
+                    segment.end_ms,
+                    segment
+                        .confidence
+                        .map(|value| format!("{value:.2}"))
+                        .unwrap_or_else(|| "unavailable".into()),
+                    audio_seek_href(&info.source_id, segment.start_ms),
+                    segment.text.replace('\n', " ")
+                ));
+                cursor_ms = cursor_ms.max(segment.end_ms);
+                if !segment.alternatives.is_empty() {
+                    body.push_str(&format!(
+                        "Alternative recognition: {}.\n\n",
+                        segment.alternatives.join("; ")
+                    ));
+                }
+            }
+            if cursor_ms < covered_end {
+                body.push_str(&format!("### No recognized speech · {cursor_ms}–{covered_end} ms\n\nThe recognizer returned no transcript passage for this interval. This does not distinguish silence, background noise, overlapping voices, or unintelligible speech. Review the original.\n\n"));
+            }
+            if covered_end < audio.duration_ms {
+                body.push_str(&format!("### Not processed yet · {covered_end}–{} ms\n\nThis audio range has not been examined yet.\n", audio.duration_ms));
+            }
+        }
+        append_pending_audio_body(info, &mut body);
+        return body;
+    }
+    if info.pending_audio_processing.is_some() {
+        let mut body = format!("# {title}\n");
+        append_pending_audio_body(info, &mut body);
+        return body;
     }
     if info.extraction != ExtractionState::TextPreserved {
         return format!(
@@ -5023,6 +6278,62 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
     let fence = "`".repeat(3.max(longest_run + 1));
     format!("# {title}\n\n[Open original]({})\n\n## Source text · lines 1–{}\n\n{fence}text\n{text}\n{fence}\n",
         info.asset, info.line_count)
+}
+
+fn audio_seek_href(source_id: &str, start_ms: u64) -> String {
+    format!("?audio_seek={source_id}&at_ms={start_ms}")
+}
+
+fn append_pending_audio_body(info: &SourceInfo, body: &mut String) {
+    let Some(audio) = info.pending_audio_processing.as_ref() else {
+        return;
+    };
+    let Some(version) = info.versions_seen.iter().find(|version| {
+        Some(version.source_version_id.as_str()) == audio.source_version_id.as_deref()
+    }) else {
+        body.push_str("\n## Replacement recording\n\nThe replacement audio is pending, but its retained version identity could not be located. The current transcript remains attached to the prior original.\n");
+        return;
+    };
+    let source_short_id = info
+        .source_id
+        .strip_prefix("source-")
+        .unwrap_or(&info.source_id);
+    let original_href = format!(
+        "../sources/{source_short_id}/versions/{}/{asset}",
+        version.source_version_id,
+        asset = version.asset
+    );
+    body.push_str(&format!(
+        "\n## Replacement recording · {}\n\n**Coverage:** {} of {} ms processed. {}\n\n[Open this retained replacement original]({original_href})\n",
+        audio.state,
+        audio.next_start_ms.min(audio.duration_ms),
+        audio.duration_ms,
+        audio.detail.replace(['\n', '\r'], " ")
+    ));
+    if audio.segments.is_empty() {
+        if audio.state == "complete" {
+            body.push_str("\nNo speech passages were recognized in the examined replacement audio. This does not establish silence: background noise, overlapping voices, and unintelligible speech remain possible. The exact replacement original is retained above, and the previously published transcript and current original remain available.\n");
+        } else if audio.state == "failed" {
+            body.push_str("\nNo replacement transcript passages were retained because processing stopped. Review the exact replacement original above. The previously published transcript and current original remain available.\n");
+        } else {
+            body.push_str("\nNo replacement transcript passages are available yet. The previously published transcript and current original remain available above.\n");
+        }
+        return;
+    }
+    body.push_str("\n### Candidate transcript · not published\n\nThe following text is bound to the replacement original above and has not replaced current knowledge yet. Timestamps are estimates; compare the retained audio.\n");
+    for segment in &audio.segments {
+        body.push_str(&format!(
+            "\n- **{}–{} ms:** {}\n",
+            segment.start_ms,
+            segment.end_ms,
+            segment.text.replace(['\n', '\r'], " ")
+        ));
+    }
+}
+
+fn audio_start_from_locator(locator: &str) -> Option<u64> {
+    let time = locator.strip_prefix("AUDIO ")?.split_once('–')?.0;
+    time.parse().ok()
 }
 
 fn content_disposition_filename(header: &str) -> Option<String> {
@@ -5134,6 +6445,20 @@ fn read_page(path: &Path) -> Result<SourcePage> {
             .then(|| info.sha256.clone());
         info.versions_seen.push(legacy);
     }
+    bind_legacy_audio_version(
+        &mut info.audio_processing,
+        &info.versions_seen,
+        info.current_version_id
+            .as_deref()
+            .or(info.pending_version_id.as_deref()),
+    );
+    bind_legacy_audio_version(
+        &mut info.pending_audio_processing,
+        &info.versions_seen,
+        info.pending_version_id
+            .as_deref()
+            .or(info.current_version_id.as_deref()),
+    );
     let knowledge_pages = info.knowledge_pages.clone();
     Ok(SourcePage {
         info,
@@ -5141,6 +6466,24 @@ fn read_page(path: &Path) -> Result<SourcePage> {
         body,
         knowledge_pages,
     })
+}
+
+fn bind_legacy_audio_version(
+    audio: &mut Option<AudioProcessingInfo>,
+    versions: &[SourceVersion],
+    version_id: Option<&str>,
+) {
+    if let Some(audio) = audio
+        .as_mut()
+        .filter(|audio| audio.source_version_id.is_none())
+    {
+        if let Some(version) = versions.iter().find(|version| {
+            Some(version.source_version_id.as_str()) == version_id
+                && is_audio_format(&version.format)
+        }) {
+            audio.source_version_id = Some(version.source_version_id.clone());
+        }
+    }
 }
 
 fn sync_directory(path: &Path) -> Result<()> {

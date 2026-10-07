@@ -6,10 +6,13 @@ use ort::{
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
+#[cfg(unix)]
+use std::fs::File;
 use std::{
     cell::RefCell,
     collections::HashMap,
-    fs,
+    fs::{self, OpenOptions},
+    io::Write,
     path::{Path, PathBuf},
     sync::OnceLock,
 };
@@ -117,7 +120,8 @@ impl MeaningSearch {
         let identity_path = index_path.with_extension("identity");
         let identity_matches =
             fs::read_to_string(&identity_path).is_ok_and(|value| value == INDEX_IDENTITY);
-        let needs_rebuild = !identity_matches
+        let needs_rebuild = index_path.with_extension("dirty").exists()
+            || !identity_matches
             || !index_path.is_file()
             || Index::restore_view(&index_path.to_string_lossy()).is_err();
         if needs_rebuild {
@@ -153,10 +157,19 @@ impl MeaningSearch {
 
     /// Incrementally reconcile vectors against current SQLite search documents.
     /// Markdown remains authoritative; this HNSW index and its lookup table are disposable.
+    /// The dirty marker protects process-interruption recovery; directory-entry
+    /// power-loss guarantees depend on the target filesystem and platform.
     pub fn sync(&mut self, database: &Connection) -> Result<(), String> {
+        // The vector file and SQLite lookup table cannot be committed atomically
+        // together. Leave a durable marker until both have been saved so startup
+        // can discard and rebuild either side after an interrupted sync.
+        let mut rebuild_required = self.needs_rebuild;
+        self.needs_rebuild = true;
+        self.write_dirty_marker()?;
         database
             .execute_batch(
-                "CREATE TABLE IF NOT EXISTS meaning_vectors (
+                "PRAGMA synchronous=FULL;
+             CREATE TABLE IF NOT EXISTS meaning_vectors (
                vector_key INTEGER PRIMARY KEY,
                page_id TEXT NOT NULL,
                chunk_index INTEGER NOT NULL,
@@ -166,20 +179,20 @@ impl MeaningSearch {
              CREATE INDEX IF NOT EXISTS meaning_vectors_page ON meaning_vectors(page_id);",
             )
             .map_err(|error| format!("Could not prepare meaning-index metadata: {error}"))?;
-        let index = if self.needs_rebuild || !self.index_path.is_file() {
-            self.needs_rebuild = true;
+        let index = if rebuild_required || !self.index_path.is_file() {
+            rebuild_required = true;
             Self::empty_index()?
         } else {
             match Index::restore(&self.index_path.to_string_lossy()) {
                 Ok(index) => index,
                 Err(_) => {
-                    self.needs_rebuild = true;
+                    rebuild_required = true;
                     let _ = fs::remove_file(&self.index_path);
                     Self::empty_index()?
                 }
             }
         };
-        if self.needs_rebuild {
+        if rebuild_required {
             database
                 .execute("DELETE FROM meaning_vectors", [])
                 .map_err(|error| {
@@ -268,13 +281,42 @@ impl MeaningSearch {
         index
             .save(&self.index_path.to_string_lossy())
             .map_err(|error| format!("Could not save the local meaning index: {error}"))?;
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&self.index_path)
+            .and_then(|file| file.sync_all())
+            .map_err(|error| format!("Could not persist the local meaning index: {error}"))?;
         let identity_path = self.index_path.with_extension("identity");
         let temporary_identity = identity_path.with_extension("identity.tmp");
         fs::write(&temporary_identity, INDEX_IDENTITY)
             .and_then(|_| fs::rename(&temporary_identity, &identity_path))
             .map_err(|error| format!("Could not save meaning-index identity: {error}"))?;
+        self.clear_dirty_marker()?;
         self.needs_rebuild = false;
         Ok(())
+    }
+
+    fn write_dirty_marker(&self) -> Result<(), String> {
+        let path = self.index_path.with_extension("dirty");
+        let mut marker = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&path)
+            .map_err(|error| format!("Could not mark meaning index as rebuilding: {error}"))?;
+        marker
+            .write_all(b"meaning index sync in progress")
+            .and_then(|()| marker.sync_all())
+            .map_err(|error| format!("Could not persist meaning index rebuild marker: {error}"))?;
+        sync_parent_directory(&path)
+    }
+
+    fn clear_dirty_marker(&self) -> Result<(), String> {
+        let path = self.index_path.with_extension("dirty");
+        fs::remove_file(&path)
+            .map_err(|error| format!("Could not clear meaning index rebuild marker: {error}"))?;
+        sync_parent_directory(&path)
     }
 
     pub fn ranked_pages(
@@ -284,6 +326,9 @@ impl MeaningSearch {
         limit: usize,
         filters: Option<&MeaningFilters<'_>>,
     ) -> Result<Vec<(String, f32)>, String> {
+        if self.needs_rebuild || self.index_path.with_extension("dirty").exists() {
+            return Err("Meaning index is incomplete and must be rebuilt before searching.".into());
+        }
         let vector = self.embed_query(query)?;
         let matches = self.search_vector(
             database,
@@ -506,6 +551,25 @@ pub fn stable_vector_key(page_id: &str, chunk: usize) -> u64 {
             .try_into()
             .expect("digest prefix has fixed length"),
     )
+}
+
+#[cfg(unix)]
+fn sync_parent_directory(path: &Path) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Meaning index path has no parent directory.".to_owned())?;
+    File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| format!("Could not persist meaning index directory entry: {error}"))
+}
+
+// Standard-library directory fsync is available on Unix. On other targets the
+// protocol still recovers from process interruption and detects missing or
+// unreadable cache files, but does not claim power-loss durability for directory
+// entries.
+#[cfg(not(unix))]
+fn sync_parent_directory(_path: &Path) -> Result<(), String> {
+    Ok(())
 }
 
 fn verify_sha(path: &Path, expected: &str) -> Result<(), String> {

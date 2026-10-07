@@ -66,6 +66,36 @@ function testApi(): GardenApi {
   };
 }
 
+it("loads a photo preview only on request and keeps its region guidance beside the image", async () => {
+  const api = testApi();
+  const preview = vi.fn().mockResolvedValue("data:image/jpeg;base64,/9j/");
+  Object.assign(api, { previewOriginal: preview });
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: { ...riverside.info, format: "png", title: "Photo evidence" },
+    body: "# Photo evidence\n\nOCR region 1 · normalized bottom-left x=0.2,y=0.3,width=0.4,height=0.1 · RIVER SURVEY",
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Add source" }));
+  expect(preview).not.toHaveBeenCalled();
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Show image preview" }));
+  expect(preview).toHaveBeenCalledWith("source-riverside");
+  const image = await screen.findByRole("img", {
+    name: "Retained photo preview: Photo evidence",
+  });
+  expect(image.getAttribute("src")).toBe("data:image/jpeg;base64,/9j/");
+  expect(screen.getByRole("article").textContent).toContain(
+    "normalized bottom-left",
+  );
+  expect(screen.getByText(/whole-image fallback/)).toBeTruthy();
+});
+
 it("keeps prior content readable and shows an incomplete update prominently", async () => {
   const api = testApi();
   api.importSource = vi.fn().mockResolvedValue({
@@ -470,6 +500,40 @@ describe("collection reader", () => {
         )
         .closest("details")?.open,
     ).toBe(false);
+  });
+
+  it("opens the retained recording for a transcript timestamp and discloses manual seek fallback", async () => {
+    const api = testApi();
+    const digest = "b".repeat(64);
+    const audioPage: SourcePage = {
+      ...riverside,
+      info: {
+        ...riverside.info,
+        source_id: `source-${digest}`,
+        format: "m4a",
+        asset: "original.m4a",
+      },
+      body: `# Visit recording\n\n[Play retained original](original.m4a)\n\n[1,000–2,000 ms · confidence 0.51 · speaker unidentified](?audio_seek=source-${digest}&at_ms=1000)`,
+      markdown: "# Visit recording",
+    };
+    vi.mocked(api.importSource).mockResolvedValue(audioPage);
+    const root = document.createElement("div");
+    document.body.append(root);
+    dispose = await mountReader(root, api);
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Add source" }));
+    const timestamp = await screen.findByRole("link", {
+      name: /1,000–2,000 ms/,
+    });
+    await userEvent.setup().click(timestamp);
+    await waitFor(() =>
+      expect(api.openOriginal).toHaveBeenCalledWith(`source-${digest}`),
+    );
+    expect(screen.getByText(/Seek to 0:01 in your audio player/)).toBeTruthy();
+    expect(
+      screen.getByText(/precise seeking is unavailable in this reader/),
+    ).toBeTruthy();
   });
 });
 

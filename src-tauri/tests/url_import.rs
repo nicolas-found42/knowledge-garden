@@ -1,5 +1,5 @@
 use knowledge_garden::{
-    application::Application,
+    application::{Application, UrlAcquisitionStatus},
     providers::{JevSemanticProvider, SystemOneTransport},
     semantic::ProviderError,
 };
@@ -536,11 +536,15 @@ fn explicitly_supplied_urls_retain_origins_without_crawling_and_can_be_retried()
     assert_eq!(denied[0].state, "restricted");
     assert_eq!(denied[0].attempts, 1);
     assert!(denied[0].retry_at.is_none());
-    assert!(app
+    let not_found_error = app
         .import_url(&format!("{}/missing", fixture.base_url))
         .unwrap_err()
-        .to_string()
-        .contains("HTTP 404"));
+        .to_string();
+    assert!(not_found_error.contains("HTTP 404"));
+    assert!(
+        !not_found_error.contains("Automatic retries exhausted"),
+        "a permanent first-attempt 404 must report that retry stopped, not that retries were exhausted: {not_found_error}"
+    );
     let not_found = app
         .list_url_acquisitions()
         .unwrap()
@@ -607,6 +611,61 @@ fn explicitly_supplied_urls_retain_origins_without_crawling_and_can_be_retried()
     assert!(!u5.source_text.contains("<script>"));
     assert!(!u5.source_text.contains("NEVER INDEX SCRIPT"));
     assert!(!u5.source_text.contains("DESTINATION-UNSEEN-91823"));
+}
+
+#[test]
+fn restart_on_eighth_processing_attempt_does_not_schedule_a_ninth_request() {
+    let fixture = Fixture::start();
+    fixture.temporary_available.store(true, Ordering::Relaxed);
+    let collection = tempfile::tempdir().unwrap();
+    let url = format!("{}/temporary", fixture.base_url);
+    let mut app = Application::open(collection.path()).unwrap();
+    let previous = app.import_url(&url).unwrap();
+    assert!(previous.body.contains("Observation U7"));
+    fixture.temporary_available.store(false, Ordering::Relaxed);
+    let requests_before_interruption = fixture.requested_paths().len();
+
+    // Recreate the durable public URL-status record at the process-crash boundary:
+    // the eighth HTTP request was marked processing, but no response was committed.
+    let digest = format!("{:x}", Sha256::digest(url.as_bytes()));
+    let status_dir = collection.path().join("url-acquisitions");
+    std::fs::create_dir_all(&status_dir).unwrap();
+    std::fs::write(
+        status_dir.join(format!("{digest}.json")),
+        serde_json::to_vec(&UrlAcquisitionStatus {
+            url: url.clone(),
+            attempts: 8,
+            state: "processing".into(),
+            retry_at: None,
+            last_error: "The application stopped while retrieving this URL.".into(),
+            previous_source_available: true,
+        })
+        .unwrap(),
+    )
+    .unwrap();
+    drop(app);
+
+    let mut reopened = Application::open(collection.path()).unwrap();
+    assert_eq!(reopened.list_url_acquisitions().unwrap()[0].attempts, 8);
+    reopened.resume_due_url_acquisitions_at(u64::MAX).unwrap();
+    let status = reopened.list_url_acquisitions().unwrap().remove(0);
+    assert_eq!(
+        status.attempts, 8,
+        "restart recovery must not exceed the lifetime request budget"
+    );
+    assert_eq!(status.state, "failed");
+    assert!(status.retry_at.is_none());
+    assert_eq!(
+        fixture.requested_paths().len(),
+        requests_before_interruption
+    );
+    let retained = reopened.open_source(&previous.info.source_id).unwrap();
+    assert!(retained.body.contains("Observation U7"));
+    assert!(retained
+        .info
+        .acquisitions
+        .iter()
+        .any(|item| item.http_status == Some(200)));
 }
 
 struct UrlReferenceTransport;

@@ -3,6 +3,8 @@ use crate::{
         AcquisitionMethod, Application, PageSearchRequest, PageSearchResults, SourceList,
         SourcePage, UrlAcquisitionStatus,
     },
+    extraction::LocalExtractor,
+    media::WhisperAudioProcessor,
     providers::JevSemanticProvider,
     semantic::{KnowledgePage, SemanticProvider},
 };
@@ -96,6 +98,11 @@ async fn open_original(engine: State<'_, Engine>, source_id: String) -> Result<(
 }
 
 #[tauri::command]
+async fn preview_original(engine: State<'_, Engine>, source_id: String) -> Result<String, String> {
+    with_engine(&engine, move |app| app.preview_original(&source_id)).await
+}
+
+#[tauri::command]
 async fn open_original_version(
     engine: State<'_, Engine>,
     source_id: String,
@@ -148,8 +155,14 @@ pub fn run() {
             let semantic_provider: Arc<dyn SemanticProvider> =
                 Arc::new(JevSemanticProvider::from_environment_and_keychain());
             let meaning_assets = app.path().resource_dir()?.join("meaning");
-            let engine = Arc::new(Mutex::new(Application::open_with_meaning_assets(
+            let audio_processor = Arc::new(WhisperAudioProcessor::new(
+                app.path().resource_dir()?.join("audio"),
+            ));
+            let engine = Arc::new(Mutex::new(Application::open_with_all_providers_and_meaning_assets(
                 root,
+                Arc::clone(&semantic_provider),
+                Arc::new(LocalExtractor),
+                audio_processor,
                 Some(meaning_assets),
             )?));
             let worker_app = Arc::clone(&engine);
@@ -161,6 +174,9 @@ pub fn run() {
                     if let Ok(mut app) = worker_app.lock() {
                         if let Err(error) = app.resume_due_url_acquisitions() {
                             eprintln!("URL acquisition queue could not resume work: {error}");
+                        }
+                        if let Err(error) = app.resume_due_audio_jobs() {
+                            eprintln!("Audio transcription queue could not resume work: {error}");
                         }
                     }
                     let jobs = match worker_app.lock() {
@@ -203,6 +219,7 @@ pub fn run() {
             list_sources,
             search_pages,
             open_original,
+            preview_original,
             open_original_version,
             open_original_asset
         ])

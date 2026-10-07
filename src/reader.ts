@@ -84,7 +84,7 @@ export async function mountReader(
     element("h1", "A place for what you know"),
     element(
       "p",
-      "Choose a text, Markdown, Word, or PowerPoint file, or drop one anywhere in this window. Your original stays intact.",
+      "Choose a text, Markdown, Word, PowerPoint, or photo file, or drop one anywhere in this window. Your original stays intact.",
     ),
   );
   main.append(empty);
@@ -218,6 +218,9 @@ export async function mountReader(
       if (!link) return;
       event.preventDefault();
       const href = link.getAttribute("href") ?? "";
+      const audioSeekMatch = href.match(
+        /^\?audio_seek=(source-[a-f0-9]{64})&at_ms=(\d+)$/,
+      );
       const knowledgeMatch = href.match(
         /(?:\.\.\/)?pages\/(page-[a-zA-Z0-9-]+)\.md/,
       );
@@ -230,7 +233,20 @@ export async function mountReader(
       const originalMatch = href.match(
         /^(?:\.\.\/)?sources\/([a-f0-9]{64})\/(original(?:\.[a-zA-Z0-9]+)?)$/,
       );
-      if (href === originalAsset || href === `knowledge-original:${sourceId}`) {
+      if (audioSeekMatch) {
+        const timestampMs = Number(audioSeekMatch[2]);
+        void api
+          .openOriginal(audioSeekMatch[1])
+          .then(() => {
+            message(
+              `Opened the retained recording. Seek to ${Math.floor(timestampMs / 60000)}:${String(Math.floor(timestampMs / 1000) % 60).padStart(2, "0")} in your audio player; precise seeking is unavailable in this reader.`,
+            );
+          })
+          .catch(report);
+      } else if (
+        href === originalAsset ||
+        href === `knowledge-original:${sourceId}`
+      ) {
         void api.openOriginal(sourceId).catch(report);
       } else if (knowledgeMatch) {
         pushCurrentState();
@@ -285,6 +301,44 @@ export async function mountReader(
       next.info.asset,
     );
     if (!article) return;
+    if (
+      /^(?:jpg|jpeg|png|heic|heif|tif|tiff|webp)$/.test(next.info.format) &&
+      api.previewOriginal
+    ) {
+      const previewButton = element("button", "Show image preview");
+      previewButton.addEventListener("click", async () => {
+        previewButton.disabled = true;
+        try {
+          const url = await api.previewOriginal!(next.info.source_id);
+          if (
+            disposed ||
+            currentSourceId !== next.info.source_id ||
+            !article.isConnected
+          )
+            return;
+          if (!url.startsWith("data:image/jpeg;base64,"))
+            throw new Error("The photo preview is unavailable.");
+          const image = element("img");
+          image.src = url;
+          image.alt = `Retained photo preview: ${next.info.title}`;
+          image.style.maxWidth = "100%";
+          image.style.maxHeight = "640px";
+          const figure = element("figure");
+          figure.append(
+            image,
+            element(
+              "figcaption",
+              "Use the OCR normalized region coordinates above with a bottom-left origin. This preview provides a whole-image fallback for evidence without a region; metadata, captions and classifier predictions retain their stated origins.",
+            ),
+          );
+          previewButton.replaceWith(figure);
+        } catch (error) {
+          previewButton.disabled = false;
+          report(error);
+        }
+      });
+      article.prepend(previewButton);
+    }
     if (next.info.update_status) {
       const failed = ["failed", "incomplete"].includes(next.info.update_status);
       const label = failed
