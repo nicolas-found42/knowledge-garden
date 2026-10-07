@@ -1,7 +1,8 @@
 //! Rust-only semantic provider transports. Request bodies and credentials never enter logs.
 use crate::semantic::{
-    EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, RelationshipDraft,
-    SemanticDecision, SemanticProvider, SourceUpdateDraft, SourceUpdateRole, TagDraft,
+    CorrectionAlignmentDraft, CorrectionCandidateDraft, EntityDraft, EvidenceDraft, FactDraft,
+    FieldAlignmentOutcome, KnowledgeDraft, ProviderError, RelationshipDraft, SemanticDecision,
+    SemanticProvider, SourceUpdateDraft, SourceUpdateRole, TagDraft,
 };
 use regex::Regex;
 use reqwest::blocking::Client;
@@ -157,6 +158,7 @@ impl SemanticProvider for JevSemanticProvider {
         prior_source_text: Option<&str>,
     ) -> std::result::Result<KnowledgeDraft, ProviderError> {
         let mut candidates = candidates(source_text);
+        let correction_candidates = correction_candidates(source_text, &candidates);
         let office_candidates = office_statement_candidates(source_text);
         let office_mode = !office_candidates.is_empty() || source_text.contains("; channel=");
         candidates.extend(office_candidates);
@@ -239,6 +241,27 @@ impl SemanticProvider for JevSemanticProvider {
             "instructions":"Choose the exact source span that supports your source_update_role judgment, including the words that establish negation, quotation, condition, supplement, or full replacement scope. If no sentence is decisive, choose the span that best shows why the relationship remains unknown. The span text and offsets are supplied in the criteria.",
             "criteria":update_criteria
         }));
+        if prior_source_text.is_some() {
+            for (index, correction) in correction_candidates.iter().enumerate() {
+                update_questions.insert(format!("field_alignment_{index}"), json!({
+                    "type":"choice",
+                    "instructions":format!(
+                        "Judge whether the incoming source explicitly corrects this exact current fact for the same event. Candidate: event `{}`, property `{}`, stated previous value `{}`, proposed current value `{}`. Exact incoming evidence span: {}. The previous current fact and its evidence are in `prior_source_projection` in state. Choose same_field_correction only when the incoming span clearly updates that same event and same property to the proposed value, and is not conditional, hypothetical, quoted as a rejected proposal, or awaiting authorization. Choose conditional_or_rejected for inactive proposals. Choose different_field_or_event for a different target. Otherwise choose uncertain. Do not infer correction from number similarity alone.",
+                        correction.event_label,
+                        correction.property,
+                        correction.previous_value,
+                        correction.corrected_value,
+                        correction.evidence.quote
+                    ),
+                    "criteria":{
+                        "same_field_correction":"The incoming span explicitly updates the same event field from its stated prior value to the proposed current value.",
+                        "conditional_or_rejected":"The incoming span is hypothetical, tentative, awaiting verification or authorization, quoted as a proposal, or explicitly rejected.",
+                        "different_field_or_event":"The incoming span assigns the candidate to another field or distinct event.",
+                        "uncertain":"The event, field, or value relationship is not clear enough to apply."
+                    }
+                }));
+            }
+        }
         let report_dates = report_date_candidates(source_text);
         let mut report_date_criteria = serde_json::Map::new();
         for (index, candidate) in report_dates.iter().enumerate() {
@@ -382,6 +405,36 @@ impl SemanticProvider for JevSemanticProvider {
             &report_dates,
             &report_revisions,
         )?;
+        let correction_alignments = correction_candidates
+            .iter()
+            .enumerate()
+            .filter_map(|(index, candidate)| {
+                let key = format!("field_alignment_{index}");
+                let (choice, certainty) = validated_choice(
+                    &result_answers,
+                    &key,
+                    &[
+                        "same_field_correction",
+                        "conditional_or_rejected",
+                        "different_field_or_event",
+                        "uncertain",
+                    ],
+                )
+                .ok()?;
+                let outcome = match choice.as_str() {
+                    "same_field_correction" => FieldAlignmentOutcome::SameFieldCorrection,
+                    "conditional_or_rejected" => FieldAlignmentOutcome::ConditionalOrRejected,
+                    "different_field_or_event" => FieldAlignmentOutcome::DifferentFieldOrEvent,
+                    _ => FieldAlignmentOutcome::Uncertain,
+                };
+                Some(CorrectionAlignmentDraft {
+                    candidate: candidate.clone(),
+                    outcome,
+                    certainty,
+                    model: result_model.clone(),
+                })
+            })
+            .collect::<Vec<_>>();
         let mut decisions = Vec::new();
         let model = result_model;
         let mut accepted = Vec::new();
@@ -469,7 +522,11 @@ impl SemanticProvider for JevSemanticProvider {
                 .into(),
                 probability: Some(answer),
             });
-            if answer >= SUPPORT_THRESHOLD {
+            let is_correction = correction_candidates.iter().any(|correction| {
+                correction.evidence.byte_start == candidate.start
+                    && correction.evidence.byte_end == candidate.end
+            });
+            if answer >= SUPPORT_THRESHOLD && !is_correction {
                 accepted.push(candidate);
             }
         }
@@ -501,6 +558,8 @@ impl SemanticProvider for JevSemanticProvider {
         }
         let mut draft = KnowledgeDraft {
             decisions,
+            correction_candidates,
+            correction_alignments,
             ..KnowledgeDraft::default()
         };
         draft.source_update = Some(validated.source_update.clone().unwrap());
@@ -1791,6 +1850,49 @@ fn candidates(text: &str) -> Vec<Candidate> {
         normalized.push(candidate);
     }
     normalized
+}
+
+fn correction_candidates(text: &str, candidates: &[Candidate]) -> Vec<CorrectionCandidateDraft> {
+    let correction_re = regex(
+        r"(?i)\bvisit\s+total\s+(?:should\s+)?(?:read|be\s+corrected\s+to)\s+([0-9]+)\s*,?\s+not\s+([0-9]+)\b",
+    );
+    correction_re
+        .captures_iter(text)
+        .filter_map(|captures| {
+            let whole = captures.get(0)?;
+            let corrected = captures.get(1)?;
+            let previous = captures.get(2)?;
+            let (start, end) = sentence_bounds(text, whole.start(), whole.end());
+            let quote = &text[start..end];
+            let event_label = candidates
+                .iter()
+                .find(|candidate| {
+                    candidate.kind == CandidateKind::Event && candidate.quote == quote
+                })?
+                .value
+                .clone();
+            Some(CorrectionCandidateDraft {
+                event_label,
+                property: "visit_count".into(),
+                previous_value: format!("{} visits", previous.as_str()),
+                corrected_value: format!("{} visits", corrected.as_str()),
+                evidence: EvidenceDraft {
+                    quote: quote.to_owned(),
+                    byte_start: start,
+                    byte_end: end,
+                    origin: origin_for(text, whole.start(), whole.end()),
+                    qualifier: None,
+                    offset_basis: None,
+                    source_location: None,
+                },
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn correction_candidates_from_text(text: &str) -> Vec<CorrectionCandidateDraft> {
+    let candidates = candidates(text);
+    correction_candidates(text, &candidates)
 }
 
 fn person_pairs(candidates: &[Candidate]) -> Vec<(&Candidate, &Candidate)> {

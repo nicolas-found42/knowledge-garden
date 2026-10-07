@@ -2,8 +2,9 @@
 use crate::extraction::{LocalExtractor, SourceExtractor};
 use crate::office::{CoveragePart, CoverageScope, CoverageStatus, OfficeProjection};
 use crate::semantic::{
-    EntityDraft, EvidenceDraft, KnowledgeDraft, KnowledgePage, KnowledgePageSummary, ProviderError,
-    SemanticDecision, SemanticJob, SemanticProvider, SourceUpdateRole,
+    CorrectionCandidateDraft, EntityDraft, EvidenceDraft, KnowledgeDraft, KnowledgePage,
+    KnowledgePageSummary, ProviderError, SemanticDecision, SemanticJob, SemanticProvider,
+    SourceUpdateRole,
 };
 use fs2::FileExt;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
@@ -1257,7 +1258,9 @@ impl Application {
                 })?
             };
             let prior_source_text = if initial {
-                None
+                let correction_candidates =
+                    crate::providers::correction_candidates_from_text(&text);
+                self.correction_prior_context(&correction_candidates)?
             } else if let Some(current_id) = page.info.current_version_id.as_deref() {
                 page.info
                     .versions_seen
@@ -1350,6 +1353,190 @@ impl Application {
         Ok(())
     }
 
+    fn correction_prior_context(
+        &self,
+        candidates: &[CorrectionCandidateDraft],
+    ) -> Result<Option<String>> {
+        let mut labels = candidates
+            .iter()
+            .map(|candidate| candidate.event_label.as_str())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        labels.sort_unstable();
+        let mut context = String::new();
+        for label in labels {
+            let entity = EntityDraft {
+                kind: "event".into(),
+                label: label.to_owned(),
+                evidence: candidates
+                    .iter()
+                    .find(|candidate| candidate.event_label == label)
+                    .map(|candidate| candidate.evidence.clone())
+                    .expect("label came from a correction candidate"),
+            };
+            let page_id = stable_page_id(&entity, "");
+            let path = self.root.join("pages").join(format!("{page_id}.md"));
+            if !path.exists() {
+                continue;
+            }
+            let header = read_knowledge_header(&path)?;
+            if header.kind != "event" || header.title != label || header.facts.is_empty() {
+                continue;
+            }
+            context.push_str(&format!("Current published fields for event `{label}`:\n"));
+            for fact in &header.facts {
+                context.push_str(&format!(
+                    "- property `{}` = `{}`; current support: “{}”\n",
+                    fact.property, fact.value, fact.evidence.quote
+                ));
+            }
+        }
+        Ok((!context.is_empty()).then_some(context))
+    }
+
+    fn apply_field_aligned_corrections(
+        &self,
+        source: &SourcePage,
+        source_version_id: &str,
+        source_text: &str,
+        draft: &mut KnowledgeDraft,
+    ) -> Result<()> {
+        let recognized_candidates = crate::providers::correction_candidates_from_text(source_text);
+        if recognized_candidates.is_empty() && draft.correction_candidates.is_empty() {
+            return Ok(());
+        }
+        let uncertain = || {
+            GardenError::Invalid(
+                "An explicit correction could not be aligned to current event evidence; semantic processing will retry automatically.".into(),
+            )
+        };
+        let Some(update) = draft.source_update.as_ref() else {
+            return Err(uncertain());
+        };
+        if update.role != SourceUpdateRole::TargetedCorrection
+            || !update.certainty.is_finite()
+            || update.certainty < 0.8
+        {
+            return Err(uncertain());
+        }
+        if recognized_candidates.len() != draft.correction_candidates.len() {
+            return Err(uncertain());
+        }
+        for candidate in draft.correction_candidates.clone() {
+            if !recognized_candidates.iter().any(|recognized| {
+                recognized.event_label == candidate.event_label
+                    && recognized.property == candidate.property
+                    && recognized.previous_value == candidate.previous_value
+                    && recognized.corrected_value == candidate.corrected_value
+                    && recognized.evidence.quote == candidate.evidence.quote
+                    && recognized.evidence.byte_start == candidate.evidence.byte_start
+                    && recognized.evidence.byte_end == candidate.evidence.byte_end
+            }) {
+                return Err(uncertain());
+            }
+            let alignment = draft
+                .correction_alignments
+                .iter()
+                .find(|alignment| {
+                    alignment.candidate.event_label == candidate.event_label
+                        && alignment.candidate.property == candidate.property
+                        && alignment.candidate.previous_value == candidate.previous_value
+                        && alignment.candidate.corrected_value == candidate.corrected_value
+                        && alignment.candidate.evidence.quote == candidate.evidence.quote
+                        && alignment.candidate.evidence.byte_start == candidate.evidence.byte_start
+                        && alignment.candidate.evidence.byte_end == candidate.evidence.byte_end
+                })
+                .ok_or_else(uncertain)?;
+            if alignment.outcome != crate::semantic::FieldAlignmentOutcome::SameFieldCorrection
+                || !alignment.certainty.is_finite()
+                || alignment.certainty < 0.9
+            {
+                return Err(uncertain());
+            }
+            if candidate.property != "visit_count"
+                || validate_evidence(source_text, &candidate.evidence).is_err()
+            {
+                return Err(uncertain());
+            }
+            let entity = draft
+                .entities
+                .iter()
+                .find(|entity| entity.kind == "event" && entity.label == candidate.event_label)
+                .ok_or_else(uncertain)?;
+            let page_id = stable_page_id(entity, &source.info.source_id);
+            let path = self.root.join("pages").join(format!("{page_id}.md"));
+            if !path.exists() {
+                return Err(uncertain());
+            }
+            let header = read_knowledge_header(&path)?;
+            if header.kind != "event" || header.title != candidate.event_label {
+                return Err(uncertain());
+            }
+            let matching_facts = header
+                .facts
+                .iter()
+                .filter(|fact| {
+                    fact.property == candidate.property
+                        && normalized_visit_count(&fact.value)
+                            == normalized_visit_count(&candidate.previous_value)
+                })
+                .collect::<Vec<_>>();
+            let [prior_fact] = matching_facts.as_slice() else {
+                return Err(uncertain());
+            };
+            let Some(current_support) = self.latest_support(&prior_fact.supports)? else {
+                return Err(uncertain());
+            };
+            if normalized_visit_count(&current_support.value)
+                != normalized_visit_count(&candidate.previous_value)
+            {
+                return Err(uncertain());
+            }
+            let prior_source = read_page(&self.page_path(&current_support.source_id)?)?;
+            let prior_version = prior_source
+                .info
+                .versions_seen
+                .iter()
+                .find(|version| version.source_version_id == current_support.source_version_id)
+                .ok_or_else(uncertain)?;
+            let incoming_version = source
+                .info
+                .versions_seen
+                .iter()
+                .find(|version| version.source_version_id == source_version_id)
+                .ok_or_else(uncertain)?;
+            if compare_source_order(prior_version, incoming_version)
+                != Some(std::cmp::Ordering::Greater)
+            {
+                return Err(uncertain());
+            }
+            if !draft.facts.iter().any(|fact| {
+                fact.subject == candidate.event_label
+                    && fact.property == candidate.property
+                    && fact.value == candidate.corrected_value
+            }) {
+                draft.facts.push(crate::semantic::FactDraft {
+                    subject: candidate.event_label.clone(),
+                    property: candidate.property.clone(),
+                    value: candidate.corrected_value.clone(),
+                    evidence: candidate.evidence.clone(),
+                    record_key: None,
+                });
+            }
+            draft.decisions.push(SemanticDecision {
+                question: format!(
+                    "field_alignment:{}:{}",
+                    candidate.event_label, candidate.property
+                ),
+                model: alignment.model.clone(),
+                outcome: "same_field_correction".into(),
+                probability: Some(alignment.certainty),
+            });
+        }
+        Ok(())
+    }
+
     pub fn finish_semantic_job(
         &mut self,
         job: SemanticJob,
@@ -1384,7 +1571,7 @@ impl Application {
             draft
         });
         match result {
-            Ok(draft) => {
+            Ok(mut draft) => {
                 let is_office = matches!(page.info.format.as_str(), "docx" | "pptx");
                 let office_facts = draft
                     .facts
@@ -1433,6 +1620,18 @@ impl Application {
                         )
                         .and_then(|()| {
                             if initial {
+                                self.apply_field_aligned_corrections(
+                                    &page,
+                                    &job.source_version_id,
+                                    &job.source_text,
+                                    &mut draft,
+                                )?;
+                                if !draft.correction_candidates.is_empty() {
+                                    // Knowledge reconciliation ranks support through persisted
+                                    // source versions. Persist this still-pending source's
+                                    // validated date/order before it selects the current value.
+                                    self.write_source_page(&page)?;
+                                }
                                 // A first acquisition has no existing facts to withdraw. Even
                                 // an unknown/conditional relationship can publish the grounded
                                 // evidence it contains; the role only limits replacement scope.
@@ -3714,6 +3913,18 @@ fn compare_source_order(
         return Some(incoming_revision.cmp(&current_revision));
     }
     None
+}
+
+fn normalized_visit_count(value: &str) -> Option<u64> {
+    let trimmed = value.trim();
+    let digits = trimmed
+        .strip_suffix(" visits")
+        .or_else(|| trimmed.strip_suffix(" visit"))
+        .unwrap_or(trimmed)
+        .trim();
+    (!digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()))
+        .then(|| digits.parse().ok())
+        .flatten()
 }
 
 fn write_search_documents(
