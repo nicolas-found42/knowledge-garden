@@ -65,6 +65,31 @@ function testApi(): GardenApi {
   };
 }
 
+it("keeps prior content readable and shows an incomplete update prominently", async () => {
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: {
+      ...riverside.info,
+      semantic_state: "complete",
+      update_status: "pending",
+    },
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Add source" }));
+  expect(
+    await screen.findByText(
+      "Update pending · Showing the last successful version.",
+    ),
+  ).toBeTruthy();
+  expect(screen.getByRole("article").textContent).toContain("Observation V17");
+  expect(screen.getByRole("link", { name: "Open original" })).toBeTruthy();
+});
+
 it("retrieves only the supplied URL, displays its origin, and keeps a failed address available for explicit retry", async () => {
   const api = testApi();
   const page: SourcePage = {

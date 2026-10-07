@@ -2626,3 +2626,394 @@ fn search_omits_superseded_source_text_and_locates_independent_support_after_reb
         .iter()
         .any(|result| result.page_id == first.info.page_id));
 }
+
+struct RecoveringProjection {
+    fails: std::sync::atomic::AtomicBool,
+    recovered: std::sync::atomic::AtomicBool,
+}
+
+impl knowledge_garden::extraction::SourceExtractor for RecoveringProjection {
+    fn extract(
+        &self,
+        path: &Path,
+        _format: &str,
+        _title: &str,
+    ) -> Result<knowledge_garden::office::OfficeProjection, String> {
+        use knowledge_garden::office::{
+            CoveragePart, CoverageScope, CoverageStatus, OfficeProjection,
+        };
+        let bytes = fs::read_to_string(path).unwrap();
+        if bytes.contains("revision 2") && self.fails.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err("Temporary extractor capability unavailable".into());
+        }
+        let partial = bytes.contains("revision 2")
+            && !self.recovered.load(std::sync::atomic::Ordering::SeqCst);
+        let text = if partial {
+            bytes.replace(" Duration: 10 minutes.", "")
+        } else {
+            bytes
+        };
+        Ok(OfficeProjection {
+            markdown: text.clone(),
+            semantic_text: text.clone(),
+            line_count: text.lines().count(),
+            partial,
+            detail: if partial {
+                "Region two unreadable; duration coverage unknown."
+            } else {
+                "All regions read."
+            }
+            .into(),
+            coverage: vec![CoveragePart {
+                scope: CoverageScope::MainDocument,
+                status: if partial {
+                    CoverageStatus::Partial
+                } else {
+                    CoverageStatus::Complete
+                },
+                source_location: Some("region-two".into()),
+                detail: "Controlled external extraction response".into(),
+            }],
+        })
+    }
+}
+
+#[test]
+fn incomplete_replacement_remains_pending_through_restart_then_recovers_coherently() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("report.docx");
+    let collection = workspace.path().join("collection");
+    let complete = REVISION_2.replace("Visits: 15.", "Visits: 15. Duration: 10 minutes.");
+    let extractor = Arc::new(RecoveringProjection {
+        fails: std::sync::atomic::AtomicBool::new(false),
+        recovered: std::sync::atomic::AtomicBool::new(false),
+    });
+    let provider = Arc::new(RecordedProvider::sequence(vec![
+        Ok(replacement_recording(REVISION_1, 12, true)),
+        Ok(replacement_recording(&complete, 15, true)),
+    ]));
+    fs::write(&path, REVISION_1).unwrap();
+    let mut app =
+        Application::open_with_providers(&collection, provider.clone(), extractor.clone()).unwrap();
+    let baseline = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let source = app.open_source(&baseline.info.source_id).unwrap();
+    let event = source
+        .knowledge_pages
+        .iter()
+        .find(|p| p.kind == "event")
+        .unwrap()
+        .page_id
+        .clone();
+    fs::write(&path, &complete).unwrap();
+    let pending = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    assert_eq!(pending.info.update_status.as_deref(), Some("pending"));
+    assert!(
+        app.claim_due_semantic_jobs(4).unwrap().is_empty(),
+        "incomplete replacement must recover before a destructive draft is requested"
+    );
+    let old = app.open_knowledge_page(&event).unwrap().markdown;
+    assert!(old.contains("12 visits") && old.contains("10 minutes"));
+    assert_eq!(
+        fs::read_to_string(app.original_path(&baseline.info.source_id).unwrap()).unwrap(),
+        REVISION_1
+    );
+    drop(app);
+    extractor
+        .recovered
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let mut restarted = Application::open_with_providers(&collection, provider, extractor).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2100));
+    restarted.resume_due_semantic_jobs().unwrap();
+    let updated = restarted.open_source(&baseline.info.source_id).unwrap();
+    assert_eq!(updated.info.update_status, None);
+    let current = restarted.open_knowledge_page(&event).unwrap().markdown;
+    assert!(current.contains("15 visits") && current.contains("10 minutes"));
+    assert!(!current.contains("- **visit_count:** 12 visits"));
+    assert_eq!(
+        fs::read_to_string(restarted.original_path(&baseline.info.source_id).unwrap()).unwrap(),
+        complete
+    );
+}
+
+#[test]
+fn failed_replacement_extraction_retains_candidate_for_automatic_recovery() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("report.docx");
+    let collection = workspace.path().join("collection");
+    let extractor = Arc::new(RecoveringProjection {
+        fails: std::sync::atomic::AtomicBool::new(true),
+        recovered: std::sync::atomic::AtomicBool::new(true),
+    });
+    let provider = Arc::new(RecordedProvider::sequence(vec![
+        Ok(replacement_recording(REVISION_1, 12, true)),
+        Ok(replacement_recording(REVISION_2, 15, false)),
+    ]));
+    fs::write(&path, REVISION_1).unwrap();
+    let mut app =
+        Application::open_with_providers(&collection, provider, extractor.clone()).unwrap();
+    let baseline = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    fs::write(&path, REVISION_2).unwrap();
+    let pending = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    let pending_id = pending
+        .info
+        .pending_version_id
+        .as_deref()
+        .expect("failed extraction must retain an eligible source version");
+    let original = app
+        .original_version_path(&baseline.info.source_id, pending_id, "original.docx")
+        .unwrap();
+    assert_eq!(fs::read_to_string(original).unwrap(), REVISION_2);
+    assert_eq!(pending.info.update_status.as_deref(), Some("pending"));
+    assert!(app.claim_due_semantic_jobs(4).unwrap().is_empty());
+    extractor
+        .fails
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    std::thread::sleep(std::time::Duration::from_millis(2100));
+    app.resume_due_semantic_jobs().unwrap();
+    let recovered = app.open_source(&baseline.info.source_id).unwrap();
+    assert_eq!(recovered.info.update_status, None);
+    let event = recovered
+        .knowledge_pages
+        .iter()
+        .find(|p| p.kind == "event")
+        .unwrap();
+    let text = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+    assert!(text.contains("15 visits"));
+    assert!(
+        !text.contains("- **duration:** 10 minutes"),
+        "a completely extracted replacement may withdraw its omitted duration"
+    );
+}
+
+#[test]
+fn broad_replacement_approval_cannot_delete_duration_still_present_in_evidence() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("report.docx");
+    let complete = REVISION_2.replace("Visits: 15.", "Visits: 15. Duration: 10 minutes.");
+    let extractor = Arc::new(RecoveringProjection {
+        fails: std::sync::atomic::AtomicBool::new(false),
+        recovered: std::sync::atomic::AtomicBool::new(true),
+    });
+    let broad_bad = replacement_recording(&complete, 15, false);
+    let provider = Arc::new(RecordedProvider::sequence(vec![
+        Ok(replacement_recording(REVISION_1, 12, true)),
+        Ok(broad_bad),
+    ]));
+    fs::write(&path, REVISION_1).unwrap();
+    let mut app =
+        Application::open_with_providers(workspace.path().join("collection"), provider, extractor)
+            .unwrap();
+    let baseline = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let source = app.open_source(&baseline.info.source_id).unwrap();
+    let event = source
+        .knowledge_pages
+        .iter()
+        .find(|p| p.kind == "event")
+        .unwrap()
+        .page_id
+        .clone();
+    fs::write(&path, &complete).unwrap();
+    app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let current = app.open_knowledge_page(&event).unwrap().markdown;
+    assert!(current.contains("- **duration:** 10 minutes"),"a broad role approval cannot override the narrower direct evidence that duration remains in this source");
+}
+
+#[test]
+fn incomplete_recovery_without_new_evidence_stops_with_prior_knowledge_readable() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("report.docx");
+    let extractor = Arc::new(RecoveringProjection {
+        fails: std::sync::atomic::AtomicBool::new(false),
+        recovered: std::sync::atomic::AtomicBool::new(false),
+    });
+    let provider = Arc::new(RecordedProvider::once(Ok(replacement_recording(
+        REVISION_1, 12, true,
+    ))));
+    fs::write(&path, REVISION_1).unwrap();
+    let mut app =
+        Application::open_with_providers(workspace.path().join("collection"), provider, extractor)
+            .unwrap();
+    let first = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let source = app.open_source(&first.info.source_id).unwrap();
+    let event = source
+        .knowledge_pages
+        .iter()
+        .find(|p| p.kind == "event")
+        .unwrap()
+        .page_id
+        .clone();
+    fs::write(&path, REVISION_2).unwrap();
+    app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    assert!(app.claim_due_semantic_jobs(4).unwrap().is_empty());
+    std::thread::sleep(std::time::Duration::from_millis(2100));
+    assert!(app.claim_due_semantic_jobs(4).unwrap().is_empty());
+    let failed = app.open_source(&first.info.source_id).unwrap();
+    assert_eq!(failed.info.update_status.as_deref(), Some("failed"));
+    assert!(failed.info.semantic_retry_at.is_none());
+    assert!(app.claim_due_semantic_jobs(4).unwrap().is_empty());
+    assert!(app
+        .open_knowledge_page(&event)
+        .unwrap()
+        .markdown
+        .contains("10 minutes"));
+}
+
+#[test]
+fn quota_and_restart_do_not_allow_an_older_recovery_to_roll_back_a_newer_version() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("report.docx");
+    let collection = workspace.path().join("collection");
+    let newest = REVISION_2
+        .replace("revision 2 dated May 20", "revision 3 dated May 21")
+        .replace("Visits: 15.", "Visits: 18.");
+    let extractor = Arc::new(RecoveringProjection {
+        fails: std::sync::atomic::AtomicBool::new(false),
+        recovered: std::sync::atomic::AtomicBool::new(true),
+    });
+    let provider = Arc::new(RecordedProvider::sequence(vec![
+        Ok(replacement_recording(REVISION_1, 12, true)),
+        Ok(replacement_recording(&newest, 18, false)),
+    ]));
+    fs::write(&path, REVISION_1).unwrap();
+    let mut app =
+        Application::open_with_providers(&collection, provider.clone(), extractor.clone()).unwrap();
+    let first = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    fs::write(&path, REVISION_2).unwrap();
+    app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    let stale = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    fs::write(&path, &newest).unwrap();
+    app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    let latest = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    app.finish_semantic_job(
+        latest,
+        Err(ProviderError::recoverable(
+            "Provider quota exhausted".into(),
+        )),
+    )
+    .unwrap();
+    assert_eq!(
+        app.open_source(&first.info.source_id)
+            .unwrap()
+            .info
+            .update_status
+            .as_deref(),
+        Some("pending")
+    );
+    drop(app);
+    let mut resumed = Application::open_with_providers(&collection, provider, extractor).unwrap();
+    assert!(resumed
+        .finish_semantic_job(
+            stale.clone(),
+            Ok(replacement_recording(REVISION_2, 15, false))
+        )
+        .is_err());
+    assert_eq!(
+        fs::read_to_string(resumed.original_path(&first.info.source_id).unwrap()).unwrap(),
+        REVISION_1
+    );
+    std::thread::sleep(std::time::Duration::from_millis(8100));
+    resumed.resume_due_semantic_jobs().unwrap();
+    assert_eq!(
+        fs::read_to_string(resumed.original_path(&first.info.source_id).unwrap()).unwrap(),
+        newest
+    );
+    assert!(resumed
+        .finish_semantic_job(stale, Ok(replacement_recording(REVISION_2, 15, false)))
+        .is_err());
+    let source = resumed.open_source(&first.info.source_id).unwrap();
+    let event = source
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "event")
+        .unwrap();
+    assert!(resumed
+        .open_knowledge_page(&event.page_id)
+        .unwrap()
+        .markdown
+        .contains("18 visits"));
+}
+
+#[test]
+fn a_truncated_html_replacement_cannot_authorize_omission_removals() {
+    use std::io::{Read, Write};
+    let workspace = tempdir().unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/report", listener.local_addr().unwrap());
+    let first = format!("<html><body><pre>{REVISION_1}</pre></body></html>");
+    let next = format!(
+        "<html><body><pre>{REVISION_2}</pre><p>{}</p><p>Duration: 10 minutes.</p></body></html>",
+        "x".repeat(knowledge_garden::application::MAX_TEXT_BYTES)
+    );
+    let server = std::thread::spawn(move || {
+        for body in [first, next] {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 4096];
+            stream.read(&mut request).unwrap();
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+        }
+    });
+    let provider = Arc::new(RecordedProvider::once(Ok(replacement_recording(
+        REVISION_1, 12, true,
+    ))));
+    let mut app =
+        Application::open_with_semantic_provider(workspace.path().join("collection"), provider)
+            .unwrap();
+    let first = app.import_url(&url).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let updated = app.import_url(&url).unwrap();
+    assert_eq!(updated.info.source_id, first.info.source_id);
+    assert_eq!(updated.info.extraction, ExtractionState::PartialText);
+    assert!(
+        app.claim_due_semantic_jobs(1).unwrap().is_empty(),
+        "truncated HTML is not complete omission evidence"
+    );
+    server.join().unwrap();
+}
+
+#[test]
+fn repeated_bad_omission_drafts_stop_without_changing_current_original_or_facts() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("report.docx");
+    let complete = REVISION_2.replace("Visits: 15.", "Visits: 15. Duration: 10 minutes.");
+    let bad = replacement_recording(&complete, 15, false);
+    let provider = Arc::new(RecordedProvider::sequence(vec![
+        Ok(replacement_recording(REVISION_1, 12, true)),
+        Ok(bad.clone()),
+        Ok(bad.clone()),
+        Ok(bad),
+    ]));
+    let extractor = Arc::new(RecoveringProjection {
+        fails: std::sync::atomic::AtomicBool::new(false),
+        recovered: std::sync::atomic::AtomicBool::new(true),
+    });
+    fs::write(&path, REVISION_1).unwrap();
+    let mut app =
+        Application::open_with_providers(workspace.path().join("collection"), provider, extractor)
+            .unwrap();
+    let first = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    fs::write(&path, &complete).unwrap();
+    app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(4100));
+    app.resume_due_semantic_jobs().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(8100));
+    app.resume_due_semantic_jobs().unwrap();
+    let failed = app.open_source(&first.info.source_id).unwrap();
+    assert_eq!(
+        failed.info.update_status.as_deref(),
+        Some("failed"),
+        "repeated semantic extraction without new usable evidence must not spin forever"
+    );
+    assert!(failed.info.semantic_retry_at.is_none());
+    assert_eq!(
+        fs::read_to_string(app.original_path(&first.info.source_id).unwrap()).unwrap(),
+        REVISION_1
+    );
+}

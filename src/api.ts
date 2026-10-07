@@ -49,7 +49,14 @@ export interface SourceInfo {
   bytes: number;
   format: string;
   current_version_id?: string | null;
-  versions_seen?: { source_version_id: string; state: string }[];
+  pending_version_id?: string | null;
+  update_status?:
+    "pending" | "processing" | "failed" | "incomplete" | "uncertain" | null;
+  versions_seen?: {
+    source_version_id: string;
+    state: string;
+    asset?: string;
+  }[];
   extraction: ExtractionState;
   extraction_detail: string;
   extraction_coverage?: CoveragePart[] | null;
