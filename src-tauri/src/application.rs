@@ -25,6 +25,7 @@ use uuid::Uuid;
 pub const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_PAGE_BYTES: u64 = (MAX_TEXT_BYTES * 3 + 64 * 1024) as u64;
 const PAGE_SIZE: usize = 50;
+const MAX_RETRYABLE_PROVIDER_FAILURES: u32 = 3;
 
 #[derive(Debug, Error)]
 pub enum GardenError {
@@ -125,6 +126,8 @@ pub struct SourceVersion {
     pub extraction_attempts: u32,
     #[serde(default)]
     pub semantic_integrity_failures: u32,
+    #[serde(default)]
+    pub retryable_provider_failures: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -830,11 +833,28 @@ impl Application {
                 &acquisition.received_at,
                 "pending",
             );
+            if existing.info.current_version_id.is_none() {
+                let previous_original = destination.join(&existing.info.asset);
+                if let Some(previous) = existing
+                    .info
+                    .versions_seen
+                    .iter()
+                    .find(|previous| previous.source_version_id == existing.info.sha256)
+                {
+                    let previous_path = self.version_original_path(&source_id, previous)?;
+                    if previous_original.exists() && !previous_path.exists() {
+                        write_atomic_from_file(&previous_path, &previous_original)?;
+                    }
+                }
+            }
             let version_path = self.version_original_path(&source_id, &version)?;
             write_atomic_from_file(&version_path, &staging.path().join(&asset))?;
             existing.info.versions_seen.push(version);
             existing.info.pending_version_id = Some(digest.clone());
             existing.info.update_status = Some("pending".into());
+            if existing.info.current_version_id.is_none() {
+                existing.info.semantic_state = "pending".into();
+            }
             if !acquisition_exists {
                 write_acquisition(&destination, &acquisition)?;
             }
@@ -1175,6 +1195,16 @@ impl Application {
     /// so the desktop can keep import and navigation responsive during a slow service call.
     pub fn claim_due_semantic_jobs(&mut self, max_jobs: usize) -> Result<Vec<SemanticJob>> {
         let now = now_millis()?;
+        self.claim_due_semantic_jobs_at(max_jobs, now)
+    }
+
+    /// Claim persisted work at an explicit scheduler time for deterministic lifecycle checks.
+    /// Production callers should use claim_due_semantic_jobs.
+    pub fn claim_due_semantic_jobs_at(
+        &mut self,
+        max_jobs: usize,
+        now: u128,
+    ) -> Result<Vec<SemanticJob>> {
         let mut due = Vec::new();
         for entry in fs::read_dir(self.root.join("sources"))? {
             if due.len() >= max_jobs {
@@ -1244,13 +1274,17 @@ impl Application {
                 .cloned()
                 .ok_or_else(|| GardenError::Invalid("Pending source version is missing.".into()))?;
             let version_received_at = version.received_at.clone();
-            let candidate_path = if initial {
+            let version_path = self
+                .source_dir(&source_id)?
+                .join("versions")
+                .join(&source_version_id)
+                .join(&version.asset);
+            let candidate_path = if version_path.exists() {
+                version_path
+            } else if initial {
                 self.source_dir(&source_id)?.join(&version.asset)
             } else {
-                self.source_dir(&source_id)?
-                    .join("versions")
-                    .join(&source_version_id)
-                    .join(&version.asset)
+                version_path
             };
             let acquisition_history = if page.info.format == "html"
                 && page
@@ -1743,26 +1777,7 @@ impl Application {
                 }
             }
             Err(error) => {
-                if initial {
-                    self.record_semantic_failure(&mut page, error.message, error.retryable, false)?
-                } else {
-                    let retryable = error.retryable;
-                    page.info.update_status =
-                        Some(if retryable { "pending" } else { "failed" }.into());
-                    page.info.semantic_error = Some(error.message.chars().take(300).collect());
-                    page.info.semantic_retry_at = retryable.then(|| {
-                        let delay = (1_u64 << page.info.semantic_attempts.min(12)).min(3600);
-                        (now_millis().unwrap_or(0) + u128::from(delay * 1000)).to_string()
-                    });
-                    if let Some(version) = page
-                        .info
-                        .versions_seen
-                        .iter_mut()
-                        .find(|version| version.source_version_id == job.source_version_id)
-                    {
-                        version.state = page.info.update_status.clone().unwrap_or_default();
-                    }
-                }
+                self.record_provider_failure(&mut page, error.message, error.retryable)?;
             }
         }
         if self.staged_publication.is_empty() {
@@ -1931,7 +1946,13 @@ impl Application {
     }
 
     pub fn resume_due_semantic_jobs(&mut self) -> Result<()> {
-        let jobs = self.claim_due_semantic_jobs(4)?;
+        self.resume_due_semantic_jobs_at(now_millis()?)
+    }
+
+    /// Resume work at an explicit scheduler time for deterministic retry tests.
+    /// Production callers should use resume_due_semantic_jobs.
+    pub fn resume_due_semantic_jobs_at(&mut self, now: u128) -> Result<()> {
+        let jobs = self.claim_due_semantic_jobs_at(4, now)?;
         for job in jobs {
             let result = self
                 .semantic_provider
@@ -1948,6 +1969,32 @@ impl Application {
         draft: KnowledgeDraft,
     ) -> Result<()> {
         let prior_pages = source.info.knowledge_pages.clone();
+        if source.info.current_version_id.is_none() {
+            if let Some(version_id) = source.info.pending_version_id.as_deref() {
+                if let Some(version) = source
+                    .info
+                    .versions_seen
+                    .iter()
+                    .find(|version| version.source_version_id == version_id)
+                    .cloned()
+                {
+                    let candidate = self.version_original_path(&source.info.source_id, &version)?;
+                    if candidate.exists() {
+                        self.staged_publication.push((
+                            self.source_dir(&source.info.source_id)?
+                                .join(&version.asset),
+                            fs::read(candidate)?,
+                        ));
+                        source.info.original_name = version.original_name.clone();
+                        source.info.asset = version.asset.clone();
+                        source.info.sha256 = version.sha256.clone();
+                        source.info.bytes = version.bytes;
+                        source.info.format = version.format.clone();
+                        source.info.line_count = source_text.lines().count();
+                    }
+                }
+            }
+        }
         if draft.entities.len() > 500
             || draft.facts.len() > 2_000
             || draft.relationships.len() > 2_000
@@ -3199,11 +3246,53 @@ impl Application {
             page.info.semantic_state = if retryable { "pending" } else { "failed" }.into();
         }
         page.info.semantic_error = Some(message.chars().take(300).collect());
-        let delay_seconds = (1_u64 << page.info.semantic_attempts.min(12)).min(3600);
+        let retry_attempt = if invalid_draft {
+            page.info.semantic_attempts
+        } else {
+            page.info
+                .versions_seen
+                .iter()
+                .find(|version| {
+                    Some(version.source_version_id.as_str())
+                        == page.info.pending_version_id.as_deref()
+                })
+                .map(|version| version.retryable_provider_failures)
+                .unwrap_or(page.info.semantic_attempts)
+        };
+        let delay_seconds = (1_u64 << retry_attempt.min(12)).min(3600);
         page.info.semantic_retry_at = retryable
             .then(|| (now_millis().unwrap_or(0) + u128::from(delay_seconds * 1000)).to_string());
         page.markdown = serialize_page(&page.info, &page.body)?;
         Ok(())
+    }
+
+    fn record_provider_failure(
+        &self,
+        page: &mut SourcePage,
+        message: String,
+        retryable: bool,
+    ) -> Result<()> {
+        let retryable = if retryable {
+            let version = page
+                .info
+                .versions_seen
+                .iter_mut()
+                .find(|version| {
+                    Some(version.source_version_id.as_str())
+                        == page.info.pending_version_id.as_deref()
+                })
+                .ok_or_else(|| {
+                    GardenError::Invalid(
+                        "The failed provider result has no pending source version.".into(),
+                    )
+                })?;
+            version.retryable_provider_failures =
+                version.retryable_provider_failures.saturating_add(1);
+            version.retryable_provider_failures < MAX_RETRYABLE_PROVIDER_FAILURES
+        } else {
+            false
+        };
+        self.record_semantic_failure(page, message, retryable, false)
     }
 
     fn write_source_page(&self, page: &SourcePage) -> Result<()> {
@@ -4049,6 +4138,7 @@ fn source_version(
         state: state.to_owned(),
         extraction_attempts: 1,
         semantic_integrity_failures: 0,
+        retryable_provider_failures: 0,
         coverage: if state == "complete" {
             "complete"
         } else if state == "unavailable" {
