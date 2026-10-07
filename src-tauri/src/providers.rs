@@ -156,7 +156,12 @@ impl SemanticProvider for JevSemanticProvider {
         source_text: &str,
         prior_source_text: Option<&str>,
     ) -> std::result::Result<KnowledgeDraft, ProviderError> {
-        let mut candidates = candidates(source_text);
+        let photo_mode = source_text.starts_with("[PHOTO ");
+        let mut candidates = if photo_mode {
+            Vec::new()
+        } else {
+            candidates(source_text)
+        };
         let office_candidates = office_statement_candidates(source_text);
         let office_mode = !office_candidates.is_empty() || source_text.contains("; channel=");
         candidates.extend(office_candidates);
@@ -205,6 +210,7 @@ impl SemanticProvider for JevSemanticProvider {
                 CandidateKind::Place => "Does this exact source span place the described event at the named place? Phrases such as 'at Riverside' or 'Location: Riverside' explicitly attach the place to the event; keep any uncertainty in the qualification.",
                 CandidateKind::Count if candidate.origin == "quoted" => "Does the source explicitly quote or report the qualified count described by this candidate? Judge whether the source contains that quoted assertion, not whether the count was independently observed.",
                 CandidateKind::Reference => "Does the supplied text contain this exact URL as a reference occurrence? Do not infer or fetch its destination content.",
+                CandidateKind::PhotoStatement => "Does this exact native photo channel statement contain useful evidence for a photo page? Preserve the exact text and channel qualifiers. Metadata/captions are unauthenticated, OCR is transcription rather than a verified event, and classification is uncertain model interpretation. Include an explicit unknown capture date rather than inventing one. Do not infer people, dates, counts or scene objects beyond this channel statement.",
                 CandidateKind::OfficeStatement => "Is this exact extracted Office passage a meaningful source statement worth representing on a source knowledge page? This includes qualified table measurements, short visible count/value fragments, and speaker-note instructions or corrections; do not drop them merely because they are provisional, conditional, or not a complete sentence. Preserve table headers, every qualification, and visible-slide versus speaker-note origin. Do not convert a proposed correction or conditional instruction into a completed event. Reject headings or labels alone. Judge what the source states, not whether it is true in the world.",
                 _ => "Does this exact source span support the candidate as a statement made by the source? Do not judge whether the statement is true in the world.",
             };
@@ -661,12 +667,16 @@ impl SemanticProvider for JevSemanticProvider {
             }
         }
         if office_mode {
-            if let Some(first) = accepted
-                .iter()
-                .find(|candidate| candidate.kind == CandidateKind::OfficeStatement)
-            {
+            if let Some(first) = accepted.iter().find(|candidate| {
+                matches!(
+                    candidate.kind,
+                    CandidateKind::OfficeStatement | CandidateKind::PhotoStatement
+                )
+            }) {
                 let channel = office_channel_at(source_text, first.start).unwrap_or_default();
-                let document_label = if matches!(
+                let document_label = if photo_mode {
+                    "Imported photo"
+                } else if matches!(
                     channel.as_str(),
                     "slide_text" | "slide_text_table" | "speaker_notes"
                 ) {
@@ -791,12 +801,16 @@ impl SemanticProvider for JevSemanticProvider {
                 record_key: None,
             });
         }
-        for candidate in accepted
-            .iter()
-            .filter(|candidate| candidate.kind == CandidateKind::OfficeStatement)
-        {
+        for candidate in accepted.iter().filter(|candidate| {
+            matches!(
+                candidate.kind,
+                CandidateKind::OfficeStatement | CandidateKind::PhotoStatement
+            )
+        }) {
             let channel = office_channel_at(source_text, candidate.start).unwrap_or_default();
-            let subject = if matches!(
+            let subject = if photo_mode {
+                "Imported photo"
+            } else if matches!(
                 channel.as_str(),
                 "slide_text" | "slide_text_table" | "speaker_notes"
             ) {
@@ -805,6 +819,11 @@ impl SemanticProvider for JevSemanticProvider {
                 "Imported document"
             };
             let property = match channel.as_str() {
+                "observed_pixels" => "image_pixels",
+                "file_metadata" => "image_metadata",
+                "supplied_caption" => "image_caption",
+                "ocr" => "image_text",
+                "generated_interpretation" => "image_interpretation",
                 "table" => "table_row",
                 "slide_text" => "visible_slide_text",
                 "slide_text_table" => "visible_slide_table_row",
@@ -816,12 +835,16 @@ impl SemanticProvider for JevSemanticProvider {
                 property: property.into(),
                 value: candidate.value.clone(),
                 evidence: candidate.evidence(),
-                record_key: office_record_key(
-                    source_text,
-                    candidate.start,
-                    channel.as_str(),
-                    &candidate.value,
-                ),
+                record_key: if photo_mode {
+                    Some(photo_record_key(source_text, candidate.start, &channel))
+                } else {
+                    office_record_key(
+                        source_text,
+                        candidate.start,
+                        channel.as_str(),
+                        &candidate.value,
+                    )
+                },
             });
         }
         for candidate in accepted
@@ -855,6 +878,7 @@ enum CandidateKind {
     Reference,
     Tag,
     OfficeStatement,
+    PhotoStatement,
 }
 
 #[derive(Clone)]
@@ -1150,6 +1174,9 @@ fn push_source_span(text: &str, start: usize, end: usize, spans: &mut Vec<Source
 }
 
 fn report_date_candidates(text: &str) -> Vec<ReportDateCandidate> {
+    if text.starts_with("[PHOTO ") {
+        return Vec::new();
+    }
     let date_re = regex(
         r"(?i)\b(?:[0-9]{4}-[0-9]{2}-[0-9]{2}|(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+[0-9]{1,2},?\s+[0-9]{4})\b",
     );
@@ -1171,6 +1198,9 @@ fn report_date_candidates(text: &str) -> Vec<ReportDateCandidate> {
 }
 
 fn report_revision_candidates(text: &str) -> Vec<ReportRevisionCandidate> {
+    if text.starts_with("[PHOTO ") {
+        return Vec::new();
+    }
     let revision_re = regex(r"(?i)\brevision\s+([0-9]+)\b");
     revision_re
         .captures_iter(text)
@@ -1261,7 +1291,16 @@ fn office_statement_candidates(text: &str) -> Vec<Candidate> {
         if let Some((channel, body_offset)) = office_line_channel(line) {
             if matches!(
                 channel,
-                "main_document" | "table" | "slide_text" | "slide_text_table" | "speaker_notes"
+                "main_document"
+                    | "table"
+                    | "slide_text"
+                    | "slide_text_table"
+                    | "speaker_notes"
+                    | "observed_pixels"
+                    | "file_metadata"
+                    | "supplied_caption"
+                    | "ocr"
+                    | "generated_interpretation"
             ) {
                 let body = &line[body_offset..];
                 let leading = body.len() - body.trim_start().len();
@@ -1274,15 +1313,26 @@ fn office_statement_candidates(text: &str) -> Vec<Candidate> {
                         "slide_text" => "slide_visible",
                         "slide_text_table" => "slide_table_cell",
                         "speaker_notes" => "speaker_note",
+                        "observed_pixels"
+                        | "file_metadata"
+                        | "supplied_caption"
+                        | "ocr"
+                        | "generated_interpretation" => channel,
                         _ => "document_body",
                     };
                     result.push(Candidate {
-                        kind: CandidateKind::OfficeStatement,
+                        kind: if line.starts_with("[PHOTO ") { CandidateKind::PhotoStatement } else { CandidateKind::OfficeStatement },
                         value: quote.to_owned(),
                         quote: quote.to_owned(),
                         start,
                         end,
-                        qualifier: office_qualification(quote),
+                        qualifier: if line.starts_with("[PHOTO ") { Some(match channel {
+                            "file_metadata" => "unauthenticated file metadata; capture date unknown",
+                            "supplied_caption" => "unverified supplied caption; not observed pixels or authenticated capture date",
+                            "ocr" => "OCR transcription; confidence and region retained; not a verified event or identity",
+                            "generated_interpretation" => "uncertain classifier interpretation; not a verified pixel observation",
+                            _ => "decoded dimensions; named identities unknown",
+                        }.into()) } else { office_qualification(quote) },
                         origin: origin.into(),
                     });
                 }
@@ -1298,7 +1348,8 @@ fn office_line_channel(line: &str) -> Option<(&str, usize)> {
     let marker = line.get(1..closing)?;
     let channel = marker
         .strip_prefix("PPTX ")
-        .or_else(|| marker.strip_prefix("DOCX "))?;
+        .or_else(|| marker.strip_prefix("DOCX "))
+        .or_else(|| marker.strip_prefix("PHOTO "))?;
     let (_, channel) = channel.rsplit_once("; channel=")?;
     Some((channel, closing + 2))
 }
@@ -1309,6 +1360,23 @@ fn office_channel_at(text: &str, offset: usize) -> Option<String> {
         .find('\n')
         .map_or(text.len(), |index| offset + index);
     office_line_channel(&text[start..end]).map(|(channel, _)| channel.to_owned())
+}
+
+fn photo_record_key(text: &str, offset: usize, channel: &str) -> String {
+    let start = text[..offset].rfind('\n').map_or(0, |index| index + 1);
+    let line = text[start..].split('\n').next().unwrap_or_default();
+    let marker = line.split(';').next().unwrap_or("PHOTO whole image");
+    let qualifier_key = if channel == "generated_interpretation" {
+        line.split("Classifier prediction: ")
+            .nth(1)
+            .unwrap_or_default()
+            .split(" (")
+            .next()
+            .unwrap_or_default()
+    } else {
+        marker
+    };
+    format!("photo:{channel}:{}", office_key_slug(qualifier_key))
 }
 
 fn office_record_key(text: &str, offset: usize, channel: &str, quote: &str) -> Option<String> {

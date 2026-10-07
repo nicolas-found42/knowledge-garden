@@ -769,7 +769,8 @@ impl Application {
                     Ok(web) => (ExtractionState::StructuredText, web.detail, None),
                     Err(detail) => (ExtractionState::InvalidUtf8, detail, None),
                 }
-            } else if matches!(format.as_str(), "docx" | "pptx") {
+            } else if matches!(format.as_str(), "docx" | "pptx") || crate::photo::is_photo(&format)
+            {
                 match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
@@ -865,7 +866,8 @@ impl Application {
                 Err(_) => (ExtractionState::InvalidUtf8, "The source is not valid UTF-8. The original is retained without lossy decoding.".into(), String::new(), None, None),
                 Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 response text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
             }
-            } else if matches!(format.as_str(), "docx" | "pptx") {
+            } else if matches!(format.as_str(), "docx" | "pptx") || crate::photo::is_photo(&format)
+            {
                 match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
@@ -889,14 +891,16 @@ impl Application {
                         )
                     }
                     Err(detail) => {
-                        let scope = if format == "docx" {
+                        let scope = if crate::photo::is_photo(&format) {
+                            CoverageScope::ImagePixels
+                        } else if format == "docx" {
                             CoverageScope::MainDocument
                         } else {
                             CoverageScope::SlideText
                         };
                         (
                             ExtractionState::InvalidContainer,
-                            format!("Office container could not be read. {detail}"),
+                            format!("Source container could not be read. {detail}"),
                             String::new(),
                             None,
                             Some(vec![CoveragePart {
@@ -1271,7 +1275,9 @@ impl Application {
                         } else {
                             version_path
                         };
-                        if matches!(version.format.as_str(), "docx" | "pptx") {
+                        if matches!(version.format.as_str(), "docx" | "pptx")
+                            || crate::photo::is_photo(&version.format)
+                        {
                             self.extractor
                                 .extract(&path, &version.format, &page.info.title)
                                 .ok()
@@ -1424,13 +1430,16 @@ impl Application {
                 } else {
                     let prior_page = page.clone();
                     let update = draft.source_update.clone();
-                    let result = self
-                        .store_source_update(
-                            &mut page,
-                            &job.source_version_id,
-                            &job.source_text,
-                            update.as_ref(),
-                        )
+                    let result = crate::photo::validate_draft(&job.source_text, &draft)
+                        .map_err(GardenError::Invalid)
+                        .and_then(|()| {
+                            self.store_source_update(
+                                &mut page,
+                                &job.source_version_id,
+                                &job.source_text,
+                                update.as_ref(),
+                            )
+                        })
                         .and_then(|()| {
                             if initial {
                                 // A first acquisition has no existing facts to withdraw. Even
@@ -1843,6 +1852,7 @@ impl Application {
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         "extracted Office projection; offsets are not original package byte offsets"
                     }
+                    EvidenceOffsetBasis::ExtractedImageProjection => "extracted image projection; offsets are not original image byte offsets",
                     EvidenceOffsetBasis::WebVisibleText => {
                         "extracted web visible-text projection; offsets are not downloaded HTML byte offsets"
                     }
@@ -1857,6 +1867,9 @@ impl Application {
                     EvidenceOffsetBasis::PreservedText => ("source lines", "source bytes"),
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         ("extracted projection lines", "extracted projection bytes")
+                    }
+                    EvidenceOffsetBasis::ExtractedImageProjection => {
+                        ("image projection lines", "image projection bytes")
                     }
                     EvidenceOffsetBasis::WebVisibleText => (
                         "visible-text projection lines",
@@ -1898,6 +1911,11 @@ impl Application {
                         "extracted projection bytes",
                         relationship.evidence.source_location.as_deref().map(|location| format!(" · original locator: {location}")).unwrap_or_default(),
                         "The original opens as a fallback; use the OOXML part and location above to find the extracted passage.",
+                    ),
+                    EvidenceOffsetBasis::ExtractedImageProjection => (
+                        "image projection lines", "image projection bytes",
+                        relationship.evidence.source_location.as_deref().map(|location| format!(" · image locator: {location}")).unwrap_or_default(),
+                        "Open the image preview or retained original using the normalized region locator; whole-image fallback when no region exists.",
                     ),
                     EvidenceOffsetBasis::WebVisibleText => (
                         "visible-text projection lines",
@@ -2314,7 +2332,9 @@ impl Application {
             .join("versions")
             .join(source_version_id)
             .join(&candidate.asset);
-        let office_projection = if matches!(candidate.format.as_str(), "docx" | "pptx") {
+        let office_projection = if matches!(candidate.format.as_str(), "docx" | "pptx")
+            || crate::photo::is_photo(&candidate.format)
+        {
             Some(
                 self.extractor
                     .extract(
@@ -2955,6 +2975,16 @@ impl Application {
             ));
         }
         Ok(original)
+    }
+
+    pub fn preview_original(&self, source_id: &str) -> Result<String> {
+        let source = self.open_source(source_id)?;
+        if !crate::photo::is_photo(&source.info.format) {
+            return Err(GardenError::Invalid(
+                "This original is not a supported photograph.".into(),
+            ));
+        }
+        crate::photo::preview(&self.original_path(source_id)?).map_err(GardenError::Invalid)
     }
 
     pub fn original_asset_path(&self, source_id: &str, asset: &str) -> Result<PathBuf> {
@@ -3950,6 +3980,7 @@ fn evidence_offset_basis_name(basis: EvidenceOffsetBasis) -> &'static str {
         EvidenceOffsetBasis::PreservedText => "preserved_text",
         EvidenceOffsetBasis::ExtractedOfficeProjection => "extracted_office_projection",
         EvidenceOffsetBasis::WebVisibleText => "web_visible_text",
+        EvidenceOffsetBasis::ExtractedImageProjection => "extracted_image_projection",
     }
 }
 
@@ -4102,6 +4133,7 @@ enum EvidenceOffsetBasis {
     PreservedText,
     ExtractedOfficeProjection,
     WebVisibleText,
+    ExtractedImageProjection,
 }
 
 fn evidence_display_basis(
@@ -4119,6 +4151,11 @@ fn evidence_display_basis(
             "extracted projection lines",
             "extracted projection bytes",
             "The retained original opens as a fallback; use the OOXML part and locator above to find this passage.",
+        ),
+        EvidenceOffsetBasis::ExtractedImageProjection => (
+            "extracted image projection; offsets are not original image byte offsets",
+            "image projection lines", "image projection bytes",
+            "Open the image preview or retained original using normalized region coordinates; otherwise use the disclosed whole-image fallback.",
         ),
         EvidenceOffsetBasis::WebVisibleText => (
             "extracted web visible-text projection; offsets are not downloaded HTML byte offsets",
@@ -4297,12 +4334,19 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         {
             EvidenceOffsetBasis::ExtractedOfficeProjection
         }
+        None if inferred_location
+            .as_deref()
+            .is_some_and(|locator| locator.starts_with("PHOTO ")) =>
+        {
+            EvidenceOffsetBasis::ExtractedImageProjection
+        }
         None => EvidenceOffsetBasis::PreservedText,
         Some("preserved_text") => EvidenceOffsetBasis::PreservedText,
         Some("office_projection") | Some("extracted_office_projection") => {
             EvidenceOffsetBasis::ExtractedOfficeProjection
         }
         Some("web_visible_text") => EvidenceOffsetBasis::WebVisibleText,
+        Some("extracted_image_projection") => EvidenceOffsetBasis::ExtractedImageProjection,
         Some(_) => {
             return Err(GardenError::Invalid(
                 "Semantic evidence uses an unsupported offset basis.".into(),

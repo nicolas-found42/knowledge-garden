@@ -17,7 +17,11 @@ export type CoverageScope =
   | "tables"
   | "slide_text"
   | "speaker_notes"
-  | "embedded_object";
+  | "embedded_object"
+  | "image_pixels"
+  | "image_metadata"
+  | "image_text"
+  | "image_interpretation";
 
 export type CoverageStatus = "complete" | "partial" | "unsupported" | "failed";
 
@@ -130,7 +134,10 @@ export interface SearchMatchLocation {
   line_start: number;
   line_end: number;
   offset_basis:
-    "preserved_text" | "extracted_office_projection" | "web_visible_text";
+    | "preserved_text"
+    | "extracted_office_projection"
+    | "web_visible_text"
+    | "extracted_image_projection";
   source_location: string | null;
 }
 
@@ -170,6 +177,7 @@ export interface GardenApi {
   openSource(sourceId: string): Promise<SourcePage>;
   openKnowledgePage(pageId: string): Promise<KnowledgePage>;
   openOriginal(sourceId: string): Promise<void>;
+  previewOriginal?(sourceId: string): Promise<string>;
   openOriginalVersion(
     sourceId: string,
     sourceVersionId: string,
@@ -205,6 +213,7 @@ export const desktopApi: GardenApi = {
   openSource: (sourceId) => invoke("open_source", { sourceId }),
   openKnowledgePage: (pageId) => invoke("open_knowledge_page", { pageId }),
   openOriginal: (sourceId) => invoke("open_original", { sourceId }),
+  previewOriginal: (sourceId) => invoke("preview_original", { sourceId }),
   openOriginalVersion: (sourceId, sourceVersionId, asset) =>
     invoke("open_original_version", { sourceId, sourceVersionId, asset }),
   openOriginalAsset: (sourceId, asset) =>
