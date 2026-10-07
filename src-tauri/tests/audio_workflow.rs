@@ -4,11 +4,13 @@ use knowledge_garden::{
     media::{
         AudioInfo, AudioProcessor, TranscriptSegment, TranscriptionBatch, WhisperAudioProcessor,
     },
+    providers::{JevSemanticProvider, SystemOneTransport},
     semantic::{
         EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, SemanticProvider,
         SourceUpdateDraft, SourceUpdateRole,
     },
 };
+use serde_json::{json, Value};
 use sha2::Digest;
 use std::{
     fs,
@@ -21,6 +23,116 @@ use std::{
 use tempfile::tempdir;
 
 static LOCAL_ASR_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+const SPEECH_ACT_TRANSCRIPT: &str = "Observation V71. Question: should we inspect Riverside today? Decision: postpone the visit until tomorrow. Reasoning: the east bridge is flooded.";
+const SPEECH_ACT_NO_EVENT_TRANSCRIPT: &str = "Question: should we inspect the bridge today? Decision: postpone the visit until tomorrow. Reasoning: water is rising.";
+
+struct SpeechActAudio {
+    transcript: &'static str,
+}
+impl AudioProcessor for SpeechActAudio {
+    fn inspect(&self, _path: &Path) -> Result<AudioInfo, String> {
+        Ok(AudioInfo {
+            format: "wav".into(),
+            duration_ms: 8_000,
+            sample_rate: 48_000.0,
+            channels: 1,
+            codec: "synthetic labeled audio".into(),
+        })
+    }
+
+    fn install_assets(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn transcribe_segment(
+        &self,
+        _path: &Path,
+        start_ms: u64,
+        duration_ms: u64,
+    ) -> Result<TranscriptionBatch, String> {
+        assert_eq!(start_ms, 0);
+        Ok(TranscriptionBatch {
+            schema: 1,
+            requested_start_ms: start_ms,
+            requested_duration_ms: duration_ms,
+            processed_duration_ms: 8_000,
+            media_duration_ms: 8_000,
+            state: "complete".into(),
+            coverage: "synthetic frozen label".into(),
+            detail: "Deterministic application-boundary fixture; speaker identity is unknown."
+                .into(),
+            segments: vec![TranscriptSegment {
+                segment_id: String::new(),
+                start_ms: 1_200,
+                end_ms: 6_400,
+                text: self.transcript.into(),
+                confidence: None,
+                alternatives: Vec::new(),
+                speaker: None,
+                speaker_state: "unidentified".into(),
+                final_result: true,
+            }],
+        })
+    }
+}
+
+struct SpeechActTransport;
+impl SystemOneTransport for SpeechActTransport {
+    fn complete(&self, _api_key: &str, request: &Value) -> Result<Value, ProviderError> {
+        let questions = request["questions"].as_object().unwrap();
+        let mut answers = serde_json::Map::new();
+        for (key, question) in questions {
+            let answer = match question["type"].as_str().unwrap_or_default() {
+                "noul" => json!({"type":"noul","noul":0.99}),
+                "choice" => {
+                    let criteria = question["criteria"].as_object().unwrap();
+                    let choice = match key.as_str() {
+                        "source_update_role" => "unknown",
+                        "source_update_evidence" => "span_0",
+                        "source_order_date" | "source_order_revision" | "event_date" => "none",
+                        "event_identity" => "event",
+                        name if name.starts_with("person_identity_") => "uncertain",
+                        name if name.starts_with("relation_") => {
+                            if criteria.contains_key("location") {
+                                "location"
+                            } else {
+                                "none"
+                            }
+                        }
+                        name if name.starts_with("audio_speech_act_") => {
+                            let instructions =
+                                question["instructions"].as_str().unwrap_or_default();
+                            if instructions.contains("Exact transcript span: Question:") {
+                                "question"
+                            } else if instructions.contains("Exact transcript span: Decision:") {
+                                "decision"
+                            } else if instructions.contains("Exact transcript span: Reasoning:") {
+                                "reasoning"
+                            } else {
+                                "not_speech_act"
+                            }
+                        }
+                        _ => criteria.keys().next().map(String::as_str).unwrap_or("none"),
+                    };
+                    if !criteria.contains_key(choice) {
+                        return Err(ProviderError::recoverable(format!(
+                            "frozen speech fixture has no option `{choice}` for `{key}`"
+                        )));
+                    }
+                    json!({"type":"choice","choice":choice,"probabilities":{choice:0.99}})
+                }
+                _ => {
+                    return Err(ProviderError::recoverable(
+                        "Unexpected Jev question type.".into(),
+                    ))
+                }
+            };
+            answers.insert(key.clone(), answer);
+        }
+        Ok(json!({"model":"typesafe/jev-1.13-frozen-speech-fixture","answers":answers}))
+    }
+}
 
 struct EmptyProvider;
 impl SemanticProvider for EmptyProvider {
@@ -1147,4 +1259,143 @@ fn missing_bundled_whisper_model_keeps_audio_pending_and_original_available() {
         fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
         original
     );
+}
+
+#[test]
+fn acquired_speech_questions_decisions_and_reasoning_publish_with_segment_evidence() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("spoken-observation.wav");
+    let original = b"frozen synthetic recording bytes";
+    fs::write(&source, original).unwrap();
+    let collection = workspace.path().join("collection");
+    let semantic = Arc::new(JevSemanticProvider::with_transport(
+        "recorded-test-key".into(),
+        Arc::new(SpeechActTransport),
+    ));
+    let mut app = Application::open_with_all_providers(
+        &collection,
+        semantic.clone(),
+        Arc::new(LocalExtractor),
+        Arc::new(SpeechActAudio {
+            transcript: SPEECH_ACT_TRANSCRIPT,
+        }),
+    )
+    .unwrap();
+
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_audio_jobs().unwrap();
+    let transcribed = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(
+        transcribed.info.audio_processing.as_ref().unwrap().segments[0].text,
+        SPEECH_ACT_TRANSCRIPT
+    );
+    assert_eq!(
+        fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        original
+    );
+
+    let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    let draft =
+        semantic.form_knowledge_with_prior(&job.source_text, job.prior_source_text.as_deref());
+    app.finish_semantic_job(job, draft).unwrap();
+
+    let published = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(
+        published.info.semantic_state, "complete",
+        "{:?}",
+        published.info.semantic_error
+    );
+    let event = published
+        .info
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "event")
+        .expect("the spoken observation remains a navigable event");
+    let markdown = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+    for (property, quote) in [
+        ("spoken question", "should we inspect Riverside today?"),
+        ("spoken decision", "postpone the visit until tomorrow"),
+        ("spoken reasoning", "the east bridge is flooded"),
+    ] {
+        assert!(markdown.contains(&format!("**{property}:**")), "{markdown}");
+        assert!(markdown.contains(quote), "{markdown}");
+    }
+    assert!(markdown.contains("AUDIO 1200–6400 ms"), "{markdown}");
+    assert!(
+        markdown.contains("Open audio at this timestamp"),
+        "{markdown}"
+    );
+    assert!(
+        markdown.contains("Machine transcription; wording and speaker identity are unverified"),
+        "{markdown}"
+    );
+    assert!(published.body.contains("speakers are left unidentified"));
+}
+
+#[test]
+fn speech_acts_without_event_identity_link_to_a_recording_anchor_not_an_invented_event() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("ordinary-speech.wav");
+    let original = b"ordinary speech without an event identifier";
+    fs::write(&source, original).unwrap();
+    let semantic = Arc::new(JevSemanticProvider::with_transport(
+        "recorded-test-key".into(),
+        Arc::new(SpeechActTransport),
+    ));
+    let mut app = Application::open_with_all_providers(
+        workspace.path().join("collection"),
+        semantic.clone(),
+        Arc::new(LocalExtractor),
+        Arc::new(SpeechActAudio {
+            transcript: SPEECH_ACT_NO_EVENT_TRANSCRIPT,
+        }),
+    )
+    .unwrap();
+
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_audio_jobs().unwrap();
+    let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    let draft =
+        semantic.form_knowledge_with_prior(&job.source_text, job.prior_source_text.as_deref());
+    app.finish_semantic_job(job, draft).unwrap();
+
+    let published = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(
+        published.info.semantic_state, "complete",
+        "speech acts without an event identifier should still be navigable: {:?}",
+        published.info.semantic_error
+    );
+    let recording = published
+        .info
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "audio_recording" && page.title == "Recorded speech")
+        .expect("ordinary speech has a recording-level anchor, not a fabricated event");
+    let markdown = app
+        .open_knowledge_page(&recording.page_id)
+        .unwrap()
+        .markdown;
+    for (property, quote) in [
+        ("spoken question", "should we inspect the bridge today?"),
+        ("spoken decision", "postpone the visit until tomorrow"),
+        ("spoken reasoning", "water is rising"),
+    ] {
+        assert!(markdown.contains(&format!("**{property}:**")), "{markdown}");
+        assert!(markdown.contains(quote), "{markdown}");
+    }
+    assert!(markdown.contains("AUDIO 1200–6400 ms"), "{markdown}");
+    assert!(published.body.contains("speakers are left unidentified"));
+    assert_eq!(
+        fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        original
+    );
+    assert!(published
+        .info
+        .knowledge_pages
+        .iter()
+        .all(|page| page.kind != "event"));
 }
