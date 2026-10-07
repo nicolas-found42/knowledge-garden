@@ -1,4 +1,5 @@
 //! Public, disk-backed collection operations. Markdown and originals are authoritative.
+use crate::extraction::{LocalExtractor, SourceExtractor};
 use crate::office::{CoveragePart, CoverageScope, CoverageStatus, OfficeProjection};
 use crate::semantic::{
     EntityDraft, EvidenceDraft, KnowledgeDraft, KnowledgePage, KnowledgePageSummary, ProviderError,
@@ -118,6 +119,10 @@ pub struct SourceVersion {
     pub state: String,
     #[serde(default)]
     pub coverage: String,
+    #[serde(default)]
+    pub extraction_attempts: u32,
+    #[serde(default)]
+    pub semantic_integrity_failures: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -169,7 +174,7 @@ pub struct SourceSummary {
     pub extraction: ExtractionState,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourcePage {
     pub info: SourceInfo,
     pub markdown: String,
@@ -251,6 +256,7 @@ pub struct Application {
     // The lock survives for this application's lifetime, including across commands.
     _lock: File,
     semantic_provider: Arc<dyn SemanticProvider>,
+    extractor: Arc<dyn SourceExtractor>,
     staged_publication: Vec<(PathBuf, Vec<u8>)>,
     fail_after_publication_files: Option<usize>,
 }
@@ -268,19 +274,32 @@ impl Application {
     }
 
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
-        Self::open_inner(root, Arc::new(UnavailableProvider))
+        Self::open_inner(
+            root,
+            Arc::new(UnavailableProvider),
+            Arc::new(LocalExtractor),
+        )
     }
 
     pub fn open_with_semantic_provider(
         root: impl AsRef<Path>,
         semantic_provider: Arc<dyn SemanticProvider>,
     ) -> Result<Self> {
-        Self::open_inner(root, semantic_provider)
+        Self::open_inner(root, semantic_provider, Arc::new(LocalExtractor))
+    }
+
+    pub fn open_with_providers(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
+    ) -> Result<Self> {
+        Self::open_inner(root, semantic_provider, extractor)
     }
 
     fn open_inner(
         root: impl AsRef<Path>,
         semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
     ) -> Result<Self> {
         fs::create_dir_all(root.as_ref())?;
         let root = fs::canonicalize(root)?;
@@ -342,6 +361,7 @@ impl Application {
             index,
             _lock: lock,
             semantic_provider,
+            extractor,
             staged_publication: Vec::new(),
             fail_after_publication_files: None,
         };
@@ -717,6 +737,24 @@ impl Application {
                 self.index_acquisition(&acquisition.path, &source_id)?;
                 return self.open_source(&source_id);
             }
+            let version = source_version(
+                &digest,
+                count,
+                &original_name,
+                &asset,
+                &format,
+                &acquisition.received_at,
+                "pending",
+            );
+            let version_path = self.version_original_path(&source_id, &version)?;
+            write_atomic_from_file(&version_path, &staging.path().join(&asset))?;
+            existing.info.versions_seen.push(version);
+            existing.info.pending_version_id = Some(digest.clone());
+            existing.info.update_status = Some("pending".into());
+            if !acquisition_exists {
+                write_acquisition(&destination, &acquisition)?;
+            }
+            self.index_acquisition(&acquisition.path, &source_id)?;
             let (extraction, extraction_detail, extraction_coverage) = if method
                 == AcquisitionMethod::Url
                 && format == "html"
@@ -732,7 +770,7 @@ impl Application {
                     Err(detail) => (ExtractionState::InvalidUtf8, detail, None),
                 }
             } else if matches!(format.as_str(), "docx" | "pptx") {
-                match crate::office::extract(
+                match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
                     path.file_stem()
@@ -750,7 +788,7 @@ impl Application {
                         Some(projection.coverage),
                     ),
                     Err(detail) => {
-                        existing.info.update_status = Some("incomplete".into());
+                        existing.info.update_status = Some("pending".into());
                         existing.info.semantic_error = Some(format!(
                                 "The changed Office version was retained, but extraction failed: {detail}"
                             ));
@@ -769,9 +807,6 @@ impl Application {
                     | ExtractionState::StructuredText
                     | ExtractionState::PartialText
             ) {
-                if !acquisition_exists {
-                    write_acquisition(&destination, &acquisition)?;
-                }
                 existing.info.update_status = Some("incomplete".into());
                 existing.info.semantic_error = Some(format!(
                     "The changed source version was retained, but {} prevented a complete replacement.",
@@ -784,26 +819,8 @@ impl Application {
             existing.info.extraction = extraction;
             existing.info.extraction_detail = extraction_detail;
             existing.info.extraction_coverage = extraction_coverage;
-            let version = source_version(
-                &digest,
-                count,
-                &original_name,
-                &asset,
-                &format,
-                &acquisition.received_at,
-                "pending",
-            );
-            let version_path = self.version_original_path(&source_id, &version)?;
-            write_atomic_from_file(&version_path, &staging.path().join(&asset))?;
-            existing.info.versions_seen.push(version);
-            existing.info.pending_version_id = Some(digest);
-            existing.info.update_status = Some("pending".into());
             existing.info.semantic_error = None;
             existing.info.semantic_retry_at = None;
-            if !acquisition_exists {
-                write_acquisition(&destination, &acquisition)?;
-            }
-            self.index_acquisition(&acquisition.path, &source_id)?;
             self.write_source_page(&existing)?;
             self.index_page(&existing.info)?;
             return self.open_source(&source_id);
@@ -849,7 +866,7 @@ impl Application {
                 Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 response text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
             }
             } else if matches!(format.as_str(), "docx" | "pptx") {
-                match crate::office::extract(
+                match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
                     path.file_stem()
@@ -1170,6 +1187,14 @@ impl Application {
                     .any(|acquisition| acquisition.method == AcquisitionMethod::Url)
             {
                 let bytes = fs::read(&candidate_path)?;
+                if !initial && bytes.len() > MAX_TEXT_BYTES {
+                    self.record_extraction_recovery(
+                        &mut page,
+                        &source_version_id,
+                        "The retained HTML extends beyond the supported projection region; complete replacement coverage is unavailable.".into(),
+                    )?;
+                    continue;
+                }
                 let final_url = acquisition_history
                     .iter()
                     .find(|acquisition| acquisition.received_at == version_received_at)
@@ -1194,9 +1219,37 @@ impl Application {
                 page.info.extraction,
                 ExtractionState::StructuredText | ExtractionState::PartialText
             ) {
-                crate::office::extract(&candidate_path, &page.info.format, &page.info.title)
-                    .map_err(GardenError::Invalid)?
-                    .semantic_text
+                let projection =
+                    match self
+                        .extractor
+                        .extract(&candidate_path, &version.format, &page.info.title)
+                    {
+                        Ok(projection) => projection,
+                        Err(detail) if !initial => {
+                            self.record_extraction_recovery(&mut page, &source_version_id, detail)?;
+                            continue;
+                        }
+                        Err(detail) => return Err(GardenError::Invalid(detail)),
+                    };
+                if !initial
+                    && (projection.partial
+                        || projection
+                            .coverage
+                            .iter()
+                            .any(|part| part.status != CoverageStatus::Complete))
+                {
+                    self.record_extraction_recovery(
+                        &mut page,
+                        &source_version_id,
+                        projection.detail,
+                    )?;
+                    continue;
+                }
+                page.info.extraction_coverage = Some(projection.coverage);
+                if !projection.partial {
+                    page.info.extraction = ExtractionState::StructuredText;
+                }
+                projection.semantic_text
             } else {
                 let bytes = fs::read(candidate_path)?;
                 String::from_utf8(bytes).map_err(|_| {
@@ -1219,7 +1272,8 @@ impl Application {
                             version_path
                         };
                         if matches!(version.format.as_str(), "docx" | "pptx") {
-                            crate::office::extract(&path, &version.format, &page.info.title)
+                            self.extractor
+                                .extract(&path, &version.format, &page.info.title)
                                 .ok()
                                 .map(|projection| projection.semantic_text)
                         } else {
@@ -1260,6 +1314,40 @@ impl Application {
             });
         }
         Ok(jobs)
+    }
+
+    fn record_extraction_recovery(
+        &mut self,
+        page: &mut SourcePage,
+        version_id: &str,
+        detail: String,
+    ) -> Result<()> {
+        let version = page
+            .info
+            .versions_seen
+            .iter_mut()
+            .find(|version| version.source_version_id == version_id)
+            .ok_or_else(|| {
+                GardenError::Invalid("The recovery source version is missing.".into())
+            })?;
+        version.extraction_attempts = version.extraction_attempts.saturating_add(1);
+        let exhausted = version.extraction_attempts >= 3;
+        version.coverage = "partial".into();
+        version.state = if exhausted { "failed" } else { "pending" }.into();
+        page.info.update_status = Some(version.state.clone());
+        page.info.semantic_error = Some(format!(
+            "Update {}: extraction has not established complete coverage. {}",
+            if exhausted { "failed" } else { "pending" },
+            detail.chars().take(200).collect::<String>()
+        ));
+        page.info.semantic_retry_at = if exhausted {
+            None
+        } else {
+            Some((now_millis()? + 2000).to_string())
+        };
+        self.write_source_page(page)?;
+        self.index_page(&page.info)?;
+        Ok(())
     }
 
     pub fn finish_semantic_job(
@@ -1331,8 +1419,10 @@ impl Application {
                             "Office semantic processing selected no content-bearing facts; coverage remains incomplete and will retry automatically.".into()
                         },
                         true,
+                        true,
                     )?;
                 } else {
+                    let prior_page = page.clone();
                     let update = draft.source_update.clone();
                     let result = self
                         .store_source_update(
@@ -1363,14 +1453,16 @@ impl Application {
                             page.info.semantic_retry_at = None;
                         }
                         Err(error) => {
-                            self.record_semantic_failure(&mut page, error.to_string(), true)?
+                            self.staged_publication.clear();
+                            page = prior_page;
+                            self.record_semantic_failure(&mut page, error.to_string(), true, true)?
                         }
                     }
                 }
             }
             Err(error) => {
                 if initial {
-                    self.record_semantic_failure(&mut page, error.message, error.retryable)?
+                    self.record_semantic_failure(&mut page, error.message, error.retryable, false)?
                 } else {
                     let retryable = error.retryable;
                     page.info.update_status =
@@ -1898,6 +1990,7 @@ impl Application {
                     .cloned(),
             );
             mark_arrival_fallback(source, &replaced_sources);
+            check_omission_evidence(&old.facts, &[], &replaced_sources, source_text)?;
             old.facts = self.reconcile_facts(old.facts, Vec::new(), &replaced_sources)?;
             old.relationships =
                 self.reconcile_relationships(old.relationships, Vec::new(), &replaced_sources)?;
@@ -1925,6 +2018,7 @@ impl Application {
                         .cloned(),
                 );
                 mark_arrival_fallback(source, &replaced_sources);
+                check_omission_evidence(&old.facts, &header.facts, &replaced_sources, source_text)?;
                 header.facts = self.reconcile_facts(old.facts, header.facts, &replaced_sources)?;
                 header.relationships = self.reconcile_relationships(
                     old.relationships,
@@ -2222,16 +2316,17 @@ impl Application {
             .join(&candidate.asset);
         let office_projection = if matches!(candidate.format.as_str(), "docx" | "pptx") {
             Some(
-                crate::office::extract(
-                    &candidate_path,
-                    &candidate.format,
-                    Path::new(&candidate.original_name)
-                        .file_stem()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .as_ref(),
-                )
-                .map_err(GardenError::Invalid)?,
+                self.extractor
+                    .extract(
+                        &candidate_path,
+                        &candidate.format,
+                        Path::new(&candidate.original_name)
+                            .file_stem()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .as_ref(),
+                    )
+                    .map_err(GardenError::Invalid)?,
             )
         } else {
             None
@@ -2803,8 +2898,24 @@ impl Application {
         page: &mut SourcePage,
         message: String,
         retryable: bool,
+        invalid_draft: bool,
     ) -> Result<()> {
-        page.info.semantic_state = if retryable { "pending" } else { "failed" }.into();
+        let mut retryable = retryable;
+        if let Some(version) = page.info.versions_seen.iter_mut().find(|version| {
+            Some(version.source_version_id.as_str()) == page.info.pending_version_id.as_deref()
+        }) {
+            if invalid_draft {
+                version.semantic_integrity_failures =
+                    version.semantic_integrity_failures.saturating_add(1);
+                retryable &= version.semantic_integrity_failures < 3;
+            }
+            version.state = if retryable { "pending" } else { "failed" }.into();
+        }
+        if page.info.current_version_id.is_some() {
+            page.info.update_status = Some(if retryable { "pending" } else { "failed" }.into());
+        } else {
+            page.info.semantic_state = if retryable { "pending" } else { "failed" }.into();
+        }
         page.info.semantic_error = Some(message.chars().take(300).collect());
         let delay_seconds = (1_u64 << page.info.semantic_attempts.min(12)).min(3600);
         page.info.semantic_retry_at = retryable
@@ -3517,6 +3628,27 @@ fn classify_source(
     }
 }
 
+fn check_omission_evidence(
+    previous: &[FactRecord],
+    incoming: &[FactRecord],
+    removed_sources: &HashSet<String>,
+    text: &str,
+) -> Result<()> {
+    for fact in previous {
+        if incoming.iter().any(|next| next.fact_id == fact.fact_id) {
+            continue;
+        }
+        if fact.supports.iter().any(|support| {
+            removed_sources.contains(&support.source_id)
+                && !support.evidence.quote.trim().is_empty()
+                && text.contains(&support.evidence.quote)
+        }) {
+            return Err(GardenError::Invalid(format!("Replacement extraction omitted `{}` although its prior supporting quote remains present. Keep the last successful version and retry scoped extraction.", fact.property)));
+        }
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn source_version(
     digest: &str,
@@ -3546,6 +3678,8 @@ fn source_version(
         source_revision_evidence: None,
         source_revision_confidence: None,
         state: state.to_owned(),
+        extraction_attempts: 1,
+        semantic_integrity_failures: 0,
         coverage: if state == "complete" {
             "complete"
         } else if state == "unavailable" {
@@ -3859,10 +3993,9 @@ fn find_text_match(text: &str, terms: &[String]) -> Option<(usize, usize)> {
 fn write_acquisition(destination: &Path, acquisition: &Acquisition) -> Result<()> {
     let contexts = destination.join("acquisitions");
     fs::create_dir_all(&contexts)?;
-    let key = format!(
-        "{:x}",
-        Sha256::digest(format!("{}:{:?}", acquisition.path, acquisition.method).as_bytes())
-    );
+    // One requested URL can have several independently acquired redirect contexts.
+    // Preserve each record instead of overwriting or colliding with its predecessor.
+    let key = format!("{:x}", Sha256::digest(serde_json::to_vec(acquisition)?));
     let mut record = tempfile::NamedTempFile::new_in(&contexts)?;
     write!(
         record,
