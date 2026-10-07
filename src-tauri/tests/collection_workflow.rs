@@ -1,5 +1,5 @@
 use knowledge_garden::application::{
-    AcquisitionMethod, Application, ExtractionState, PageSearchRequest,
+    AcquisitionMethod, Application, ExtractionState, PageSearchMode, PageSearchRequest,
 };
 use knowledge_garden::providers::{JevSemanticProvider, SystemOneTransport};
 use knowledge_garden::semantic::{
@@ -959,7 +959,7 @@ fn application_recovery_replays_an_actual_interrupted_replacement_transaction() 
         .contains("Injected publication interruption"));
     drop(app);
 
-    let app = Application::open(&collection).unwrap();
+    let mut app = Application::open(&collection).unwrap();
     let current = app.open_source(&first.info.source_id).unwrap();
     assert_eq!(current.info.semantic_state, "complete");
     assert_eq!(
@@ -1151,6 +1151,7 @@ fn search_returns_frozen_page_set_from_titles_tags_keyword_and_current_metadata(
 
     let combined = app
         .search_pages(PageSearchRequest {
+            mode: PageSearchMode::Keyword,
             query: "Riverside".into(),
             tags: vec!["#fieldwork".into()],
             date_from: Some("2024-05-01".into()),
@@ -1230,7 +1231,7 @@ fn search_returns_frozen_page_set_from_titles_tags_keyword_and_current_metadata(
     drop(app);
     export_recorded_search_collection(&workspace.path().join("collection"));
     fs::remove_dir_all(workspace.path().join("collection/.derived")).unwrap();
-    let rebuilt = Application::open(workspace.path().join("collection")).unwrap();
+    let mut rebuilt = Application::open(workspace.path().join("collection")).unwrap();
     let after_restart = rebuilt
         .search_pages(PageSearchRequest {
             query: "Riverside".into(),

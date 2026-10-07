@@ -508,6 +508,31 @@ pub fn stable_vector_key(page_id: &str, chunk: usize) -> u64 {
     )
 }
 
+fn verify_sha(path: &Path, expected: &str) -> Result<(), String> {
+    use std::io::Read;
+    let mut file = fs::File::open(path)
+        .map_err(|error| format!("Could not read meaning asset {}: {error}", path.display()))?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        let count = file
+            .read(&mut buffer)
+            .map_err(|error| format!("Could not read meaning asset {}: {error}", path.display()))?;
+        if count == 0 {
+            break;
+        }
+        digest.update(&buffer[..count]);
+    }
+    let actual = format!("{:x}", digest.finalize());
+    if actual != expected {
+        return Err(format!(
+            "Meaning asset checksum failed for {}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{filtered_search, MeaningFilters};
@@ -588,29 +613,4 @@ mod tests {
             vec![eligible_key]
         );
     }
-}
-
-fn verify_sha(path: &Path, expected: &str) -> Result<(), String> {
-    use std::io::Read;
-    let mut file = fs::File::open(path)
-        .map_err(|error| format!("Could not read meaning asset {}: {error}", path.display()))?;
-    let mut digest = Sha256::new();
-    let mut buffer = [0; 64 * 1024];
-    loop {
-        let count = file
-            .read(&mut buffer)
-            .map_err(|error| format!("Could not read meaning asset {}: {error}", path.display()))?;
-        if count == 0 {
-            break;
-        }
-        digest.update(&buffer[..count]);
-    }
-    let actual = format!("{:x}", digest.finalize());
-    if actual != expected {
-        return Err(format!(
-            "Meaning asset checksum failed for {}",
-            path.display()
-        ));
-    }
-    Ok(())
 }
