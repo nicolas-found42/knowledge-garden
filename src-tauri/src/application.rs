@@ -25,6 +25,8 @@ use std::{
 use thiserror::Error;
 use uuid::Uuid;
 
+const MAX_URL_ATTEMPTS: u32 = 8;
+
 pub const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 
 fn is_audio_format(format: &str) -> bool {
@@ -569,7 +571,7 @@ impl Application {
                     http_status.is_none_or(|code| matches!(code, 408 | 425 | 429) || code >= 500);
                 if restricted {
                     status.state = "restricted".into();
-                } else if !retryable || status.attempts >= 8 {
+                } else if !retryable || status.attempts >= MAX_URL_ATTEMPTS {
                     status.state = "failed".into();
                 } else {
                     status.state = "pending".into();
@@ -588,8 +590,10 @@ impl Application {
                         " Retry scheduled automatically; previous material remains available when present."
                     } else if restricted {
                         " Access is restricted; automatic retry stopped."
-                    } else {
+                    } else if retryable {
                         " Automatic retries exhausted; previous material remains available when present."
+                    } else {
+                        " Automatic retry stopped because this response is permanent; previous material remains available when present."
                     }
                 )))
             }
@@ -757,10 +761,16 @@ impl Application {
     fn recover_interrupted_url_acquisitions(&self) -> Result<()> {
         for mut status in self.list_url_acquisitions()? {
             if status.state == "processing" {
-                status.state = "pending".into();
-                status.retry_at = Some(0);
-                status.last_error =
-                    "The application restarted during retrieval; retry is queued.".into();
+                if status.attempts >= MAX_URL_ATTEMPTS {
+                    status.state = "failed".into();
+                    status.retry_at = None;
+                    status.last_error = "The application restarted during the final permitted retrieval attempt; the retry budget is exhausted.".into();
+                } else {
+                    status.state = "pending".into();
+                    status.retry_at = Some(0);
+                    status.last_error =
+                        "The application restarted during retrieval; retry is queued.".into();
+                }
                 self.write_url_status(&status)?;
             }
         }
@@ -971,8 +981,7 @@ impl Application {
                     Ok(web) => (ExtractionState::StructuredText, web.detail, None),
                     Err(detail) => (ExtractionState::InvalidUtf8, detail, None),
                 }
-            } else if matches!(format.as_str(), "docx" | "pptx") || crate::photo::is_photo(&format)
-            {
+            } else if crate::extraction::is_structured_format(&format) {
                 match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
@@ -1098,8 +1107,7 @@ impl Application {
                 Err(_) => (ExtractionState::InvalidUtf8, "The source is not valid UTF-8. The original is retained without lossy decoding.".into(), String::new(), None, None),
                 Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 response text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
             }
-            } else if matches!(format.as_str(), "docx" | "pptx") || crate::photo::is_photo(&format)
-            {
+            } else if crate::extraction::is_structured_format(&format) {
                 match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
@@ -1125,6 +1133,8 @@ impl Application {
                     Err(detail) => {
                         let scope = if crate::photo::is_photo(&format) {
                             CoverageScope::ImagePixels
+                        } else if crate::conversation::is_conversation(&format) {
+                            CoverageScope::ConversationMessages
                         } else if format == "docx" {
                             CoverageScope::MainDocument
                         } else {
@@ -1579,9 +1589,7 @@ impl Application {
                         } else {
                             version_path
                         };
-                        if matches!(version.format.as_str(), "docx" | "pptx")
-                            || crate::photo::is_photo(&version.format)
-                        {
+                        if crate::extraction::is_structured_format(&version.format) {
                             self.extractor
                                 .extract(&path, &version.format, &page.info.title)
                                 .ok()
@@ -1672,31 +1680,47 @@ impl Application {
             .collect::<Vec<_>>();
         labels.sort_unstable();
         let mut context = String::new();
+        let pages_dir = self.root.join("pages");
+        if !pages_dir.try_exists()? {
+            return Ok(None);
+        }
         for label in labels {
-            let entity = EntityDraft {
-                kind: "event".into(),
-                label: label.to_owned(),
-                evidence: candidates
-                    .iter()
-                    .find(|candidate| candidate.event_label == label)
-                    .map(|candidate| candidate.evidence.clone())
-                    .expect("label came from a correction candidate"),
-            };
-            let page_id = stable_page_id(&entity, "");
-            let path = self.root.join("pages").join(format!("{page_id}.md"));
-            if !path.exists() {
+            let mut matching_events = Vec::new();
+            for entry in fs::read_dir(&pages_dir)? {
+                let path = entry?.path();
+                if path.extension().and_then(|value| value.to_str()) != Some("md") {
+                    continue;
+                }
+                let header = read_knowledge_header(&path)?;
+                if header.kind == "event" && header.title == label && !header.facts.is_empty() {
+                    matching_events.push(header);
+                }
+            }
+            if matching_events.is_empty() {
                 continue;
             }
-            let header = read_knowledge_header(&path)?;
-            if header.kind != "event" || header.title != label || header.facts.is_empty() {
-                continue;
-            }
-            context.push_str(&format!("Current published fields for event `{label}`:\n"));
-            for fact in &header.facts {
-                context.push_str(&format!(
-                    "- property `{}` = `{}`; current support: “{}”\n",
-                    fact.property, fact.value, fact.evidence.quote
-                ));
+            context.push_str(&format!(
+                "Current published event candidates for label `{label}` ({} separate page(s); label alone does not identify the target):\n",
+                matching_events.len()
+            ));
+            for header in matching_events {
+                context.push_str(&format!("- page `{}`:\n", header.page_id));
+                for fact in &header.facts {
+                    let current = self.latest_support(&fact.supports)?;
+                    context.push_str(&format!(
+                        "  - property `{}` = `{}`; current support: “{}”\n",
+                        fact.property,
+                        current
+                            .as_ref()
+                            .map_or(fact.value.as_str(), |support| support.value.as_str()),
+                        current
+                            .as_ref()
+                            .map_or(fact.evidence.quote.as_str(), |support| support
+                                .evidence
+                                .quote
+                                .as_str())
+                    ));
+                }
             }
         }
         Ok((!context.is_empty()).then_some(context))
@@ -1708,15 +1732,15 @@ impl Application {
         source_version_id: &str,
         source_text: &str,
         draft: &mut KnowledgeDraft,
-    ) -> Result<()> {
-        if source_text.starts_with("[PHOTO ") {
-            // The independent photo guard only admits exact qualified channel facts.
-            // A printed or supplied correction is not an authenticated event update.
-            return Ok(());
+    ) -> Result<HashMap<String, String>> {
+        if source_text.starts_with("[PHOTO ") || source_text.starts_with("[CONVERSATION ") {
+            // Native provenance guards admit only qualified projection facts.
+            // Printed or attributed corrections do not authenticate an event update.
+            return Ok(HashMap::new());
         }
         let recognized_candidates = crate::providers::correction_candidates_from_text(source_text);
         if recognized_candidates.is_empty() && draft.correction_candidates.is_empty() {
-            return Ok(());
+            return Ok(HashMap::new());
         }
         let uncertain = || {
             GardenError::Invalid(
@@ -1735,6 +1759,7 @@ impl Application {
         if recognized_candidates.len() != draft.correction_candidates.len() {
             return Err(uncertain());
         }
+        let mut identity_overrides = HashMap::new();
         for candidate in draft.correction_candidates.clone() {
             if !recognized_candidates.iter().any(|recognized| {
                 recognized.event_label == candidate.event_label
@@ -1771,40 +1796,17 @@ impl Application {
             {
                 return Err(uncertain());
             }
-            let entity = draft
+            draft
                 .entities
                 .iter()
                 .find(|entity| entity.kind == "event" && entity.label == candidate.event_label)
                 .ok_or_else(uncertain)?;
-            let page_id = stable_page_id(entity, &source.info.source_id);
-            let path = self.root.join("pages").join(format!("{page_id}.md"));
-            if !path.exists() {
-                return Err(uncertain());
-            }
-            let header = read_knowledge_header(&path)?;
-            if header.kind != "event" || header.title != candidate.event_label {
-                return Err(uncertain());
-            }
-            let matching_facts = header
-                .facts
-                .iter()
-                .filter(|fact| {
-                    fact.property == candidate.property
-                        && normalized_visit_count(&fact.value)
-                            == normalized_visit_count(&candidate.previous_value)
-                })
-                .collect::<Vec<_>>();
-            let [prior_fact] = matching_facts.as_slice() else {
-                return Err(uncertain());
-            };
-            let Some(current_support) = self.latest_support(&prior_fact.supports)? else {
-                return Err(uncertain());
-            };
-            if normalized_visit_count(&current_support.value)
-                != normalized_visit_count(&candidate.previous_value)
-            {
-                return Err(uncertain());
-            }
+            let (page_id, prior_fact) = self
+                .unique_current_event_for_correction(&candidate)?
+                .ok_or_else(uncertain)?;
+            let current_support = self
+                .latest_support(&prior_fact.supports)?
+                .ok_or_else(uncertain)?;
             let prior_source = read_page(&self.page_path(&current_support.source_id)?)?;
             let prior_version = prior_source
                 .info
@@ -1820,6 +1822,12 @@ impl Application {
                 .ok_or_else(uncertain)?;
             if compare_source_order(prior_version, incoming_version)
                 != Some(std::cmp::Ordering::Greater)
+            {
+                return Err(uncertain());
+            }
+            if identity_overrides
+                .insert(candidate.event_label.clone(), page_id.clone())
+                .is_some_and(|existing| existing != page_id)
             {
                 return Err(uncertain());
             }
@@ -1846,7 +1854,233 @@ impl Application {
                 probability: Some(alignment.certainty),
             });
         }
-        Ok(())
+        Ok(identity_overrides)
+    }
+
+    fn unique_current_event_for_correction(
+        &self,
+        candidate: &CorrectionCandidateDraft,
+    ) -> Result<Option<(String, FactRecord)>> {
+        let pages_dir = self.root.join("pages");
+        if !pages_dir.try_exists()? {
+            return Ok(None);
+        }
+        let mut targets = Vec::new();
+        for entry in fs::read_dir(pages_dir)? {
+            let path = entry?.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("md") {
+                continue;
+            }
+            let header = read_knowledge_header(&path)?;
+            if header.kind != "event" || header.title != candidate.event_label {
+                continue;
+            }
+            for fact in header.facts.iter().filter(|fact| {
+                fact.property == candidate.property
+                    && normalized_visit_count(&fact.value)
+                        == normalized_visit_count(&candidate.previous_value)
+            }) {
+                let Some(current) = self.latest_support(&fact.supports)? else {
+                    continue;
+                };
+                if normalized_visit_count(&current.value)
+                    == normalized_visit_count(&candidate.previous_value)
+                {
+                    targets.push((header.page_id.clone(), fact.clone()));
+                }
+            }
+        }
+        Ok((targets.len() == 1).then(|| targets.remove(0)))
+    }
+
+    fn align_same_event_pages(
+        &self,
+        source: &SourcePage,
+        source_version_id: &str,
+        source_text: &str,
+        draft: &KnowledgeDraft,
+        mut identity_overrides: HashMap<String, String>,
+    ) -> Result<HashMap<String, String>> {
+        let Some(incoming_version) = source
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == source_version_id)
+        else {
+            return Err(GardenError::Invalid(
+                "The active source version is missing its retained update role.".into(),
+            ));
+        };
+        if incoming_version
+            .update_confidence
+            .is_none_or(|confidence| confidence < 0.8)
+            || incoming_version.update_evidence.is_none()
+            || !matches!(
+                incoming_version.update_role.as_str(),
+                "supplement" | "complete_replacement"
+            )
+        {
+            return Ok(identity_overrides);
+        }
+
+        let pages_dir = self.root.join("pages");
+        if !pages_dir.exists() {
+            return Ok(identity_overrides);
+        }
+        for entity in draft
+            .entities
+            .iter()
+            .filter(|entity| entity.kind.eq_ignore_ascii_case("event"))
+        {
+            if identity_overrides.contains_key(&entity.label)
+                || explicitly_distinct_event_text(source_text, &entity.evidence)
+            {
+                continue;
+            }
+            let incoming_date = draft
+                .facts
+                .iter()
+                .filter(|fact| {
+                    fact.subject == entity.label
+                        && fact.property.eq_ignore_ascii_case("occurred_on")
+                })
+                .collect::<Vec<_>>();
+            let incoming_date = match incoming_date.as_slice() {
+                [fact] if validate_evidence(source_text, &fact.evidence).is_ok() => {
+                    parse_date_value(&fact.value)
+                        .or_else(|| event_date_from_evidence(&entity.evidence.quote))
+                }
+                [] => event_date_from_evidence(&entity.evidence.quote),
+                _ => continue,
+            };
+            if incoming_date.is_none() && incoming_version.update_role != "supplement" {
+                continue;
+            }
+
+            let mut matching_pages = Vec::<(String, SourceVersion)>::new();
+            for entry in fs::read_dir(&pages_dir)? {
+                let path = entry?.path();
+                if path.extension().and_then(|value| value.to_str()) != Some("md") {
+                    continue;
+                }
+                let header = read_knowledge_header(&path)?;
+                if header.kind != "event" || header.title != entity.label {
+                    continue;
+                }
+                let prior_version = if let Some(incoming_date) = &incoming_date {
+                    let date_facts = header
+                        .facts
+                        .iter()
+                        .filter(|fact| fact.property.eq_ignore_ascii_case("occurred_on"))
+                        .collect::<Vec<_>>();
+                    let current_date = match date_facts.as_slice() {
+                        [fact] => self
+                            .latest_support(&fact.supports)?
+                            .and_then(|support| parse_date_value(&support.value)),
+                        [] => event_date_from_evidence(&header.evidence.quote)
+                            .or(self.retained_event_date(&header, &entity.label)?),
+                        _ => None,
+                    };
+                    if current_date.as_deref() != Some(incoming_date.as_str()) {
+                        continue;
+                    }
+                    let current_support = if let [fact] = date_facts.as_slice() {
+                        self.latest_support(&fact.supports)?
+                    } else {
+                        None
+                    };
+                    let prior_source_id = current_support
+                        .as_ref()
+                        .map(|support| support.source_id.as_str())
+                        .unwrap_or(header.source_id.as_str());
+                    let prior_version_id = current_support
+                        .as_ref()
+                        .map(|support| support.source_version_id.as_str());
+                    let prior_source = read_page(&self.page_path(prior_source_id)?)?;
+                    let target_version_id = prior_version_id
+                        .map(str::to_owned)
+                        .or_else(|| prior_source.info.current_version_id.clone());
+                    prior_source.info.versions_seen.into_iter().find(|version| {
+                        Some(version.source_version_id.as_str()) == target_version_id.as_deref()
+                    })
+                } else if incoming_version.update_role == "supplement" {
+                    let prior_source = read_page(&self.page_path(&header.source_id)?)?;
+                    let current_id = prior_source.info.current_version_id.as_deref();
+                    prior_source
+                        .info
+                        .versions_seen
+                        .into_iter()
+                        .find(|version| Some(version.source_version_id.as_str()) == current_id)
+                } else {
+                    None
+                };
+                if let Some(prior_version) = prior_version {
+                    matching_pages.push((header.page_id, prior_version));
+                }
+            }
+            if matching_pages.is_empty() {
+                continue;
+            }
+            if matching_pages.len() != 1 {
+                return Err(GardenError::Invalid(
+                    "A source update names multiple same-date events; event identity remains uncertain and will retry automatically.".into(),
+                ));
+            }
+            let (page_id, prior_version) = matching_pages.remove(0);
+            let order = compare_source_order(&prior_version, incoming_version);
+            let explicit_same_record = source_text
+                .to_ascii_lowercase()
+                .contains("same observation record")
+                || source_text.to_ascii_lowercase().contains("same-record");
+            if order.is_none()
+                && !explicit_same_record
+                && incoming_version.update_role != "supplement"
+                && !(incoming_version.update_role == "complete_replacement"
+                    && incoming_version.source_date.is_none()
+                    && incoming_version.source_revision.is_none())
+            {
+                return Err(GardenError::Invalid(
+                    "A cross-source event update lacks reliable identity or ordering evidence; processing will retry automatically.".into(),
+                ));
+            }
+            identity_overrides.insert(entity.label.clone(), page_id);
+        }
+        Ok(identity_overrides)
+    }
+
+    fn retained_event_date(
+        &self,
+        page: &KnowledgePageHeader,
+        label: &str,
+    ) -> Result<Option<String>> {
+        let mut dates = HashSet::new();
+        for fact in &page.facts {
+            for support in &fact.supports {
+                let source = read_page(&self.page_path(&support.source_id)?)?;
+                let Some(version) = source
+                    .info
+                    .versions_seen
+                    .iter()
+                    .find(|version| version.source_version_id == support.source_version_id)
+                else {
+                    continue;
+                };
+                let path = if source.info.current_version_id.as_deref()
+                    == Some(version.source_version_id.as_str())
+                {
+                    self.source_dir(&support.source_id)?.join(&version.asset)
+                } else {
+                    self.version_original_path(&support.source_id, version)?
+                };
+                let Ok(text) = fs::read_to_string(path) else {
+                    continue;
+                };
+                if let Some(date) = event_date_for_label(&text, label) {
+                    dates.insert(date);
+                }
+            }
+        }
+        Ok((dates.len() == 1).then(|| dates.into_iter().next().unwrap()))
     }
 
     pub fn finish_semantic_job(
@@ -1954,21 +2188,29 @@ impl Application {
                     let has_office_content = !is_office || !office_facts.is_empty();
                     if !has_office_content || !office_identity_is_unambiguous {
                         self.record_semantic_failure(
-                        &mut page,
-                        if has_office_content {
-                            "Office semantic processing could not assign distinct stable record identities to repeated facts; coverage remains incomplete and will retry automatically.".into()
-                        } else {
-                            "Office semantic processing selected no content-bearing facts; coverage remains incomplete and will retry automatically.".into()
-                        },
-                        true,
-                        true,
-                    )?;
+                            &mut page,
+                            if has_office_content {
+                                "Office semantic processing could not assign distinct stable record identities to repeated facts; coverage remains incomplete and will retry automatically.".into()
+                            } else {
+                                "Office semantic processing selected no content-bearing facts; coverage remains incomplete and will retry automatically.".into()
+                            },
+                            true,
+                            true,
+                        )?;
                     } else {
                         let prior_page = page.clone();
                         let update = draft.source_update.clone();
                         let result =
                             crate::photo::validate_draft(&job.source_text, &source_format, &draft)
                                 .map_err(GardenError::Invalid)
+                                .and_then(|()| {
+                                    crate::conversation::validate_draft(
+                                        &job.source_text,
+                                        &source_format,
+                                        &draft,
+                                    )
+                                    .map_err(GardenError::Invalid)
+                                })
                                 .and_then(|()| {
                                     self.store_source_update(
                                         &mut page,
@@ -1979,11 +2221,19 @@ impl Application {
                                 })
                                 .and_then(|()| {
                                     if initial {
-                                        self.apply_field_aligned_corrections(
+                                        let identity_overrides = self
+                                            .apply_field_aligned_corrections(
+                                                &page,
+                                                &job.source_version_id,
+                                                &job.source_text,
+                                                &mut draft,
+                                            )?;
+                                        let identity_overrides = self.align_same_event_pages(
                                             &page,
                                             &job.source_version_id,
                                             &job.source_text,
-                                            &mut draft,
+                                            &draft,
+                                            identity_overrides,
                                         )?;
                                         if !draft.correction_candidates.is_empty() {
                                             // Knowledge reconciliation ranks support through persisted
@@ -1994,7 +2244,12 @@ impl Application {
                                         // A first acquisition has no existing facts to withdraw. Even
                                         // an unknown/conditional relationship can publish the grounded
                                         // evidence it contains; the role only limits replacement scope.
-                                        self.publish_knowledge(&mut page, &job.source_text, draft)
+                                        self.publish_knowledge(
+                                            &mut page,
+                                            &job.source_text,
+                                            draft,
+                                            &identity_overrides,
+                                        )
                                     } else {
                                         self.apply_replacement(
                                             &mut page,
@@ -2448,6 +2703,7 @@ impl Application {
         source: &mut SourcePage,
         source_text: &str,
         draft: KnowledgeDraft,
+        identity_overrides: &HashMap<String, String>,
     ) -> Result<()> {
         let prior_pages = source.info.knowledge_pages.clone();
         if source.info.current_version_id.is_none() {
@@ -2495,7 +2751,12 @@ impl Application {
                     "Semantic entity has no type or label.".into(),
                 ));
             }
-            let page_id = stable_page_id(entity, &source.info.source_id);
+            let page_id = identity_overrides
+                .get(&entity.label)
+                .cloned()
+                .unwrap_or_else(|| {
+                    stable_page_id(entity, &source.info.source_id, Some(source_text))
+                });
             let summary = KnowledgePageSummary {
                 page_id: page_id.clone(),
                 title: entity.label.clone(),
@@ -2654,6 +2915,7 @@ impl Application {
                         "extracted Office projection; offsets are not original package byte offsets"
                     }
                     EvidenceOffsetBasis::ExtractedImageProjection => "extracted image projection; offsets are not original image byte offsets",
+                    EvidenceOffsetBasis::ExtractedConversationProjection => "extracted conversation projection; offsets are not original export byte offsets",
                     EvidenceOffsetBasis::WebVisibleText => {
                         "extracted web visible-text projection; offsets are not downloaded HTML byte offsets"
                     }
@@ -2688,6 +2950,9 @@ impl Application {
                     }
                     EvidenceOffsetBasis::ExtractedImageProjection => {
                         ("image projection lines", "image projection bytes")
+                    }
+                    EvidenceOffsetBasis::ExtractedConversationProjection => {
+                        ("message projection lines", "message projection bytes")
                     }
                     EvidenceOffsetBasis::WebVisibleText => (
                         "visible-text projection lines",
@@ -2740,6 +3005,11 @@ impl Application {
                         "image projection lines", "image projection bytes",
                         relationship.evidence.source_location.as_deref().map(|location| format!(" · image locator: {location}")).unwrap_or_default(),
                         "Open the image preview or retained original using the normalized region locator; whole-image fallback when no region exists.",
+                    ),
+                    EvidenceOffsetBasis::ExtractedConversationProjection => (
+                        "message projection lines", "message projection bytes",
+                        relationship.evidence.source_location.as_deref().map(|location| format!(" · message locator: {location}")).unwrap_or_default(),
+                        "The original opens as a fallback; use the session, message and supplied order above to locate the recorded assertion.",
                     ),
                     EvidenceOffsetBasis::WebVisibleText => (
                         "visible-text projection lines",
@@ -2889,6 +3159,43 @@ impl Application {
             }
             *markdown = self.render_knowledge_page(header, &draft_labels)?;
         }
+        // A replacement can remove an old source's relationship to a scoped
+        // person page that is not itself in the incoming draft. Reconcile those
+        // foreign pages before deciding whether the source still supports current
+        // knowledge, withdrawing only the replaced source's own support records.
+        for source_id in foreign_replacement_sources.iter() {
+            let source_path = self.page_path(source_id)?;
+            if !source_path.exists() {
+                continue;
+            }
+            let replaced_source = read_page(&source_path)?;
+            for summary in &replaced_source.info.knowledge_pages {
+                if contents.contains_key(&summary.page_id) {
+                    continue;
+                }
+                let page_path = self.root.join(&summary.path);
+                if !page_path.exists() {
+                    continue;
+                }
+                let mut header = read_knowledge_header(&page_path)?;
+                ensure_legacy_supports(&mut header);
+                if !knowledge_header_supported_by(&header, source_id) {
+                    continue;
+                }
+                let removed_source = std::collections::HashSet::from([source_id.clone()]);
+                header.facts = self.reconcile_facts(header.facts, Vec::new(), &removed_source)?;
+                header.relationships = self.reconcile_relationships(
+                    header.relationships,
+                    Vec::new(),
+                    &removed_source,
+                )?;
+                header.tags = self.reconcile_tags(header.tags, Vec::new(), &removed_source);
+                contents.insert(
+                    summary.page_id.clone(),
+                    self.render_knowledge_page(header, &std::collections::HashMap::new())?,
+                );
+            }
+        }
         for source_id in foreign_replacement_sources {
             let path = self.page_path(&source_id)?;
             if !path.exists() {
@@ -3031,7 +3338,7 @@ impl Application {
         });
         let stable_fact_key_overlap = if matches!(source.info.format.as_str(), "docx" | "pptx") {
             draft.entities.iter().any(|entity| {
-                let page_id = stable_page_id(entity, &source.info.source_id);
+                let page_id = stable_page_id(entity, &source.info.source_id, Some(source_text));
                 let path = self.root.join("pages").join(format!("{page_id}.md"));
                 let Ok(existing) = read_knowledge_header(&path) else {
                     return false;
@@ -3092,7 +3399,9 @@ impl Application {
                     .entities
                     .iter()
                     .find(|entity| entity.label == fact.subject)
-                    .map(|entity| stable_page_id(entity, &source.info.source_id));
+                    .map(|entity| {
+                        stable_page_id(entity, &source.info.source_id, Some(source_text))
+                    });
                 let Some(page_id) = page_id else {
                     return false;
                 };
@@ -3174,9 +3483,7 @@ impl Application {
             .join("versions")
             .join(source_version_id)
             .join(&candidate.asset);
-        let office_projection = if matches!(candidate.format.as_str(), "docx" | "pptx")
-            || crate::photo::is_photo(&candidate.format)
-        {
+        let office_projection = if crate::extraction::is_structured_format(&candidate.format) {
             Some(
                 self.extractor
                     .extract(
@@ -3259,7 +3566,7 @@ impl Application {
             .into();
         }
         source.body = source_body(&source.info, source_text, office_projection.as_ref());
-        self.publish_knowledge(source, source_text, draft)
+        self.publish_knowledge(source, source_text, draft, &HashMap::new())
     }
 
     fn reconcile_facts(
@@ -5005,6 +5312,7 @@ fn evidence_offset_basis_name(basis: EvidenceOffsetBasis) -> &'static str {
         EvidenceOffsetBasis::WebVisibleText => "web_visible_text",
         EvidenceOffsetBasis::AudioTranscript => "audio_transcript",
         EvidenceOffsetBasis::ExtractedImageProjection => "extracted_image_projection",
+        EvidenceOffsetBasis::ExtractedConversationProjection => "extracted_conversation_projection",
     }
 }
 
@@ -5109,6 +5417,38 @@ fn parse_date_value(value: &str) -> Option<String> {
     Some(format!("{year:04}-{month:02}-{day:02}"))
 }
 
+fn event_date_from_evidence(evidence: &str) -> Option<String> {
+    let pattern = regex::Regex::new(
+        r"(?i)\b(?:[0-9]{4}-[0-9]{2}-[0-9]{2}|(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+[0-9]{1,2},?\s+[0-9]{4})\b",
+    )
+    .ok()?;
+    let mut dates = pattern.find_iter(evidence);
+    let value = dates.next()?.as_str();
+    dates
+        .next()
+        .is_none()
+        .then(|| parse_date_value(value))
+        .flatten()
+}
+
+fn event_date_for_label(source_text: &str, label: &str) -> Option<String> {
+    let lower_text = source_text.to_lowercase();
+    let lower_label = label.to_lowercase();
+    let mut dates = HashSet::new();
+    for (start, _) in lower_text.match_indices(&lower_label) {
+        let after_label = start + lower_label.len();
+        let tail = source_text.get(after_label..)?;
+        let sentence = tail
+            .split(|character: char| ".!?\n".contains(character))
+            .next()
+            .unwrap_or(tail);
+        if let Some(date) = event_date_from_evidence(sentence) {
+            dates.insert(date);
+        }
+    }
+    (dates.len() == 1).then(|| dates.into_iter().next().unwrap())
+}
+
 fn read_bounded_text(path: &Path, max_bytes: u64) -> Result<String> {
     let mut text = String::new();
     File::open(path)?
@@ -5156,6 +5496,7 @@ enum EvidenceOffsetBasis {
     #[default]
     PreservedText,
     ExtractedOfficeProjection,
+    ExtractedConversationProjection,
     WebVisibleText,
     AudioTranscript,
     ExtractedImageProjection,
@@ -5181,6 +5522,12 @@ fn evidence_display_basis(
             "extracted image projection; offsets are not original image byte offsets",
             "image projection lines", "image projection bytes",
             "Open the image preview or retained original using normalized region coordinates; otherwise use the disclosed whole-image fallback.",
+        ),
+        EvidenceOffsetBasis::ExtractedConversationProjection => (
+            "extracted conversation projection; offsets are not original export byte offsets",
+            "message projection lines",
+            "message projection bytes",
+            "The original opens as a fallback; use the session, message and supplied order locator to find this assertion.",
         ),
         EvidenceOffsetBasis::WebVisibleText => (
             "extracted web visible-text projection; offsets are not downloaded HTML byte offsets",
@@ -5385,6 +5732,9 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         Some("web_visible_text") => EvidenceOffsetBasis::WebVisibleText,
         Some("audio_transcript") => EvidenceOffsetBasis::AudioTranscript,
         Some("extracted_image_projection") => EvidenceOffsetBasis::ExtractedImageProjection,
+        Some("extracted_conversation_projection") => {
+            EvidenceOffsetBasis::ExtractedConversationProjection
+        }
         Some(_) => {
             return Err(GardenError::Invalid(
                 "Semantic evidence uses an unsupported offset basis.".into(),
@@ -5404,19 +5754,112 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
     })
 }
 
-fn stable_page_id(entity: &EntityDraft, source_id: &str) -> String {
+fn stable_page_id(entity: &EntityDraft, source_id: &str, source_text: Option<&str>) -> String {
     let mut digest = Sha256::new();
-    digest.update(entity.kind.to_lowercase().as_bytes());
+    let kind = entity.kind.to_ascii_lowercase();
+    digest.update(kind.as_bytes());
     digest.update([0]);
-    digest.update(entity.label.to_lowercase().as_bytes());
+    if kind == "reasoning_event" {
+        digest.update(source_id.as_bytes());
+        digest.update([0]);
+        if let Some(locator) = reasoning_event_locator(entity, source_text) {
+            // Stable message keys come from the acquired text, never from a
+            // provider locator annotation. Offsets can move as earlier turns change.
+            digest.update(locator.as_bytes());
+        } else {
+            digest.update(entity.label.to_lowercase().as_bytes());
+            digest.update([0]);
+            // Without a canonical acquired message key, keep the event local to
+            // this source and evidence occurrence.
+            digest.update(entity.evidence.byte_start.to_be_bytes());
+            digest.update(entity.evidence.byte_end.to_be_bytes());
+        }
+    } else {
+        digest.update(entity.label.to_lowercase().as_bytes());
+    }
     if matches!(
-        entity.kind.to_ascii_lowercase().as_str(),
-        "document" | "presentation"
+        kind.as_str(),
+        "person" | "event" | "document" | "presentation" | "conversation" | "conversation_message"
     ) {
         digest.update([0]);
         digest.update(source_id.as_bytes());
     }
     format!("page-{:x}", digest.finalize())
+}
+
+fn explicitly_distinct_event_text(source_text: &str, evidence: &EvidenceDraft) -> bool {
+    if evidence.byte_start >= evidence.byte_end
+        || evidence.byte_end > source_text.len()
+        || !source_text.is_char_boundary(evidence.byte_start)
+        || !source_text.is_char_boundary(evidence.byte_end)
+        || source_text.get(evidence.byte_start..evidence.byte_end) != Some(&evidence.quote)
+    {
+        return false;
+    }
+    let Some(before) = source_text.get(..evidence.byte_start) else {
+        return false;
+    };
+    let sentence_start = before
+        .rfind(|character: char| ".!?\n".contains(character))
+        .map_or(0, |position| position + 1);
+    let prefix = before[sentence_start..]
+        .split_whitespace()
+        .next_back()
+        .unwrap_or("");
+    matches!(
+        prefix
+            .trim_matches(|character: char| !character.is_ascii_alphanumeric())
+            .to_ascii_lowercase()
+            .as_str(),
+        "another" | "different" | "distinct" | "independent" | "separate"
+    )
+}
+
+fn reasoning_event_locator(entity: &EntityDraft, source_text: Option<&str>) -> Option<String> {
+    let source_text = source_text?;
+    let evidence = &entity.evidence;
+    if evidence.byte_start >= evidence.byte_end
+        || evidence.byte_end > source_text.len()
+        || !source_text.is_char_boundary(evidence.byte_start)
+        || !source_text.is_char_boundary(evidence.byte_end)
+        || source_text.get(evidence.byte_start..evidence.byte_end) != Some(&evidence.quote)
+    {
+        return None;
+    }
+    let line_start = source_text[..evidence.byte_start]
+        .rfind('\n')
+        .map_or(0, |newline| newline + 1);
+    let evidence_line = source_text.get(line_start..)?.split('\n').next()?;
+    let is_locator_line = |line: &str| {
+        let normalized = line.trim();
+        normalized.starts_with("[CONVERSATION ") || normalized.starts_with("CONVERSATION ")
+    };
+    let locator = if is_locator_line(evidence_line) {
+        evidence_line.trim()
+    } else {
+        source_text[..line_start]
+            .lines()
+            .rev()
+            .find(|line| is_locator_line(line))?
+            .trim()
+    };
+    let fields = locator
+        .split(|character: char| character.is_whitespace() || matches!(character, ';' | '[' | ']'));
+    let value = |key: &str| {
+        fields
+            .clone()
+            .find_map(|field| field.strip_prefix(&format!("{key}=")))
+            .filter(|value| !value.is_empty())
+    };
+    let session = value("session")?;
+    let message = value("message")?;
+    let mut identity = format!("session={session};message={message}");
+    if let Some(part) = value("part") {
+        identity.push_str(&format!(";part={part}"));
+    } else if let Some(channel) = value("channel") {
+        identity.push_str(&format!(";channel={channel}"));
+    }
+    Some(identity)
 }
 
 fn stable_fact_id(subject_page_id: &str, property: &str, record_key: Option<&str>) -> String {
@@ -5507,9 +5950,18 @@ fn escape_heading(value: &str) -> String {
 }
 
 fn escape_markdown(value: &str) -> String {
-    value
-        .replace(['\n', '\r'], " ")
-        .replace(['[', ']', '<', '>', '*', '_', '`'], "")
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        if matches!(character, '\n' | '\r') {
+            escaped.push(' ');
+        } else {
+            if character.is_ascii_punctuation() {
+                escaped.push('\\');
+            }
+            escaped.push(character);
+        }
+    }
+    escaped
 }
 
 fn read_knowledge_page(path: &Path) -> Result<KnowledgePage> {
