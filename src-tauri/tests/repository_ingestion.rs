@@ -81,7 +81,7 @@ fn owner_supplied_repository_enters_the_common_source_pipeline() {
     fs::create_dir_all(repository.join("docs")).unwrap();
     fs::write(
         repository.join("README.md"),
-        "# Garden Sample\n\nCache stays local.\n",
+        "# Garden Sample\n\nCache stays local.\n\n[External guide](https://example.invalid/unacquired/guide.md)\n",
     )
     .unwrap();
     fs::write(
@@ -113,7 +113,15 @@ fn owner_supplied_repository_enters_the_common_source_pipeline() {
     );
     assert_eq!(
         fs::read(app.original_path(&readme.source_id).unwrap()).unwrap(),
-        b"# Garden Sample\n\nCache stays local.\n"
+        b"# Garden Sample\n\nCache stays local.\n\n[External guide](https://example.invalid/unacquired/guide.md)\n"
+    );
+    assert!(page
+        .body
+        .contains("https://example.invalid/unacquired/guide.md"));
+    assert_eq!(
+        imported.sources.len(),
+        3,
+        "the linked remote target was not acquired"
     );
     let code = imported
         .sources
@@ -166,6 +174,29 @@ fn repository_symlinks_are_reported_as_visible_coverage_exclusions() {
         fs::read_to_string(outside).unwrap(),
         "Must not be followed into the repository.\n"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn repository_special_files_are_reported_as_visible_coverage_exclusions() {
+    use std::os::unix::net::UnixListener;
+
+    let workspace = tempdir().unwrap();
+    let repository = workspace.path().join("sample-repository");
+    fs::create_dir_all(&repository).unwrap();
+    fs::write(repository.join("README.md"), "# Garden Sample\n").unwrap();
+    let socket_path = repository.join("local.sock");
+    let _listener = UnixListener::bind(&socket_path).unwrap();
+
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open(&collection).unwrap();
+    let imported = app.import_repository(&repository).unwrap();
+
+    assert_eq!(imported.sources.len(), 1);
+    assert_eq!(imported.sources[0].relative_path, "README.md");
+    assert!(imported.exclusions.iter().any(|exclusion| {
+        exclusion.relative_path == "local.sock" && exclusion.reason == "special_files_not_imported"
+    }));
 }
 
 #[test]
@@ -230,6 +261,194 @@ fn repository_json_code_is_retained_as_code_not_misrouted_to_conversation_adapte
     assert_eq!(
         fs::read(app.original_path(&package_source.source_id).unwrap()).unwrap(),
         package
+    );
+}
+
+#[test]
+fn repository_identity_file_source_and_content_versions_stay_distinct_across_reimport() {
+    let workspace = tempdir().unwrap();
+    let first_repository = workspace.path().join("first-repository");
+    let second_repository = workspace.path().join("second-repository");
+    fs::create_dir_all(first_repository.join("src")).unwrap();
+    fs::create_dir_all(second_repository.join("src")).unwrap();
+    let relative_path = "src/cache.rs";
+    let initial = "/// Cache parsed plans locally.\npub struct Cache;\n";
+    fs::write(first_repository.join(relative_path), initial).unwrap();
+    fs::write(second_repository.join(relative_path), initial).unwrap();
+
+    let provider = Arc::new(JevSemanticProvider::with_transport(
+        "repository-fixture-credential".into(),
+        Arc::new(RepositoryConceptTransport(AtomicUsize::new(0))),
+    ));
+    let mut app =
+        Application::open_with_semantic_provider(workspace.path().join("collection"), provider)
+            .unwrap();
+    let first_import = app.import_repository(&first_repository).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let first_file = first_import
+        .sources
+        .iter()
+        .find(|source| source.relative_path == relative_path)
+        .unwrap();
+    let first_page = app.open_source(&first_file.source_id).unwrap();
+    let first_version = first_page.info.current_version_id.clone().unwrap();
+    assert_eq!(
+        first_page.info.repository.as_ref().unwrap().relative_path,
+        relative_path
+    );
+
+    let repeated = app.import_repository(&first_repository).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let repeated_file = repeated
+        .sources
+        .iter()
+        .find(|source| source.relative_path == relative_path)
+        .unwrap();
+    let repeated_page = app.open_source(&repeated_file.source_id).unwrap();
+    assert_eq!(repeated.repository_id, first_import.repository_id);
+    assert_eq!(repeated_file.source_id, first_file.source_id);
+    assert_eq!(
+        repeated_page.info.current_version_id.as_deref(),
+        Some(first_version.as_str())
+    );
+    assert_eq!(repeated_page.info.versions_seen.len(), 1);
+
+    let second_import = app.import_repository(&second_repository).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let second_file = second_import
+        .sources
+        .iter()
+        .find(|source| source.relative_path == relative_path)
+        .unwrap();
+    let second_page = app.open_source(&second_file.source_id).unwrap();
+    assert_ne!(second_import.repository_id, first_import.repository_id);
+    assert_ne!(second_file.source_id, first_file.source_id);
+    assert_eq!(
+        second_page.info.repository.as_ref().unwrap().relative_path,
+        relative_path
+    );
+    assert_eq!(
+        second_page.info.current_version_id.as_deref(),
+        Some(first_version.as_str())
+    );
+
+    let revised = "/// Cache parsed plans locally after validating each key.\npub struct Cache;\n";
+    fs::write(first_repository.join(relative_path), revised).unwrap();
+    let revised_import = app.import_repository(&first_repository).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let revised_file = revised_import
+        .sources
+        .iter()
+        .find(|source| source.relative_path == relative_path)
+        .unwrap();
+    let revised_page = app.open_source(&revised_file.source_id).unwrap();
+    assert_eq!(revised_import.repository_id, first_import.repository_id);
+    assert_eq!(revised_file.source_id, first_file.source_id);
+    assert_eq!(revised_page.info.versions_seen.len(), 2);
+    let revised_version = revised_page
+        .info
+        .versions_seen
+        .iter()
+        .find(|version| version.source_version_id != first_version)
+        .expect("changed file bytes should create a distinct retained source version");
+    assert_ne!(revised_version.source_version_id, first_version);
+    assert_eq!(
+        fs::read(
+            app.original_version_path(
+                &revised_file.source_id,
+                &first_version,
+                &revised_page
+                    .info
+                    .versions_seen
+                    .iter()
+                    .find(|version| version.source_version_id == first_version)
+                    .unwrap()
+                    .asset,
+            )
+            .unwrap()
+        )
+        .unwrap(),
+        initial.as_bytes()
+    );
+    assert_eq!(
+        fs::read(
+            app.original_version_path(
+                &revised_file.source_id,
+                &revised_version.source_version_id,
+                &revised_version.asset,
+            )
+            .unwrap()
+        )
+        .unwrap(),
+        revised.as_bytes()
+    );
+}
+
+#[test]
+fn repository_binary_oversized_and_generated_members_remain_visible_with_originals() {
+    let workspace = tempdir().unwrap();
+    let repository = workspace.path().join("coverage-repository");
+    fs::create_dir_all(repository.join("dist")).unwrap();
+    fs::create_dir_all(repository.join("assets")).unwrap();
+    fs::create_dir_all(repository.join("src")).unwrap();
+    let binary = [0x00, 0xff, 0x10, 0x80];
+    fs::write(repository.join("assets/model.bin"), binary).unwrap();
+    let unreadable_utf8 = b"pub struct Broken;\n\xff";
+    fs::write(repository.join("src/broken.rs"), unreadable_utf8).unwrap();
+    let large = format!("// generated bundle\n{}", "x".repeat(2 * 1024 * 1024));
+    fs::write(repository.join("dist/client.min.js"), large.as_bytes()).unwrap();
+    let generated = "// generated fixture, still supplied source data\nconst value = 7;\n";
+    fs::write(repository.join("dist/runtime.js"), generated).unwrap();
+
+    let mut app = Application::open(workspace.path().join("collection")).unwrap();
+    let imported = app.import_repository(&repository).unwrap();
+    let find_source = |relative_path: &str| {
+        imported
+            .sources
+            .iter()
+            .find(|source| source.relative_path == relative_path)
+            .unwrap()
+    };
+
+    let binary_source = find_source("assets/model.bin");
+    let binary_page = app.open_source(&binary_source.source_id).unwrap();
+    assert_eq!(
+        binary_page.info.extraction,
+        knowledge_garden::application::ExtractionState::Unsupported
+    );
+    assert_eq!(
+        fs::read(app.original_path(&binary_source.source_id).unwrap()).unwrap(),
+        binary
+    );
+
+    let unreadable_source = find_source("src/broken.rs");
+    let unreadable_page = app.open_source(&unreadable_source.source_id).unwrap();
+    assert_eq!(
+        unreadable_page.info.extraction,
+        knowledge_garden::application::ExtractionState::InvalidUtf8
+    );
+    assert_eq!(
+        fs::read(app.original_path(&unreadable_source.source_id).unwrap()).unwrap(),
+        unreadable_utf8
+    );
+
+    let large_source = find_source("dist/client.min.js");
+    let large_page = app.open_source(&large_source.source_id).unwrap();
+    assert_eq!(
+        large_page.info.extraction,
+        knowledge_garden::application::ExtractionState::TooLarge
+    );
+    assert_eq!(
+        fs::read(app.original_path(&large_source.source_id).unwrap()).unwrap(),
+        large.as_bytes()
+    );
+
+    let generated_source = find_source("dist/runtime.js");
+    let generated_page = app.open_source(&generated_source.source_id).unwrap();
+    assert!(generated_page.body.contains("generated fixture"));
+    assert_eq!(
+        fs::read(app.original_path(&generated_source.source_id).unwrap()).unwrap(),
+        generated.as_bytes()
     );
 }
 
@@ -417,7 +636,10 @@ impl SystemOneTransport for RepositoryDecisionTransport {
                             .unwrap_or("span_0"),
                         "source_order_date" | "source_order_revision" => "none",
                         name if name.contains("repository_decision")
-                            && criteria.contains_key("decision") => "decision",
+                            && criteria.contains_key("decision") =>
+                        {
+                            "decision"
+                        }
                         _ => criteria.keys().next().map(String::as_str).unwrap_or("none"),
                     };
                     if !criteria.contains_key(selected) {
@@ -438,6 +660,69 @@ impl SystemOneTransport for RepositoryDecisionTransport {
             }
         }
         Ok(json!({"model":"typesafe/jev-1.13-adr-fixture","answers":answers}))
+    }
+}
+
+struct RepositoryOpenQuestionTransport;
+
+impl SystemOneTransport for RepositoryOpenQuestionTransport {
+    fn complete(
+        &self,
+        _api_key: &str,
+        request: &Value,
+    ) -> std::result::Result<Value, ProviderError> {
+        let source_text = request["state"]["source_text"].as_str().unwrap_or_default();
+        if !source_text.contains("## Open Questions\n\n- Should cache eviction use LRU?") {
+            return Err(ProviderError::permanent(
+                "The explicit repository question was not supplied as source text.".into(),
+            ));
+        }
+        let questions = request["questions"]
+            .as_object()
+            .ok_or_else(|| ProviderError::permanent("Missing typed questions.".into()))?;
+        let mut answers = serde_json::Map::new();
+        for (key, question) in questions {
+            match question["type"].as_str().unwrap_or_default() {
+                "noul" => {
+                    answers.insert(key.clone(), json!({"type":"noul","noul":0.99}));
+                }
+                "choice" => {
+                    let criteria = question["criteria"].as_object().ok_or_else(|| {
+                        ProviderError::permanent(format!("Missing criteria for {key}."))
+                    })?;
+                    let selected = match key.as_str() {
+                        "source_update_role" => "supplement",
+                        "source_update_evidence" => criteria
+                            .keys()
+                            .find(|candidate| candidate.starts_with("span_"))
+                            .map(String::as_str)
+                            .unwrap_or("span_0"),
+                        "source_order_date" | "source_order_revision" => "none",
+                        name if name.contains("repository_question")
+                            && criteria.contains_key("question") =>
+                        {
+                            "question"
+                        }
+                        _ => criteria.keys().next().map(String::as_str).unwrap_or("none"),
+                    };
+                    if !criteria.contains_key(selected) {
+                        return Err(ProviderError::permanent(format!(
+                            "Unexpected fixed fixture choice `{selected}` for {key}."
+                        )));
+                    }
+                    answers.insert(
+                        key.clone(),
+                        json!({"type":"choice","choice":selected,"probabilities":{selected:0.99}}),
+                    );
+                }
+                other => {
+                    return Err(ProviderError::permanent(format!(
+                        "Unexpected typed question `{other}` for {key}."
+                    )))
+                }
+            }
+        }
+        Ok(json!({"model":"typesafe/jev-1.13-open-question-fixture","answers":answers}))
     }
 }
 
@@ -478,7 +763,8 @@ fn repository_adr_decision_is_navigable_with_its_exact_heading_span() {
     let version_id = source.info.current_version_id.as_ref().unwrap();
     assert!(page.markdown.contains(exact_decision), "{}", page.markdown);
     assert!(
-        page.markdown.contains(&format!("source lines {line}–{line}")),
+        page.markdown
+            .contains(&format!("source lines {line}–{line}")),
         "{}",
         page.markdown
     );
@@ -487,9 +773,64 @@ fn repository_adr_decision_is_navigable_with_its_exact_heading_span() {
     assert!(page.markdown.contains(version_id));
     assert!(page.markdown.contains("Source page"));
     assert!(page.markdown.contains("Retained original"));
-    assert!(!page.markdown.contains("service parses query plans frequently"));
+    assert!(!page
+        .markdown
+        .contains("service parses query plans frequently"));
     assert_eq!(
         fs::read(app.original_path(&source.info.source_id).unwrap()).unwrap(),
         adr.as_bytes()
+    );
+}
+
+#[test]
+fn repository_explicit_open_question_is_navigable_with_its_exact_source_span() {
+    let workspace = tempdir().unwrap();
+    let repository = workspace.path().join("sample-repository");
+    fs::create_dir_all(repository.join("docs")).unwrap();
+    let relative_path = "docs/cache-design.md";
+    let document = "# Cache design\n\n## Open Questions\n\n- Should cache eviction use LRU?\n";
+    fs::write(repository.join(relative_path), document).unwrap();
+    let provider = Arc::new(JevSemanticProvider::with_transport(
+        "repository-fixture-credential".into(),
+        Arc::new(RepositoryOpenQuestionTransport),
+    ));
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open_with_semantic_provider(&collection, provider).unwrap();
+
+    let imported = app.import_repository(&repository).unwrap();
+    let source_summary = imported
+        .sources
+        .iter()
+        .find(|source| source.relative_path == relative_path)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let source = app.open_source(&source_summary.source_id).unwrap();
+    assert_eq!(source.info.semantic_state, "complete", "{source:?}");
+    let question = source
+        .info
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "question" && page.title == "Should cache eviction use LRU?")
+        .expect("an explicit open question should become a navigable target");
+    let page = app.open_knowledge_page(&question.page_id).unwrap();
+    let line = document
+        .lines()
+        .position(|text| text == "- Should cache eviction use LRU?")
+        .unwrap()
+        + 1;
+    let version_id = source.info.current_version_id.as_ref().unwrap();
+    assert!(page.markdown.contains("Should cache eviction use LRU?"));
+    assert!(page
+        .markdown
+        .contains(&format!("source lines {line}–{line}")));
+    assert!(page.markdown.contains(relative_path));
+    assert!(page.markdown.contains(&source.info.source_id));
+    assert!(page.markdown.contains(version_id));
+    assert!(page.markdown.contains("Source page"));
+    assert!(page.markdown.contains("Retained original"));
+    assert_eq!(
+        fs::read(app.original_path(&source.info.source_id).unwrap()).unwrap(),
+        document.as_bytes()
     );
 }

@@ -290,6 +290,7 @@ impl SemanticProvider for JevSemanticProvider {
         } else {
             let mut candidates = candidates(source_text);
             candidates.extend(adr_decision_candidates(source_text));
+            candidates.extend(repository_question_candidates(source_text));
             candidates
         };
         let correction_candidates = correction_candidates(source_text, &candidates);
@@ -338,6 +339,7 @@ impl SemanticProvider for JevSemanticProvider {
             let judgment = match candidate.kind {
                 CandidateKind::CodeConcept => "Does this exact Rust documentation comment describe the adjacent named code construct as a meaningful concept worth navigating? Accept only when the symbol and comment are adjacent in the acquired source and the description is grounded in the quoted comment. Do not infer behavior beyond those words.",
                 CandidateKind::AdrDecision => "Does this exact paragraph immediately under the explicit `## Decision` section state the decision named by the ADR title? Accept only a decision span, not context, status, or consequences. Preserve the wording as an attributed document decision; do not infer implementation or truth beyond the span.",
+                CandidateKind::RepositoryQuestion => "Is this exact bullet under an explicit `## Questions` or `## Open Questions` heading a source-stated question worth navigating? Accept only the literal question and do not infer an answer or turn surrounding prose into a question.",
                 CandidateKind::Event => "Does this source span explicitly identify the named event/entity ID shown in the candidate? The event ID is a source label, not a claim about its truth.",
                 CandidateKind::Place => "Does this exact source span place the described event at the named place? Phrases such as 'at Riverside' or 'Location: Riverside' explicitly attach the place to the event; keep any uncertainty in the qualification.",
                 CandidateKind::Count if candidate.origin == "quoted" => "Does the source explicitly quote or report the qualified count described by this candidate? Judge whether the source contains that quoted assertion, not whether the count was independently observed.",
@@ -700,6 +702,7 @@ impl SemanticProvider for JevSemanticProvider {
                     CandidateKind::Reference
                         | CandidateKind::CodeConcept
                         | CandidateKind::AdrDecision
+                        | CandidateKind::RepositoryQuestion
                         | CandidateKind::OfficeStatement
                 )
             })
@@ -912,6 +915,16 @@ impl SemanticProvider for JevSemanticProvider {
                         .entry(label.clone())
                         .or_insert_with(|| EntityDraft {
                             kind: "decision".into(),
+                            label,
+                            evidence: candidate.evidence(),
+                        });
+                }
+                CandidateKind::RepositoryQuestion => {
+                    let label = candidate.value.clone();
+                    entity_labels
+                        .entry(label.clone())
+                        .or_insert_with(|| EntityDraft {
+                            kind: "question".into(),
                             label,
                             evidence: candidate.evidence(),
                         });
@@ -1131,6 +1144,18 @@ impl SemanticProvider for JevSemanticProvider {
         }
         for candidate in accepted
             .iter()
+            .filter(|candidate| candidate.kind == CandidateKind::RepositoryQuestion)
+        {
+            draft.facts.push(FactDraft {
+                subject: candidate.value.clone(),
+                property: "question".into(),
+                value: candidate.value.clone(),
+                evidence: candidate.evidence(),
+                record_key: None,
+            });
+        }
+        for candidate in accepted
+            .iter()
             .filter(|candidate| candidate.kind == CandidateKind::Tag)
         {
             let subject = event
@@ -1320,6 +1345,7 @@ fn push_audio_sentence(
 enum CandidateKind {
     CodeConcept,
     AdrDecision,
+    RepositoryQuestion,
     Event,
     Person,
     Place,
@@ -2070,6 +2096,45 @@ fn adr_decision_candidates(text: &str) -> Vec<Candidate> {
             })
         })
         .collect()
+}
+
+fn repository_question_candidates(text: &str) -> Vec<Candidate> {
+    let question_heading = regex(r"(?i)^##[ \t]+(?:open[ \t]+)?questions[ \t]*$");
+    let mut in_question_section = false;
+    let mut line_start = 0usize;
+    let mut candidates = Vec::new();
+    for raw_line in text.split_inclusive('\n') {
+        let line = raw_line.trim_end_matches(['\r', '\n']);
+        if question_heading.is_match(line) {
+            in_question_section = true;
+        } else if line.starts_with('#') {
+            in_question_section = false;
+        } else if in_question_section {
+            let leading = line.len() - line.trim_start().len();
+            let content = line.trim_start();
+            let bullet = ["- ", "* ", "+ "]
+                .iter()
+                .find(|prefix| content.starts_with(*prefix));
+            if let Some(prefix) = bullet {
+                let question = content[prefix.len()..].trim();
+                if question.ends_with('?') && !question.is_empty() {
+                    let within_line = leading + prefix.len();
+                    let start = line_start + within_line;
+                    candidates.push(Candidate {
+                        kind: CandidateKind::RepositoryQuestion,
+                        value: question.to_owned(),
+                        quote: question.to_owned(),
+                        start,
+                        end: start + question.len(),
+                        qualifier: None,
+                        origin: origin_for(text, start, start + question.len()),
+                    });
+                }
+            }
+        }
+        line_start += raw_line.len();
+    }
+    candidates
 }
 
 fn candidates(text: &str) -> Vec<Candidate> {

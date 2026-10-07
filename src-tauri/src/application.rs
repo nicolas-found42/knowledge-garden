@@ -619,6 +619,16 @@ impl Application {
                     }
                 } else if kind.is_file() {
                     paths.push(path);
+                } else {
+                    let relative_path = path
+                        .strip_prefix(root)
+                        .map_err(|error| GardenError::Invalid(error.to_string()))?
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    exclusions.push(RepositoryExclusion {
+                        relative_path,
+                        reason: "special_files_not_imported".into(),
+                    });
                 }
             }
             Ok(())
@@ -633,7 +643,13 @@ impl Application {
                 .map_err(|error| GardenError::Invalid(error.to_string()))?
                 .to_string_lossy()
                 .replace('\\', "/");
-            let mut page = self.import_source(&path, AcquisitionMethod::Repository)?;
+            let mut page = self.import_source_with_identity(
+                &path,
+                AcquisitionMethod::Repository,
+                None,
+                None,
+                Some(format!("repository-file:{repository_id}:{relative_path}")),
+            )?;
             page.info.repository = Some(RepositorySourceContext {
                 repository_id: repository_id.clone(),
                 repository_path: root.to_string_lossy().into_owned(),
@@ -919,6 +935,17 @@ impl Application {
         acquisition_override: Option<Acquisition>,
         format_override: Option<String>,
     ) -> Result<SourcePage> {
+        self.import_source_with_identity(path, method, acquisition_override, format_override, None)
+    }
+
+    fn import_source_with_identity(
+        &mut self,
+        path: impl AsRef<Path>,
+        method: AcquisitionMethod,
+        acquisition_override: Option<Acquisition>,
+        format_override: Option<String>,
+        source_identity_scope: Option<String>,
+    ) -> Result<SourcePage> {
         let supplied_path = if path.as_ref().is_absolute() {
             path.as_ref().to_path_buf()
         } else {
@@ -995,6 +1022,9 @@ impl Application {
                 let identity = format!("url-origin:{path_key}");
                 format!("source-{:x}", Sha256::digest(identity.as_bytes()))
             })
+        } else if let Some(scope) = source_identity_scope {
+            let identity = format!("repository-source:{format}:{scope}");
+            format!("source-{:x}", Sha256::digest(identity.as_bytes()))
         } else {
             existing_origin
                 .or(self.source_for_version(&digest, &format)?)
@@ -1037,18 +1067,16 @@ impl Application {
                 &acquisition.received_at,
                 "pending",
             );
-            if existing.info.current_version_id.is_none() {
-                let previous_original = destination.join(&existing.info.asset);
-                if let Some(previous) = existing
-                    .info
-                    .versions_seen
-                    .iter()
-                    .find(|previous| previous.source_version_id == existing.info.sha256)
-                {
-                    let previous_path = self.version_original_path(&source_id, previous)?;
-                    if previous_original.exists() && !previous_path.exists() {
-                        write_atomic_from_file(&previous_path, &previous_original)?;
-                    }
+            let previous_original = destination.join(&existing.info.asset);
+            if let Some(previous) = existing
+                .info
+                .versions_seen
+                .iter()
+                .find(|previous| previous.source_version_id == existing.info.sha256)
+            {
+                let previous_path = self.version_original_path(&source_id, previous)?;
+                if previous_original.exists() && !previous_path.exists() {
+                    write_atomic_from_file(&previous_path, &previous_original)?;
                 }
             }
             let version_path = self.version_original_path(&source_id, &version)?;
@@ -1098,7 +1126,8 @@ impl Application {
                     Ok(web) => (ExtractionState::StructuredText, web.detail, None),
                     Err(detail) => (ExtractionState::InvalidUtf8, detail, None),
                 }
-            } else if crate::extraction::is_structured_format(&format) {
+            } else if crate::extraction::is_structured_source(&staging.path().join(&asset), &format)
+            {
                 match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
@@ -1229,7 +1258,8 @@ impl Application {
                 Err(_) => (ExtractionState::InvalidUtf8, "The source is not valid UTF-8. The original is retained without lossy decoding.".into(), String::new(), None, None),
                 Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 response text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
             }
-            } else if crate::extraction::is_structured_format(&format) {
+            } else if crate::extraction::is_structured_source(&staging.path().join(&asset), &format)
+            {
                 match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
@@ -1712,7 +1742,7 @@ impl Application {
                         } else {
                             version_path
                         };
-                        if crate::extraction::is_structured_format(&version.format) {
+                        if crate::extraction::is_structured_source(&path, &version.format) {
                             self.extractor
                                 .extract(&path, &version.format, &page.info.title)
                                 .ok()
@@ -2312,13 +2342,26 @@ impl Application {
                     } else {
                         let prior_page = page.clone();
                         let update = draft.source_update.clone();
+                        let acquired_conversation = page
+                            .info
+                            .extraction_coverage
+                            .as_ref()
+                            .is_some_and(|coverage| {
+                                coverage.iter().any(|part| {
+                                    part.scope == CoverageScope::ConversationMessages
+                                        && matches!(
+                                            part.status,
+                                            CoverageStatus::Complete | CoverageStatus::Partial
+                                        )
+                                })
+                            });
                         let result =
                             crate::photo::validate_draft(&job.source_text, &source_format, &draft)
                                 .map_err(GardenError::Invalid)
                                 .and_then(|()| {
                                     crate::conversation::validate_draft(
                                         &job.source_text,
-                                        &source_format,
+                                        acquired_conversation,
                                         &draft,
                                     )
                                     .map_err(GardenError::Invalid)
@@ -3595,23 +3638,24 @@ impl Application {
             .join("versions")
             .join(source_version_id)
             .join(&candidate.asset);
-        let office_projection = if crate::extraction::is_structured_format(&candidate.format) {
-            Some(
-                self.extractor
-                    .extract(
-                        &candidate_path,
-                        &candidate.format,
-                        Path::new(&candidate.original_name)
-                            .file_stem()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .as_ref(),
-                    )
-                    .map_err(GardenError::Invalid)?,
-            )
-        } else {
-            None
-        };
+        let office_projection =
+            if crate::extraction::is_structured_source(&candidate_path, &candidate.format) {
+                Some(
+                    self.extractor
+                        .extract(
+                            &candidate_path,
+                            &candidate.format,
+                            Path::new(&candidate.original_name)
+                                .file_stem()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .as_ref(),
+                        )
+                        .map_err(GardenError::Invalid)?,
+                )
+            } else {
+                None
+            };
         let candidate_bytes = fs::read(candidate_path)?;
         let destination_original = self
             .source_dir(&source.info.source_id)?
@@ -5969,7 +6013,14 @@ fn stable_page_id(entity: &EntityDraft, source_id: &str, source_text: Option<&st
     }
     if matches!(
         entity.kind.to_ascii_lowercase().as_str(),
-        "person" | "event" | "document" | "presentation" | "conversation" | "conversation_message" | "concept" | "decision"
+        "person"
+            | "event"
+            | "document"
+            | "presentation"
+            | "conversation"
+            | "conversation_message"
+            | "concept"
+            | "decision"
     ) {
         digest.update([0]);
         digest.update(source_id.as_bytes());
