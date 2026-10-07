@@ -1660,12 +1660,13 @@ fn candidates(text: &str) -> Vec<Candidate> {
     }
     let url_re = regex(r"https?://[^\s)>]+");
     for m in url_re.find_iter(text) {
+        let (start, end) = sentence_bounds(text, m.start(), m.end());
         result.push(Candidate {
             kind: CandidateKind::Reference,
             value: m.as_str().trim_end_matches(['.', ',']).to_owned(),
-            quote: m.as_str().to_owned(),
-            start: m.start(),
-            end: m.end(),
+            quote: text[start..end].to_owned(),
+            start,
+            end,
             qualifier: None,
             origin: origin_for(text, m.start(), m.end()),
         });
