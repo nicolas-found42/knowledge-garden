@@ -10,6 +10,10 @@ pub struct LocalExtractor;
 
 impl SourceExtractor for LocalExtractor {
     fn extract(&self, path: &Path, format: &str, title: &str) -> Result<OfficeProjection, String> {
-        crate::office::extract(path, format, title)
+        if crate::photo::is_photo(format) {
+            crate::photo::extract(path, title)
+        } else {
+            crate::office::extract(path, format, title)
+        }
     }
 }

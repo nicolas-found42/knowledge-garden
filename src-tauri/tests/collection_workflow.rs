@@ -3835,6 +3835,179 @@ fn repeated_initial_quota_failures_exhaust_the_same_persisted_budget() {
 }
 
 #[test]
+fn repeated_interrupted_initial_attempts_stop_without_losing_the_original() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("interrupted-initial.txt");
+    let collection = workspace.path().join("collection");
+    fs::write(&path, REVISION_1).unwrap();
+    let mut app = Application::open(&collection).unwrap();
+    let source = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    let mut time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let mut stale = None;
+    for attempt in 0..3 {
+        let job = app.claim_due_semantic_jobs_at(1, time).unwrap().remove(0);
+        stale = Some(job);
+        drop(app);
+        app = Application::open(&collection).unwrap();
+        assert!(app
+            .claim_due_semantic_jobs_at(1, time + 1)
+            .unwrap()
+            .is_empty());
+        let interrupted = app.open_source(&source.info.source_id).unwrap();
+        if attempt < 2 {
+            assert_eq!(interrupted.info.semantic_state, "pending");
+            time = interrupted
+                .info
+                .semantic_retry_at
+                .unwrap()
+                .parse::<u128>()
+                .unwrap()
+                + 1;
+        } else {
+            assert_eq!(interrupted.info.semantic_state, "failed");
+            assert!(interrupted.info.semantic_retry_at.is_none());
+        }
+    }
+    assert!(app
+        .claim_due_semantic_jobs_at(1, time + 3_600_000)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        fs::read_to_string(app.original_path(&source.info.source_id).unwrap()).unwrap(),
+        REVISION_1
+    );
+    assert!(app
+        .finish_semantic_job(
+            stale.unwrap(),
+            Ok(replacement_recording(REVISION_1, 12, true))
+        )
+        .is_err());
+    drop(app);
+    let mut restarted = Application::open(&collection).unwrap();
+    assert_eq!(
+        restarted
+            .open_source(&source.info.source_id)
+            .unwrap()
+            .info
+            .semantic_state,
+        "failed"
+    );
+    assert!(restarted
+        .claim_due_semantic_jobs_at(1, time + 3_600_000)
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn interrupted_update_budget_keeps_current_facts_and_a_newer_version_can_succeed() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("interrupted-update.txt");
+    let collection = workspace.path().join("collection");
+    fs::write(&path, REVISION_1).unwrap();
+    let mut app = Application::open(&collection).unwrap();
+    let baseline = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    let initial = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    app.finish_semantic_job(initial, Ok(replacement_recording(REVISION_1, 12, true)))
+        .unwrap();
+    let page_id = app
+        .open_source(&baseline.info.source_id)
+        .unwrap()
+        .info
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "event")
+        .unwrap()
+        .page_id
+        .clone();
+    fs::write(&path, REVISION_2).unwrap();
+    let pending = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    let pending_id = pending.info.pending_version_id.unwrap();
+    let candidate = app
+        .original_version_path(&baseline.info.source_id, &pending_id, "original.txt")
+        .unwrap();
+    let mut time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let mut stale = None;
+    for attempt in 0..3 {
+        let job = app.claim_due_semantic_jobs_at(1, time).unwrap().remove(0);
+        stale = Some(job);
+        drop(app);
+        app = Application::open(&collection).unwrap();
+        assert!(app
+            .claim_due_semantic_jobs_at(1, time + 1)
+            .unwrap()
+            .is_empty());
+        let interrupted = app.open_source(&baseline.info.source_id).unwrap();
+        assert_eq!(interrupted.info.semantic_state, "complete");
+        assert!(app
+            .open_knowledge_page(&page_id)
+            .unwrap()
+            .markdown
+            .contains("12 visits"));
+        assert!(app
+            .open_knowledge_page(&page_id)
+            .unwrap()
+            .markdown
+            .contains("10 minutes"));
+        if attempt < 2 {
+            assert_eq!(interrupted.info.update_status.as_deref(), Some("pending"));
+            time = interrupted
+                .info
+                .semantic_retry_at
+                .unwrap()
+                .parse::<u128>()
+                .unwrap()
+                + 1;
+        } else {
+            assert_eq!(interrupted.info.update_status.as_deref(), Some("failed"));
+            assert!(interrupted.info.semantic_retry_at.is_none());
+        }
+    }
+    assert_eq!(
+        fs::read_to_string(app.original_path(&baseline.info.source_id).unwrap()).unwrap(),
+        REVISION_1
+    );
+    assert_eq!(fs::read_to_string(candidate).unwrap(), REVISION_2);
+    assert!(app
+        .claim_due_semantic_jobs_at(1, time + 3_600_000)
+        .unwrap()
+        .is_empty());
+    let newer = REVISION_2
+        .replace("revision 2 dated May 20", "revision 3 dated May 21")
+        .replace("Visits: 15.", "Visits: 18.");
+    fs::write(&path, &newer).unwrap();
+    let fresh = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    assert_ne!(fresh.info.pending_version_id, Some(pending_id));
+    let next = app
+        .claim_due_semantic_jobs_at(1, time + 3_600_000)
+        .unwrap()
+        .remove(0);
+    assert_eq!(next.source_text, newer);
+    app.finish_semantic_job(next, Ok(replacement_recording(&newer, 18, false)))
+        .unwrap();
+    assert!(app
+        .finish_semantic_job(
+            stale.unwrap(),
+            Ok(replacement_recording(REVISION_2, 15, false))
+        )
+        .is_err());
+    assert!(app
+        .open_knowledge_page(&page_id)
+        .unwrap()
+        .markdown
+        .contains("18 visits"));
+    assert_eq!(
+        fs::read_to_string(app.original_path(&baseline.info.source_id).unwrap()).unwrap(),
+        newer
+    );
+}
+
+#[test]
 fn newer_source_recovers_failed_initial_acquisition_from_its_own_candidate() {
     let workspace = tempdir().unwrap();
     let path = workspace.path().join("initial-report.txt");

@@ -15,6 +15,11 @@ pub enum CoverageScope {
     SlideText,
     SpeakerNotes,
     EmbeddedObject,
+    AudioRecording,
+    ImagePixels,
+    ImageMetadata,
+    ImageText,
+    ImageInterpretation,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -455,6 +460,11 @@ fn coverage_scope_label(scope: CoverageScope) -> &'static str {
         CoverageScope::SlideText => "slide text",
         CoverageScope::SpeakerNotes => "speaker notes",
         CoverageScope::EmbeddedObject => "embedded object",
+        CoverageScope::AudioRecording => "audio recording",
+        CoverageScope::ImagePixels => "image pixels",
+        CoverageScope::ImageMetadata => "image metadata",
+        CoverageScope::ImageText => "image OCR text",
+        CoverageScope::ImageInterpretation => "uncertain image interpretation",
     }
 }
 
