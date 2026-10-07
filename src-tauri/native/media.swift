@@ -43,6 +43,11 @@ private struct AudioInfo: Encodable {
     let codec: String
 }
 
+private struct ExtractedAudioSegment: Encodable {
+    let processedDurationMs: Int64
+    let mediaDurationMs: Int64
+}
+
 private enum MediaError: Error, CustomStringConvertible {
     case usage
     case invalidRange
@@ -53,7 +58,7 @@ private enum MediaError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .usage:
-            return "Usage: media-helper capabilities | install | inspect <path> | transcribe <path> <start-ms> <duration-ms>"
+                return "Usage: media-helper capabilities | install | inspect <path> | extract <path> <start-ms> <duration-ms> <wav-path> | transcribe <path> <start-ms> <duration-ms>"
         case .invalidRange:
             return "The requested audio interval is outside the source or exceeds the 30-second processing limit."
         case .unsupportedLocale:
@@ -85,6 +90,17 @@ private struct MediaHelper {
             case "inspect":
                 guard arguments.count == 2 else { throw MediaError.usage }
                 try await writeJSON(try inspectAudio(URL(fileURLWithPath: arguments[1])))
+            case "extract":
+                guard arguments.count == 5,
+                      let startMs = Int64(arguments[2]),
+                      let durationMs = Int64(arguments[3]) else { throw MediaError.usage }
+                let report = try extractAudioSegment(
+                    URL(fileURLWithPath: arguments[1]),
+                    startMs: startMs,
+                    durationMs: durationMs,
+                    outputURL: URL(fileURLWithPath: arguments[4])
+                )
+                try await writeJSON(report)
             case "transcribe":
                 guard arguments.count == 4,
                       let startMs = Int64(arguments[2]),
@@ -172,6 +188,34 @@ private struct MediaHelper {
             channels: Int(file.fileFormat.channelCount),
             codec: file.fileFormat.settings[AVFormatIDKey].map(String.init(describing:)) ?? "unknown"
         )
+    }
+
+    private static func extractAudioSegment(
+        _ url: URL,
+        startMs: Int64,
+        durationMs: Int64,
+        outputURL: URL
+    ) throws -> ExtractedAudioSegment {
+        guard startMs >= 0, durationMs > 0, durationMs <= maxSegmentDurationMs else {
+            throw MediaError.invalidRange
+        }
+        let input: AVAudioFile
+        do { input = try AVAudioFile(forReading: url) }
+        catch { throw MediaError.invalidAudio(error.localizedDescription) }
+        let format = input.processingFormat
+        let sampleRate = format.sampleRate
+        guard sampleRate.isFinite, sampleRate > 0 else {
+            throw MediaError.invalidAudio("The source has no usable audio sample rate.")
+        }
+        let totalDurationMs = Int64((Double(input.length) / sampleRate * 1_000).rounded())
+        let startFrame = AVAudioFramePosition((Double(startMs) * sampleRate / 1_000).rounded(.down))
+        guard startFrame < input.length else { throw MediaError.invalidRange }
+        let requestedFrames = AVAudioFramePosition((Double(durationMs) * sampleRate / 1_000).rounded(.down))
+        let frameCount = min(requestedFrames, input.length - startFrame)
+        guard frameCount > 0 else { throw MediaError.invalidRange }
+        let actualDurationMs = Int64((Double(frameCount) / sampleRate * 1_000).rounded())
+        try copySegment(from: input, startFrame: startFrame, frameCount: frameCount, to: outputURL)
+        return ExtractedAudioSegment(processedDurationMs: actualDurationMs, mediaDurationMs: totalDurationMs)
     }
 
     private static func transcribe(_ url: URL, startMs: Int64, durationMs: Int64) async throws -> TranscriptionReport {

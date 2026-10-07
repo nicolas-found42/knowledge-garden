@@ -1008,7 +1008,7 @@ impl Application {
         let (extraction, extraction_detail, text, office_projection, extraction_coverage) =
             if audio_format && inspected_audio.is_some() {
                 (ExtractionState::PartialText,
-                 "The exact audio original is retained. Local time-indexed transcription is queued in resumable segments; silence, overlap, speaker identity, and uncertain wording require review against playback.".into(),
+                 "The exact audio original is retained. Pinned local Whisper transcription is queued in resumable segments; silence, overlap, speaker identity, and uncertain wording require review against playback.".into(),
                 String::new(), None, Some(vec![CoveragePart { scope: CoverageScope::AudioRecording, status: CoverageStatus::Partial, source_location: Some("timeline".into()), detail: "Automatic transcription is not complete or word-for-word verified; no diarization, silence detection, noise classification, or overlap attribution is available.".into() }]))
             } else if audio_format {
                 (ExtractionState::Unsupported,
@@ -1198,7 +1198,7 @@ impl Application {
                 segment_duration_ms: MAX_AUDIO_SEGMENT_MS,
                 attempts: 0,
                 retry_at_ms: None,
-                detail: "Apple on-device transcription is queued. Speaker attribution is unavailable; all speakers remain unidentified.".into(),
+                detail: "Pinned local Whisper transcription is queued. Speaker attribution is unavailable; all speakers remain unidentified.".into(),
                 segments: Vec::new(),
             }),
         };
@@ -2132,7 +2132,7 @@ impl Application {
             }
             audio.state = "processing".into();
             audio.attempts = audio.attempts.saturating_add(1);
-            audio.detail = format!("Transcribing original audio from {start} to {} ms with the local Apple speech model. Speaker identity is unavailable.", start + duration);
+            audio.detail = format!("Transcribing original audio from {start} to {} ms with the pinned local Whisper model. Speaker identity is unavailable.", start + duration);
             self.write_source_page(&page)?;
             self.index_page(&page.info)?;
         }
@@ -2183,7 +2183,7 @@ impl Application {
                 audio.next_start_ms = window_end;
                 audio.state = if window_end >= audio.duration_ms { "complete" } else { "pending" }.into();
                 audio.retry_at_ms = None;
-                audio.detail = format!("{} ms examined. Silence, overlap, accent/noise effects, and unrecognized speech are not distinguishable from omitted words; all transcript passages remain machine-transcribed evidence and speakers unidentified. Compare the original.", audio.next_start_ms);
+            audio.detail = format!("{} ms examined. Local large-v3-turbo Whisper output is a best-guess transcript without calibrated confidence or alternatives. Silence, overlap, accent/noise effects, and unrecognized speech are not distinguishable from omitted words; timestamps are estimates and speakers remain unidentified. Compare the original.", audio.next_start_ms);
                 if audio.state == "complete" {
                     if audio.segments.is_empty() {
                         page.info.current_version_id = Some(version_id.clone());
@@ -5430,7 +5430,7 @@ fn stable_audio_segment_id(version_id: &str, window_start_ms: u64, ordinal: usiz
 }
 
 fn audio_semantic_text(audio: &AudioProcessingInfo) -> String {
-    let mut lines = String::from("Machine-generated transcript from retained audio. Wording is not verified against the original; confidence is an estimate, and speaker identity is unavailable.\n");
+    let mut lines = String::from("Machine-generated transcript from retained audio. Wording and timestamps are unverified estimates; this local recognizer emits no calibrated confidence or alternatives, and speaker identity is unavailable.\n");
     for segment in &audio.segments {
         lines.push_str(&format!(
             "[AUDIO {}–{} ms confidence={} speaker=unidentified] {}\n",

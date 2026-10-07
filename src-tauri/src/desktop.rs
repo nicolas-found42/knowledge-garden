@@ -3,6 +3,8 @@ use crate::{
         AcquisitionMethod, Application, PageSearchRequest, PageSearchResults, SourceList,
         SourcePage, UrlAcquisitionStatus,
     },
+    extraction::LocalExtractor,
+    media::WhisperAudioProcessor,
     providers::JevSemanticProvider,
     semantic::{KnowledgePage, SemanticProvider},
 };
@@ -153,8 +155,14 @@ pub fn run() {
             let semantic_provider: Arc<dyn SemanticProvider> =
                 Arc::new(JevSemanticProvider::from_environment_and_keychain());
             let meaning_assets = app.path().resource_dir()?.join("meaning");
-            let engine = Arc::new(Mutex::new(Application::open_with_meaning_assets(
+            let audio_processor = Arc::new(WhisperAudioProcessor::new(
+                app.path().resource_dir()?.join("audio"),
+            ));
+            let engine = Arc::new(Mutex::new(Application::open_with_all_providers_and_meaning_assets(
                 root,
+                Arc::clone(&semantic_provider),
+                Arc::new(LocalExtractor),
+                audio_processor,
                 Some(meaning_assets),
             )?));
             let worker_app = Arc::clone(&engine);
