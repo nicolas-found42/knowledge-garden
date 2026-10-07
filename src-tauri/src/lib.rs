@@ -2,6 +2,7 @@ pub mod application;
 pub mod desktop;
 pub mod extraction;
 pub mod meaning;
+pub mod media;
 pub mod office;
 pub mod photo;
 pub mod providers;
