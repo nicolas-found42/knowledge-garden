@@ -46,7 +46,13 @@ const riverside: SourcePage = {
 function testApi(): GardenApi {
   return {
     chooseFile: vi.fn().mockResolvedValue("/tmp/Riverside notes.md"),
+    chooseRepositoryDirectory: vi.fn().mockResolvedValue(null),
     importSource: vi.fn().mockResolvedValue(riverside),
+    importRepository: vi.fn().mockResolvedValue({
+      repository_id: "repository-sample",
+      sources: [],
+      exclusions: [],
+    }),
     importUrl: vi.fn().mockResolvedValue(riverside),
     listUrlAcquisitions: vi.fn().mockResolvedValue([]),
     listSources: vi.fn().mockResolvedValue({ sources: [], next_offset: null }),
@@ -65,6 +71,33 @@ function testApi(): GardenApi {
     onDrop: vi.fn().mockResolvedValue(() => {}),
   };
 }
+
+it("imports a chosen repository, opens its source, and reports excluded paths", async () => {
+  const api = testApi();
+  api.chooseRepositoryDirectory = vi.fn().mockResolvedValue("/tmp/sample-repo");
+  api.importRepository = vi.fn().mockResolvedValue({
+    repository_id: "repository-sample",
+    sources: [{ source_id: "source-riverside", relative_path: "README.md" }],
+    exclusions: [
+      { relative_path: "linked.md", reason: "symbolic_link_not_followed" },
+    ],
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+
+  await user.click(screen.getByRole("button", { name: "Add repository" }));
+  expect(api.chooseRepositoryDirectory).toHaveBeenCalledOnce();
+  expect(api.importRepository).toHaveBeenCalledWith("/tmp/sample-repo");
+  expect(
+    await screen.findByRole("heading", { name: "Riverside notes" }),
+  ).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toContain(
+    "linked.md (symbolic_link_not_followed)",
+  );
+  expect(api.openSource).toHaveBeenCalledWith("source-riverside");
+});
 
 it("keeps prior content readable and shows an incomplete update prominently", async () => {
   const api = testApi();

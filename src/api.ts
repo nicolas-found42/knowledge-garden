@@ -90,6 +90,12 @@ export interface SourcePage {
   knowledge_pages: KnowledgePageSummary[];
 }
 
+export interface RepositoryImportResult {
+  repository_id: string;
+  sources: Array<{ source_id: string; relative_path: string }>;
+  exclusions: Array<{ relative_path: string; reason: string }>;
+}
+
 export interface KnowledgePageSummary {
   page_id: string;
   title: string;
@@ -165,7 +171,9 @@ export interface PageSearchResults {
 /** The reader's application boundary. Desktop paths never come from page HTML. */
 export interface GardenApi {
   chooseFile(): Promise<string | null>;
+  chooseRepositoryDirectory(): Promise<string | null>;
   importSource(path: string, method: AcquisitionMethod): Promise<SourcePage>;
+  importRepository(path: string): Promise<RepositoryImportResult>;
   importUrl(url: string): Promise<SourcePage>;
   listUrlAcquisitions(): Promise<UrlAcquisitionStatus[]>;
   listSources(offset: number): Promise<SourceList>;
@@ -200,7 +208,16 @@ export const desktopApi: GardenApi = {
     });
     return typeof selected === "string" ? selected : null;
   },
+  async chooseRepositoryDirectory() {
+    const selected = await open({
+      multiple: false,
+      directory: true,
+      title: "Add a repository",
+    });
+    return typeof selected === "string" ? selected : null;
+  },
   importSource: (path, method) => invoke("import_source", { path, method }),
+  importRepository: (path) => invoke("import_repository", { path }),
   importUrl: (url) => invoke("import_url", { url }),
   listUrlAcquisitions: () => invoke("list_url_acquisitions"),
   listSources: (offset) => invoke("list_sources", { offset }),

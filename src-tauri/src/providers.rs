@@ -158,6 +158,7 @@ impl SemanticProvider for JevSemanticProvider {
         prior_source_text: Option<&str>,
     ) -> std::result::Result<KnowledgeDraft, ProviderError> {
         let mut candidates = candidates(source_text);
+        candidates.extend(adr_decision_candidates(source_text));
         let correction_candidates = correction_candidates(source_text, &candidates);
         let office_candidates = office_statement_candidates(source_text);
         let office_mode = !office_candidates.is_empty() || source_text.contains("; channel=");
@@ -203,6 +204,8 @@ impl SemanticProvider for JevSemanticProvider {
                 continue;
             }
             let judgment = match candidate.kind {
+                CandidateKind::CodeConcept => "Does this exact Rust documentation comment describe the adjacent named code construct as a meaningful concept worth navigating? Accept only when the symbol and comment are adjacent in the acquired source and the description is grounded in the quoted comment. Do not infer behavior beyond those words.",
+                CandidateKind::AdrDecision => "Does this exact paragraph immediately under the explicit `## Decision` section state the decision named by the ADR title? Accept only a decision span, not context, status, or consequences. Preserve the wording as an attributed document decision; do not infer implementation or truth beyond the span.",
                 CandidateKind::Event => "Does this source span explicitly identify the named event/entity ID shown in the candidate? The event ID is a source label, not a claim about its truth.",
                 CandidateKind::Place => "Does this exact source span place the described event at the named place? Phrases such as 'at Riverside' or 'Location: Riverside' explicitly attach the place to the event; keep any uncertainty in the qualification.",
                 CandidateKind::Count if candidate.origin == "quoted" => "Does the source explicitly quote or report the qualified count described by this candidate? Judge whether the source contains that quoted assertion, not whether the count was independently observed.",
@@ -542,9 +545,15 @@ impl SemanticProvider for JevSemanticProvider {
             .find(|candidate| candidate.kind == CandidateKind::Event)
             .copied();
         if event.is_none()
-            && !accepted
-                .iter()
-                .any(|candidate| candidate.kind == CandidateKind::Reference)
+            && !accepted.iter().any(|candidate| {
+                matches!(
+                    candidate.kind,
+                    CandidateKind::Reference
+                        | CandidateKind::CodeConcept
+                        | CandidateKind::AdrDecision
+                        | CandidateKind::OfficeStatement
+                )
+            })
             && !office_mode
         {
             if let Some((choice, probability)) = validated.event_identity.as_ref() {
@@ -712,6 +721,26 @@ impl SemanticProvider for JevSemanticProvider {
                         .entry(label.clone())
                         .or_insert_with(|| EntityDraft {
                             kind: "reference".into(),
+                            label,
+                            evidence: candidate.evidence(),
+                        });
+                }
+                CandidateKind::CodeConcept => {
+                    let label = candidate.value.clone();
+                    entity_labels
+                        .entry(label.clone())
+                        .or_insert_with(|| EntityDraft {
+                            kind: "concept".into(),
+                            label,
+                            evidence: candidate.evidence(),
+                        });
+                }
+                CandidateKind::AdrDecision => {
+                    let label = candidate.value.clone();
+                    entity_labels
+                        .entry(label.clone())
+                        .or_insert_with(|| EntityDraft {
+                            kind: "decision".into(),
                             label,
                             evidence: candidate.evidence(),
                         });
@@ -885,6 +914,35 @@ impl SemanticProvider for JevSemanticProvider {
         }
         for candidate in accepted
             .iter()
+            .filter(|candidate| candidate.kind == CandidateKind::CodeConcept)
+        {
+            draft.facts.push(FactDraft {
+                subject: candidate.value.clone(),
+                property: "description".into(),
+                value: candidate
+                    .quote
+                    .trim_start()
+                    .trim_start_matches("///")
+                    .trim()
+                    .to_owned(),
+                evidence: candidate.evidence(),
+                record_key: None,
+            });
+        }
+        for candidate in accepted
+            .iter()
+            .filter(|candidate| candidate.kind == CandidateKind::AdrDecision)
+        {
+            draft.facts.push(FactDraft {
+                subject: candidate.value.clone(),
+                property: "decision".into(),
+                value: candidate.quote.trim().to_owned(),
+                evidence: candidate.evidence(),
+                record_key: None,
+            });
+        }
+        for candidate in accepted
+            .iter()
             .filter(|candidate| candidate.kind == CandidateKind::Tag)
         {
             let subject = event
@@ -904,6 +962,8 @@ impl SemanticProvider for JevSemanticProvider {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CandidateKind {
+    CodeConcept,
+    AdrDecision,
     Event,
     Person,
     Place,
@@ -1567,8 +1627,57 @@ fn office_qualification(text: &str) -> Option<String> {
     (!matches.is_empty()).then(|| matches.join("; "))
 }
 
+fn adr_decision_candidates(text: &str) -> Vec<Candidate> {
+    let adr_title_re = regex(r"(?im)^#[ \t]+ADR-[0-9A-Za-z_-]+\s*:\s*(.+?)\s*$");
+    let Some(title) = adr_title_re
+        .captures(text)
+        .and_then(|captures| captures.get(1))
+        .map(|title| title.as_str().trim())
+        .filter(|title| !title.is_empty())
+    else {
+        return Vec::new();
+    };
+    let decision_re = regex(r"(?im)^##[ \t]+Decision[ \t]*\r?\n(?:[ \t]*\r?\n)*([^#\n][^\n]*)");
+    decision_re
+        .captures_iter(text)
+        .filter_map(|captures| {
+            let span = captures.get(1)?;
+            let quote = span.as_str().trim();
+            (!quote.is_empty()).then(|| Candidate {
+                kind: CandidateKind::AdrDecision,
+                value: title.to_owned(),
+                quote: quote.to_owned(),
+                start: span.start(),
+                end: span.end(),
+                qualifier: None,
+                origin: origin_for(text, span.start(), span.end()),
+            })
+        })
+        .collect()
+}
+
 fn candidates(text: &str) -> Vec<Candidate> {
     let mut result = Vec::new();
+    let code_doc_re = regex(
+        r"(?m)^([ \t]*///[ \t]*[^\n]+)\n[ \t]*(?:pub[ \t]+)?(?:struct|enum|trait)[ \t]+([A-Z][A-Za-z0-9_]*)\b",
+    );
+    for captures in code_doc_re.captures_iter(text) {
+        let Some(comment) = captures.get(1) else {
+            continue;
+        };
+        let Some(symbol) = captures.get(2) else {
+            continue;
+        };
+        result.push(Candidate {
+            kind: CandidateKind::CodeConcept,
+            value: symbol.as_str().to_owned(),
+            quote: comment.as_str().to_owned(),
+            start: comment.start(),
+            end: comment.end(),
+            qualifier: None,
+            origin: origin_for(text, comment.start(), comment.end()),
+        });
+    }
     let event_re = regex(r"\b(?:V[0-9]+|(?i:observation|survey|event)\s+(?-i:[A-Z][A-Z0-9_-]*))\b");
     for m in event_re.find_iter(text) {
         let id = m.as_str().to_owned();

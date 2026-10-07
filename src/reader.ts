@@ -43,6 +43,7 @@ export async function mountReader(
   sourcesButton.setAttribute("aria-expanded", "false");
   const addButton = element("button", "Add source");
   addButton.className = "primary";
+  const addRepositoryButton = element("button", "Add repository");
   const addUrlButton = element("button", "Add URL");
   toolbar.append(
     brand,
@@ -50,6 +51,7 @@ export async function mountReader(
     searchButton,
     sourcesButton,
     addButton,
+    addRepositoryButton,
     addUrlButton,
   );
   const urlForm = element("form");
@@ -861,6 +863,44 @@ export async function mountReader(
       .chooseFile()
       .then((path) => (path ? importPaths([path], "picker") : undefined))
       .catch(report);
+  });
+
+  addRepositoryButton.addEventListener("click", () => {
+    if (busy || disposed) return;
+    void api
+      .chooseRepositoryDirectory()
+      .then(async (path) => {
+        if (!path || disposed) return;
+        busy = true;
+        addRepositoryButton.disabled = true;
+        addButton.disabled = true;
+        main.setAttribute("aria-busy", "true");
+        message("Reading repository files…");
+        const imported = await api.importRepository(path);
+        const lastSource = imported.sources.at(-1);
+        if (lastSource) showPage(await api.openSource(lastSource.source_id));
+        if (imported.exclusions.length) {
+          const details = imported.exclusions
+            .map(({ relative_path, reason }) => `${relative_path} (${reason})`)
+            .join(", ");
+          message(
+            `Repository imported. Excluded members: ${details}. These paths were not followed or imported.`,
+          );
+        } else {
+          message(
+            `Repository imported. ${imported.sources.length} file(s) added.`,
+          );
+        }
+      })
+      .catch(report)
+      .finally(() => {
+        busy = false;
+        if (!disposed) {
+          addRepositoryButton.disabled = false;
+          addButton.disabled = false;
+          main.removeAttribute("aria-busy");
+        }
+      });
   });
 
   addUrlButton.addEventListener("click", () => {

@@ -49,6 +49,33 @@ pub enum AcquisitionMethod {
     Picker,
     Drop,
     Url,
+    Repository,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RepositorySourceContext {
+    pub repository_id: String,
+    pub repository_path: String,
+    pub relative_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepositorySourceSummary {
+    pub source_id: String,
+    pub relative_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RepositoryExclusion {
+    pub relative_path: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepositoryImportResult {
+    pub repository_id: String,
+    pub sources: Vec<RepositorySourceSummary>,
+    pub exclusions: Vec<RepositoryExclusion>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -141,6 +168,8 @@ pub struct SourceInfo {
     pub sha256: String,
     pub bytes: u64,
     pub format: String,
+    #[serde(default)]
+    pub repository: Option<RepositorySourceContext>,
     pub extraction: ExtractionState,
     pub extraction_detail: String,
     #[serde(default)]
@@ -463,6 +492,94 @@ impl Application {
         method: AcquisitionMethod,
     ) -> Result<SourcePage> {
         self.import_source_with_acquisition(path, method, None, None)
+    }
+
+    /// Imports files from an owner-supplied directory through the ordinary source pipeline.
+    /// Repository members are read as bytes and are never executed.
+    pub fn import_repository(
+        &mut self,
+        supplied_path: impl AsRef<Path>,
+    ) -> Result<RepositoryImportResult> {
+        let root = fs::canonicalize(supplied_path)?;
+        if !root.is_dir() {
+            return Err(GardenError::Invalid("Choose a repository folder.".into()));
+        }
+        let repository_id = format!(
+            "repository-{:x}",
+            Sha256::digest(root.to_string_lossy().as_bytes())
+        );
+        let mut paths = Vec::new();
+        let mut exclusions = Vec::new();
+        fn collect(
+            root: &Path,
+            directory: &Path,
+            paths: &mut Vec<PathBuf>,
+            exclusions: &mut Vec<RepositoryExclusion>,
+        ) -> Result<()> {
+            for entry in fs::read_dir(directory)? {
+                let entry = entry?;
+                let path = entry.path();
+                let kind = fs::symlink_metadata(&path)?.file_type();
+                if kind.is_symlink() {
+                    let relative_path = path
+                        .strip_prefix(root)
+                        .map_err(|error| GardenError::Invalid(error.to_string()))?
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    exclusions.push(RepositoryExclusion {
+                        relative_path,
+                        reason: "symbolic_link_not_followed".into(),
+                    });
+                    continue;
+                }
+                if kind.is_dir() {
+                    if entry.file_name() == ".git" {
+                        let relative_path = path
+                            .strip_prefix(root)
+                            .map_err(|error| GardenError::Invalid(error.to_string()))?
+                            .to_string_lossy()
+                            .replace('\\', "/");
+                        exclusions.push(RepositoryExclusion {
+                            relative_path,
+                            reason: "repository_metadata_not_imported".into(),
+                        });
+                    } else {
+                        collect(root, &path, paths, exclusions)?;
+                    }
+                } else if kind.is_file() {
+                    paths.push(path);
+                }
+            }
+            Ok(())
+        }
+        collect(&root, &root, &mut paths, &mut exclusions)?;
+        paths.sort();
+        exclusions.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+        let mut sources = Vec::with_capacity(paths.len());
+        for path in paths {
+            let relative_path = path
+                .strip_prefix(&root)
+                .map_err(|error| GardenError::Invalid(error.to_string()))?
+                .to_string_lossy()
+                .replace('\\', "/");
+            let mut page = self.import_source(&path, AcquisitionMethod::Repository)?;
+            page.info.repository = Some(RepositorySourceContext {
+                repository_id: repository_id.clone(),
+                repository_path: root.to_string_lossy().into_owned(),
+                relative_path: relative_path.clone(),
+            });
+            self.write_source_page(&page)?;
+            self.index_page(&page.info)?;
+            sources.push(RepositorySourceSummary {
+                source_id: page.info.source_id,
+                relative_path,
+            });
+        }
+        Ok(RepositoryImportResult {
+            repository_id,
+            sources,
+            exclusions,
+        })
     }
 
     pub fn import_url(&mut self, input: &str) -> Result<SourcePage> {
@@ -902,7 +1019,12 @@ impl Application {
                     }
                 }
             } else {
-                let (extraction, detail, _) = classify_source(&format, count, text_bytes);
+                let (extraction, detail, _) = classify_source(
+                    &format,
+                    count,
+                    text_bytes,
+                    method == AcquisitionMethod::Repository,
+                );
                 (extraction, detail.to_owned(), None)
             };
             if !matches!(
@@ -1012,7 +1134,7 @@ impl Application {
                         )
                     }
                 }
-            } else if !matches!(format.as_str(), "" | "txt" | "text" | "md" | "markdown") {
+            } else if !is_text_format(&format, method == AcquisitionMethod::Repository) {
                 (
                     ExtractionState::Unsupported,
                     "This format is not supported by the text importer. The original is retained."
@@ -1067,6 +1189,7 @@ impl Application {
             sha256: digest.clone(),
             bytes: count,
             format: format.clone(),
+            repository: None,
             extraction,
             extraction_detail,
             extraction_coverage,
@@ -1681,9 +1804,17 @@ impl Application {
                 .acquisitions
                 .iter()
                 .any(|acquisition| acquisition.method == AcquisitionMethod::Url);
+        let repository_location = page
+            .info
+            .repository
+            .as_ref()
+            .map(|repository| repository.relative_path.clone());
         let result = result.map(|mut draft| {
             if web_projection {
                 mark_web_projection_evidence(&mut draft);
+            }
+            if let Some(relative_path) = repository_location.as_deref() {
+                mark_repository_evidence(&mut draft, relative_path);
             }
             draft
         });
@@ -4046,8 +4177,9 @@ fn classify_source(
     format: &str,
     count: u64,
     text_bytes: Vec<u8>,
+    repository: bool,
 ) -> (ExtractionState, &'static str, String) {
-    if !matches!(format, "" | "txt" | "text" | "md" | "markdown") {
+    if !is_text_format(format, repository) {
         return (
             ExtractionState::Unsupported,
             "This format is not supported by the text importer. The original is retained.",
@@ -4084,6 +4216,47 @@ fn classify_source(
             text.trim_start_matches('\u{feff}').to_owned(),
         ),
     }
+}
+
+fn is_text_format(format: &str, repository: bool) -> bool {
+    matches!(format, "" | "txt" | "text" | "md" | "markdown")
+        || (repository
+            && matches!(
+                format,
+                "rs" | "toml"
+                    | "json"
+                    | "yaml"
+                    | "yml"
+                    | "html"
+                    | "css"
+                    | "js"
+                    | "mjs"
+                    | "cjs"
+                    | "ts"
+                    | "tsx"
+                    | "jsx"
+                    | "py"
+                    | "sh"
+                    | "sql"
+                    | "xml"
+                    | "csv"
+                    | "ini"
+                    | "cfg"
+                    | "go"
+                    | "java"
+                    | "kt"
+                    | "swift"
+                    | "c"
+                    | "h"
+                    | "cpp"
+                    | "hpp"
+                    | "cs"
+                    | "rb"
+                    | "php"
+                    | "vue"
+                    | "svelte"
+                    | "mdx"
+            ))
 }
 
 fn check_omission_evidence(
@@ -4717,6 +4890,42 @@ fn mark_web_projection_evidence(draft: &mut KnowledgeDraft) {
     }
 }
 
+fn mark_repository_evidence(draft: &mut KnowledgeDraft, relative_path: &str) {
+    fn mark(evidence: &mut EvidenceDraft, relative_path: &str) {
+        evidence
+            .source_location
+            .get_or_insert_with(|| relative_path.to_owned());
+    }
+
+    if let Some(update) = &mut draft.source_update {
+        mark(&mut update.evidence, relative_path);
+        if let Some(evidence) = &mut update.source_date_evidence {
+            mark(evidence, relative_path);
+        }
+        if let Some(evidence) = &mut update.source_revision_evidence {
+            mark(evidence, relative_path);
+        }
+    }
+    for entity in &mut draft.entities {
+        mark(&mut entity.evidence, relative_path);
+    }
+    for fact in &mut draft.facts {
+        mark(&mut fact.evidence, relative_path);
+    }
+    for relationship in &mut draft.relationships {
+        mark(&mut relationship.evidence, relative_path);
+    }
+    for tag in &mut draft.tags {
+        mark(&mut tag.evidence, relative_path);
+    }
+    for correction in &mut draft.correction_candidates {
+        mark(&mut correction.evidence, relative_path);
+    }
+    for alignment in &mut draft.correction_alignments {
+        mark(&mut alignment.candidate.evidence, relative_path);
+    }
+}
+
 fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceLocation> {
     if evidence.quote.trim().is_empty()
         || evidence.byte_start >= evidence.byte_end
@@ -4800,7 +5009,7 @@ fn stable_page_id(entity: &EntityDraft, source_id: &str) -> String {
     digest.update(entity.label.to_lowercase().as_bytes());
     if matches!(
         entity.kind.to_ascii_lowercase().as_str(),
-        "document" | "presentation"
+        "document" | "presentation" | "concept" | "decision"
     ) {
         digest.update([0]);
         digest.update(source_id.as_bytes());

@@ -58,10 +58,16 @@ it("imports a real temporary source through the reader and preserves visible con
   let openedOriginal: string | undefined;
   const api: GardenApi = {
     chooseFile: async () => source,
+    chooseRepositoryDirectory: async () => null,
     importSource: async (path, method) => {
       selected = call<SourcePage>("import", path, method);
       return selected;
     },
+    importRepository: async () => ({
+      repository_id: "repository-test",
+      sources: [],
+      exclusions: [],
+    }),
     importUrl: async () => {
       throw new Error(
         "URL retrieval is exercised through the desktop API adapter.",
