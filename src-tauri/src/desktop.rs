@@ -1,7 +1,7 @@
 use crate::{
     application::{
         AcquisitionMethod, Application, PageSearchRequest, PageSearchResults, SourceList,
-        SourcePage,
+        SourcePage, UrlAcquisitionStatus,
     },
     providers::JevSemanticProvider,
     semantic::{KnowledgePage, SemanticProvider},
@@ -43,6 +43,13 @@ async fn import_source(
 #[tauri::command]
 async fn import_url(engine: State<'_, Engine>, url: String) -> Result<SourcePage, String> {
     with_engine(&engine, move |app| app.import_url(&url)).await
+}
+
+#[tauri::command]
+async fn list_url_acquisitions(
+    engine: State<'_, Engine>,
+) -> Result<Vec<UrlAcquisitionStatus>, String> {
+    with_engine(&engine, |app| app.list_url_acquisitions()).await
 }
 
 #[tauri::command]
@@ -147,6 +154,11 @@ pub fn run() {
                 .name("knowledge-garden-semantic-queue".into())
                 .spawn(move || loop {
                     std::thread::sleep(std::time::Duration::from_secs(5));
+                    if let Ok(mut app) = worker_app.lock() {
+                        if let Err(error) = app.resume_due_url_acquisitions() {
+                            eprintln!("URL acquisition queue could not resume work: {error}");
+                        }
+                    }
                     let jobs = match worker_app.lock() {
                         Ok(mut app) => match app.claim_due_semantic_jobs(2) {
                             Ok(jobs) => jobs,
@@ -181,6 +193,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             import_source,
             import_url,
+            list_url_acquisitions,
             open_source,
             open_knowledge_page,
             list_sources,
