@@ -1,10 +1,9 @@
 use knowledge_garden::{
     application::Application,
-    semantic::{
-        EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, RelationshipDraft,
-        SemanticProvider, TagDraft,
-    },
+    providers::{JevSemanticProvider, SystemOneTransport},
+    semantic::ProviderError,
 };
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
     io::{Read, Write},
@@ -376,6 +375,26 @@ fn explicitly_supplied_urls_retain_origins_without_crawling_and_can_be_retried()
         .any(|acquisition| acquisition.requested_url.as_deref()
             == Some(format!("{}/temporary", fixture.base_url).as_str())));
 
+    fixture.temporary_available.store(false, Ordering::Relaxed);
+    assert!(app
+        .import_url(&format!("{}/temporary", fixture.base_url))
+        .unwrap_err()
+        .to_string()
+        .contains("HTTP 503"));
+    let retained_previous = app.open_source(&resumed.info.source_id).unwrap();
+    assert!(retained_previous.body.contains("Observation U7"));
+    assert!(retained_previous
+        .info
+        .acquisitions
+        .iter()
+        .any(|acquisition| acquisition.requested_url.as_deref()
+            == Some(format!("{}/temporary", fixture.base_url).as_str())
+            && acquisition.http_status == Some(200)));
+    assert_eq!(
+        app.list_sources(0).unwrap().sources.len(),
+        before_failures + 1
+    );
+
     let jobs = app.claim_due_semantic_jobs(20).unwrap();
     let u5 = jobs
         .iter()
@@ -389,78 +408,105 @@ fn explicitly_supplied_urls_retain_origins_without_crawling_and_can_be_retried()
     assert!(!u5.source_text.contains("DESTINATION-UNSEEN-91823"));
 }
 
-struct WebProjectionProvider;
+struct UrlReferenceTransport;
 
-impl SemanticProvider for WebProjectionProvider {
-    fn form_knowledge(
+impl SystemOneTransport for UrlReferenceTransport {
+    fn complete(
         &self,
-        source_text: &str,
-    ) -> std::result::Result<KnowledgeDraft, ProviderError> {
-        let evidence = EvidenceDraft {
-            quote: source_text.to_owned(),
-            byte_start: 0,
-            byte_end: source_text.len(),
-            origin: "observed".into(),
-            qualifier: None,
-            offset_basis: None,
-            source_location: None,
-        };
-        Ok(KnowledgeDraft {
-            entities: vec![
-                EntityDraft {
-                    kind: "report".into(),
-                    label: "Riverside report".into(),
-                    evidence: evidence.clone(),
-                },
-                EntityDraft {
-                    kind: "person".into(),
-                    label: "Maya".into(),
-                    evidence: evidence.clone(),
-                },
-            ],
-            facts: vec![FactDraft {
-                subject: "Riverside report".into(),
-                property: "visits".into(),
-                value: "4".into(),
-                evidence: evidence.clone(),
-                record_key: None,
-            }],
-            relationships: vec![RelationshipDraft {
-                from: "Riverside report".into(),
-                to: "Maya".into(),
-                kind: "observed_by".into(),
-                qualifier: None,
-                evidence: evidence.clone(),
-            }],
-            tags: vec![TagDraft {
-                subject: "Riverside report".into(),
-                label: "field-notes".into(),
-                evidence,
-            }],
-            ..KnowledgeDraft::default()
-        })
+        _api_key: &str,
+        request: &Value,
+    ) -> std::result::Result<Value, ProviderError> {
+        let questions = request["questions"].as_object().unwrap();
+        let mut answers = serde_json::Map::new();
+        for (key, question) in questions {
+            let answer = match question["type"].as_str().unwrap_or_default() {
+                "noul" => serde_json::json!({"type":"noul","noul":0.99}),
+                "choice" => {
+                    let criteria = question["criteria"].as_object().unwrap();
+                    let choice = match key.as_str() {
+                        "source_update_role" => "unknown",
+                        "source_update_evidence" => "span_0",
+                        "source_order_date" | "source_order_revision" => "none",
+                        _ => criteria.keys().next().map(String::as_str).unwrap_or("none"),
+                    };
+                    serde_json::json!({
+                        "type":"choice",
+                        "choice":choice,
+                        "probabilities":{choice:0.99}
+                    })
+                }
+                _ => {
+                    return Err(ProviderError::recoverable(
+                        "Unexpected URL fixture question type.".into(),
+                    ));
+                }
+            };
+            answers.insert(key.clone(), answer);
+        }
+        Ok(serde_json::json!({
+            "model":"typesafe/jev-1.13-recorded",
+            "answers":answers
+        }))
     }
 }
 
 #[test]
-fn url_html_semantic_evidence_names_its_visible_text_projection() {
+fn repeated_url_references_keep_each_html_occurrence_context_in_knowledge_evidence() {
     let fixture = Fixture::start();
     let collection = tempfile::tempdir().unwrap();
     let mut app = Application::open_with_semantic_provider(
         collection.path(),
-        Arc::new(WebProjectionProvider),
+        Arc::new(JevSemanticProvider::with_transport(
+            "recorded-test-key".into(),
+            Arc::new(UrlReferenceTransport),
+        )),
     )
     .unwrap();
     let source = app.import_url(&format!("{}/a", fixture.base_url)).unwrap();
     app.resume_due_semantic_jobs().unwrap();
     let source = app.open_source(&source.info.source_id).unwrap();
-    let knowledge = app
-        .open_knowledge_page(&source.info.knowledge_pages[0].page_id)
-        .unwrap();
-    assert!(knowledge
-        .markdown
-        .contains("offset_basis: web_visible_text"));
-    assert!(knowledge
-        .markdown
-        .contains("HTML visible-text projection; no stable DOM locator is available"));
+    assert_eq!(
+        source.info.semantic_state, "complete",
+        "{:?}",
+        source.info.semantic_error
+    );
+    let references = source
+        .knowledge_pages
+        .iter()
+        .map(|summary| app.open_knowledge_page(&summary.page_id).unwrap().markdown)
+        .filter(|markdown| markdown.contains("property: acquired_content"))
+        .collect::<Vec<_>>();
+    assert_eq!(references.len(), 1, "{references:?}");
+    let first_context = format!("Reference: destination report ({}/b).", fixture.base_url);
+    let second_context = format!(
+        "Another reference to the same report ({}/b); its contents have not been supplied in this page.",
+        fixture.base_url
+    );
+    let projected_text_start = source.body.find("```text\n").unwrap() + "```text\n".len();
+    let projected_text = &source.body[projected_text_start..];
+    let frontmatter = references[0]
+        .strip_prefix("---\n")
+        .unwrap()
+        .split_once("\n---\n")
+        .unwrap()
+        .0;
+    let metadata: serde_yaml_ng::Value = serde_yaml_ng::from_str(frontmatter).unwrap();
+    let facts = metadata["facts"].as_sequence().unwrap();
+    for context in [&first_context, &second_context] {
+        let start = projected_text.find(context).unwrap();
+        assert!(
+            facts.iter().any(|fact| {
+                fact["evidence"]["quote"].as_str() == Some(context)
+                    && fact["evidence"]["byte_start"].as_u64() == Some(start as u64)
+                    && fact["evidence"]["byte_end"].as_u64() == Some((start + context.len()) as u64)
+            }),
+            "{context}\n{references:?}"
+        );
+    }
+    assert_eq!(
+        references[0]
+            .matches("  property: acquired_content")
+            .count(),
+        2
+    );
 }
