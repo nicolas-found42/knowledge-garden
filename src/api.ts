@@ -134,6 +134,7 @@ export interface KnowledgePage {
   title: string;
   kind: string;
   markdown: string;
+  external_edit_status?: "uncertain" | null;
 }
 
 export interface SourceList {

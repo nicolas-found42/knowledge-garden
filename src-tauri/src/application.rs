@@ -2796,6 +2796,7 @@ impl Application {
                             origin: fact.evidence.origin.clone(),
                             evidence: validate_evidence(source_text, &fact.evidence)?,
                         }],
+                        manual_correction: None,
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
@@ -3051,6 +3052,9 @@ impl Application {
                 facts: fact_records,
                 relationships: relationship_records,
                 tags: tag_records,
+                owner_content: Vec::new(),
+                owner_metadata: std::collections::BTreeMap::new(),
+                external_edit_status: None,
             })?;
             contents.insert(
                 summary.page_id.clone(),
@@ -3078,6 +3082,7 @@ impl Application {
             }
             let mut old = read_knowledge_header(&path)?;
             ensure_legacy_supports(&mut old);
+            self.capture_manual_fact_corrections(&mut old, &path)?;
             let replaced_sources = self.replacement_sources(&old, source)?;
             foreign_replacement_sources.extend(
                 replaced_sources
@@ -3106,6 +3111,7 @@ impl Application {
             if path.exists() {
                 let mut old = read_knowledge_header(&path)?;
                 ensure_legacy_supports(&mut old);
+                self.capture_manual_fact_corrections(&mut old, &path)?;
                 let replaced_sources = self.replacement_sources(&old, source)?;
                 foreign_replacement_sources.extend(
                     replaced_sources
@@ -3122,6 +3128,9 @@ impl Application {
                     &replaced_sources,
                 )?;
                 header.tags = self.reconcile_tags(old.tags, header.tags, &replaced_sources);
+                header.owner_content = old.owner_content;
+                header.owner_metadata = old.owner_metadata;
+                header.external_edit_status = old.external_edit_status;
             }
             *markdown = self.render_knowledge_page(header, &draft_labels)?;
         }
@@ -3145,6 +3154,7 @@ impl Application {
                 }
                 let mut header = read_knowledge_header(&page_path)?;
                 ensure_legacy_supports(&mut header);
+                self.capture_manual_fact_corrections(&mut header, &page_path)?;
                 if !knowledge_header_supported_by(&header, source_id) {
                     continue;
                 }
@@ -3553,7 +3563,7 @@ impl Application {
             .map(|record| (record, true))
             .chain(incoming.into_iter().map(|record| (record, false)))
         {
-            if record.supports.is_empty() {
+            if record.supports.is_empty() && record.manual_correction.is_none() {
                 record.supports.push(SupportRecord {
                     source_id: String::new(),
                     source_version_id: "legacy".into(),
@@ -3575,7 +3585,7 @@ impl Application {
                         .retain(|support| !remove_source_ids.contains(&support.source_id));
                 }
             }
-            if record.supports.is_empty() {
+            if record.supports.is_empty() && record.manual_correction.is_none() {
                 continue;
             }
             let mut merged = records
@@ -3597,6 +3607,10 @@ impl Application {
                 merged.qualifier = current.qualifier.clone();
                 merged.origin = current.origin.clone();
                 merged.evidence = current.evidence.clone();
+            }
+            if let Some(correction) = &merged.manual_correction {
+                merged.value = correction.value.clone();
+                merged.origin = "manual_correction".into();
             }
             records.insert(merged.fact_id.clone(), merged);
         }
@@ -3927,6 +3941,129 @@ impl Application {
         Ok((format!("../sources/{short_id}/index.md"), asset_path))
     }
 
+    fn capture_manual_fact_corrections(
+        &self,
+        header: &mut KnowledgePageHeader,
+        path: &Path,
+    ) -> Result<bool> {
+        let markdown = fs::read_to_string(path)?;
+        let Some((_, body)) = markdown.split_once("\n---\n") else {
+            return Ok(false);
+        };
+        let original_header = serde_yaml_ng::to_string(header)?;
+        let was_uncertain = header.external_edit_status.as_deref() == Some("uncertain");
+        let mut pending_fact_line = None::<(String, String)>;
+        for line in body.lines() {
+            if let Some(fact_line) = line.strip_prefix("- **") {
+                if let Some((property, value)) = fact_line.split_once(":** ") {
+                    pending_fact_line = Some((property.to_owned(), value.to_owned()));
+                    continue;
+                }
+                pending_fact_line = None;
+            }
+            let Some(identity) = line
+                .strip_prefix("  - Fact identity: `")
+                .and_then(|value| value.strip_suffix('`'))
+            else {
+                continue;
+            };
+            let Some((property, value)) = pending_fact_line.take() else {
+                continue;
+            };
+            let Some(fact) = header
+                .facts
+                .iter_mut()
+                .find(|fact| fact.fact_id == identity)
+            else {
+                continue;
+            };
+            if property.replace(' ', "_") != fact.property {
+                continue;
+            }
+            let qualifier_suffix = fact
+                .qualifier
+                .as_deref()
+                .map(|qualifier| format!(" ({})", escape_markdown(qualifier)))
+                .unwrap_or_default();
+            let expected_value = format!("{}{}", escape_markdown(&fact.value), qualifier_suffix);
+            if value == expected_value {
+                continue;
+            }
+            let corrected_value = value
+                .strip_suffix(&qualifier_suffix)
+                .unwrap_or(&value)
+                .to_owned();
+            fact.manual_correction = Some(ManualFactCorrection {
+                value: corrected_value.clone(),
+            });
+            fact.value = corrected_value;
+            fact.origin = "manual_correction".into();
+        }
+        let generated =
+            self.render_knowledge_page(header.clone(), &std::collections::HashMap::new())?;
+        let generated_body = generated
+            .split_once("\n---\n")
+            .map(|(_, body)| body)
+            .unwrap_or_default();
+        let mut generated_lines = std::collections::HashMap::<&str, usize>::new();
+        for line in generated_body
+            .lines()
+            .filter(|line| {
+                !line.trim().is_empty()
+                    && *line
+                        != "  - Authority: owner manual correction; source evidence remains retained separately."
+            })
+        {
+            *generated_lines.entry(line).or_default() += 1;
+        }
+        let mut owner_content = header.owner_content.clone();
+        let mut missing_generated_content = false;
+        for line in body.lines().filter(|line| !line.trim().is_empty()) {
+            if let Some(remaining) = generated_lines.get_mut(line) {
+                if *remaining > 0 {
+                    *remaining -= 1;
+                    continue;
+                }
+            }
+            owner_content.push(line.to_owned());
+            if line.starts_with('#')
+                || line.starts_with('-')
+                || line.starts_with('>')
+                || line.starts_with('|')
+                || line.contains("```")
+            {
+                missing_generated_content = true;
+            }
+        }
+        missing_generated_content |= generated_lines.values().any(|remaining| *remaining > 0);
+        header.owner_content = owner_content;
+        header.external_edit_status =
+            (missing_generated_content || was_uncertain).then(|| "uncertain".into());
+        Ok(serde_yaml_ng::to_string(header)? != original_header)
+    }
+
+    fn capture_external_knowledge_edits(&mut self) -> Result<()> {
+        let pages_dir = self.root.join("pages");
+        if !pages_dir.is_dir() {
+            return Ok(());
+        }
+        let paths = fs::read_dir(&pages_dir)?
+            .filter_map(std::result::Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|extension| extension == "md"))
+            .collect::<Vec<_>>();
+        for path in paths {
+            let mut header = read_knowledge_header(&path)?;
+            ensure_legacy_supports(&mut header);
+            if self.capture_manual_fact_corrections(&mut header, &path)? {
+                let markdown =
+                    self.render_knowledge_page(header, &std::collections::HashMap::new())?;
+                write_atomic(&path, markdown.as_bytes())?;
+            }
+        }
+        Ok(())
+    }
+
     fn render_knowledge_page(
         &self,
         header: KnowledgePageHeader,
@@ -4002,6 +4139,11 @@ impl Application {
                 original_link,
                 audio_link,
             ));
+            if fact.manual_correction.is_some() {
+                body.push_str(
+                    "  - Authority: owner manual correction; source evidence remains retained separately.\n",
+                );
+            }
         }
         if header.facts.is_empty() {
             body.push_str("\nNo current facts are supported by this page.\n");
@@ -4063,6 +4205,13 @@ impl Application {
         }
         if header.relationships.is_empty() {
             body.push_str("\nNo current relationships are supported by this page.\n");
+        }
+        if !header.owner_content.is_empty() {
+            body.push_str("\n## Owner notes\n\n");
+            for line in &header.owner_content {
+                body.push_str(line);
+                body.push('\n');
+            }
         }
         let yaml = serde_yaml_ng::to_string(&header)?;
         Ok(format!("---\n{yaml}---\n\n{body}"))
@@ -4693,6 +4842,7 @@ impl Application {
     }
 
     pub fn rebuild_index(&mut self) -> Result<()> {
+        self.capture_external_knowledge_edits()?;
         let transaction = self.index.unchecked_transaction()?;
         transaction.execute("DELETE FROM sources", [])?;
         transaction.execute("DELETE FROM page_search", [])?;
@@ -5527,6 +5677,13 @@ struct FactRecord {
     evidence: EvidenceLocation,
     #[serde(default)]
     supports: Vec<SupportRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    manual_correction: Option<ManualFactCorrection>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ManualFactCorrection {
+    value: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -5559,7 +5716,7 @@ struct TagRecord {
     supports: Vec<TagSupport>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct KnowledgePageHeader {
     schema: u32,
     page_id: String,
@@ -5573,6 +5730,12 @@ struct KnowledgePageHeader {
     relationships: Vec<RelationshipRecord>,
     #[serde(default)]
     tags: Vec<TagRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    owner_content: Vec<String>,
+    #[serde(flatten)]
+    owner_metadata: std::collections::BTreeMap<String, serde_yaml_ng::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    external_edit_status: Option<String>,
 }
 
 struct SearchDocument {
@@ -5928,6 +6091,7 @@ fn read_knowledge_page(path: &Path) -> Result<KnowledgePage> {
         title: header.title,
         kind: header.kind,
         markdown,
+        external_edit_status: header.external_edit_status,
     })
 }
 
@@ -5949,7 +6113,7 @@ fn read_knowledge_header(path: &Path) -> Result<KnowledgePageHeader> {
 
 fn ensure_legacy_supports(header: &mut KnowledgePageHeader) {
     for fact in &mut header.facts {
-        if fact.supports.is_empty() {
+        if fact.supports.is_empty() && fact.manual_correction.is_none() {
             fact.supports.push(SupportRecord {
                 source_id: header.source_id.clone(),
                 source_version_id: "legacy".into(),
