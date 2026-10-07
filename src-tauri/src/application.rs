@@ -1527,7 +1527,7 @@ impl Application {
                     .map(|candidate| candidate.evidence.clone())
                     .expect("label came from a correction candidate"),
             };
-            let page_id = stable_page_id(&entity, "");
+            let page_id = stable_page_id(&entity, "", None);
             let path = self.root.join("pages").join(format!("{page_id}.md"));
             if !path.exists() {
                 continue;
@@ -1621,7 +1621,7 @@ impl Application {
                 .iter()
                 .find(|entity| entity.kind == "event" && entity.label == candidate.event_label)
                 .ok_or_else(uncertain)?;
-            let page_id = stable_page_id(entity, &source.info.source_id);
+            let page_id = stable_page_id(entity, &source.info.source_id, Some(source_text));
             let path = self.root.join("pages").join(format!("{page_id}.md"));
             if !path.exists() {
                 return Err(uncertain());
@@ -2069,7 +2069,7 @@ impl Application {
                     "Semantic entity has no type or label.".into(),
                 ));
             }
-            let page_id = stable_page_id(entity, &source.info.source_id);
+            let page_id = stable_page_id(entity, &source.info.source_id, Some(source_text));
             let summary = KnowledgePageSummary {
                 page_id: page_id.clone(),
                 title: entity.label.clone(),
@@ -2564,7 +2564,7 @@ impl Application {
         });
         let stable_fact_key_overlap = if matches!(source.info.format.as_str(), "docx" | "pptx") {
             draft.entities.iter().any(|entity| {
-                let page_id = stable_page_id(entity, &source.info.source_id);
+                let page_id = stable_page_id(entity, &source.info.source_id, Some(source_text));
                 let path = self.root.join("pages").join(format!("{page_id}.md"));
                 let Ok(existing) = read_knowledge_header(&path) else {
                     return false;
@@ -2625,7 +2625,9 @@ impl Application {
                     .entities
                     .iter()
                     .find(|entity| entity.label == fact.subject)
-                    .map(|entity| stable_page_id(entity, &source.info.source_id));
+                    .map(|entity| {
+                        stable_page_id(entity, &source.info.source_id, Some(source_text))
+                    });
                 let Some(page_id) = page_id else {
                     return false;
                 };
@@ -4884,19 +4886,84 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
     })
 }
 
-fn stable_page_id(entity: &EntityDraft, source_id: &str) -> String {
+fn stable_page_id(entity: &EntityDraft, source_id: &str, source_text: Option<&str>) -> String {
     let mut digest = Sha256::new();
-    digest.update(entity.kind.to_lowercase().as_bytes());
+    let kind = entity.kind.to_ascii_lowercase();
+    digest.update(kind.as_bytes());
     digest.update([0]);
-    digest.update(entity.label.to_lowercase().as_bytes());
-    if matches!(
-        entity.kind.to_ascii_lowercase().as_str(),
-        "document" | "presentation"
-    ) {
+    if kind == "reasoning_event" {
+        digest.update(source_id.as_bytes());
+        digest.update([0]);
+        if let Some(locator) = reasoning_event_locator(entity, source_text) {
+            // Stable message keys come from the acquired text, never from a
+            // provider locator annotation. Offsets can move as earlier turns change.
+            digest.update(locator.as_bytes());
+        } else {
+            digest.update(entity.label.to_lowercase().as_bytes());
+            digest.update([0]);
+            // Without a canonical acquired message key, keep the event local to
+            // this source and evidence occurrence.
+            digest.update(entity.evidence.byte_start.to_be_bytes());
+            digest.update(entity.evidence.byte_end.to_be_bytes());
+        }
+    } else {
+        digest.update(entity.label.to_lowercase().as_bytes());
+    }
+    if matches!(kind.as_str(), "document" | "presentation") {
         digest.update([0]);
         digest.update(source_id.as_bytes());
     }
     format!("page-{:x}", digest.finalize())
+}
+
+fn reasoning_event_locator<'a>(
+    entity: &'a EntityDraft,
+    source_text: Option<&str>,
+) -> Option<String> {
+    let source_text = source_text?;
+    let evidence = &entity.evidence;
+    if evidence.byte_start >= evidence.byte_end
+        || evidence.byte_end > source_text.len()
+        || !source_text.is_char_boundary(evidence.byte_start)
+        || !source_text.is_char_boundary(evidence.byte_end)
+        || source_text.get(evidence.byte_start..evidence.byte_end) != Some(&evidence.quote)
+    {
+        return None;
+    }
+    let line_start = source_text[..evidence.byte_start]
+        .rfind('\n')
+        .map_or(0, |newline| newline + 1);
+    let evidence_line = source_text.get(line_start..)?.split('\n').next()?;
+    let is_locator_line = |line: &str| {
+        let normalized = line.trim();
+        normalized.starts_with("[CONVERSATION ") || normalized.starts_with("CONVERSATION ")
+    };
+    let locator = if is_locator_line(evidence_line) {
+        evidence_line.trim()
+    } else {
+        source_text[..line_start]
+            .lines()
+            .rev()
+            .find(|line| is_locator_line(line))?
+            .trim()
+    };
+    let fields = locator
+        .split(|character: char| character.is_whitespace() || matches!(character, ';' | '[' | ']'));
+    let value = |key: &str| {
+        fields
+            .clone()
+            .find_map(|field| field.strip_prefix(&format!("{key}=")))
+            .filter(|value| !value.is_empty())
+    };
+    let session = value("session")?;
+    let message = value("message")?;
+    let mut identity = format!("session={session};message={message}");
+    if let Some(part) = value("part") {
+        identity.push_str(&format!(";part={part}"));
+    } else if let Some(channel) = value("channel") {
+        identity.push_str(&format!(";channel={channel}"));
+    }
+    Some(identity)
 }
 
 fn stable_fact_id(subject_page_id: &str, property: &str, record_key: Option<&str>) -> String {

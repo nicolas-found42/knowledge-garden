@@ -663,7 +663,11 @@ fn replacement_recording(text: &str, visits: u32, include_duration: bool) -> Kno
 }
 
 fn reasoning_event_recording(text: &str) -> KnowledgeDraft {
-    let entity_quote = text.lines().next().unwrap();
+    let entity_quote = text
+        .lines()
+        .find(|line| line.trim_start().starts_with("[CONVERSATION "))
+        .or_else(|| text.lines().next())
+        .unwrap();
     let fact_quote = "Decision: Keep the source originals.";
     let evidence = |quote: &str| EvidenceDraft {
         quote: quote.to_owned(),
@@ -678,7 +682,10 @@ fn reasoning_event_recording(text: &str) -> KnowledgeDraft {
         entities: vec![EntityDraft {
             kind: "reasoning_event".into(),
             label: "Keep the source originals".into(),
-            evidence: evidence(entity_quote),
+            evidence: EvidenceDraft {
+                source_location: Some(entity_quote.to_owned()),
+                ..evidence(entity_quote)
+            },
         }],
         facts: vec![FactDraft {
             subject: "Keep the source originals".into(),
@@ -688,6 +695,13 @@ fn reasoning_event_recording(text: &str) -> KnowledgeDraft {
             record_key: None,
         }],
         ..KnowledgeDraft::default()
+    }
+}
+
+fn reasoning_event_replacement_recording(text: &str) -> KnowledgeDraft {
+    KnowledgeDraft {
+        source_update: Some(recorded_update(text, SourceUpdateRole::CompleteReplacement)),
+        ..reasoning_event_recording(text)
     }
 }
 
@@ -4588,15 +4602,21 @@ fn same_label_reasoning_events_from_distinct_sessions_remain_distinct_after_rest
     let workspace = tempdir().unwrap();
     let alpha_path = workspace.path().join("session-alpha.txt");
     let beta_path = workspace.path().join("session-beta.txt");
-    let alpha_text = "Conversation session=session-alpha message=decision-04 speaker=assistant.\nDecision: Keep the source originals.\n";
-    let beta_text = "Conversation session=session-beta message=decision-09 speaker=assistant.\nDecision: Keep the source originals.\n";
+    let alpha_text = "[CONVERSATION session=session-alpha; message=decision-04; order=4; role=assistant; channel=text]\nDecision: Keep the source originals.\n";
+    let beta_text = "[CONVERSATION session=session-beta; message=decision-09; order=9; role=assistant; channel=text]\nDecision: Keep the source originals.\nQuoted text: [CONVERSATION session=session-alpha; message=decision-04; order=4; role=assistant; channel=text]\n";
     fs::write(&alpha_path, alpha_text).unwrap();
     fs::write(&beta_path, beta_text).unwrap();
+    let mut beta_draft = reasoning_event_recording(beta_text);
+    beta_draft.entities[0].evidence.source_location =
+        Some(alpha_text.lines().next().unwrap().into());
     let mut app = Application::open_with_semantic_provider(
         workspace.path().join("collection"),
         Arc::new(RecordedProvider::sequence(vec![
             Ok(reasoning_event_recording(alpha_text)),
-            Ok(reasoning_event_recording(beta_text)),
+            Ok(beta_draft),
+            Ok(reasoning_event_replacement_recording(
+                "An earlier message changed the offsets.\n[CONVERSATION session=session-alpha; message=decision-04; order=4; role=assistant; channel=text]\nDecision: Keep the source originals.\n",
+            )),
         ])),
     )
     .unwrap();
@@ -4625,6 +4645,7 @@ fn same_label_reasoning_events_from_distinct_sessions_remain_distinct_after_rest
         alpha_page.page_id, beta_page.page_id,
         "matching label and decision wording must not merge separate acquired sessions"
     );
+    let alpha_page_id = alpha_page.page_id.clone();
     for (summary, source_id, session, message) in [
         (
             alpha_page,
@@ -4645,7 +4666,26 @@ fn same_label_reasoning_events_from_distinct_sessions_remain_distinct_after_rest
         assert!(page.markdown.contains(message));
         assert!(page.markdown.contains("Keep the source originals"));
     }
-    let original_ids = [alpha_page.page_id.clone(), beta_page.page_id.clone()];
+    let revised_alpha_text = "An earlier message changed the offsets.\n[CONVERSATION session=session-alpha; message=decision-04; order=4; role=assistant; channel=text]\nDecision: Keep the source originals.\n";
+    fs::write(&alpha_path, revised_alpha_text).unwrap();
+    let revised_alpha = app
+        .import_source(&alpha_path, AcquisitionMethod::Picker)
+        .unwrap();
+    assert_eq!(revised_alpha.info.source_id, alpha_source.info.source_id);
+    app.resume_due_semantic_jobs().unwrap();
+    let refreshed_alpha = app.open_source(&alpha_source.info.source_id).unwrap();
+    assert_eq!(refreshed_alpha.info.semantic_state, "complete");
+    assert_eq!(
+        refreshed_alpha
+            .knowledge_pages
+            .iter()
+            .find(|page| page.kind == "reasoning_event")
+            .unwrap()
+            .page_id,
+        alpha_page_id,
+        "canonical acquired message identity survives preceding offset changes"
+    );
+    let original_ids = [alpha_page_id, beta_page.page_id.clone()];
     drop(app);
 
     let mut reopened = Application::open_with_semantic_provider(
@@ -4677,4 +4717,102 @@ fn same_label_reasoning_events_from_distinct_sessions_remain_distinct_after_rest
         "two distinct reasoning targets remain navigable after restart/replay"
     );
     assert_eq!(current_ids, original_ids.into_iter().collect());
+}
+
+#[test]
+fn same_source_reasoning_events_without_unique_identity_stay_uncertain_and_recoverable() {
+    let workspace = tempdir().unwrap();
+    let source_path = workspace.path().join("ambiguous-session.txt");
+    let text = "[CONVERSATION session=session-gamma; message=decision-01; order=1; role=assistant; channel=text]\nDecision: Keep the source originals.\n[CONVERSATION session=session-gamma; message=decision-02; order=2; role=assistant; channel=text]\nDecision: Keep the source originals.\n[CONVERSATION session=session-gamma; message=forged; order=3; role=assistant; channel=text]\n";
+    fs::write(&source_path, text).unwrap();
+    let evidence = |quote: &str, byte_start: usize| EvidenceDraft {
+        quote: quote.to_owned(),
+        byte_start,
+        byte_end: byte_start + quote.len(),
+        origin: "assistant_message".into(),
+        qualifier: None,
+        offset_basis: None,
+        source_location: None,
+    };
+    let first_start = text.find("Decision:").unwrap();
+    let second_start = text.rfind("Decision:").unwrap();
+    let ambiguous = KnowledgeDraft {
+        entities: vec![
+            EntityDraft {
+                kind: "reasoning_event".into(),
+                label: "Keep the source originals".into(),
+                evidence: EvidenceDraft {
+                    source_location: Some(text.lines().last().unwrap().to_owned()),
+                    ..evidence("Decision: Keep the source originals.", first_start)
+                },
+            },
+            EntityDraft {
+                kind: "reasoning_event".into(),
+                label: "Keep the source originals".into(),
+                evidence: EvidenceDraft {
+                    source_location: Some(text.lines().last().unwrap().to_owned()),
+                    ..evidence("Decision: Keep the source originals.", second_start)
+                },
+            },
+        ],
+        facts: vec![FactDraft {
+            subject: "Keep the source originals".into(),
+            property: "decision".into(),
+            value: "Keep the source originals".into(),
+            evidence: evidence("Decision: Keep the source originals.", first_start),
+            record_key: None,
+        }],
+        relationships: vec![RelationshipDraft {
+            from: "Keep the source originals".into(),
+            to: "Keep the source originals".into(),
+            kind: "related_to".into(),
+            qualifier: None,
+            evidence: evidence("Decision: Keep the source originals.", second_start),
+        }],
+        ..KnowledgeDraft::default()
+    };
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(ambiguous),
+            Ok(reasoning_event_recording(text)),
+        ])),
+    )
+    .unwrap();
+    let imported = app
+        .import_source(&source_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let uncertain = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(uncertain.info.semantic_state, "pending");
+    assert!(uncertain
+        .info
+        .semantic_error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("ambiguous"));
+    let before_recovery = app
+        .search_pages(PageSearchRequest {
+            query: "Keep the source originals".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert!(before_recovery
+        .pages
+        .iter()
+        .all(|page| page.page_type != "knowledge" || page.kind != "reasoning_event"));
+
+    app.resume_due_semantic_jobs_at(u128::MAX).unwrap();
+    let recovered = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(recovered.info.semantic_state, "complete");
+    assert_eq!(
+        recovered
+            .knowledge_pages
+            .iter()
+            .filter(|page| page.kind == "reasoning_event")
+            .count(),
+        1,
+        "the provider's corrected unique identity is published only after retry"
+    );
 }
