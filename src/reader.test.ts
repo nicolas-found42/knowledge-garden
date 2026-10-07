@@ -139,7 +139,9 @@ it("retrieves only the supplied URL, displays its origin, and keeps a failed add
   await user.click(screen.getByRole("button", { name: "Retrieve this page" }));
   await screen.findByText("HTTP 503");
   expect(await screen.findByText(/pending; 1 attempt/)).toBeTruthy();
-  expect(screen.getByText(/Previously retained source material remains available/)).toBeTruthy();
+  expect(
+    screen.getByText(/Previously retained source material remains available/),
+  ).toBeTruthy();
   expect(input.value).toBe("http://127.0.0.1:14335/temporary");
   await user.click(screen.getByRole("button", { name: "Retrieve this page" }));
   expect(api.importUrl).toHaveBeenNthCalledWith(
