@@ -29,6 +29,43 @@ fn line(value: &str) -> String {
     value.replace('\r', "\\r").replace('\n', "\\n")
 }
 
+fn linked_urls(content: &str) -> Vec<&str> {
+    let pattern =
+        regex::Regex::new(r#"(?i)https?://[^\s<>\"'`]+"#).expect("fixed conversation URL pattern");
+    pattern
+        .find_iter(content)
+        .filter_map(|matched| {
+            let explicit_delimiters = content[..matched.start()].ends_with('<')
+                && content[matched.end()..].starts_with('>');
+            let mut candidate = if explicit_delimiters {
+                matched.as_str()
+            } else {
+                matched.as_str().trim_end_matches(['.', ',', ';'])
+            };
+            loop {
+                if explicit_delimiters {
+                    break;
+                }
+                let pair = match candidate.chars().last() {
+                    Some(')') => Some(('(', ')')),
+                    Some(']') => Some(('[', ']')),
+                    Some('}') => Some(('{', '}')),
+                    _ => None,
+                };
+                let Some((open, close)) = pair else { break };
+                if candidate.matches(close).count() <= candidate.matches(open).count() {
+                    break;
+                }
+                candidate = &candidate[..candidate.len() - 1];
+            }
+            reqwest::Url::parse(candidate)
+                .ok()
+                .filter(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
+                .map(|_| candidate)
+        })
+        .collect()
+}
+
 pub(crate) struct Passage {
     pub session: String,
     pub message: String,
@@ -401,6 +438,7 @@ pub fn extract(path: &Path, format: &str, title: &str) -> Result<OfficeProjectio
         .ok_or("Conversation export has no message array.")?;
     let mut ids = HashSet::new();
     let mut rows = Vec::new();
+    let mut references = Vec::new();
     for (index, message) in messages.iter().take(MAX_MESSAGES).enumerate() {
         let fallback = format!("entry-{}", index + 1);
         let supplied_id = message["id"].as_str().filter(|v| !v.trim().is_empty());
@@ -459,6 +497,10 @@ pub fn extract(path: &Path, format: &str, title: &str) -> Result<OfficeProjectio
                 "unknown"
             }
         };
+        for url in linked_urls(content) {
+            references.push(format!("- <{url}> — linked-only occurrence in `session={}; message={}; order={}; role={}; author={}; date={}; channel={}`; destination not acquired.",
+                field(session), field(id), index + 1, field(role), field(author), field(date), channel));
+        }
         rows.push(format!("[CONVERSATION session={}; message={}; order={}; role={}; author={}; date={}; channel={}] {} ({}; not an independently observed external fact; date is supplied message metadata or unknown, never import time)",
             field(session), field(id), index+1, field(role), field(author), field(date), channel, line(content), channel));
     }
@@ -476,6 +518,11 @@ pub fn extract(path: &Path, format: &str, title: &str) -> Result<OfficeProjectio
         .unwrap_or(0);
     let fence = "`".repeat(longest.saturating_add(1).max(3));
     let mut markdown = format!("# {}\n\n[Open original](ORIGINAL_ASSET)\n\n## Conversation {}\n\nMessage order follows supplied export order; absent dates remain unknown. Tool output and model claims remain attributed assertions.\n\n{fence}text\n{semantic_text}\n{fence}\n", line(title), field(session));
+    if !references.is_empty() {
+        markdown.push_str("\n## Linked references\n\n");
+        markdown.push_str(&references.join("\n"));
+        markdown.push('\n');
+    }
     for gap in &gaps {
         markdown.push_str(&format!("\n- Coverage gap: {gap}\n"));
     }

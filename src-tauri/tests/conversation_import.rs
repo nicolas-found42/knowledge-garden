@@ -11,6 +11,67 @@ use std::{fs, path::Path, sync::Arc};
 
 struct FrozenIntentResponse;
 
+#[test]
+fn conversation_links_keep_valid_url_contents_and_distinct_message_occurrences() {
+    let temporary = tempfile::tempdir().unwrap();
+    let fixture = temporary.path().join("linked-conversation.json");
+    let content = "See https://example.invalid/plan. Also https://example.invalid/a_(b), https://example.invalid/path?q=a&b=c!, https://example.invalid/x%20y and <https://example.invalid/report.> plus javascript:alert(1).";
+    let bytes = serde_json::to_vec(&json!({
+        "format":"knowledge-garden-conversation-v1", "conversation_id":"linked-session",
+        "messages":[
+            {"id":"user-link", "role":"user", "content":content},
+            {"id":"assistant-link", "role":"assistant", "content":"Also see https://example.invalid/plan."}
+        ]
+    })).unwrap();
+    fs::write(&fixture, &bytes).unwrap();
+    let mut app = Application::open(temporary.path().join("collection")).unwrap();
+    let source = app
+        .import_source(&fixture, AcquisitionMethod::Picker)
+        .unwrap();
+    assert!(source.body.contains("## Conversation linked-session"));
+    assert_eq!(
+        fs::read(app.original_path(&source.info.source_id).unwrap()).unwrap(),
+        bytes
+    );
+    for url in [
+        "https://example.invalid/plan",
+        "https://example.invalid/a_(b)",
+        "https://example.invalid/path?q=a&b=c!",
+        "https://example.invalid/x%20y",
+        "https://example.invalid/report.",
+    ] {
+        assert!(
+            source.body.contains(&format!("<{url}>")),
+            "missing faithful occurrence for {url}"
+        );
+    }
+    assert!(source
+        .body
+        .contains("message=user-link; order=1; role=user"));
+    assert!(source
+        .body
+        .contains("message=assistant-link; order=2; role=assistant"));
+    assert_eq!(
+        source
+            .body
+            .matches("<https://example.invalid/plan>")
+            .count(),
+        2
+    );
+    assert!(!source.body.contains("<javascript:"));
+    assert_eq!(app.list_sources(0).unwrap().sources.len(), 1);
+    let found = app
+        .search_pages(PageSearchRequest {
+            query: "https://example.invalid/plan".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(found
+        .pages
+        .iter()
+        .any(|page| page.source_id == source.info.source_id));
+}
+
 struct FrozenRepeatedWording;
 
 struct FrozenMalformedConversation(Value);

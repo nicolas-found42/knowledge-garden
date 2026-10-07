@@ -142,7 +142,7 @@ it("imports a real temporary source through the reader and preserves visible con
   expect(readFileSync(openedOriginal!)).toEqual(binary);
 }, 30_000);
 
-it("preserves literal tool names and arguments when reading acquired conversation knowledge", async () => {
+it("preserves literal tool names and linked-only URL occurrences when reading acquired conversation knowledge", async () => {
   workspace = mkdtempSync(
     join(tmpdir(), "knowledge-garden-conversation-reader-"),
   );
@@ -161,6 +161,7 @@ it("preserves literal tool names and arguments when reading acquired conversatio
     );
   let imported: SourcePage | undefined;
   let original: string | undefined;
+  let urlAcquisitionCalls = 0;
   const api: GardenApi = {
     chooseFile: async () => fixture,
     importSource: async (path) => {
@@ -168,6 +169,7 @@ it("preserves literal tool names and arguments when reading acquired conversatio
       return imported;
     },
     importUrl: async () => {
+      urlAcquisitionCalls += 1;
       throw new Error("This fixture supplies no URL destination.");
     },
     listUrlAcquisitions: async () => [],
@@ -198,6 +200,16 @@ it("preserves literal tool names and arguments when reading acquired conversatio
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: "Add source" }));
   expect(imported?.info.semantic_state).toBe("complete");
+  const reference = screen.getByRole("link", {
+    name: "https://example.invalid/plan",
+  });
+  expect(reference.getAttribute("href")).toBe("https://example.invalid/plan");
+  expect(reference.parentElement?.textContent).toContain("user-1");
+  expect(reference.parentElement?.textContent).toContain("role=user");
+  await user.click(reference);
+  await screen.findByText("This reference is preserved in the Markdown page.");
+  expect(urlAcquisitionCalls).toBe(0);
+  expect(call<SourceList>("list", "0").sources).toHaveLength(1);
   const label = "Message call-check-1 in 11111111-1111-4111-8111-111111111111";
   await user.click(await screen.findByRole("link", { name: label }));
   const article = await screen.findByRole("article", { name: label });
