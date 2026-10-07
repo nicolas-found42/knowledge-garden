@@ -80,14 +80,18 @@ export interface SourceInfo {
     probability: number | null;
   }[];
   audio_processing?: AudioProcessingInfo | null;
+  pending_audio_processing?: AudioProcessingInfo | null;
 }
 
 export interface AudioProcessingInfo {
+  source_version_id: string | null;
   state: "pending" | "processing" | "complete" | "unsupported" | "failed";
   duration_ms: number;
   next_start_ms: number;
   segment_duration_ms: number;
   attempts: number;
+  failed_attempts: number;
+  processing_interruptions: number;
   retry_at_ms: number | null;
   detail: string;
   segments: {

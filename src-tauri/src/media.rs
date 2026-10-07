@@ -67,11 +67,20 @@ pub struct TranscriptionBatch {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AudioProcessingInfo {
+    /// Source version whose retained original produced these transcript segments.
+    #[serde(default)]
+    pub source_version_id: Option<String>,
     pub state: String,
     pub duration_ms: u64,
     pub next_start_ms: u64,
     pub segment_duration_ms: u64,
     pub attempts: u32,
+    /// Cumulative failed segment attempts for this source version.
+    #[serde(default)]
+    pub failed_attempts: u32,
+    /// Interrupted in-flight segment attempts recovered on collection reopen.
+    #[serde(default)]
+    pub processing_interruptions: u32,
     pub retry_at_ms: Option<u64>,
     pub detail: String,
     pub segments: Vec<TranscriptSegment>,
