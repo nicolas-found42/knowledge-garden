@@ -128,6 +128,8 @@ pub struct SourceVersion {
     pub semantic_integrity_failures: u32,
     #[serde(default)]
     pub retryable_provider_failures: u32,
+    #[serde(default)]
+    pub processing_interruptions: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1220,17 +1222,40 @@ impl Application {
                 || page.info.update_status.as_deref() == Some("processing")
             {
                 let mut interrupted = page;
+                let active_version = interrupted.info.pending_version_id.clone();
+                let interruptions = interrupted
+                    .info
+                    .versions_seen
+                    .iter_mut()
+                    .find(|version| Some(&version.source_version_id) == active_version.as_ref())
+                    .map(|version| {
+                        version.processing_interruptions =
+                            version.processing_interruptions.saturating_add(1);
+                        version.state = if version.processing_interruptions >= 3 {
+                            "failed"
+                        } else {
+                            "pending"
+                        }
+                        .into();
+                        version.processing_interruptions
+                    });
+                let exhausted = interruptions.is_none_or(|count| count >= 3);
+                let state = if exhausted { "failed" } else { "pending" };
                 if interrupted.info.current_version_id.is_none() {
-                    interrupted.info.semantic_state = "pending".into();
+                    interrupted.info.semantic_state = state.into();
                 } else {
-                    interrupted.info.update_status = Some("pending".into());
+                    interrupted.info.update_status = Some(state.into());
                 }
-                interrupted.info.semantic_error = Some(
-                    "A previous semantic run was interrupted; automatic retry is scheduled.".into(),
-                );
+                interrupted.info.semantic_error = Some(if interruptions.is_none() {
+                    "Interrupted processing has no retained version identity; recovery failed without changing the prior content or original.".into()
+                } else if exhausted {
+                    "Semantic recovery failed after three interrupted attempts without new evidence; retained originals and the prior successful content remain available.".into()
+                } else {
+                    "A previous semantic run was interrupted; automatic retry is scheduled within this version's finite interruption budget.".into()
+                });
                 let delay_seconds = (1_u64 << interrupted.info.semantic_attempts.min(12)).min(3600);
                 interrupted.info.semantic_retry_at =
-                    Some((now + u128::from(delay_seconds * 1000)).to_string());
+                    (!exhausted).then(|| (now + u128::from(delay_seconds * 1000)).to_string());
                 self.write_source_page(&interrupted)?;
                 self.index_page(&interrupted.info)?;
                 continue;
@@ -4139,6 +4164,7 @@ fn source_version(
         extraction_attempts: 1,
         semantic_integrity_failures: 0,
         retryable_provider_failures: 0,
+        processing_interruptions: 0,
         coverage: if state == "complete" {
             "complete"
         } else if state == "unavailable" {
