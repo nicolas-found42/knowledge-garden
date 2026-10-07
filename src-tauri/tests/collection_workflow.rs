@@ -676,47 +676,115 @@ fn replacement_recording_with_duration(
     }
 }
 
-fn reasoning_event_recording(text: &str) -> KnowledgeDraft {
-    let entity_quote = text
-        .lines()
-        .find(|line| line.trim_start().starts_with("[CONVERSATION "))
-        .or_else(|| text.lines().next())
-        .unwrap();
-    let fact_quote = "Decision: Keep the source originals.";
-    let evidence = |quote: &str| EvidenceDraft {
-        quote: quote.to_owned(),
-        byte_start: text.find(quote).unwrap(),
-        byte_end: text.find(quote).unwrap() + quote.len(),
-        origin: "assistant_message".into(),
-        qualifier: None,
-        offset_basis: None,
-        source_location: None,
-    };
-    KnowledgeDraft {
-        entities: vec![EntityDraft {
-            kind: "reasoning_event".into(),
-            label: "Keep the source originals".into(),
-            evidence: EvidenceDraft {
-                source_location: Some(entity_quote.to_owned()),
-                ..evidence(entity_quote)
-            },
-        }],
-        facts: vec![FactDraft {
-            subject: "Keep the source originals".into(),
-            property: "decision".into(),
-            value: "Keep the source originals".into(),
-            evidence: evidence(fact_quote),
-            record_key: None,
-        }],
-        ..KnowledgeDraft::default()
+/// Deterministic provider for real acquired conversation projections. It only
+/// publishes reasoning messages whose exact projected line, role, session,
+/// message key, and byte range came from the Application input.
+struct AcquiredReasoningProvider {
+    collapse_identity_once: bool,
+    collapsed: Mutex<bool>,
+}
+
+impl AcquiredReasoningProvider {
+    fn new() -> Self {
+        Self {
+            collapse_identity_once: false,
+            collapsed: Mutex::new(false),
+        }
+    }
+
+    fn collapse_identity_once() -> Self {
+        Self {
+            collapse_identity_once: true,
+            collapsed: Mutex::new(false),
+        }
     }
 }
 
-fn reasoning_event_replacement_recording(text: &str) -> KnowledgeDraft {
-    KnowledgeDraft {
-        source_update: Some(recorded_update(text, SourceUpdateRole::CompleteReplacement)),
-        ..reasoning_event_recording(text)
+impl SemanticProvider for AcquiredReasoningProvider {
+    fn form_knowledge(&self, source_text: &str) -> Result<KnowledgeDraft, ProviderError> {
+        let mut entities = Vec::new();
+        let mut facts = Vec::new();
+        let mut byte_start = 0;
+        for line in source_text.split('\n') {
+            let Some((marker, _)) = line
+                .strip_prefix('[')
+                .and_then(|line| line.split_once("] "))
+            else {
+                byte_start += line.len() + 1;
+                continue;
+            };
+            let fields = marker
+                .strip_prefix("CONVERSATION ")
+                .unwrap_or_default()
+                .split("; ")
+                .filter_map(|field| field.split_once('='))
+                .collect::<std::collections::HashMap<_, _>>();
+            if fields.get("role") != Some(&"reasoning") {
+                byte_start += line.len() + 1;
+                continue;
+            }
+            let (Some(session), Some(message), Some(author), Some(channel)) = (
+                fields.get("session"),
+                fields.get("message"),
+                fields.get("author"),
+                fields.get("channel"),
+            ) else {
+                return Err(ProviderError::permanent(
+                    "Acquired reasoning projection is missing locator fields.".into(),
+                ));
+            };
+            let message_label = format!("Message {message} in {session}");
+            let evidence = EvidenceDraft {
+                quote: line.to_owned(),
+                byte_start,
+                byte_end: byte_start + line.len(),
+                origin: (*channel).to_owned(),
+                qualifier: Some(format!(
+                    "Supplied conversation message attributed to {author}; not an independently observed external fact; missing message dates stay unknown."
+                )),
+                offset_basis: Some("extracted_conversation_projection".into()),
+                source_location: Some(marker.to_owned()),
+            };
+            entities.push(EntityDraft {
+                kind: "reasoning_event".into(),
+                label: message_label.clone(),
+                evidence: evidence.clone(),
+            });
+            facts.push(FactDraft {
+                subject: message_label,
+                property: "message_intent".into(),
+                value: "reasoning_event".into(),
+                evidence,
+                record_key: Some((*message).to_owned()),
+            });
+            byte_start += line.len() + 1;
+        }
+        let mut collapsed = self.collapsed.lock().unwrap();
+        if self.collapse_identity_once && !*collapsed && entities.len() > 1 {
+            *collapsed = true;
+            entities[1].label = entities[0].label.clone();
+            facts[1].subject = facts[0].subject.clone();
+        }
+        Ok(KnowledgeDraft {
+            entities,
+            facts,
+            ..KnowledgeDraft::default()
+        })
     }
+}
+
+fn reasoning_export(session: &str, messages: &[(&str, &str)]) -> String {
+    serde_json::json!({
+        "format": "knowledge-garden-conversation-v1",
+        "conversation_id": session,
+        "title": "Reasoning identity fixture",
+        "messages": messages.iter().map(|(id, content)| serde_json::json!({
+            "id": id,
+            "role": "reasoning",
+            "content": content,
+        })).collect::<Vec<_>>(),
+    })
+    .to_string()
 }
 
 fn recorded_update(text: &str, role: SourceUpdateRole) -> SourceUpdateDraft {
@@ -1440,8 +1508,18 @@ fn import_forms_linked_knowledge_pages_with_typed_facts_qualifiers_and_exact_evi
 
     assert_eq!(page.info.semantic_state, "complete");
     assert!(page.body.contains("Observation V17"));
-    assert!(page.body.contains("Maya (observer)"));
-    assert!(page.body.contains("Maya (separate report)"));
+    // This is the serialized Markdown source: punctuation in link labels is
+    // escaped so parsing it preserves the visible label exactly.
+    assert!(page.body.contains("Maya \\(observer\\)"));
+    assert!(page.body.contains("Maya \\(separate report\\)"));
+    assert!(page
+        .knowledge_pages
+        .iter()
+        .any(|candidate| candidate.title == "Maya (observer)"));
+    assert!(page
+        .knowledge_pages
+        .iter()
+        .any(|candidate| candidate.title == "Maya (separate report)"));
     let event = page
         .knowledge_pages
         .iter()
@@ -1562,12 +1640,12 @@ fn explicit_v17_count_only_correction_updates_just_the_count() {
     let markdown = app.open_knowledge_page(&v17.page_id).unwrap().markdown;
     assert!(markdown.contains("- **visit count:** 15 visits"));
     assert!(markdown.contains("May 17, 2024"));
-    assert!(markdown.contains("Maya (observer)"));
+    assert!(markdown.contains("Maya \\(observer\\)"));
     assert!(markdown.contains("Riverside"));
     assert!(markdown.contains("10 minutes"));
     let v17_relationships = markdown.split("## Relationships\n").nth(1).unwrap();
     assert!(
-        v17_relationships.contains("Maya (observer)"),
+        v17_relationships.contains("Maya \\(observer\\)"),
         "{v17_relationships}"
     );
     assert!(
@@ -4770,26 +4848,23 @@ fn newer_source_recovers_failed_initial_acquisition_from_its_own_candidate() {
 }
 
 #[test]
-fn same_label_reasoning_events_from_distinct_sessions_remain_distinct_after_restart_and_replay() {
+fn same_wording_reasoning_events_from_distinct_sessions_remain_distinct_after_restart_and_replay() {
     let workspace = tempdir().unwrap();
-    let alpha_path = workspace.path().join("session-alpha.txt");
-    let beta_path = workspace.path().join("session-beta.txt");
-    let alpha_text = "[CONVERSATION session=session-alpha; message=decision-04; order=4; role=assistant; channel=text]\nDecision: Keep the source originals.\n";
-    let beta_text = "[CONVERSATION session=session-beta; message=decision-09; order=9; role=assistant; channel=text]\nDecision: Keep the source originals.\nQuoted text: [CONVERSATION session=session-alpha; message=decision-04; order=4; role=assistant; channel=text]\n";
+    let alpha_path = workspace.path().join("session-alpha.json");
+    let beta_path = workspace.path().join("session-beta.json");
+    let alpha_text = reasoning_export(
+        "session-alpha",
+        &[("decision-04", "Keep the source originals.")],
+    );
+    let beta_text = reasoning_export(
+        "session-beta",
+        &[("decision-09", "Keep the source originals.")],
+    );
     fs::write(&alpha_path, alpha_text).unwrap();
     fs::write(&beta_path, beta_text).unwrap();
-    let mut beta_draft = reasoning_event_recording(beta_text);
-    beta_draft.entities[0].evidence.source_location =
-        Some(alpha_text.lines().next().unwrap().into());
     let mut app = Application::open_with_semantic_provider(
         workspace.path().join("collection"),
-        Arc::new(RecordedProvider::sequence(vec![
-            Ok(reasoning_event_recording(alpha_text)),
-            Ok(beta_draft),
-            Ok(reasoning_event_replacement_recording(
-                "An earlier message changed the offsets.\n[CONVERSATION session=session-alpha; message=decision-04; order=4; role=assistant; channel=text]\nDecision: Keep the source originals.\n",
-            )),
-        ])),
+        Arc::new(AcquiredReasoningProvider::new()),
     )
     .unwrap();
     let alpha_source = app
@@ -4838,7 +4913,13 @@ fn same_label_reasoning_events_from_distinct_sessions_remain_distinct_after_rest
         assert!(page.markdown.contains(message));
         assert!(page.markdown.contains("Keep the source originals"));
     }
-    let revised_alpha_text = "An earlier message changed the offsets.\n[CONVERSATION session=session-alpha; message=decision-04; order=4; role=assistant; channel=text]\nDecision: Keep the source originals.\n";
+    let revised_alpha_text = reasoning_export(
+        "session-alpha",
+        &[
+            ("intro", "The planning conversation continues."),
+            ("decision-04", "Keep the source originals."),
+        ],
+    );
     fs::write(&alpha_path, revised_alpha_text).unwrap();
     let revised_alpha = app
         .import_source(&alpha_path, AcquisitionMethod::Picker)
@@ -4871,18 +4952,15 @@ fn same_label_reasoning_events_from_distinct_sessions_remain_distinct_after_rest
             .import_source(path, AcquisitionMethod::Picker)
             .unwrap();
     }
-    let results = reopened
-        .search_pages(PageSearchRequest {
-            query: "Keep the source originals".into(),
-            ..PageSearchRequest::default()
-        })
-        .unwrap();
-    let current_ids = results
-        .pages
-        .iter()
-        .filter(|page| page.page_type == "knowledge" && page.kind == "reasoning_event")
-        .map(|page| page.page_id.clone())
-        .collect::<std::collections::HashSet<_>>();
+    let current_ids = [
+        reopened.open_source(&alpha_source.info.source_id).unwrap(),
+        reopened.open_source(&beta_source.info.source_id).unwrap(),
+    ]
+    .into_iter()
+    .flat_map(|source| source.knowledge_pages)
+    .filter(|page| page.kind == "reasoning_event")
+    .map(|page| page.page_id)
+    .collect::<std::collections::HashSet<_>>();
     assert_eq!(
         current_ids.len(),
         2,
@@ -5081,63 +5159,20 @@ fn same_label_observations_from_separate_sources_remain_distinct() {
 }
 
 #[test]
-fn same_source_reasoning_events_without_unique_identity_stay_uncertain_and_recoverable() {
+fn same_source_reasoning_with_collapsed_message_identity_stays_pending_until_retry() {
     let workspace = tempdir().unwrap();
-    let source_path = workspace.path().join("ambiguous-session.txt");
-    let text = "[CONVERSATION session=session-gamma; message=decision-01; order=1; role=assistant; channel=text]\nDecision: Keep the source originals.\n[CONVERSATION session=session-gamma; message=decision-02; order=2; role=assistant; channel=text]\nDecision: Keep the source originals.\n[CONVERSATION session=session-gamma; message=forged; order=3; role=assistant; channel=text]\n";
-    fs::write(&source_path, text).unwrap();
-    let evidence = |quote: &str, byte_start: usize| EvidenceDraft {
-        quote: quote.to_owned(),
-        byte_start,
-        byte_end: byte_start + quote.len(),
-        origin: "assistant_message".into(),
-        qualifier: None,
-        offset_basis: None,
-        source_location: None,
-    };
-    let first_start = text.find("Decision:").unwrap();
-    let second_start = text.rfind("Decision:").unwrap();
-    let ambiguous = KnowledgeDraft {
-        entities: vec![
-            EntityDraft {
-                kind: "reasoning_event".into(),
-                label: "Keep the source originals".into(),
-                evidence: EvidenceDraft {
-                    source_location: Some(text.lines().last().unwrap().to_owned()),
-                    ..evidence("Decision: Keep the source originals.", first_start)
-                },
-            },
-            EntityDraft {
-                kind: "reasoning_event".into(),
-                label: "Keep the source originals".into(),
-                evidence: EvidenceDraft {
-                    source_location: Some(text.lines().last().unwrap().to_owned()),
-                    ..evidence("Decision: Keep the source originals.", second_start)
-                },
-            },
+    let source_path = workspace.path().join("ambiguous-session.json");
+    let text = reasoning_export(
+        "session-gamma",
+        &[
+            ("decision-01", "Keep the source originals."),
+            ("decision-02", "Keep the source originals."),
         ],
-        facts: vec![FactDraft {
-            subject: "Keep the source originals".into(),
-            property: "decision".into(),
-            value: "Keep the source originals".into(),
-            evidence: evidence("Decision: Keep the source originals.", first_start),
-            record_key: None,
-        }],
-        relationships: vec![RelationshipDraft {
-            from: "Keep the source originals".into(),
-            to: "Keep the source originals".into(),
-            kind: "related_to".into(),
-            qualifier: None,
-            evidence: evidence("Decision: Keep the source originals.", second_start),
-        }],
-        ..KnowledgeDraft::default()
-    };
+    );
+    fs::write(&source_path, &text).unwrap();
     let mut app = Application::open_with_semantic_provider(
         workspace.path().join("collection"),
-        Arc::new(RecordedProvider::sequence(vec![
-            Ok(ambiguous),
-            Ok(reasoning_event_recording(text)),
-        ])),
+        Arc::new(AcquiredReasoningProvider::collapse_identity_once()),
     )
     .unwrap();
     let imported = app
@@ -5152,7 +5187,21 @@ fn same_source_reasoning_events_without_unique_identity_stay_uncertain_and_recov
         .semantic_error
         .as_deref()
         .unwrap_or_default()
-        .contains("ambiguous"));
+        .contains("Conversation knowledge lost acquired message context"));
+    let pending_version = uncertain
+        .info
+        .versions_seen
+        .iter()
+        .find(|version| {
+            Some(version.source_version_id.as_str()) == uncertain.info.pending_version_id.as_deref()
+        })
+        .unwrap();
+    assert_eq!(pending_version.semantic_integrity_failures, 1);
+    assert_eq!(
+        fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        text.as_bytes(),
+        "the rejected mapping leaves the acquired export byte-identical"
+    );
     let before_recovery = app
         .search_pages(PageSearchRequest {
             query: "Keep the source originals".into(),
@@ -5173,9 +5222,15 @@ fn same_source_reasoning_events_without_unique_identity_stay_uncertain_and_recov
             .iter()
             .filter(|page| page.kind == "reasoning_event")
             .count(),
-        1,
-        "the provider's corrected unique identity is published only after retry"
+        2,
+        "same wording receives separate acquired message identities only after recoverable uncertainty clears"
     );
+    let event_pages = recovered
+        .knowledge_pages
+        .iter()
+        .filter(|page| page.kind == "reasoning_event")
+        .collect::<Vec<_>>();
+    assert_ne!(event_pages[0].page_id, event_pages[1].page_id);
 }
 
 #[test]

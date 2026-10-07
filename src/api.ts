@@ -18,6 +18,7 @@ export type CoverageScope =
   | "slide_text"
   | "speaker_notes"
   | "embedded_object"
+  | "conversation_messages"
   | "audio_recording"
   | "image_pixels"
   | "image_metadata"
@@ -165,6 +166,7 @@ export interface SearchMatchLocation {
   offset_basis:
     | "preserved_text"
     | "extracted_office_projection"
+    | "extracted_conversation_projection"
     | "web_visible_text"
     | "audio_transcript"
     | "extracted_image_projection";

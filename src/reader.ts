@@ -728,7 +728,9 @@ export async function mountReader(
             ? "visible web text"
             : location.offset_basis === "extracted_office_projection"
               ? "extracted Office text"
-              : "preserved source text";
+              : location.offset_basis === "extracted_conversation_projection"
+                ? "extracted conversation messages"
+                : "preserved source text";
         const origin = element(
           "p",
           `Evidence · ${basisLabel} · version ${location.source_version_id?.slice(0, 12) ?? "unknown"}${location.line_start ? ` · line ${location.line_start}` : ""}${location.source_location ? ` · ${location.source_location}` : ""}`,

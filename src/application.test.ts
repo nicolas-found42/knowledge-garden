@@ -6,7 +6,7 @@ import { afterEach, beforeAll, expect, it } from "vitest";
 import { screen, waitFor } from "@testing-library/dom";
 import userEvent from "@testing-library/user-event";
 import { mountReader } from "./reader";
-import type { GardenApi, SourceList, SourcePage } from "./api";
+import type { GardenApi, KnowledgePage, SourceList, SourcePage } from "./api";
 
 const manifest = join(process.cwd(), "src-tauri/Cargo.toml");
 const driver = join(
@@ -140,6 +140,95 @@ it("imports a real temporary source through the reader and preserves visible con
   expect(selected!.info.extraction).toBe("unsupported");
   await user.click(screen.getByRole("link", { name: "Open original" }));
   expect(readFileSync(openedOriginal!)).toEqual(binary);
+}, 30_000);
+
+it("preserves literal tool names and linked-only URL occurrences when reading acquired conversation knowledge", async () => {
+  workspace = mkdtempSync(
+    join(tmpdir(), "knowledge-garden-conversation-reader-"),
+  );
+  const collection = join(workspace, "collection");
+  const fixture = join(
+    process.cwd(),
+    "src-tauri/tests/fixtures/conversations/plan-rollout-shape-v2.jsonl",
+  );
+  const bytes = readFileSync(fixture);
+  const call = <T>(operation: string, ...args: string[]): T =>
+    JSON.parse(
+      execFileSync(driver, [collection, operation, ...args], {
+        encoding: "utf8",
+        timeout: 15_000,
+      }),
+    );
+  let imported: SourcePage | undefined;
+  let original: string | undefined;
+  let urlAcquisitionCalls = 0;
+  const api: GardenApi = {
+    chooseFile: async () => fixture,
+    importSource: async (path) => {
+      imported = call<SourcePage>("conversation-recorded-import", path);
+      return imported;
+    },
+    importUrl: async () => {
+      urlAcquisitionCalls += 1;
+      throw new Error("This fixture supplies no URL destination.");
+    },
+    listUrlAcquisitions: async () => [],
+    listSources: async (offset) => call<SourceList>("list", String(offset)),
+    searchPages: async () => ({
+      pages: [],
+      next_offset: null,
+      available_tags: [],
+      available_formats: [],
+      available_statuses: [],
+    }),
+    openSource: async (id) => call<SourcePage>("open", id),
+    openKnowledgePage: async (id) => call<KnowledgePage>("knowledge", id),
+    openOriginal: async (id) => {
+      original = call<string>("original", id);
+    },
+    openOriginalVersion: async (id, version, asset) => {
+      original = call<string>("original-version", id, version, asset);
+    },
+    openOriginalAsset: async (id, asset) => {
+      original = call<string>("original-asset", id, asset);
+    },
+    onDrop: async () => () => {},
+  };
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  expect(imported?.info.semantic_state).toBe("complete");
+  const reference = screen.getByRole("link", {
+    name: "https://example.invalid/plan",
+  });
+  expect(reference.getAttribute("href")).toBe("https://example.invalid/plan");
+  expect(reference.parentElement?.textContent).toContain("user-1");
+  expect(reference.parentElement?.textContent).toContain("role=user");
+  await user.click(reference);
+  await screen.findByText("This reference is preserved in the Markdown page.");
+  expect(urlAcquisitionCalls).toBe(0);
+  expect(call<SourceList>("list", "0").sources).toHaveLength(1);
+  const label = "Message call-check-1 in 11111111-1111-4111-8111-111111111111";
+  await user.click(await screen.findByRole("link", { name: label }));
+  const article = await screen.findByRole("article", { name: label });
+  expect(article.textContent).toContain(
+    'Tool call deploy_check arguments: {"plan":"Birch"}',
+  );
+  expect(article.textContent).toContain(
+    "not an independently observed external fact",
+  );
+  expect(article.textContent).toContain("tool_call");
+  await user.click(
+    screen.getAllByRole("link", { name: "Retained original" })[0]!,
+  );
+  expect(readFileSync(original!)).toEqual(bytes);
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(
+    await screen.findByRole("article", { name: "plan-rollout-shape-v2" }),
+  ).toBeTruthy();
+  expect(readFileSync(fixture)).toEqual(bytes);
 }, 30_000);
 
 it("imports labeled DOCX and PPTX through the public reader with distinct located channels, qualifications, coverage gaps and unchanged originals", async () => {
