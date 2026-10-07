@@ -444,6 +444,36 @@ export async function mountReader(
             : "URL",
       ]);
     }
+    const retainedVersions = (next.info.versions_seen ?? []).filter(
+      (version) =>
+        version.asset &&
+        version.source_version_id !== next.info.current_version_id &&
+        version.source_version_id !== next.info.pending_version_id,
+    );
+    if (retainedVersions.length > 0) {
+      const versionList = element("ul");
+      for (const version of retainedVersions) {
+        const item = element("li");
+        const openVersion = element(
+          "button",
+          `Open retained original · ${version.source_version_id.slice(0, 12)}`,
+        );
+        openVersion.addEventListener("click", () => {
+          void api
+            .openOriginalVersion(
+              next.info.source_id,
+              version.source_version_id,
+              version.asset!,
+            )
+            .catch(report);
+        });
+        item.append(openVersion);
+        versionList.append(item);
+      }
+      const retainedOriginals = element("dd");
+      retainedOriginals.append(versionList);
+      definition.append(element("dt", "Retained originals"), retainedOriginals);
+    }
     for (const [label, value] of rows)
       definition.append(element("dt", label), element("dd", value));
     for (const part of next.info.extraction_coverage ?? []) {

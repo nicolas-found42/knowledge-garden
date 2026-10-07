@@ -154,6 +154,52 @@ it("keeps prior content readable and shows an incomplete update prominently", as
   expect(screen.getByRole("link", { name: "Open original" })).toBeTruthy();
 });
 
+it("opens a retained uncertain source version even when it is not pending", async () => {
+  const api = testApi();
+  const currentVersion = "a".repeat(64);
+  const retainedVersion = "b".repeat(64);
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: {
+      ...riverside.info,
+      current_version_id: currentVersion,
+      pending_version_id: null,
+      update_status: "uncertain",
+      versions_seen: [
+        {
+          source_version_id: currentVersion,
+          state: "current",
+          asset: "original.md",
+        },
+        {
+          source_version_id: retainedVersion,
+          state: "retained_without_current_change",
+          asset: "original.md",
+        },
+      ],
+    },
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await screen.findByRole("article", { name: "Riverside notes" });
+  await user.click(screen.getByText("Source information"));
+  await user.click(
+    screen.getByRole("button", {
+      name: `Open retained original · ${retainedVersion.slice(0, 12)}`,
+    }),
+  );
+
+  expect(api.openOriginalVersion).toHaveBeenCalledWith(
+    "source-riverside",
+    retainedVersion,
+    "original.md",
+  );
+});
+
 it("retrieves only the supplied URL, displays its origin, and keeps a failed address available for explicit retry", async () => {
   const api = testApi();
   const page: SourcePage = {

@@ -778,12 +778,12 @@ impl SystemOneTransport for RepositoryOpenQuestionTransport {
 }
 
 #[test]
-fn repository_adr_decision_is_navigable_with_its_exact_heading_span() {
+fn repository_adr_decision_without_acceptance_status_is_navigable_with_exact_heading_span() {
     let workspace = tempdir().unwrap();
     let repository = workspace.path().join("sample-repository");
     fs::create_dir_all(repository.join("docs/adr")).unwrap();
     let relative_path = "docs/adr/0001-cache-locality.md";
-    let adr = "# ADR-0001: Keep query plans local\n\nStatus: Accepted\n\n## Context\nThe service parses query plans frequently, and sharing cache entries across processes is not currently supported.\n\n## Decision\nKeep parsed query plans local to each process.\n\n## Consequences\nEach process maintains its own parsed-plan cache.\n";
+    let adr = "# ADR-0001: Keep query plans local\n\n## Context\nThe service parses query plans frequently, and sharing cache entries across processes is not currently supported.\n\n## Decision\nKeep parsed query plans local to each process.\n\n## Consequences\nEach process maintains its own parsed-plan cache.\n";
     fs::write(repository.join(relative_path), adr).unwrap();
     let provider = Arc::new(JevSemanticProvider::with_transport(
         "repository-fixture-credential".into(),
@@ -807,7 +807,7 @@ fn repository_adr_decision_is_navigable_with_its_exact_heading_span() {
         .knowledge_pages
         .iter()
         .find(|page| page.kind == "decision" && page.title == "Keep query plans local")
-        .expect("an accepted ADR decision should be a navigable target");
+        .expect("the explicit ADR decision should be a navigable target");
     let page = app.open_knowledge_page(&decision.page_id).unwrap();
     let exact_decision = "Keep parsed query plans local to each process.";
     let line = adr.lines().position(|text| text == exact_decision).unwrap() + 1;
@@ -824,6 +824,8 @@ fn repository_adr_decision_is_navigable_with_its_exact_heading_span() {
     assert!(page.markdown.contains(version_id));
     assert!(page.markdown.contains("Source page"));
     assert!(page.markdown.contains("Retained original"));
+    assert!(!page.markdown.contains("Accepted"));
+    assert!(!page.markdown.contains("implemented"));
     assert!(!page
         .markdown
         .contains("service parses query plans frequently"));
