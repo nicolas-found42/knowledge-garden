@@ -273,6 +273,79 @@ it("shows an explicit empty state and removable search filters", async () => {
 });
 
 let dispose: (() => void) | undefined;
+it("keeps the latest search visible when an older response arrives later", async () => {
+  const api = testApi();
+  const results: PageSearchResults = {
+    pages: [],
+    next_offset: null,
+    available_tags: [],
+    available_formats: [],
+    available_statuses: [],
+  };
+  let releaseOlder!: (value: PageSearchResults) => void;
+  api.searchPages = vi
+    .fn()
+    .mockResolvedValueOnce(results)
+    .mockImplementationOnce(
+      () =>
+        new Promise<PageSearchResults>((resolve) => {
+          releaseOlder = resolve;
+        }),
+    )
+    .mockResolvedValueOnce(results);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  const query = await screen.findByRole("searchbox", {
+    name: "Words or title",
+  });
+  await user.type(query, "older request");
+  fireEvent.submit(root.querySelector(".search-form")!);
+  await user.clear(query);
+  await user.type(query, "latest request");
+  fireEvent.submit(root.querySelector(".search-form")!);
+  await screen.findByRole("button", {
+    name: "Remove Words: latest request filter",
+  });
+  releaseOlder(results);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(
+    screen.getByRole("searchbox", { name: "Words or title" }),
+  ).toHaveProperty("value", "latest request");
+  expect(
+    screen.getByRole("button", { name: "Remove Words: latest request filter" }),
+  ).toBeTruthy();
+});
+it("keeps an opened source visible when a pending search response arrives", async () => {
+  const api = testApi();
+  let releaseSearch!: (value: PageSearchResults) => void;
+  api.searchPages = vi.fn(
+    () =>
+      new Promise<PageSearchResults>((resolve) => {
+        releaseSearch = resolve;
+      }),
+  );
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await screen.findByRole("article", { name: "Riverside notes" });
+  releaseSearch({
+    pages: [],
+    next_offset: null,
+    available_tags: [],
+    available_formats: [],
+    available_statuses: [],
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(screen.getByRole("article", { name: "Riverside notes" })).toBeTruthy();
+});
 afterEach(() => {
   vi.useRealTimers();
   dispose?.();
