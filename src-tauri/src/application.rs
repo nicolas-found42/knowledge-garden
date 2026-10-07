@@ -587,7 +587,26 @@ impl Application {
             paths: &mut Vec<PathBuf>,
             exclusions: &mut Vec<RepositoryExclusion>,
         ) -> Result<()> {
-            for entry in fs::read_dir(directory)? {
+            let entries = match fs::read_dir(directory) {
+                Ok(entries) => entries,
+                Err(error)
+                    if directory != root
+                        && error.kind() == std::io::ErrorKind::PermissionDenied =>
+                {
+                    let relative_path = directory
+                        .strip_prefix(root)
+                        .map_err(|error| GardenError::Invalid(error.to_string()))?
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    exclusions.push(RepositoryExclusion {
+                        relative_path,
+                        reason: "unreadable_member".into(),
+                    });
+                    return Ok(());
+                }
+                Err(error) => return Err(error.into()),
+            };
+            for entry in entries {
                 let entry = entry?;
                 let path = entry.path();
                 let kind = fs::symlink_metadata(&path)?.file_type();
@@ -643,6 +662,17 @@ impl Application {
                 .map_err(|error| GardenError::Invalid(error.to_string()))?
                 .to_string_lossy()
                 .replace('\\', "/");
+            match File::open(&path) {
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                    exclusions.push(RepositoryExclusion {
+                        relative_path,
+                        reason: "unreadable_member".into(),
+                    });
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            }
             let mut page = self.import_source_with_identity(
                 &path,
                 AcquisitionMethod::Repository,
@@ -662,6 +692,7 @@ impl Application {
                 relative_path,
             });
         }
+        exclusions.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
         Ok(RepositoryImportResult {
             repository_id,
             sources,

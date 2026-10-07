@@ -199,6 +199,57 @@ fn repository_special_files_are_reported_as_visible_coverage_exclusions() {
     }));
 }
 
+#[cfg(unix)]
+#[test]
+fn repository_unreadable_files_are_visible_without_aborting_readable_members() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let workspace = tempdir().unwrap();
+    let repository = workspace.path().join("sample-repository");
+    fs::create_dir_all(&repository).unwrap();
+    fs::write(repository.join("README.md"), "# Readable member\n").unwrap();
+    let unreadable = repository.join("private.txt");
+    fs::write(
+        &unreadable,
+        "This member cannot be read by the importing process.\n",
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&unreadable).unwrap().permissions();
+    permissions.set_mode(0o0);
+    fs::set_permissions(&unreadable, permissions).unwrap();
+    assert!(fs::File::open(&unreadable).is_err());
+
+    let unreadable_directory = repository.join("private-dir");
+    fs::create_dir(&unreadable_directory).unwrap();
+    fs::write(unreadable_directory.join("secret.txt"), "Private member.\n").unwrap();
+    let mut directory_permissions = fs::metadata(&unreadable_directory).unwrap().permissions();
+    directory_permissions.set_mode(0o0);
+    fs::set_permissions(&unreadable_directory, directory_permissions).unwrap();
+    assert!(fs::read_dir(&unreadable_directory).is_err());
+
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open(&collection).unwrap();
+    let imported_result = app.import_repository(&repository);
+    fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::set_permissions(&unreadable_directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let imported = imported_result.unwrap();
+
+    assert!(imported
+        .sources
+        .iter()
+        .any(|source| source.relative_path == "README.md"));
+    assert!(!imported
+        .sources
+        .iter()
+        .any(|source| source.relative_path == "private.txt"));
+    assert!(imported.exclusions.iter().any(|exclusion| {
+        exclusion.relative_path == "private.txt" && exclusion.reason == "unreadable_member"
+    }));
+    assert!(imported.exclusions.iter().any(|exclusion| {
+        exclusion.relative_path == "private-dir" && exclusion.reason == "unreadable_member"
+    }));
+}
+
 #[test]
 fn repository_metadata_directory_is_reported_without_importing_history_files() {
     let workspace = tempdir().unwrap();
