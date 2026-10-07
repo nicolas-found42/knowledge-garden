@@ -2,11 +2,35 @@
 use knowledge_garden::application::{
     AcquisitionMethod, Application, GardenError, PageSearchRequest,
 };
-use knowledge_garden::providers::JevSemanticProvider;
+use knowledge_garden::providers::{JevSemanticProvider, SystemOneTransport};
 use knowledge_garden::semantic::{
     EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, SemanticProvider,
 };
 use serde::Serialize;
+use serde_json::{json, Value};
+
+struct RecordedConversationTransport;
+
+impl SystemOneTransport for RecordedConversationTransport {
+    fn complete(&self, _key: &str, _request: &Value) -> Result<Value, ProviderError> {
+        let mut answers = serde_json::Map::new();
+        for (index, intent) in [
+            (0, "question"),
+            (1, "proposal"),
+            (3, "tool_report"),
+            (4, "reasoning_event"),
+            (5, "recorded_decision"),
+        ] {
+            answers.insert(
+                format!("conversation_intent_{index}"),
+                json!({
+                    "type":"choice", "choice":intent, "probabilities":{intent:0.99,"uncertain":0.01}
+                }),
+            );
+        }
+        Ok(json!({"model":"typesafe/jev-frozen-reader-fixture","answers":answers}))
+    }
+}
 
 struct RecordedOfficeProvider;
 
@@ -82,10 +106,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("live semantic evaluation requires KNOWLEDGE_GARDEN_LIVE_SEMANTICS=1".into());
     }
     let recorded_office = operation == "office-recorded-import";
+    let recorded_conversation = operation == "conversation-recorded-import";
     let mut app = if live {
         Application::open_with_semantic_provider(
             args.get(1).ok_or("missing test collection")?,
             std::sync::Arc::new(JevSemanticProvider::from_environment_and_keychain()),
+        )?
+    } else if recorded_conversation {
+        Application::open_with_semantic_provider(
+            args.get(1).ok_or("missing test collection")?,
+            std::sync::Arc::new(JevSemanticProvider::with_transport(
+                "fixture-only".into(),
+                std::sync::Arc::new(RecordedConversationTransport),
+            )),
         )?
     } else if recorded_office {
         Application::open_with_semantic_provider(
@@ -120,7 +153,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             app.resume_due_semantic_jobs()?;
             output(app.open_source(&page.info.source_id)?);
         }
-        "office-recorded-import" => {
+        "office-recorded-import" | "conversation-recorded-import" => {
             let page = app.import_source(
                 args.get(3).ok_or("missing fixture path")?,
                 AcquisitionMethod::Picker,

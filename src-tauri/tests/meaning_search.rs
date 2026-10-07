@@ -314,9 +314,9 @@ fn meaning_index_replaces_current_version_and_recovers_interrupted_sync_after_re
     assert_eq!(rebuilt_hit.pages[0].title, "Noor activity");
     assert_eq!(rebuilt_hit.pages[0].page_id, current_knowledge_page_id);
 
-    // Model interruption after current SQLite hashes were recorded but before
-    // the matching vectors were published: restore the prior valid file and
-    // leave the sync marker that production writes before mutating metadata.
+    // Construct a persisted state equivalent to a sync interrupted after SQLite
+    // recorded the new hashes but before matching vectors were saved. This is
+    // a recovery-state fixture, not process-kill fault injection.
     fs::write(&index_path, earlier_vector_file).unwrap();
     fs::write(
         collection.path().join(".derived/meaning.dirty"),

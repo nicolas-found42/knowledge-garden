@@ -11,10 +11,16 @@ const MAX_RELATIONSHIP_SCAN_BYTES: u64 = 8 * 1024 * 1024;
 #[serde(rename_all = "snake_case")]
 pub enum CoverageScope {
     MainDocument,
+    ConversationMessages,
     Tables,
     SlideText,
     SpeakerNotes,
     EmbeddedObject,
+    AudioRecording,
+    ImagePixels,
+    ImageMetadata,
+    ImageText,
+    ImageInterpretation,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -451,10 +457,16 @@ fn finish(
 fn coverage_scope_label(scope: CoverageScope) -> &'static str {
     match scope {
         CoverageScope::MainDocument => "main document",
+        CoverageScope::ConversationMessages => "conversation messages",
         CoverageScope::Tables => "tables",
         CoverageScope::SlideText => "slide text",
         CoverageScope::SpeakerNotes => "speaker notes",
         CoverageScope::EmbeddedObject => "embedded object",
+        CoverageScope::AudioRecording => "audio recording",
+        CoverageScope::ImagePixels => "image pixels",
+        CoverageScope::ImageMetadata => "image metadata",
+        CoverageScope::ImageText => "image OCR text",
+        CoverageScope::ImageInterpretation => "uncertain image interpretation",
     }
 }
 

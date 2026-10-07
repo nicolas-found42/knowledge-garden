@@ -204,6 +204,35 @@ fn repository_metadata_directory_is_reported_without_importing_history_files() {
         .all(|source| !source.relative_path.starts_with(".git/")));
 }
 
+#[test]
+fn repository_json_code_is_retained_as_code_not_misrouted_to_conversation_adapter() {
+    let workspace = tempdir().unwrap();
+    let repository = workspace.path().join("sample-repository");
+    fs::create_dir_all(&repository).unwrap();
+    let package = br#"{"name":"sample-garden","scripts":{"postinstall":"touch SHOULD_NOT_RUN"}}"#;
+    fs::write(repository.join("package.json"), package).unwrap();
+
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open(&collection).unwrap();
+    let imported = app.import_repository(&repository).unwrap();
+    let package_source = imported
+        .sources
+        .iter()
+        .find(|source| source.relative_path == "package.json")
+        .unwrap();
+    let page = app.open_source(&package_source.source_id).unwrap();
+
+    assert_eq!(
+        page.info.extraction,
+        knowledge_garden::application::ExtractionState::TextPreserved
+    );
+    assert!(page.body.contains("postinstall"));
+    assert_eq!(
+        fs::read(app.original_path(&package_source.source_id).unwrap()).unwrap(),
+        package
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn repository_scripts_are_retained_as_text_without_execution() {
