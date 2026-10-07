@@ -290,8 +290,6 @@ pub struct SearchMatchLocation {
 pub struct Application {
     root: PathBuf,
     index: Connection,
-    // The lock survives for this application's lifetime, including across commands.
-    _lock: File,
     semantic_provider: Arc<dyn SemanticProvider>,
     extractor: Arc<dyn SourceExtractor>,
     audio_processor: Arc<dyn AudioProcessor>,
@@ -299,6 +297,16 @@ pub struct Application {
     fail_after_publication_files: Option<usize>,
     meaning_search: Option<MeaningSearch>,
     meaning_search_status: String,
+    // Declared last so the collection lock releases after the index and providers drop.
+    _lock: CollectionLock,
+}
+
+struct CollectionLock(File);
+
+impl Drop for CollectionLock {
+    fn drop(&mut self) {
+        let _ = FileExt::unlock(&self.0);
+    }
 }
 
 fn semantic_pending() -> String {
@@ -503,7 +511,6 @@ impl Application {
         let mut app = Self {
             root,
             index,
-            _lock: lock,
             semantic_provider,
             extractor,
             audio_processor,
@@ -511,6 +518,7 @@ impl Application {
             fail_after_publication_files: None,
             meaning_search,
             meaning_search_status,
+            _lock: CollectionLock(lock),
         };
         app.rebuild_index()?;
         app.recover_interrupted_url_acquisitions()?;
@@ -2102,120 +2110,137 @@ impl Application {
         });
         match result {
             Ok(mut draft) => {
-                if page.info.audio_processing.is_some() {
-                    qualify_audio_evidence(&mut draft);
-                }
-                let is_office = matches!(page.info.format.as_str(), "docx" | "pptx");
-                let office_facts = draft
-                    .facts
+                let source_format = page
+                    .info
+                    .versions_seen
                     .iter()
-                    .filter(|fact| !fact.property.eq_ignore_ascii_case("acquired_content"))
-                    .collect::<Vec<_>>();
-                let mut office_keys = HashMap::<(&str, &str), Vec<Option<&str>>>::new();
-                if is_office {
-                    for fact in &office_facts {
-                        office_keys
-                            .entry((&fact.subject, &fact.property))
-                            .or_default()
-                            .push(fact.record_key.as_deref());
-                    }
-                }
-                let office_identity_is_unambiguous = !is_office
-                    || office_keys.values().all(|keys| {
-                        keys.len() == 1
-                            || (keys
-                                .iter()
-                                .all(|key| key.is_some_and(|key| !key.trim().is_empty()))
-                                && keys.iter().flatten().collect::<HashSet<_>>().len()
-                                    == keys.len())
-                    });
-                let has_office_content = !is_office || !office_facts.is_empty();
-                if !has_office_content || !office_identity_is_unambiguous {
+                    .find(|version| version.source_version_id == job.source_version_id)
+                    .map(|version| version.format.clone())
+                    .ok_or_else(|| {
+                        GardenError::Invalid(
+                            "The active source version is missing its retained format.".into(),
+                        )
+                    })?;
+                let version_audio = is_audio_format(&source_format)
+                    && candidate_audio_processing(&page.info, &job.source_version_id).is_some();
+                if draft_has_audio_provenance(&draft) && !version_audio {
                     self.record_semantic_failure(
                         &mut page,
-                        if has_office_content {
-                            "Office semantic processing could not assign distinct stable record identities to repeated facts; coverage remains incomplete and will retry automatically.".into()
-                        } else {
-                            "Office semantic processing selected no content-bearing facts; coverage remains incomplete and will retry automatically.".into()
-                        },
+                        "Audio transcript evidence is not bound to retained audio processing for this source version; semantic coverage remains incomplete and will retry automatically.".into(),
                         true,
                         true,
                     )?;
                 } else {
-                    let prior_page = page.clone();
-                    let update = draft.source_update.clone();
-                    let source_format = page
-                        .info
-                        .versions_seen
+                    if version_audio {
+                        qualify_audio_evidence(&mut draft);
+                    }
+                    let is_office = matches!(page.info.format.as_str(), "docx" | "pptx");
+                    let office_facts = draft
+                        .facts
                         .iter()
-                        .find(|version| version.source_version_id == job.source_version_id)
-                        .map(|version| version.format.as_str())
-                        .ok_or_else(|| {
-                            GardenError::Invalid(
-                                "The active source version is missing its retained format.".into(),
-                            )
-                        })?;
-                    let result =
-                        crate::photo::validate_draft(&job.source_text, source_format, &draft)
-                            .map_err(GardenError::Invalid)
-                            .and_then(|()| {
-                                self.store_source_update(
-                                    &mut page,
-                                    &job.source_version_id,
-                                    &job.source_text,
-                                    update.as_ref(),
-                                )
-                            })
-                            .and_then(|()| {
-                                if initial {
-                                    let identity_overrides = self.apply_field_aligned_corrections(
-                                        &page,
-                                        &job.source_version_id,
-                                        &job.source_text,
-                                        &mut draft,
-                                    )?;
-                                    let identity_overrides = self.align_same_event_pages(
-                                        &page,
-                                        &job.source_version_id,
-                                        &job.source_text,
-                                        &draft,
-                                        identity_overrides,
-                                    )?;
-                                    if !draft.correction_candidates.is_empty() {
-                                        // Knowledge reconciliation ranks support through persisted
-                                        // source versions. Persist this still-pending source's
-                                        // validated date/order before it selects the current value.
-                                        self.write_source_page(&page)?;
-                                    }
-                                    // A first acquisition has no existing facts to withdraw. Even
-                                    // an unknown/conditional relationship can publish the grounded
-                                    // evidence it contains; the role only limits replacement scope.
-                                    self.publish_knowledge(
-                                        &mut page,
-                                        &job.source_text,
-                                        draft,
-                                        &identity_overrides,
-                                    )
-                                } else {
-                                    self.apply_replacement(
-                                        &mut page,
-                                        &job.source_version_id,
-                                        &job.source_text,
-                                        draft,
-                                    )
-                                }
-                            });
-                    match result {
-                        Ok(()) => {
-                            promote_candidate_audio(&mut page.info, &job.source_version_id);
-                            page.info.semantic_state = "complete".into();
-                            page.info.semantic_error = None;
-                            page.info.semantic_retry_at = None;
+                        .filter(|fact| !fact.property.eq_ignore_ascii_case("acquired_content"))
+                        .collect::<Vec<_>>();
+                    let mut office_keys = HashMap::<(&str, &str), Vec<Option<&str>>>::new();
+                    if is_office {
+                        for fact in &office_facts {
+                            office_keys
+                                .entry((&fact.subject, &fact.property))
+                                .or_default()
+                                .push(fact.record_key.as_deref());
                         }
-                        Err(error) => {
-                            self.staged_publication.clear();
-                            page = prior_page;
-                            self.record_semantic_failure(&mut page, error.to_string(), true, true)?
+                    }
+                    let office_identity_is_unambiguous = !is_office
+                        || office_keys.values().all(|keys| {
+                            keys.len() == 1
+                                || (keys
+                                    .iter()
+                                    .all(|key| key.is_some_and(|key| !key.trim().is_empty()))
+                                    && keys.iter().flatten().collect::<HashSet<_>>().len()
+                                        == keys.len())
+                        });
+                    let has_office_content = !is_office || !office_facts.is_empty();
+                    if !has_office_content || !office_identity_is_unambiguous {
+                        self.record_semantic_failure(
+                            &mut page,
+                            if has_office_content {
+                                "Office semantic processing could not assign distinct stable record identities to repeated facts; coverage remains incomplete and will retry automatically.".into()
+                            } else {
+                                "Office semantic processing selected no content-bearing facts; coverage remains incomplete and will retry automatically.".into()
+                            },
+                            true,
+                            true,
+                        )?;
+                    } else {
+                        let prior_page = page.clone();
+                        let update = draft.source_update.clone();
+                        let result =
+                            crate::photo::validate_draft(&job.source_text, &source_format, &draft)
+                                .map_err(GardenError::Invalid)
+                                .and_then(|()| {
+                                    self.store_source_update(
+                                        &mut page,
+                                        &job.source_version_id,
+                                        &job.source_text,
+                                        update.as_ref(),
+                                    )
+                                })
+                                .and_then(|()| {
+                                    if initial {
+                                        let identity_overrides = self
+                                            .apply_field_aligned_corrections(
+                                                &page,
+                                                &job.source_version_id,
+                                                &job.source_text,
+                                                &mut draft,
+                                            )?;
+                                        let identity_overrides = self.align_same_event_pages(
+                                            &page,
+                                            &job.source_version_id,
+                                            &job.source_text,
+                                            &draft,
+                                            identity_overrides,
+                                        )?;
+                                        if !draft.correction_candidates.is_empty() {
+                                            // Knowledge reconciliation ranks support through persisted
+                                            // source versions. Persist this still-pending source's
+                                            // validated date/order before it selects the current value.
+                                            self.write_source_page(&page)?;
+                                        }
+                                        // A first acquisition has no existing facts to withdraw. Even
+                                        // an unknown/conditional relationship can publish the grounded
+                                        // evidence it contains; the role only limits replacement scope.
+                                        self.publish_knowledge(
+                                            &mut page,
+                                            &job.source_text,
+                                            draft,
+                                            &identity_overrides,
+                                        )
+                                    } else {
+                                        self.apply_replacement(
+                                            &mut page,
+                                            &job.source_version_id,
+                                            &job.source_text,
+                                            draft,
+                                        )
+                                    }
+                                });
+                        match result {
+                            Ok(()) => {
+                                promote_candidate_audio(&mut page.info, &job.source_version_id);
+                                page.info.semantic_state = "complete".into();
+                                page.info.semantic_error = None;
+                                page.info.semantic_retry_at = None;
+                            }
+                            Err(error) => {
+                                self.staged_publication.clear();
+                                page = prior_page;
+                                self.record_semantic_failure(
+                                    &mut page,
+                                    error.to_string(),
+                                    true,
+                                    true,
+                                )?
+                            }
                         }
                     }
                 }
@@ -6061,6 +6086,55 @@ fn promote_candidate_audio(info: &mut SourceInfo, source_version_id: &str) {
     {
         info.audio_processing = info.pending_audio_processing.take();
     }
+}
+
+fn draft_has_audio_provenance(draft: &KnowledgeDraft) -> bool {
+    fn audio_evidence(evidence: &EvidenceDraft) -> bool {
+        evidence.offset_basis.as_deref() == Some("audio_transcript")
+            || evidence.origin.eq_ignore_ascii_case("transcribed speech")
+            || evidence
+                .source_location
+                .as_deref()
+                .is_some_and(|location| location.starts_with("AUDIO "))
+    }
+
+    draft.entities.iter().any(|entity| {
+        matches!(
+            entity.kind.as_str(),
+            "audio_recording" | "audio_speaker" | "speaker"
+        ) || audio_evidence(&entity.evidence)
+    }) || draft.facts.iter().any(|fact| {
+        matches!(
+            fact.property.as_str(),
+            "spoken_question" | "spoken_decision" | "spoken_reasoning" | "audio_speaker"
+        ) || audio_evidence(&fact.evidence)
+    }) || draft.relationships.iter().any(|relationship| {
+        matches!(relationship.kind.as_str(), "audio_speaker" | "speaker")
+            || audio_evidence(&relationship.evidence)
+    }) || draft.tags.iter().any(|tag| audio_evidence(&tag.evidence))
+        || draft
+            .correction_candidates
+            .iter()
+            .any(|candidate| audio_evidence(&candidate.evidence))
+        || draft
+            .correction_alignments
+            .iter()
+            .any(|alignment| audio_evidence(&alignment.candidate.evidence))
+        || draft.source_update.as_ref().is_some_and(|update| {
+            audio_evidence(&update.evidence)
+                || update
+                    .source_date_evidence
+                    .as_ref()
+                    .is_some_and(audio_evidence)
+                || update
+                    .source_revision_evidence
+                    .as_ref()
+                    .is_some_and(audio_evidence)
+        })
+        || draft
+            .decisions
+            .iter()
+            .any(|decision| decision.question.starts_with("audio_speech_act:"))
 }
 
 fn qualify_audio_evidence(draft: &mut KnowledgeDraft) {
