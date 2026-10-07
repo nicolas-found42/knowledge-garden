@@ -11,6 +11,7 @@ const MAX_RELATIONSHIP_SCAN_BYTES: u64 = 8 * 1024 * 1024;
 #[serde(rename_all = "snake_case")]
 pub enum CoverageScope {
     MainDocument,
+    ConversationMessages,
     Tables,
     SlideText,
     SpeakerNotes,
@@ -456,6 +457,7 @@ fn finish(
 fn coverage_scope_label(scope: CoverageScope) -> &'static str {
     match scope {
         CoverageScope::MainDocument => "main document",
+        CoverageScope::ConversationMessages => "conversation messages",
         CoverageScope::Tables => "tables",
         CoverageScope::SlideText => "slide text",
         CoverageScope::SpeakerNotes => "speaker notes",

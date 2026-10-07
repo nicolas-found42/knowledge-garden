@@ -981,8 +981,7 @@ impl Application {
                     Ok(web) => (ExtractionState::StructuredText, web.detail, None),
                     Err(detail) => (ExtractionState::InvalidUtf8, detail, None),
                 }
-            } else if matches!(format.as_str(), "docx" | "pptx") || crate::photo::is_photo(&format)
-            {
+            } else if crate::extraction::is_structured_format(&format) {
                 match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
@@ -1108,8 +1107,7 @@ impl Application {
                 Err(_) => (ExtractionState::InvalidUtf8, "The source is not valid UTF-8. The original is retained without lossy decoding.".into(), String::new(), None, None),
                 Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 response text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
             }
-            } else if matches!(format.as_str(), "docx" | "pptx") || crate::photo::is_photo(&format)
-            {
+            } else if crate::extraction::is_structured_format(&format) {
                 match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
@@ -1135,6 +1133,8 @@ impl Application {
                     Err(detail) => {
                         let scope = if crate::photo::is_photo(&format) {
                             CoverageScope::ImagePixels
+                        } else if crate::conversation::is_conversation(&format) {
+                            CoverageScope::ConversationMessages
                         } else if format == "docx" {
                             CoverageScope::MainDocument
                         } else {
@@ -1589,9 +1589,7 @@ impl Application {
                         } else {
                             version_path
                         };
-                        if matches!(version.format.as_str(), "docx" | "pptx")
-                            || crate::photo::is_photo(&version.format)
-                        {
+                        if crate::extraction::is_structured_format(&version.format) {
                             self.extractor
                                 .extract(&path, &version.format, &page.info.title)
                                 .ok()
@@ -1735,9 +1733,9 @@ impl Application {
         source_text: &str,
         draft: &mut KnowledgeDraft,
     ) -> Result<HashMap<String, String>> {
-        if source_text.starts_with("[PHOTO ") {
-            // The independent photo guard only admits exact qualified channel facts.
-            // A printed or supplied correction is not an authenticated event update.
+        if source_text.starts_with("[PHOTO ") || source_text.starts_with("[CONVERSATION ") {
+            // Native provenance guards admit only qualified projection facts.
+            // Printed or attributed corrections do not authenticate an event update.
             return Ok(HashMap::new());
         }
         let recognized_candidates = crate::providers::correction_candidates_from_text(source_text);
@@ -2186,6 +2184,14 @@ impl Application {
                         let result =
                             crate::photo::validate_draft(&job.source_text, &source_format, &draft)
                                 .map_err(GardenError::Invalid)
+                                .and_then(|()| {
+                                    crate::conversation::validate_draft(
+                                        &job.source_text,
+                                        &source_format,
+                                        &draft,
+                                    )
+                                    .map_err(GardenError::Invalid)
+                                })
                                 .and_then(|()| {
                                     self.store_source_update(
                                         &mut page,
@@ -2890,6 +2896,7 @@ impl Application {
                         "extracted Office projection; offsets are not original package byte offsets"
                     }
                     EvidenceOffsetBasis::ExtractedImageProjection => "extracted image projection; offsets are not original image byte offsets",
+                    EvidenceOffsetBasis::ExtractedConversationProjection => "extracted conversation projection; offsets are not original export byte offsets",
                     EvidenceOffsetBasis::WebVisibleText => {
                         "extracted web visible-text projection; offsets are not downloaded HTML byte offsets"
                     }
@@ -2924,6 +2931,9 @@ impl Application {
                     }
                     EvidenceOffsetBasis::ExtractedImageProjection => {
                         ("image projection lines", "image projection bytes")
+                    }
+                    EvidenceOffsetBasis::ExtractedConversationProjection => {
+                        ("message projection lines", "message projection bytes")
                     }
                     EvidenceOffsetBasis::WebVisibleText => (
                         "visible-text projection lines",
@@ -2976,6 +2986,11 @@ impl Application {
                         "image projection lines", "image projection bytes",
                         relationship.evidence.source_location.as_deref().map(|location| format!(" · image locator: {location}")).unwrap_or_default(),
                         "Open the image preview or retained original using the normalized region locator; whole-image fallback when no region exists.",
+                    ),
+                    EvidenceOffsetBasis::ExtractedConversationProjection => (
+                        "message projection lines", "message projection bytes",
+                        relationship.evidence.source_location.as_deref().map(|location| format!(" · message locator: {location}")).unwrap_or_default(),
+                        "The original opens as a fallback; use the session, message and supplied order above to locate the recorded assertion.",
                     ),
                     EvidenceOffsetBasis::WebVisibleText => (
                         "visible-text projection lines",
@@ -3449,9 +3464,7 @@ impl Application {
             .join("versions")
             .join(source_version_id)
             .join(&candidate.asset);
-        let office_projection = if matches!(candidate.format.as_str(), "docx" | "pptx")
-            || crate::photo::is_photo(&candidate.format)
-        {
+        let office_projection = if crate::extraction::is_structured_format(&candidate.format) {
             Some(
                 self.extractor
                     .extract(
@@ -5280,6 +5293,7 @@ fn evidence_offset_basis_name(basis: EvidenceOffsetBasis) -> &'static str {
         EvidenceOffsetBasis::WebVisibleText => "web_visible_text",
         EvidenceOffsetBasis::AudioTranscript => "audio_transcript",
         EvidenceOffsetBasis::ExtractedImageProjection => "extracted_image_projection",
+        EvidenceOffsetBasis::ExtractedConversationProjection => "extracted_conversation_projection",
     }
 }
 
@@ -5463,6 +5477,7 @@ enum EvidenceOffsetBasis {
     #[default]
     PreservedText,
     ExtractedOfficeProjection,
+    ExtractedConversationProjection,
     WebVisibleText,
     AudioTranscript,
     ExtractedImageProjection,
@@ -5488,6 +5503,12 @@ fn evidence_display_basis(
             "extracted image projection; offsets are not original image byte offsets",
             "image projection lines", "image projection bytes",
             "Open the image preview or retained original using normalized region coordinates; otherwise use the disclosed whole-image fallback.",
+        ),
+        EvidenceOffsetBasis::ExtractedConversationProjection => (
+            "extracted conversation projection; offsets are not original export byte offsets",
+            "message projection lines",
+            "message projection bytes",
+            "The original opens as a fallback; use the session, message and supplied order locator to find this assertion.",
         ),
         EvidenceOffsetBasis::WebVisibleText => (
             "extracted web visible-text projection; offsets are not downloaded HTML byte offsets",
@@ -5692,6 +5713,9 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         Some("web_visible_text") => EvidenceOffsetBasis::WebVisibleText,
         Some("audio_transcript") => EvidenceOffsetBasis::AudioTranscript,
         Some("extracted_image_projection") => EvidenceOffsetBasis::ExtractedImageProjection,
+        Some("extracted_conversation_projection") => {
+            EvidenceOffsetBasis::ExtractedConversationProjection
+        }
         Some(_) => {
             return Err(GardenError::Invalid(
                 "Semantic evidence uses an unsupported offset basis.".into(),
@@ -5736,7 +5760,7 @@ fn stable_page_id(entity: &EntityDraft, source_id: &str, source_text: Option<&st
     }
     if matches!(
         kind.as_str(),
-        "person" | "event" | "document" | "presentation"
+        "person" | "event" | "document" | "presentation" | "conversation" | "conversation_message"
     ) {
         digest.update([0]);
         digest.update(source_id.as_bytes());
@@ -5907,9 +5931,18 @@ fn escape_heading(value: &str) -> String {
 }
 
 fn escape_markdown(value: &str) -> String {
-    value
-        .replace(['\n', '\r'], " ")
-        .replace(['[', ']', '<', '>', '*', '_', '`'], "")
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        if matches!(character, '\n' | '\r') {
+            escaped.push(' ');
+        } else {
+            if character.is_ascii_punctuation() {
+                escaped.push('\\');
+            }
+            escaped.push(character);
+        }
+    }
+    escaped
 }
 
 fn read_knowledge_page(path: &Path) -> Result<KnowledgePage> {

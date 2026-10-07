@@ -94,6 +94,128 @@ impl SystemOneTransport for OpenRouterSystemOneTransport {
 }
 
 impl JevSemanticProvider {
+    fn form_conversation_knowledge(
+        &self,
+        source_text: &str,
+    ) -> Result<KnowledgeDraft, ProviderError> {
+        let passages =
+            crate::conversation::passages(source_text).map_err(ProviderError::recoverable)?;
+        if passages.is_empty() || passages.len() > 64 {
+            return Err(ProviderError::recoverable("Conversation semantic processing supports 1–64 supplied messages per projection; coverage remains incomplete rather than truncating knowledge.".into()));
+        }
+        let allowed = [
+            "question",
+            "proposal",
+            "recorded_decision",
+            "tool_report",
+            "reasoning_event",
+            "claim",
+            "nonknowledge",
+            "uncertain",
+        ];
+        let mut questions = BTreeMap::new();
+        for (index, passage) in passages.iter().enumerate() {
+            if passage.role == "assistant_tool_call" {
+                continue;
+            }
+            questions.insert(format!("conversation_intent_{index}"), json!({
+                "type":"choice",
+                "instructions":format!("Classify what this exact acquired message records in its supplied conversation context. Role {} is acquired metadata. Never authenticate external truth, identities or dates. An assistant's suggestion or quoted 'decision' is not the owner's accepted decision. Preserve abandoned proposals as historical messages, never current choices. Tool role takes precedence as tool_report; explicit reasoning role takes precedence as reasoning_event. Unknown intent is uncertain. Exact message: {}", passage.role, passage.evidence.quote),
+                "criteria":{
+                    "question":"Request for information or evaluation, not an accepted choice",
+                    "proposal":"Suggested course of action; assistant suggestions remain proposals without user acceptance evidence",
+                    "recorded_decision":"User explicitly records an accepted or rejected choice in this message; not a quoted or assistant decision",
+                    "tool_report":"Supplied tool-role result, report, or return value, without external truth authentication",
+                    "reasoning_event":"Supplied reasoning-role message or summary; a distinct recorded reasoning event",
+                    "claim":"Meaningful attributed statement, preserving quoted origin and uncertainty",
+                    "nonknowledge":"Empty text or routine acknowledgement without meaningful knowledge",
+                    "uncertain":"Context insufficient to distinguish intent reliably"
+                }
+            }));
+        }
+        let response = self.evaluate(source_text, None, json!(questions))?;
+        let answers = response["answers"].as_object().ok_or_else(|| {
+            ProviderError::recoverable("Jev conversation answers are missing.".into())
+        })?;
+        let model = response["model"].as_str().unwrap_or(JEV_MODEL);
+        let first = &passages[0];
+        let conversation = format!("Conversation {}", first.session);
+        let mut draft = KnowledgeDraft::default();
+        draft.entities.push(EntityDraft {
+            kind: "conversation".into(),
+            label: conversation.clone(),
+            evidence: first.evidence.clone(),
+        });
+        for (index, passage) in passages.iter().enumerate() {
+            let intent = if passage.role == "assistant_tool_call" {
+                // The pinned export's literal function_call type establishes
+                // only recorded call intent, with no model confidence or success claim.
+                "tool_call".to_owned()
+            } else {
+                let (intent, probability) =
+                    validated_choice(answers, &format!("conversation_intent_{index}"), &allowed)?;
+                if (intent == "recorded_decision" && passage.role != "user")
+                    || (intent == "tool_report" && passage.role != "tool")
+                    || (intent == "reasoning_event" && passage.role != "reasoning")
+                {
+                    return Err(ProviderError::recoverable("Jev conversation intent contradicts acquired message role; no misleading semantic target was published.".into()));
+                }
+                draft.decisions.push(SemanticDecision {
+                    question: format!("conversation_intent_{index}"),
+                    model: model.into(),
+                    outcome: intent.clone(),
+                    probability: Some(probability),
+                });
+                if probability < 0.85 {
+                    "uncertain".to_owned()
+                } else {
+                    intent
+                }
+            };
+            if (intent == "recorded_decision" && passage.role != "user")
+                || (intent == "tool_report" && passage.role != "tool")
+                || (intent == "reasoning_event" && passage.role != "reasoning")
+            {
+                return Err(ProviderError::recoverable("Jev conversation intent contradicts acquired message role; no misleading semantic target was published.".into()));
+            }
+            if intent == "nonknowledge" {
+                continue;
+            }
+            let label = format!("Message {} in {}", passage.message, passage.session);
+            draft.entities.push(EntityDraft {
+                kind: if passage.role == "reasoning" {
+                    "reasoning_event"
+                } else {
+                    "conversation_message"
+                }
+                .into(),
+                label: label.clone(),
+                evidence: passage.evidence.clone(),
+            });
+            for (property, value) in [
+                ("statement", passage.text.as_str()),
+                ("message_intent", intent.as_str()),
+                ("message_date", passage.date.as_str()),
+            ] {
+                draft.facts.push(FactDraft {
+                    subject: label.clone(),
+                    property: property.into(),
+                    value: value.into(),
+                    evidence: passage.evidence.clone(),
+                    record_key: Some(passage.message.clone()),
+                });
+            }
+            draft.relationships.push(RelationshipDraft {
+                from: label,
+                to: conversation.clone(),
+                kind: "message_in_conversation".into(),
+                qualifier: passage.evidence.qualifier.clone(),
+                evidence: passage.evidence.clone(),
+            });
+        }
+        Ok(draft)
+    }
+
     pub fn from_environment_and_keychain() -> Self {
         Self {
             transport: Arc::new(OpenRouterSystemOneTransport::default()),
@@ -157,6 +279,9 @@ impl SemanticProvider for JevSemanticProvider {
         source_text: &str,
         prior_source_text: Option<&str>,
     ) -> std::result::Result<KnowledgeDraft, ProviderError> {
+        if source_text.starts_with("[CONVERSATION ") {
+            return self.form_conversation_knowledge(source_text);
+        }
         let photo_mode = source_text.starts_with("[PHOTO ");
         let audio_mode =
             source_text.starts_with("Machine-generated transcript from retained audio.");
