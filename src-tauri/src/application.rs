@@ -25,6 +25,8 @@ use std::{
 use thiserror::Error;
 use uuid::Uuid;
 
+const MAX_URL_ATTEMPTS: u32 = 8;
+
 pub const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 
 fn is_audio_format(format: &str) -> bool {
@@ -569,7 +571,9 @@ impl Application {
                     http_status.is_none_or(|code| matches!(code, 408 | 425 | 429) || code >= 500);
                 if restricted {
                     status.state = "restricted".into();
-                } else if !retryable || status.attempts >= 8 {
+                } else if !retryable {
+                    status.state = "failed".into();
+                } else if status.attempts >= MAX_URL_ATTEMPTS {
                     status.state = "failed".into();
                 } else {
                     status.state = "pending".into();
@@ -588,8 +592,10 @@ impl Application {
                         " Retry scheduled automatically; previous material remains available when present."
                     } else if restricted {
                         " Access is restricted; automatic retry stopped."
-                    } else {
+                    } else if retryable {
                         " Automatic retries exhausted; previous material remains available when present."
+                    } else {
+                        " Automatic retry stopped because this response is permanent; previous material remains available when present."
                     }
                 )))
             }
@@ -757,10 +763,16 @@ impl Application {
     fn recover_interrupted_url_acquisitions(&self) -> Result<()> {
         for mut status in self.list_url_acquisitions()? {
             if status.state == "processing" {
-                status.state = "pending".into();
-                status.retry_at = Some(0);
-                status.last_error =
-                    "The application restarted during retrieval; retry is queued.".into();
+                if status.attempts >= MAX_URL_ATTEMPTS {
+                    status.state = "failed".into();
+                    status.retry_at = None;
+                    status.last_error = "The application restarted during the final permitted retrieval attempt; the retry budget is exhausted.".into();
+                } else {
+                    status.state = "pending".into();
+                    status.retry_at = Some(0);
+                    status.last_error =
+                        "The application restarted during retrieval; retry is queued.".into();
+                }
                 self.write_url_status(&status)?;
             }
         }
