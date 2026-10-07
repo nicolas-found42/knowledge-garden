@@ -111,7 +111,12 @@ impl JevSemanticProvider {
         }
     }
 
-    fn evaluate(&self, text: &str, questions: Value) -> std::result::Result<Value, ProviderError> {
+    fn evaluate(
+        &self,
+        text: &str,
+        prior_source_text: Option<&str>,
+        questions: Value,
+    ) -> std::result::Result<Value, ProviderError> {
         if text.len() > 64 * 1024 {
             return Err(ProviderError::recoverable(
                 "This text is larger than the current Jev request limit; semantic work will retry automatically.".into(),
@@ -129,8 +134,11 @@ impl JevSemanticProvider {
                 keychain_credential(account)?
             }
         };
-        let request =
-            json!({"model": JEV_MODEL, "state": {"source_text": text}, "questions": questions});
+        let mut state = serde_json::Map::from_iter([("source_text".into(), json!(text))]);
+        if let Some(prior) = prior_source_text {
+            state.insert("prior_source_projection".into(), json!(prior));
+        }
+        let request = json!({"model": JEV_MODEL, "state": state, "questions": questions});
         self.transport.complete(&key, &request)
     }
 }
@@ -139,6 +147,14 @@ impl SemanticProvider for JevSemanticProvider {
     fn form_knowledge(
         &self,
         source_text: &str,
+    ) -> std::result::Result<KnowledgeDraft, ProviderError> {
+        self.form_knowledge_with_prior(source_text, None)
+    }
+
+    fn form_knowledge_with_prior(
+        &self,
+        source_text: &str,
+        prior_source_text: Option<&str>,
     ) -> std::result::Result<KnowledgeDraft, ProviderError> {
         let mut candidates = candidates(source_text);
         let office_candidates = office_statement_candidates(source_text);
@@ -166,6 +182,7 @@ impl SemanticProvider for JevSemanticProvider {
             return Err(ProviderError::recoverable("This source contains multiple event identifiers; event-to-fact grouping is not yet supported, so semantic coverage remains incomplete.".into()));
         }
         let mut questions = BTreeMap::<String, Value>::new();
+        let mut update_questions = BTreeMap::<String, Value>::new();
         let event_context = candidates
             .iter()
             .find(|candidate| candidate.kind == CandidateKind::Event)
@@ -207,12 +224,17 @@ impl SemanticProvider for JevSemanticProvider {
                 )
             })
             .collect::<serde_json::Map<String, Value>>();
-        questions.insert("source_update_role".into(), json!({
+        let update_question_set = if prior_source_text.is_some() {
+            &mut update_questions
+        } else {
+            &mut questions
+        };
+        update_question_set.insert("source_update_role".into(), json!({
             "type":"choice",
-            "instructions":"Classify the author’s active intent for how this source relates to an existing source about the same record. Use the whole source. `complete_replacement` means this entire source version is explicitly intended to replace the earlier complete source for the same record. `supplement` adds independent information without replacing the earlier source. `conditional` is a proposal, uncertainty, or update that is not yet authorized as current. `targeted_correction` changes only specified fields and does not authorize withdrawing omitted fields. `unknown` means the relationship is not established. Do not treat quoted/rejected proposals, negation, or a conditional clause as the author’s active replacement intent. Do not infer replacement from a count/date change alone.",
+            "instructions":"Classify document-level scope for this incoming source version in relation to `prior_source_projection` in state, when supplied. Compare the whole incoming source with that prior complete projection. `complete_replacement` means the incoming document is a complete snapshot of the same record and its changed values and omissions apply to this version. `targeted_correction` changes only explicitly named fact keys and does not authorize withdrawing omitted facts. `supplement` adds independent information without replacing prior support. `conditional` means the document-level update itself awaits verification or authorization. `unknown` means scope is not established. A provisional, estimated, or uncertain qualifier attached to one table row or statement qualifies that fact only; it does not by itself make the whole source update conditional. Preserve that qualifier on the fact. Do not infer source authority from a changed path, same filename, or changed value alone. If document-level scope cannot be distinguished from a fact-level qualifier, choose unknown. Choose source-update evidence only from the incoming spans below. Do not cite prior context as evidence.",
             "criteria":{"complete_replacement":"The whole source is explicitly an authoritative replacement for the earlier complete source", "supplement":"This adds independent support/context and retains earlier source content", "conditional":"This is tentative, rejected, quoted, or awaiting verification", "targeted_correction":"Only named facts are corrected; omitted facts remain active", "unknown":"The relationship or scope cannot be established from source evidence"}
         }));
-        questions.insert("source_update_evidence".into(), json!({
+        update_question_set.insert("source_update_evidence".into(), json!({
             "type":"choice",
             "instructions":"Choose the exact source span that supports your source_update_role judgment, including the words that establish negation, quotation, condition, supplement, or full replacement scope. If no sentence is decisive, choose the span that best shows why the relationship remains unknown. The span text and offsets are supplied in the criteria.",
             "criteria":update_criteria
@@ -312,13 +334,45 @@ impl SemanticProvider for JevSemanticProvider {
                 }
             }));
         }
-        let result = self.evaluate(source_text, Value::Object(questions.into_iter().collect()))?;
-        let answers = result
+        let result = self.evaluate(
+            source_text,
+            None,
+            Value::Object(questions.into_iter().collect()),
+        )?;
+        let mut result_answers = result
             .get("answers")
             .and_then(Value::as_object)
-            .ok_or_else(|| {
-                ProviderError::recoverable("Jev response has no typed answers.".into())
-            })?;
+            .ok_or_else(|| ProviderError::recoverable("Jev response has no typed answers.".into()))?
+            .clone();
+        let mut result_model = result
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or(JEV_MODEL)
+            .to_owned();
+        if !update_questions.is_empty() {
+            // Keep source-scope reconciliation focused: a row-level qualifier must
+            // not be drowned out by the unrelated extraction judgments in this batch.
+            let focused = self.evaluate(
+                source_text,
+                prior_source_text,
+                Value::Object(update_questions.into_iter().collect()),
+            )?;
+            let focused_answers = focused
+                .get("answers")
+                .and_then(Value::as_object)
+                .ok_or_else(|| {
+                    ProviderError::recoverable(
+                        "Jev source-update response has no typed answers.".into(),
+                    )
+                })?;
+            result_answers.extend(focused_answers.clone());
+            result_model = focused
+                .get("model")
+                .and_then(Value::as_str)
+                .unwrap_or(JEV_MODEL)
+                .to_owned();
+        }
+        let answers = &result_answers;
         let validated = validate_answers(
             source_text,
             &candidates,
@@ -329,11 +383,7 @@ impl SemanticProvider for JevSemanticProvider {
             &report_revisions,
         )?;
         let mut decisions = Vec::new();
-        let model = result
-            .get("model")
-            .and_then(Value::as_str)
-            .unwrap_or(JEV_MODEL)
-            .to_owned();
+        let model = result_model;
         let mut accepted = Vec::new();
         for candidate in candidates
             .iter()
@@ -1582,6 +1632,38 @@ fn candidates(text: &str) -> Vec<Candidate> {
             origin,
         });
     }
+    // A narrow, explicitly corrective phrase is one candidate: the old number
+    // after "not" is contrastive evidence, not a second current count.
+    // Keep the entire sentence as provenance so Jev can confirm both the
+    // target field and the rejected prior value before publication.
+    let count_correction_re = regex(
+        r"(?i)\bvisit\s+total\s+(?:should\s+)?(?:read|be\s+corrected\s+to)\s+([0-9]+)\s*,?\s+not\s+([0-9]+)\b",
+    );
+    for matched in count_correction_re.captures_iter(text) {
+        let Some(whole) = matched.get(0) else {
+            continue;
+        };
+        let Some(corrected) = matched.get(1) else {
+            continue;
+        };
+        let (start, end) = sentence_bounds(text, whole.start(), whole.end());
+        let quote = text[start..end].to_owned();
+        let origin = origin_for(text, whole.start(), whole.end());
+        result.retain(|candidate| {
+            candidate.kind != CandidateKind::Count
+                || candidate.end <= start
+                || candidate.start >= end
+        });
+        result.push(Candidate {
+            kind: CandidateKind::Count,
+            value: format!("{} visits", corrected.as_str()),
+            quote,
+            start,
+            end,
+            qualifier: None,
+            origin,
+        });
+    }
     let duration_re = regex(r"(?i)\b[0-9]+\s*(?:minutes?|hours?|seconds?|days?)\b");
     for m in duration_re.find_iter(text) {
         let matched = m.as_str();
@@ -1859,4 +1941,21 @@ fn keychain_credential(account: &str) -> std::result::Result<String, ProviderErr
         ));
     }
     Ok(value)
+}
+
+#[cfg(test)]
+mod ticket5_tests {
+    use super::{candidates, CandidateKind};
+
+    #[test]
+    fn explicit_visit_total_correction_selects_the_new_count_only() {
+        let text = "For Observation V17: The visit total should read 15, not 12. This note corrects the count only.";
+        let counts = candidates(text)
+            .into_iter()
+            .filter(|candidate| candidate.kind == CandidateKind::Count)
+            .collect::<Vec<_>>();
+        assert_eq!(counts.len(), 1);
+        assert_eq!(counts[0].value, "15 visits");
+        assert!(counts[0].quote.contains("not 12"));
+    }
 }

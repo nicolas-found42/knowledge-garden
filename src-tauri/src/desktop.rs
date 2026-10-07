@@ -173,7 +173,10 @@ pub fn run() {
                         }
                     };
                     for job in jobs {
-                        let result = worker_provider.form_knowledge(&job.source_text);
+                        let result = worker_provider.form_knowledge_with_prior(
+                            &job.source_text,
+                            job.prior_source_text.as_deref(),
+                        );
                         match worker_app.lock() {
                             Ok(mut app) => {
                                 if let Err(error) = app.finish_semantic_job(job, result) {
