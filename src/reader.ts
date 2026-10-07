@@ -121,6 +121,7 @@ export async function mountReader(
   const navigationHistory: NavigationState[] = [];
   let busy = false;
   let disposed = false;
+  let searchGeneration = 0;
 
   function message(text: string) {
     if (!disposed) notice.textContent = text;
@@ -174,6 +175,7 @@ export async function mountReader(
     originalAsset?: string,
   ) {
     if (disposed) return;
+    searchGeneration++;
     const article = element("article");
     article.tabIndex = -1;
     article.setAttribute("aria-label", title);
@@ -640,10 +642,11 @@ export async function mountReader(
   }
 
   async function runSearch(request: PageSearchRequest, push: boolean) {
+    const generation = ++searchGeneration;
     if (push) pushCurrentState();
     message("Searching pages…");
     const results = await api.searchPages(request);
-    if (disposed) return;
+    if (disposed || generation !== searchGeneration) return;
     renderSearch(results, request);
     message(
       `${results.pages.length} matching ${results.pages.length === 1 ? "page" : "pages"}.`,

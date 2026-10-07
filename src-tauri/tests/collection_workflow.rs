@@ -1657,6 +1657,38 @@ fn jev_role_judgments_keep_same_path_supplements_and_uncertain_updates_non_destr
 }
 
 #[test]
+fn an_uncertain_role_on_first_acquisition_does_not_suppress_grounded_knowledge() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("initial-report.txt");
+    fs::write(&source, REVISION_1).unwrap();
+    let mut initial = replacement_recording(REVISION_1, 12, true);
+    let update = initial.source_update.as_mut().unwrap();
+    update.role = SourceUpdateRole::Unknown;
+    update.certainty = 0.52;
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::once(Ok(initial))),
+    )
+    .unwrap();
+
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let current = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(current.info.semantic_state, "complete");
+    let event = current
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "event")
+        .expect("the grounded initial event is published");
+    let markdown = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+    assert!(markdown.contains("value: 12 visits"), "{markdown}");
+    assert!(markdown.contains("value: 10 minutes"), "{markdown}");
+}
+
+#[test]
 fn complete_revision_does_not_withdraw_an_independent_same_numbered_supplement() {
     let workspace = tempdir().unwrap();
     let base = workspace.path().join("revision-1.txt");

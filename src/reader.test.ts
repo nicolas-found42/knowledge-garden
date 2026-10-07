@@ -273,6 +273,79 @@ it("shows an explicit empty state and removable search filters", async () => {
 });
 
 let dispose: (() => void) | undefined;
+it("keeps the latest search visible when an older response arrives later", async () => {
+  const api = testApi();
+  const results: PageSearchResults = {
+    pages: [],
+    next_offset: null,
+    available_tags: [],
+    available_formats: [],
+    available_statuses: [],
+  };
+  let releaseOlder!: (value: PageSearchResults) => void;
+  api.searchPages = vi
+    .fn()
+    .mockResolvedValueOnce(results)
+    .mockImplementationOnce(
+      () =>
+        new Promise<PageSearchResults>((resolve) => {
+          releaseOlder = resolve;
+        }),
+    )
+    .mockResolvedValueOnce(results);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  const query = await screen.findByRole("searchbox", {
+    name: "Words or title",
+  });
+  await user.type(query, "older request");
+  fireEvent.submit(root.querySelector(".search-form")!);
+  await user.clear(query);
+  await user.type(query, "latest request");
+  fireEvent.submit(root.querySelector(".search-form")!);
+  await screen.findByRole("button", {
+    name: "Remove Words: latest request filter",
+  });
+  releaseOlder(results);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(
+    screen.getByRole("searchbox", { name: "Words or title" }),
+  ).toHaveProperty("value", "latest request");
+  expect(
+    screen.getByRole("button", { name: "Remove Words: latest request filter" }),
+  ).toBeTruthy();
+});
+it("keeps an opened source visible when a pending search response arrives", async () => {
+  const api = testApi();
+  let releaseSearch!: (value: PageSearchResults) => void;
+  api.searchPages = vi.fn(
+    () =>
+      new Promise<PageSearchResults>((resolve) => {
+        releaseSearch = resolve;
+      }),
+  );
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await screen.findByRole("article", { name: "Riverside notes" });
+  releaseSearch({
+    pages: [],
+    next_offset: null,
+    available_tags: [],
+    available_formats: [],
+    available_statuses: [],
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(screen.getByRole("article", { name: "Riverside notes" })).toBeTruthy();
+});
 afterEach(() => {
   vi.useRealTimers();
   dispose?.();
@@ -563,4 +636,56 @@ it("opens linked knowledge pages, returns to their source, and opens the retaine
     oldVersion,
     "original.txt",
   );
+});
+
+it("shows Office projection offsets, original locators, and fallback guidance in the reader", async () => {
+  const digest = "d".repeat(64);
+  const source: SourcePage = {
+    ...riverside,
+    info: {
+      ...riverside.info,
+      source_id: `source-${digest}`,
+      knowledge_pages: [
+        {
+          page_id: "page-field-visit",
+          title: "Riverside field visit",
+          kind: "event",
+          path: "pages/page-field-visit.md",
+        },
+      ],
+    },
+    body: `# Field report\n\n[Riverside field visit](pages/page-field-visit.md)`,
+  };
+  const knowledge = {
+    page_id: "page-field-visit",
+    source_id: source.info.source_id,
+    title: "Riverside field visit",
+    kind: "event",
+    markdown: `---\npage_id: page-field-visit\n---\n\n# Riverside field visit\n\n## Facts\n\n- **visit count:** 12 visits\n  - Evidence: “12 visits, excluding two unverified reports.”\n  - Origin: observed · extracted projection lines 2–2, extracted projection bytes 20–68 · extracted Office projection; offsets are not original package byte offsets · original locator: DOCX table 1 row 2; channel=table\n  - The retained original opens as a fallback; the offsets above refer to the stated extracted projection.\n  - Links: [Source page](../sources/${digest}/index.md) · [Retained original](../sources/${digest}/original.docx)`,
+  };
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(source);
+  api.openKnowledgePage = vi.fn().mockResolvedValue(knowledge);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(
+    await screen.findByRole("link", { name: "Riverside field visit" }),
+  );
+
+  expect(
+    await screen.findByText(
+      /extracted Office projection; offsets are not original package byte offsets/,
+    ),
+  ).toBeTruthy();
+  expect(screen.getByText(/DOCX table 1 row 2; channel=table/)).toBeTruthy();
+  expect(
+    screen.getByText(
+      /retained original opens as a fallback.*stated extracted projection/i,
+    ),
+  ).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Retained original" })).toBeTruthy();
 });
