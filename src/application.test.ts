@@ -170,10 +170,16 @@ it("preserves literal tool names and linked-only URL occurrences when reading ac
   let urlAcquisitionCalls = 0;
   const api: GardenApi = {
     chooseFile: async () => fixture,
+    chooseRepositoryDirectory: async () => null,
     importSource: async (path) => {
       imported = call<SourcePage>("conversation-recorded-import", path);
       return imported;
     },
+    importRepository: async () => ({
+      repository_id: "repository-test",
+      sources: [],
+      exclusions: [],
+    }),
     importUrl: async () => {
       urlAcquisitionCalls += 1;
       throw new Error("This fixture supplies no URL destination.");
