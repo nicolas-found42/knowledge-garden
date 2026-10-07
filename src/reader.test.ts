@@ -66,6 +66,36 @@ function testApi(): GardenApi {
   };
 }
 
+it("loads a photo preview only on request and keeps its region guidance beside the image", async () => {
+  const api = testApi();
+  const preview = vi.fn().mockResolvedValue("data:image/jpeg;base64,/9j/");
+  Object.assign(api, { previewOriginal: preview });
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: { ...riverside.info, format: "png", title: "Photo evidence" },
+    body: "# Photo evidence\n\nOCR region 1 · normalized bottom-left x=0.2,y=0.3,width=0.4,height=0.1 · RIVER SURVEY",
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Add source" }));
+  expect(preview).not.toHaveBeenCalled();
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Show image preview" }));
+  expect(preview).toHaveBeenCalledWith("source-riverside");
+  const image = await screen.findByRole("img", {
+    name: "Retained photo preview: Photo evidence",
+  });
+  expect(image.getAttribute("src")).toBe("data:image/jpeg;base64,/9j/");
+  expect(screen.getByRole("article").textContent).toContain(
+    "normalized bottom-left",
+  );
+  expect(screen.getByText(/whole-image fallback/)).toBeTruthy();
+});
+
 it("keeps prior content readable and shows an incomplete update prominently", async () => {
   const api = testApi();
   api.importSource = vi.fn().mockResolvedValue({
