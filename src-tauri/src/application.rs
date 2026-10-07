@@ -1281,7 +1281,8 @@ impl Application {
                             version_path
                         };
                         if matches!(version.format.as_str(), "docx" | "pptx") {
-                            self.extractor.extract(&path, &version.format, &page.info.title)
+                            self.extractor
+                                .extract(&path, &version.format, &page.info.title)
                                 .ok()
                                 .map(|projection| projection.semantic_text)
                         } else {
