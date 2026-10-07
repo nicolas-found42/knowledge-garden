@@ -187,6 +187,16 @@ struct ConfiguredSystemOneTransport {
 
 struct ContextCapturingTransport(Mutex<Option<Value>>);
 
+#[derive(Clone, Copy)]
+enum V18AnswerMode {
+    Valid,
+    OmitV17,
+    MalformedV17,
+    TwoDescribedEvents,
+}
+
+struct V18ReferenceTransport(V18AnswerMode);
+
 impl SystemOneTransport for RecordedSystemOneTransport {
     fn complete(
         &self,
@@ -226,6 +236,7 @@ impl SystemOneTransport for ConfiguredSystemOneTransport {
                             .unwrap_or("span_0"),
                         "source_order_date" | "source_order_revision" | "event_date" => "none",
                         "event_identity" => "event",
+                        name if name.starts_with("event_identity_") => "event",
                         name if name.starts_with("person_identity_") => "uncertain",
                         name if name.starts_with("relation_") => {
                             if criteria.contains_key("observer") {
@@ -295,6 +306,83 @@ impl SystemOneTransport for ContextCapturingTransport {
             }
         }
         Ok(serde_json::json!({"model":"typesafe/jev-1.13-capture","answers":answers}))
+    }
+}
+
+impl SystemOneTransport for V18ReferenceTransport {
+    fn complete(
+        &self,
+        _api_key: &str,
+        request: &Value,
+    ) -> std::result::Result<Value, ProviderError> {
+        let questions = request["questions"]
+            .as_object()
+            .ok_or_else(|| ProviderError::permanent("missing typed questions".into()))?;
+        let mut answers = serde_json::Map::new();
+        for (key, question) in questions {
+            if question["type"] == "noul" {
+                answers.insert(key.clone(), serde_json::json!({"type":"noul","noul":0.99}));
+                continue;
+            }
+            let instructions = question["instructions"].as_str().unwrap_or_default();
+            let event_key = key.starts_with("event_identity");
+            let v17_reference = event_key && instructions.contains("V17");
+            if v17_reference && matches!(self.0, V18AnswerMode::OmitV17) {
+                continue;
+            }
+            if v17_reference && matches!(self.0, V18AnswerMode::MalformedV17) {
+                answers.insert(key.clone(), serde_json::json!({"type":"choice","choice":"event","probabilities":{"event":"not-a-number"}}));
+                continue;
+            }
+            let criteria = question["criteria"]
+                .as_object()
+                .ok_or_else(|| ProviderError::permanent("missing criteria".into()))?;
+            let choice = if event_key {
+                if instructions.contains("V18") {
+                    "event"
+                } else if matches!(self.0, V18AnswerMode::TwoDescribedEvents) {
+                    "event"
+                } else {
+                    "referenced_event"
+                }
+            } else {
+                match key.as_str() {
+                    "source_update_role" => "supplement",
+                    "source_update_evidence" => criteria.keys().next().unwrap(),
+                    "source_order_date" | "source_order_revision" => "none",
+                    "event_date" => criteria
+                        .iter()
+                        .find(|(_, value)| value.to_string().contains("May 18, 2024"))
+                        .map(|(key, _)| key.as_str())
+                        .unwrap_or("none"),
+                    name if name.starts_with("relation_") => {
+                        if instructions.contains("Observer: Maya") {
+                            "observer"
+                        } else if instructions.contains("Location: Riverside") {
+                            "location"
+                        } else {
+                            "none"
+                        }
+                    }
+                    name if name.starts_with("person_identity_") => "uncertain",
+                    _ => criteria.keys().next().unwrap(),
+                }
+            };
+            if !criteria.contains_key(choice) {
+                return Err(ProviderError::permanent(format!(
+                    "fixture cannot answer {key} with {choice}"
+                )));
+            }
+            answers.insert(
+                key.clone(),
+                serde_json::json!({
+                    "type":"choice",
+                    "choice":choice,
+                    "probabilities":{choice:0.99}
+                }),
+            );
+        }
+        Ok(serde_json::json!({"model":"test-jev","answers":answers}))
     }
 }
 
@@ -1420,6 +1508,15 @@ fn explicit_v17_count_only_correction_updates_just_the_count() {
     assert!(markdown.contains("Maya (observer)"));
     assert!(markdown.contains("Riverside"));
     assert!(markdown.contains("10 minutes"));
+    let v17_relationships = markdown.split("## Relationships\n").nth(1).unwrap();
+    assert!(
+        v17_relationships.contains("Maya (observer)"),
+        "{v17_relationships}"
+    );
+    assert!(
+        v17_relationships.contains("Riverside"),
+        "{v17_relationships}"
+    );
     let current_count_search = app
         .search_pages(PageSearchRequest {
             query: "15 visits".into(),
@@ -1450,6 +1547,363 @@ fn explicit_v17_count_only_correction_updates_just_the_count() {
         .pages
         .iter()
         .any(|page| page.page_id == initial_source.info.page_id));
+}
+
+#[test]
+fn separate_v18_observation_keeps_corrected_v17_current_and_linked() {
+    let workspace = tempdir().unwrap();
+    let v17_path = workspace.path().join("v17.txt");
+    let v18_path = workspace.path().join("v18.txt");
+    let v17_text = "Complete report, revision 2 dated May 20, 2024. This report completely replaces revision 1 of this same observation record.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 15. Duration: 10 minutes.\n";
+    let v18_text = "Separate observation V18 took place on May 18, 2024. Observer: Maya. Location: Riverside. Visits: 8. This is a separate observation, not a correction to V17.";
+    fs::write(&v17_path, v17_text).unwrap();
+    fs::write(&v18_path, v18_text).unwrap();
+
+    let evidence = |quote: &str| EvidenceDraft {
+        quote: quote.into(),
+        byte_start: v18_text.find(quote).unwrap(),
+        byte_end: v18_text.find(quote).unwrap() + quote.len(),
+        origin: "observed".into(),
+        qualifier: None,
+        offset_basis: None,
+        source_location: None,
+    };
+    let v18 = KnowledgeDraft {
+        entities: vec![
+            EntityDraft {
+                kind: "event".into(),
+                label: "Observation V18".into(),
+                evidence: evidence("observation V18 took place on May 18, 2024"),
+            },
+            EntityDraft {
+                kind: "person".into(),
+                label: "Maya".into(),
+                evidence: evidence("Observer: Maya."),
+            },
+            EntityDraft {
+                kind: "place".into(),
+                label: "Riverside".into(),
+                evidence: evidence("Location: Riverside."),
+            },
+        ],
+        facts: vec![
+            FactDraft {
+                subject: "Observation V18".into(),
+                property: "occurred_on".into(),
+                value: "May 18, 2024".into(),
+                evidence: evidence("May 18, 2024"),
+                record_key: None,
+            },
+            FactDraft {
+                subject: "Observation V18".into(),
+                property: "visit_count".into(),
+                value: "8 visits".into(),
+                evidence: evidence("Visits: 8."),
+                record_key: None,
+            },
+        ],
+        relationships: vec![
+            RelationshipDraft {
+                from: "Observation V18".into(),
+                to: "Maya".into(),
+                kind: "observed_by".into(),
+                qualifier: None,
+                evidence: evidence("Observer: Maya."),
+            },
+            RelationshipDraft {
+                from: "Observation V18".into(),
+                to: "Riverside".into(),
+                kind: "occurred_at".into(),
+                qualifier: None,
+                evidence: evidence("Location: Riverside."),
+            },
+        ],
+        source_update: Some(recorded_update(v18_text, SourceUpdateRole::Supplement)),
+        ..KnowledgeDraft::default()
+    };
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(replacement_recording(v17_text, 15, true)),
+            Ok(v18),
+        ])),
+    )
+    .unwrap();
+
+    let v17_source = app
+        .import_source(&v17_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let v18_source = app
+        .import_source(&v18_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let v17 = app
+        .open_source(&v17_source.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.title == "Observation V17")
+        .expect("V17 stays published");
+    let v18 = app
+        .open_source(&v18_source.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.title == "Observation V18")
+        .expect("V18 receives a distinct event page");
+    assert_ne!(v17.page_id, v18.page_id);
+    let v17_page = app.open_knowledge_page(&v17.page_id).unwrap();
+    let v18_page = app.open_knowledge_page(&v18.page_id).unwrap();
+    assert!(v17_page.markdown.contains("value: 15 visits"));
+    assert!(v17_page.markdown.contains("May 17, 2024"));
+    assert!(v18_page.markdown.contains("value: 8 visits"));
+    assert!(v18_page.markdown.contains("May 18, 2024"));
+    let v18_relationships = v18_page
+        .markdown
+        .split("## Relationships\n")
+        .nth(1)
+        .unwrap();
+    assert!(v18_relationships.contains("Maya"), "{v18_relationships}");
+    assert!(
+        v18_relationships.contains("Riverside"),
+        "{v18_relationships}"
+    );
+
+    let v17_search = app
+        .search_pages(PageSearchRequest {
+            query: "15 visits".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert!(v17_search
+        .pages
+        .iter()
+        .any(|page| page.page_id == v17.page_id));
+    assert!(!v17_search
+        .pages
+        .iter()
+        .any(|page| page.page_id == v18.page_id));
+    let v18_search = app
+        .search_pages(PageSearchRequest {
+            query: "8 visits".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert!(v18_search
+        .pages
+        .iter()
+        .any(|page| page.page_id == v18.page_id));
+    assert!(!v18_search
+        .pages
+        .iter()
+        .any(|page| page.page_id == v17.page_id));
+}
+
+#[test]
+fn jev_separates_v18_from_a_negative_reference_to_prior_v17() {
+    let workspace = tempdir().unwrap();
+    let v17_path = workspace.path().join("v17.txt");
+    let v18_path = workspace.path().join("v18.txt");
+    let v17_text = "Complete report, revision 2 dated May 20, 2024. This report completely replaces revision 1 of this same observation record.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 15. Duration: 10 minutes.\n";
+    let v18_text = "Separate observation V18 took place on May 18, 2024. Observer: Maya. Location: Riverside. Visits: 8. This is a separate observation, not a correction to V17.";
+    fs::write(&v17_path, v17_text).unwrap();
+    fs::write(&v18_path, v18_text).unwrap();
+
+    let mut baseline = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::once(Ok(replacement_recording(
+            v17_text, 15, true,
+        )))),
+    )
+    .unwrap();
+    let v17_source = baseline
+        .import_source(&v17_path, AcquisitionMethod::Picker)
+        .unwrap();
+    baseline.resume_due_semantic_jobs().unwrap();
+    drop(baseline);
+
+    let transport = Arc::new(V18ReferenceTransport(V18AnswerMode::Valid));
+    let provider = Arc::new(JevSemanticProvider::with_transport(
+        "recorded-test-key".into(),
+        transport,
+    ));
+    let mut app =
+        Application::open_with_semantic_provider(workspace.path().join("collection"), provider)
+            .unwrap();
+    let v18_source = app
+        .import_source(&v18_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let published_v18 = app.open_source(&v18_source.info.source_id).unwrap();
+    assert_eq!(
+        published_v18.info.semantic_state, "complete",
+        "{:?}",
+        published_v18.info.semantic_error
+    );
+    let v18 = published_v18
+        .knowledge_pages
+        .iter()
+        .find(|page| page.title == "Observation V18")
+        .expect("V18 is published as its own event");
+    let v18_page = app.open_knowledge_page(&v18.page_id).unwrap();
+    assert!(v18_page.markdown.contains("value: 8 visits"));
+    assert!(v18_page.markdown.contains("May 18, 2024"));
+
+    let v17 = app
+        .open_source(&v17_source.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.title == "Observation V17")
+        .unwrap();
+    let v17_page = app.open_knowledge_page(&v17.page_id).unwrap();
+    assert!(v17_page.markdown.contains("value: 15 visits"));
+    let v17_search = app
+        .search_pages(PageSearchRequest {
+            query: "15 visits".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert!(v17_search
+        .pages
+        .iter()
+        .any(|page| page.page_id == v17.page_id));
+    assert!(!v17_search
+        .pages
+        .iter()
+        .any(|page| page.page_id == v18.page_id));
+}
+
+#[test]
+fn omitted_or_malformed_reference_classification_keeps_v17_unchanged_and_v18_pending() {
+    for (name, mode) in [
+        ("omitted", V18AnswerMode::OmitV17),
+        ("malformed", V18AnswerMode::MalformedV17),
+        ("ambiguous multi-event", V18AnswerMode::TwoDescribedEvents),
+    ] {
+        let workspace = tempdir().unwrap();
+        let v17_path = workspace.path().join("v17.txt");
+        let v18_path = workspace.path().join("v18.txt");
+        let v17_text = "Complete report, revision 2 dated May 20, 2024. This report completely replaces revision 1 of this same observation record.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 15. Duration: 10 minutes.\n";
+        let v18_text = "Separate observation V18 took place on May 18, 2024. Observer: Maya. Location: Riverside. Visits: 8. This is a separate observation, not a correction to V17.";
+        fs::write(&v17_path, v17_text).unwrap();
+        fs::write(&v18_path, v18_text).unwrap();
+        let mut baseline = Application::open_with_semantic_provider(
+            workspace.path().join("collection"),
+            Arc::new(RecordedProvider::once(Ok(replacement_recording(
+                v17_text, 15, true,
+            )))),
+        )
+        .unwrap();
+        baseline
+            .import_source(&v17_path, AcquisitionMethod::Picker)
+            .unwrap();
+        baseline.resume_due_semantic_jobs().unwrap();
+        drop(baseline);
+
+        let provider = Arc::new(JevSemanticProvider::with_transport(
+            "recorded-test-key".into(),
+            Arc::new(V18ReferenceTransport(mode)),
+        ));
+        let mut app =
+            Application::open_with_semantic_provider(workspace.path().join("collection"), provider)
+                .unwrap();
+        let v18 = app
+            .import_source(&v18_path, AcquisitionMethod::Picker)
+            .unwrap();
+        app.resume_due_semantic_jobs().unwrap();
+        let current = app.open_source(&v18.info.source_id).unwrap();
+        assert_eq!(
+            current.info.semantic_state, "pending",
+            "{name} event classification must fail closed"
+        );
+        assert!(
+            current.knowledge_pages.is_empty(),
+            "{name} event classification must not publish flattened facts"
+        );
+        let v17 = app
+            .search_pages(PageSearchRequest {
+                query: "15 visits".into(),
+                ..PageSearchRequest::default()
+            })
+            .unwrap();
+        assert!(
+            v17.pages
+                .iter()
+                .any(|page| page.title == "Observation V17" && page.excerpt.contains("15 visits")),
+            "{name} response must preserve V17 current facts"
+        );
+        assert!(
+            v17.pages
+                .iter()
+                .all(|page| !page.excerpt.contains("8 visits")),
+            "{name} response must not apply V18 facts to V17"
+        );
+    }
+}
+
+#[test]
+fn uncertain_role_stays_non_destructive_then_a_clear_revision_recovers() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("v17.txt");
+    let uncertain_text = "Revision 2 dated May 19, 2024. Observation V17 took place on May 17, 2024. Observer: Maya. Location: Riverside. Visits: 14. Duration: 10 minutes. This note does not say whether it corrects V17 or describes a separate visit.";
+    let corrected_text = "Complete report, revision 2 dated May 20, 2024. This report completely replaces revision 1 of this same observation record.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 15. Duration: 10 minutes.\n";
+    fs::write(&source, REVISION_1).unwrap();
+    let mut uncertain = replacement_recording(uncertain_text, 14, true);
+    let update = uncertain.source_update.as_mut().unwrap();
+    update.role = SourceUpdateRole::Unknown;
+    update.certainty = 0.52;
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(replacement_recording(REVISION_1, 12, true)),
+            Ok(uncertain),
+            Ok(replacement_recording(corrected_text, 15, true)),
+        ])),
+    )
+    .unwrap();
+
+    let initial = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    fs::write(&source, uncertain_text).unwrap();
+    app.import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let uncertain_source = app.open_source(&initial.info.source_id).unwrap();
+    assert_eq!(
+        uncertain_source.info.update_status.as_deref(),
+        Some("uncertain")
+    );
+    let event = uncertain_source
+        .knowledge_pages
+        .iter()
+        .find(|page| page.title == "Observation V17")
+        .unwrap();
+    let uncertain_page = app.open_knowledge_page(&event.page_id).unwrap();
+    assert!(uncertain_page.markdown.contains("value: 12 visits"));
+    assert!(!uncertain_page.markdown.contains("value: 14 visits"));
+
+    fs::write(&source, corrected_text).unwrap();
+    app.import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let recovered = app.open_source(&initial.info.source_id).unwrap();
+    assert_ne!(recovered.info.update_status.as_deref(), Some("uncertain"));
+    assert_eq!(recovered.info.semantic_state, "complete");
+    let event = recovered
+        .knowledge_pages
+        .iter()
+        .find(|page| page.title == "Observation V17")
+        .unwrap();
+    let recovered_page = app.open_knowledge_page(&event.page_id).unwrap();
+    assert!(recovered_page.markdown.contains("value: 15 visits"));
+    assert!(recovered_page.markdown.contains("10 minutes"));
 }
 
 #[test]

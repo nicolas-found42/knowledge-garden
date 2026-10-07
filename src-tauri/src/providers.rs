@@ -175,27 +175,25 @@ impl SemanticProvider for JevSemanticProvider {
         if update_spans.is_empty() || update_spans.len() > 64 {
             return Err(ProviderError::recoverable("Jev source-update classification has no bounded evidence spans; semantic coverage remains incomplete.".into()));
         }
-        if candidates
-            .iter()
-            .filter(|candidate| candidate.kind == CandidateKind::Event)
-            .count()
-            > 1
-        {
-            return Err(ProviderError::recoverable("This source contains multiple event identifiers; event-to-fact grouping is not yet supported, so semantic coverage remains incomplete.".into()));
-        }
         let mut questions = BTreeMap::<String, Value>::new();
         let mut update_questions = BTreeMap::<String, Value>::new();
-        let event_context = candidates
-            .iter()
-            .find(|candidate| candidate.kind == CandidateKind::Event)
-            .map(|candidate| candidate.value.as_str())
-            .unwrap_or("the described event");
+        let event_context = "the observation event described by this source";
         for (i, candidate) in candidates.iter().enumerate() {
             if candidate.kind == CandidateKind::Event {
-                questions.insert("event_identity".into(), json!({
+                let key = if candidates
+                    .iter()
+                    .filter(|c| c.kind == CandidateKind::Event)
+                    .count()
+                    == 1
+                {
+                    "event_identity".to_owned()
+                } else {
+                    format!("event_identity_{i}")
+                };
+                questions.insert(key, json!({
                     "type":"choice",
-                    "instructions":format!("Resolve the role of this exact candidate identifier `{}` using the whole source and the displayed source span. Short identifiers can name an observation even without the word 'Observation' immediately before them. Decide event when the source uses this ID to name an observation/event, including a person observing or recording that ID. Decide not_event only when the source identifies it as a different kind of thing (for example a revision number, a person, or a venue). Span: {}", candidate.value, candidate.quote),
-                    "criteria":{"event":"This identifier names an observation or event described by the source", "not_event":"This identifier names a different kind of thing, not the described observation/event", "unclear":"The source does not resolve the identifier's role"}
+                    "instructions":format!("Classify this exact candidate identifier `{}` using the whole source and its span. Distinguish an event described by this source from an event only referenced for comparison or negation. Short identifiers can name an observation even without the word 'Observation' immediately before them. Span: {}", candidate.value, candidate.quote),
+                    "criteria":{"event":"This identifier names an observation/event whose facts are described by this source", "referenced_event":"This identifier names a prior or other event mentioned only as context, contrast, negation, or a reference; this source does not describe its facts", "not_event":"This identifier names a different kind of thing, not an event", "unclear":"The source does not resolve the identifier's role"}
                 }));
                 continue;
             }
@@ -438,29 +436,45 @@ impl SemanticProvider for JevSemanticProvider {
         let mut decisions = Vec::new();
         let model = result_model;
         let mut accepted = Vec::new();
-        for candidate in candidates
+        for (i, candidate) in candidates
             .iter()
-            .filter(|candidate| candidate.kind == CandidateKind::Event)
+            .enumerate()
+            .filter(|(_, candidate)| candidate.kind == CandidateKind::Event)
         {
-            let Some((choice, confidence)) = validated.event_identity.as_ref() else {
+            let key = if candidates
+                .iter()
+                .filter(|c| c.kind == CandidateKind::Event)
+                .count()
+                == 1
+            {
+                "event_identity".to_owned()
+            } else {
+                format!("event_identity_{i}")
+            };
+            let Some((choice, confidence)) = validated.event_identity.get(&i) else {
                 return Err(ProviderError::recoverable(
                     "No supported event identity was found; semantic coverage remains incomplete and will retry automatically.".into(),
                 ));
             };
             decisions.push(SemanticDecision {
-                question: format!("event_identity:{}", candidate.value),
+                question: format!("{key}:{}", candidate.value),
                 model: model.clone(),
-                outcome: if choice == "event" && *confidence >= 0.55 {
-                    "event"
-                } else {
-                    "unresolved"
-                }
-                .into(),
+                outcome: choice.clone(),
                 probability: Some(*confidence),
             });
             if choice == "event" && *confidence >= 0.55 {
                 accepted.push(candidate);
+            } else if choice == "unclear" || *confidence < 0.55 {
+                return Err(ProviderError::recoverable(format!("Event identifier {} has an unresolved source role; semantic coverage remains incomplete.", candidate.value)));
             }
+        }
+        if accepted
+            .iter()
+            .filter(|candidate| candidate.kind == CandidateKind::Event)
+            .count()
+            > 1
+        {
+            return Err(ProviderError::recoverable("The source describes multiple events but per-event fact grouping is not supported; semantic coverage remains incomplete.".into()));
         }
         for candidate in candidates.iter().filter(|candidate| {
             matches!(candidate.kind, CandidateKind::Person | CandidateKind::Place)
@@ -547,10 +561,10 @@ impl SemanticProvider for JevSemanticProvider {
                 .any(|candidate| candidate.kind == CandidateKind::Reference)
             && !office_mode
         {
-            if let Some((choice, probability)) = validated.event_identity.as_ref() {
-                return Err(ProviderError::recoverable(format!(
-                    "No supported event identity was found (Jev choice {choice}, probability {probability:.2}); semantic coverage remains incomplete and will retry automatically."
-                )));
+            if !validated.event_identity.is_empty() {
+                return Err(ProviderError::recoverable(
+                    "No described event was resolved from the source identifiers; semantic coverage remains incomplete and will retry automatically.".into(),
+                ));
             }
             return Err(ProviderError::recoverable(
                 "No supported event identity or acquired reference was found; semantic coverage remains incomplete and will retry automatically.".into(),
@@ -946,7 +960,7 @@ struct ReportRevisionCandidate {
 
 #[derive(Default)]
 struct ValidatedAnswers {
-    event_identity: Option<(String, f64)>,
+    event_identity: HashMap<usize, (String, f64)>,
     event_date: Option<(String, f64)>,
     entity_roles: HashMap<usize, (String, f64)>,
     candidate_support: HashMap<usize, f64>,
@@ -964,15 +978,30 @@ fn validate_answers(
     report_revisions: &[ReportRevisionCandidate],
 ) -> std::result::Result<ValidatedAnswers, ProviderError> {
     let mut validated = ValidatedAnswers::default();
-    if candidates
+    let event_indices = candidates
         .iter()
-        .any(|candidate| candidate.kind == CandidateKind::Event)
-    {
-        validated.event_identity = Some(validated_choice(
-            answers,
-            "event_identity",
-            &["event", "not_event", "unclear"],
-        )?);
+        .enumerate()
+        .filter_map(|(index, candidate)| (candidate.kind == CandidateKind::Event).then_some(index))
+        .collect::<Vec<_>>();
+    for index in event_indices {
+        let key = if candidates
+            .iter()
+            .filter(|c| c.kind == CandidateKind::Event)
+            .count()
+            == 1
+        {
+            "event_identity".to_owned()
+        } else {
+            format!("event_identity_{index}")
+        };
+        validated.event_identity.insert(
+            index,
+            validated_choice(
+                answers,
+                &key,
+                &["event", "referenced_event", "not_event", "unclear"],
+            )?,
+        );
     }
     let mut date_choices = candidates
         .iter()
