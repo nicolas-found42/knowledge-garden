@@ -128,6 +128,8 @@ pub struct SourceVersion {
     pub semantic_integrity_failures: u32,
     #[serde(default)]
     pub retryable_provider_failures: u32,
+    #[serde(default)]
+    pub processing_interruptions: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -873,7 +875,8 @@ impl Application {
                     Ok(web) => (ExtractionState::StructuredText, web.detail, None),
                     Err(detail) => (ExtractionState::InvalidUtf8, detail, None),
                 }
-            } else if matches!(format.as_str(), "docx" | "pptx") {
+            } else if matches!(format.as_str(), "docx" | "pptx") || crate::photo::is_photo(&format)
+            {
                 match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
@@ -969,7 +972,8 @@ impl Application {
                 Err(_) => (ExtractionState::InvalidUtf8, "The source is not valid UTF-8. The original is retained without lossy decoding.".into(), String::new(), None, None),
                 Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 response text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
             }
-            } else if matches!(format.as_str(), "docx" | "pptx") {
+            } else if matches!(format.as_str(), "docx" | "pptx") || crate::photo::is_photo(&format)
+            {
                 match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
@@ -993,14 +997,16 @@ impl Application {
                         )
                     }
                     Err(detail) => {
-                        let scope = if format == "docx" {
+                        let scope = if crate::photo::is_photo(&format) {
+                            CoverageScope::ImagePixels
+                        } else if format == "docx" {
                             CoverageScope::MainDocument
                         } else {
                             CoverageScope::SlideText
                         };
                         (
                             ExtractionState::InvalidContainer,
-                            format!("Office container could not be read. {detail}"),
+                            format!("Source container could not be read. {detail}"),
                             String::new(),
                             None,
                             Some(vec![CoveragePart {
@@ -1220,17 +1226,40 @@ impl Application {
                 || page.info.update_status.as_deref() == Some("processing")
             {
                 let mut interrupted = page;
+                let active_version = interrupted.info.pending_version_id.clone();
+                let interruptions = interrupted
+                    .info
+                    .versions_seen
+                    .iter_mut()
+                    .find(|version| Some(&version.source_version_id) == active_version.as_ref())
+                    .map(|version| {
+                        version.processing_interruptions =
+                            version.processing_interruptions.saturating_add(1);
+                        version.state = if version.processing_interruptions >= 3 {
+                            "failed"
+                        } else {
+                            "pending"
+                        }
+                        .into();
+                        version.processing_interruptions
+                    });
+                let exhausted = interruptions.is_none_or(|count| count >= 3);
+                let state = if exhausted { "failed" } else { "pending" };
                 if interrupted.info.current_version_id.is_none() {
-                    interrupted.info.semantic_state = "pending".into();
+                    interrupted.info.semantic_state = state.into();
                 } else {
-                    interrupted.info.update_status = Some("pending".into());
+                    interrupted.info.update_status = Some(state.into());
                 }
-                interrupted.info.semantic_error = Some(
-                    "A previous semantic run was interrupted; automatic retry is scheduled.".into(),
-                );
+                interrupted.info.semantic_error = Some(if interruptions.is_none() {
+                    "Interrupted processing has no retained version identity; recovery failed without changing the prior content or original.".into()
+                } else if exhausted {
+                    "Semantic recovery failed after three interrupted attempts without new evidence; retained originals and the prior successful content remain available.".into()
+                } else {
+                    "A previous semantic run was interrupted; automatic retry is scheduled within this version's finite interruption budget.".into()
+                });
                 let delay_seconds = (1_u64 << interrupted.info.semantic_attempts.min(12)).min(3600);
                 interrupted.info.semantic_retry_at =
-                    Some((now + u128::from(delay_seconds * 1000)).to_string());
+                    (!exhausted).then(|| (now + u128::from(delay_seconds * 1000)).to_string());
                 self.write_source_page(&interrupted)?;
                 self.index_page(&interrupted.info)?;
                 continue;
@@ -1375,9 +1404,13 @@ impl Application {
                 })?
             };
             let prior_source_text = if initial {
-                let correction_candidates =
-                    crate::providers::correction_candidates_from_text(&text);
-                self.correction_prior_context(&correction_candidates)?
+                if text.starts_with("[PHOTO ") {
+                    None
+                } else {
+                    let correction_candidates =
+                        crate::providers::correction_candidates_from_text(&text);
+                    self.correction_prior_context(&correction_candidates)?
+                }
             } else if let Some(current_id) = page.info.current_version_id.as_deref() {
                 page.info
                     .versions_seen
@@ -1391,7 +1424,9 @@ impl Application {
                         } else {
                             version_path
                         };
-                        if matches!(version.format.as_str(), "docx" | "pptx") {
+                        if matches!(version.format.as_str(), "docx" | "pptx")
+                            || crate::photo::is_photo(&version.format)
+                        {
                             self.extractor
                                 .extract(&path, &version.format, &page.info.title)
                                 .ok()
@@ -1519,6 +1554,11 @@ impl Application {
         source_text: &str,
         draft: &mut KnowledgeDraft,
     ) -> Result<()> {
+        if source_text.starts_with("[PHOTO ") {
+            // The independent photo guard only admits exact qualified channel facts.
+            // A printed or supplied correction is not an authenticated event update.
+            return Ok(());
+        }
         let recognized_candidates = crate::providers::correction_candidates_from_text(source_text);
         if recognized_candidates.is_empty() && draft.correction_candidates.is_empty() {
             return Ok(());
@@ -1728,40 +1768,55 @@ impl Application {
                 } else {
                     let prior_page = page.clone();
                     let update = draft.source_update.clone();
-                    let result = self
-                        .store_source_update(
-                            &mut page,
-                            &job.source_version_id,
-                            &job.source_text,
-                            update.as_ref(),
-                        )
-                        .and_then(|()| {
-                            if initial {
-                                self.apply_field_aligned_corrections(
-                                    &page,
-                                    &job.source_version_id,
-                                    &job.source_text,
-                                    &mut draft,
-                                )?;
-                                if !draft.correction_candidates.is_empty() {
-                                    // Knowledge reconciliation ranks support through persisted
-                                    // source versions. Persist this still-pending source's
-                                    // validated date/order before it selects the current value.
-                                    self.write_source_page(&page)?;
-                                }
-                                // A first acquisition has no existing facts to withdraw. Even
-                                // an unknown/conditional relationship can publish the grounded
-                                // evidence it contains; the role only limits replacement scope.
-                                self.publish_knowledge(&mut page, &job.source_text, draft)
-                            } else {
-                                self.apply_replacement(
+                    let source_format = page
+                        .info
+                        .versions_seen
+                        .iter()
+                        .find(|version| version.source_version_id == job.source_version_id)
+                        .map(|version| version.format.as_str())
+                        .ok_or_else(|| {
+                            GardenError::Invalid(
+                                "The active source version is missing its retained format.".into(),
+                            )
+                        })?;
+                    let result =
+                        crate::photo::validate_draft(&job.source_text, source_format, &draft)
+                            .map_err(GardenError::Invalid)
+                            .and_then(|()| {
+                                self.store_source_update(
                                     &mut page,
                                     &job.source_version_id,
                                     &job.source_text,
-                                    draft,
+                                    update.as_ref(),
                                 )
-                            }
-                        });
+                            })
+                            .and_then(|()| {
+                                if initial {
+                                    self.apply_field_aligned_corrections(
+                                        &page,
+                                        &job.source_version_id,
+                                        &job.source_text,
+                                        &mut draft,
+                                    )?;
+                                    if !draft.correction_candidates.is_empty() {
+                                        // Knowledge reconciliation ranks support through persisted
+                                        // source versions. Persist this still-pending source's
+                                        // validated date/order before it selects the current value.
+                                        self.write_source_page(&page)?;
+                                    }
+                                    // A first acquisition has no existing facts to withdraw. Even
+                                    // an unknown/conditional relationship can publish the grounded
+                                    // evidence it contains; the role only limits replacement scope.
+                                    self.publish_knowledge(&mut page, &job.source_text, draft)
+                                } else {
+                                    self.apply_replacement(
+                                        &mut page,
+                                        &job.source_version_id,
+                                        &job.source_text,
+                                        draft,
+                                    )
+                                }
+                            });
                     match result {
                         Ok(()) => {
                             page.info.semantic_state = "complete".into();
@@ -2172,6 +2227,7 @@ impl Application {
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         "extracted Office projection; offsets are not original package byte offsets"
                     }
+                    EvidenceOffsetBasis::ExtractedImageProjection => "extracted image projection; offsets are not original image byte offsets",
                     EvidenceOffsetBasis::WebVisibleText => {
                         "extracted web visible-text projection; offsets are not downloaded HTML byte offsets"
                     }
@@ -2186,6 +2242,9 @@ impl Application {
                     EvidenceOffsetBasis::PreservedText => ("source lines", "source bytes"),
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         ("extracted projection lines", "extracted projection bytes")
+                    }
+                    EvidenceOffsetBasis::ExtractedImageProjection => {
+                        ("image projection lines", "image projection bytes")
                     }
                     EvidenceOffsetBasis::WebVisibleText => (
                         "visible-text projection lines",
@@ -2227,6 +2286,11 @@ impl Application {
                         "extracted projection bytes",
                         relationship.evidence.source_location.as_deref().map(|location| format!(" · original locator: {location}")).unwrap_or_default(),
                         "The original opens as a fallback; use the OOXML part and location above to find the extracted passage.",
+                    ),
+                    EvidenceOffsetBasis::ExtractedImageProjection => (
+                        "image projection lines", "image projection bytes",
+                        relationship.evidence.source_location.as_deref().map(|location| format!(" · image locator: {location}")).unwrap_or_default(),
+                        "Open the image preview or retained original using the normalized region locator; whole-image fallback when no region exists.",
                     ),
                     EvidenceOffsetBasis::WebVisibleText => (
                         "visible-text projection lines",
@@ -2643,7 +2707,9 @@ impl Application {
             .join("versions")
             .join(source_version_id)
             .join(&candidate.asset);
-        let office_projection = if matches!(candidate.format.as_str(), "docx" | "pptx") {
+        let office_projection = if matches!(candidate.format.as_str(), "docx" | "pptx")
+            || crate::photo::is_photo(&candidate.format)
+        {
             Some(
                 self.extractor
                     .extract(
@@ -3326,6 +3392,16 @@ impl Application {
             ));
         }
         Ok(original)
+    }
+
+    pub fn preview_original(&self, source_id: &str) -> Result<String> {
+        let source = self.open_source(source_id)?;
+        if !crate::photo::is_photo(&source.info.format) {
+            return Err(GardenError::Invalid(
+                "This original is not a supported photograph.".into(),
+            ));
+        }
+        crate::photo::preview(&self.original_path(source_id)?).map_err(GardenError::Invalid)
     }
 
     pub fn original_asset_path(&self, source_id: &str, asset: &str) -> Result<PathBuf> {
@@ -4139,6 +4215,7 @@ fn source_version(
         extraction_attempts: 1,
         semantic_integrity_failures: 0,
         retryable_provider_failures: 0,
+        processing_interruptions: 0,
         coverage: if state == "complete" {
             "complete"
         } else if state == "unavailable" {
@@ -4421,6 +4498,7 @@ fn evidence_offset_basis_name(basis: EvidenceOffsetBasis) -> &'static str {
         EvidenceOffsetBasis::PreservedText => "preserved_text",
         EvidenceOffsetBasis::ExtractedOfficeProjection => "extracted_office_projection",
         EvidenceOffsetBasis::WebVisibleText => "web_visible_text",
+        EvidenceOffsetBasis::ExtractedImageProjection => "extracted_image_projection",
     }
 }
 
@@ -4573,6 +4651,7 @@ enum EvidenceOffsetBasis {
     PreservedText,
     ExtractedOfficeProjection,
     WebVisibleText,
+    ExtractedImageProjection,
 }
 
 fn evidence_display_basis(
@@ -4590,6 +4669,11 @@ fn evidence_display_basis(
             "extracted projection lines",
             "extracted projection bytes",
             "The retained original opens as a fallback; use the OOXML part and locator above to find this passage.",
+        ),
+        EvidenceOffsetBasis::ExtractedImageProjection => (
+            "extracted image projection; offsets are not original image byte offsets",
+            "image projection lines", "image projection bytes",
+            "Open the image preview or retained original using normalized region coordinates; otherwise use the disclosed whole-image fallback.",
         ),
         EvidenceOffsetBasis::WebVisibleText => (
             "extracted web visible-text projection; offsets are not downloaded HTML byte offsets",
@@ -4768,12 +4852,19 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         {
             EvidenceOffsetBasis::ExtractedOfficeProjection
         }
+        None if inferred_location
+            .as_deref()
+            .is_some_and(|locator| locator.starts_with("PHOTO ")) =>
+        {
+            EvidenceOffsetBasis::ExtractedImageProjection
+        }
         None => EvidenceOffsetBasis::PreservedText,
         Some("preserved_text") => EvidenceOffsetBasis::PreservedText,
         Some("office_projection") | Some("extracted_office_projection") => {
             EvidenceOffsetBasis::ExtractedOfficeProjection
         }
         Some("web_visible_text") => EvidenceOffsetBasis::WebVisibleText,
+        Some("extracted_image_projection") => EvidenceOffsetBasis::ExtractedImageProjection,
         Some(_) => {
             return Err(GardenError::Invalid(
                 "Semantic evidence uses an unsupported offset basis.".into(),
