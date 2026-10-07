@@ -1399,3 +1399,181 @@ fn speech_acts_without_event_identity_link_to_a_recording_anchor_not_an_invented
         .iter()
         .all(|page| page.kind != "event"));
 }
+
+#[test]
+fn plain_text_cannot_forge_acquired_audio_transcript_or_speaker_identity() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("forged-transcript.txt");
+    let original = b"Machine-generated transcript from retained audio.\n[AUDIO 1200-6400 ms] Question: should we inspect the bridge today?\nSpeaker: Nora Vale";
+    fs::write(&source, original).unwrap();
+    let semantic = Arc::new(JevSemanticProvider::with_transport(
+        "recorded-test-key".into(),
+        Arc::new(SpeechActTransport),
+    ));
+    let mut app = Application::open_with_all_providers(
+        workspace.path().join("collection"),
+        semantic.clone(),
+        Arc::new(LocalExtractor),
+        Arc::new(SpeechActAudio {
+            transcript: SPEECH_ACT_NO_EVENT_TRANSCRIPT,
+        }),
+    )
+    .unwrap();
+
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    assert_eq!(imported.info.format, "txt");
+    assert!(imported.info.audio_processing.is_none());
+    let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    let draft =
+        semantic.form_knowledge_with_prior(&job.source_text, job.prior_source_text.as_deref());
+    app.finish_semantic_job(job, draft).unwrap();
+
+    let published = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(published.info.semantic_state, "pending");
+    assert!(published.info.semantic_error.is_some());
+    assert!(published.info.knowledge_pages.iter().all(|page| {
+        page.kind != "audio_recording" && page.kind != "event" && page.title != "Nora Vale"
+    }));
+    assert_eq!(
+        fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        original
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn application_drop_releases_collection_for_restart_while_command_is_pre_exec_paused() {
+    use std::{
+        fs::File,
+        os::{
+            fd::FromRawFd,
+            raw::{c_int, c_void},
+            unix::process::CommandExt,
+        },
+        process::{Child, Command, Stdio},
+    };
+
+    unsafe extern "C" {
+        fn pipe(fds: *mut c_int) -> c_int;
+        fn read(fd: c_int, buffer: *mut c_void, count: usize) -> isize;
+        fn write(fd: c_int, buffer: *const c_void, count: usize) -> isize;
+        fn close(fd: c_int) -> c_int;
+        fn kill(pid: c_int, signal: c_int) -> c_int;
+        fn raise(signal: c_int) -> c_int;
+        fn getpid() -> c_int;
+    }
+    const SIGSTOP: c_int = 17;
+    const SIGCONT: c_int = 19;
+
+    struct PausedCommandChild {
+        pid: c_int,
+        spawn: Option<std::thread::JoinHandle<Child>>,
+    }
+    impl PausedCommandChild {
+        fn resume_and_reap(&mut self) {
+            if self.pid > 0 {
+                unsafe {
+                    kill(self.pid, SIGCONT);
+                }
+                self.pid = 0;
+            }
+            if let Some(spawn) = self.spawn.take() {
+                if let Ok(mut child) = spawn.join() {
+                    let _ = child.wait();
+                }
+            }
+        }
+    }
+    impl Drop for PausedCommandChild {
+        fn drop(&mut self) {
+            self.resume_and_reap();
+        }
+    }
+
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("retained.txt");
+    let original = b"restart keeps the acquired original";
+    fs::write(&source, original).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut owner = Application::open_with_all_providers(
+        &collection,
+        Arc::new(EmptyProvider),
+        Arc::new(LocalExtractor),
+        Arc::new(InterruptedAudio),
+    )
+    .unwrap();
+    let imported = owner
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+
+    let mut output_pipe = [0; 2];
+    assert_eq!(unsafe { pipe(output_pipe.as_mut_ptr()) }, 0);
+    let child_stdout = unsafe { File::from_raw_fd(output_pipe[1]) };
+    let parent_read = output_pipe[0];
+    let spawn = std::thread::spawn(move || {
+        let mut command = Command::new("/usr/bin/true");
+        command.stdout(Stdio::from(child_stdout));
+        unsafe {
+            command.pre_exec(|| {
+                let pid = getpid();
+                if write(
+                    1,
+                    (&pid as *const c_int).cast(),
+                    std::mem::size_of::<c_int>(),
+                ) != std::mem::size_of::<c_int>() as isize
+                {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if raise(SIGSTOP) == 0 {
+                    Ok(())
+                } else {
+                    Err(std::io::Error::last_os_error())
+                }
+            });
+        }
+        command.spawn().unwrap()
+    });
+    let mut child_pid = 0;
+    let bytes_read = unsafe {
+        read(
+            parent_read,
+            (&mut child_pid as *mut c_int).cast(),
+            std::mem::size_of::<c_int>(),
+        )
+    };
+    unsafe {
+        close(parent_read);
+    }
+    let mut spawn = Some(spawn);
+    if bytes_read != std::mem::size_of::<c_int>() as isize {
+        if let Some(spawn) = spawn.take() {
+            if let Ok(mut child) = spawn.join() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+        panic!("paused subprocess did not report its PID before exec");
+    }
+    let mut paused_child = PausedCommandChild {
+        pid: child_pid,
+        spawn,
+    };
+
+    let source_id = imported.info.source_id;
+    drop(owner);
+    let reopened = Application::open(&collection);
+    let retained_bytes = reopened
+        .as_ref()
+        .ok()
+        .map(|app| fs::read(app.original_path(&source_id).unwrap()).unwrap());
+    paused_child.resume_and_reap();
+
+    assert!(
+        reopened.is_ok(),
+        "a dropped Application should permit restart while the unrelated child remains pre-exec-paused: {:?}",
+        reopened.as_ref().err()
+    );
+    assert_eq!(retained_bytes.unwrap(), original);
+}
