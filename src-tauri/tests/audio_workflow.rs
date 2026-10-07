@@ -130,6 +130,55 @@ struct VersionedAudio {
     transcribed_assets: Arc<Mutex<Vec<Vec<u8>>>>,
 }
 
+struct SilentReplacementAudio;
+impl AudioProcessor for SilentReplacementAudio {
+    fn inspect(&self, _path: &Path) -> Result<AudioInfo, String> {
+        Ok(AudioInfo {
+            format: "wav".into(),
+            duration_ms: 1_000,
+            sample_rate: 48_000.0,
+            channels: 1,
+            codec: "test audio fixture".into(),
+        })
+    }
+    fn install_assets(&self) -> Result<(), String> {
+        Ok(())
+    }
+    fn transcribe_segment(
+        &self,
+        path: &Path,
+        start_ms: u64,
+        duration_ms: u64,
+    ) -> Result<TranscriptionBatch, String> {
+        let candidate = fs::read(path).map_err(|error| error.to_string())? == b"silent replacement";
+        Ok(TranscriptionBatch {
+            schema: 1,
+            requested_start_ms: start_ms,
+            requested_duration_ms: duration_ms,
+            processed_duration_ms: duration_ms,
+            media_duration_ms: 1_000,
+            state: "complete".into(),
+            coverage: "partial".into(),
+            detail: "Synthetic original-bound no-recognized-speech result.".into(),
+            segments: if candidate {
+                Vec::new()
+            } else {
+                vec![TranscriptSegment {
+                    segment_id: String::new(),
+                    start_ms,
+                    end_ms: start_ms + duration_ms,
+                    text: "old recording words".into(),
+                    confidence: None,
+                    alternatives: Vec::new(),
+                    speaker: None,
+                    speaker_state: "unidentified".into(),
+                    final_result: true,
+                }]
+            },
+        })
+    }
+}
+
 struct FailingAudio;
 impl AudioProcessor for FailingAudio {
     fn inspect(&self, _path: &Path) -> Result<AudioInfo, String> {
@@ -521,16 +570,20 @@ fn replacement_recording_resets_transcript_and_transcribes_the_pending_original_
         &[old_bytes.to_vec(), new_bytes.to_vec()]
     );
     let after_transcription = app.open_source(&replacement.info.source_id).unwrap();
-    assert!(after_transcription
-        .body
-        .contains("[Play retained original](visit.wav)"));
+    assert_eq!(after_transcription.info.asset, first.info.asset);
+    assert_eq!(replacement_version.asset, first.info.asset);
+    assert!(after_transcription.body.contains(&format!(
+        "[Play retained original]({})",
+        after_transcription.info.asset
+    )));
     assert!(after_transcription.body.contains("old recording words"));
     assert!(after_transcription
         .body
         .contains("[Open this retained replacement original](../sources/"));
-    assert!(after_transcription
-        .body
-        .contains(&format!("/versions/{replacement_version_id}/visit.wav)")));
+    assert!(after_transcription.body.contains(&format!(
+        "/versions/{replacement_version_id}/{})",
+        replacement_version.asset
+    )));
     assert!(after_transcription
         .body
         .contains("Candidate transcript · not published"));
@@ -596,6 +649,111 @@ fn replacement_recording_resets_transcript_and_transcribes_the_pending_original_
         )
         .unwrap(),
         old_bytes
+    );
+}
+
+#[test]
+fn zero_recognized_replacement_stays_unpublished_with_the_prior_original_current() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("visit.wav");
+    let original = b"spoken original";
+    let candidate_bytes = b"silent replacement";
+    fs::write(&source, original).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open_with_all_providers(
+        &collection,
+        Arc::new(VersionedAudioProvider),
+        Arc::new(LocalExtractor),
+        Arc::new(SilentReplacementAudio),
+    )
+    .unwrap();
+    let first = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_audio_jobs().unwrap();
+    let first_job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    let first_draft = VersionedAudioProvider.form_knowledge(&first_job.source_text);
+    app.finish_semantic_job(first_job, first_draft).unwrap();
+    let current = app.open_source(&first.info.source_id).unwrap();
+    assert_eq!(
+        current.info.current_version_id.as_deref(),
+        Some(first.info.sha256.as_str())
+    );
+    assert!(current.body.contains("old recording words"));
+
+    fs::write(&source, candidate_bytes).unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    let candidate_id = imported.info.pending_version_id.clone().unwrap();
+    app.resume_due_audio_jobs().unwrap();
+
+    let after = app.open_source(&first.info.source_id).unwrap();
+    assert_eq!(after.info.asset, first.info.asset);
+    let candidate_version = after
+        .info
+        .versions_seen
+        .iter()
+        .find(|version| version.source_version_id == candidate_id)
+        .unwrap();
+    assert_eq!(
+        after.info.current_version_id.as_deref(),
+        Some(first.info.sha256.as_str())
+    );
+    assert_eq!(
+        after.info.pending_version_id.as_deref(),
+        Some(candidate_id.as_str())
+    );
+    assert_eq!(
+        after
+            .info
+            .audio_processing
+            .as_ref()
+            .unwrap()
+            .source_version_id
+            .as_deref(),
+        Some(first.info.sha256.as_str())
+    );
+    let candidate = after.info.pending_audio_processing.as_ref().unwrap();
+    assert_eq!(
+        candidate.source_version_id.as_deref(),
+        Some(candidate_id.as_str())
+    );
+    assert_eq!(candidate.state, "complete");
+    assert!(candidate.segments.is_empty());
+    assert!(after.body.contains("old recording words"));
+    assert!(after
+        .body
+        .contains(&format!("[Play retained original]({})", after.info.asset)));
+    assert!(after
+        .body
+        .contains("[Open this retained replacement original](../sources/"));
+    assert!(after.body.contains(&format!(
+        "/versions/{candidate_id}/{})",
+        candidate_version.asset
+    )));
+    assert!(after
+        .body
+        .contains("previously published transcript and current original remain available"));
+    assert_eq!(
+        fs::read(app.original_path(&first.info.source_id).unwrap()).unwrap(),
+        original
+    );
+    assert_eq!(
+        fs::read(
+            app.original_version_path(
+                &first.info.source_id,
+                &candidate_id,
+                &candidate_version.asset
+            )
+            .unwrap()
+        )
+        .unwrap(),
+        candidate_bytes
+    );
+    assert!(
+        app.claim_due_semantic_jobs(1).unwrap().is_empty(),
+        "no transcript means no semantic evidence to publish"
     );
 }
 
