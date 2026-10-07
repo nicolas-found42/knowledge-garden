@@ -314,6 +314,98 @@ it("searches durable page results with combined filters and restores the exact r
   );
 });
 
+it("opens a conversation match with its neighboring messages and restores the result focus", async () => {
+  const api = testApi();
+  const decision = "Decision: use plan Alder; abandon the Birch suggestion.";
+  const locator =
+    "CONVERSATION session=plan; message=user-2; order=5; role=user; author=owner; date=unknown; channel=message";
+  api.searchPages = vi.fn().mockResolvedValue({
+    pages: [
+      {
+        page_id: "page-conversation",
+        source_id: "source-conversation",
+        page_type: "source",
+        title: "Deployment conversation",
+        kind: "source",
+        excerpt: decision,
+        tags: [],
+        format: "jsonl",
+        event_date: null,
+        extraction: "structured_text",
+        processing_status: "complete",
+        matched_by: "keyword",
+        match_location: {
+          record_id: "message-user-2",
+          source_id: "source-conversation",
+          source_version_id: "version-conversation",
+          quote: decision,
+          byte_start: 0,
+          byte_end: decision.length,
+          line_start: 6,
+          line_end: 6,
+          offset_basis: "extracted_conversation_projection",
+          source_location: locator,
+        },
+      },
+    ],
+    next_offset: null,
+    available_tags: [],
+    available_formats: ["jsonl"],
+    available_statuses: ["complete"],
+  } satisfies PageSearchResults);
+  api.openSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: {
+      ...riverside.info,
+      source_id: "source-conversation",
+      page_id: "page-conversation",
+      title: "Deployment conversation",
+      format: "jsonl",
+      semantic_state: "complete",
+    },
+    body: `# Deployment conversation\n\nSupplied conversation records; not independent evidence that a deployment occurred.\n\n\`\`\`text\n[message=assistant-1; role=assistant; date=unknown] I suggest plan Birch instead.\n[message=output-check-1; role=tool; date=unknown] Check failed: plan Birch has no rollback.\n[${locator}] ${decision}\n[message=reason-1; role=reasoning; date=unknown] Birch lacks rollback; Alder retains one.\n\`\`\``,
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await user.type(
+    await screen.findByRole("searchbox", { name: "Words or title" }),
+    "Alder",
+  );
+  fireEvent.submit(root.querySelector(".search-form")!);
+  expect(
+    await screen.findByText(/Evidence · extracted conversation messages/),
+  ).toBeTruthy();
+  expect(screen.getByText(new RegExp("message=user-2"))).toBeTruthy();
+  await user.click(
+    await screen.findByRole("button", { name: "Deployment conversation" }),
+  );
+  const article = await screen.findByRole("article", {
+    name: "Deployment conversation",
+  });
+  expect(article.textContent).toContain("I suggest plan Birch instead.");
+  expect(article.textContent).toContain(
+    "Check failed: plan Birch has no rollback.",
+  );
+  expect(article.textContent).toContain(decision);
+  expect(article.textContent).toContain(
+    "role=user; author=owner; date=unknown",
+  );
+  expect(article.textContent).toContain(
+    "not independent evidence that a deployment occurred",
+  );
+  expect(article.querySelector("mark")?.textContent).toBe(decision);
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(
+    await screen.findByRole("searchbox", { name: "Words or title" }),
+  ).toHaveProperty("value", "Alder");
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Deployment conversation" }),
+  );
+});
+
 it("sends remembered-meaning searches through shared page results and restores keyword mode from its filter", async () => {
   const api = testApi();
   api.searchPages = vi.fn().mockResolvedValue({

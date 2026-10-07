@@ -1,4 +1,5 @@
 pub mod application;
+pub mod conversation;
 pub mod desktop;
 pub mod extraction;
 pub mod meaning;
