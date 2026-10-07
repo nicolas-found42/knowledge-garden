@@ -14,6 +14,10 @@ pub struct KnowledgeDraft {
     pub decisions: Vec<SemanticDecision>,
     #[serde(default)]
     pub source_update: Option<SourceUpdateDraft>,
+    #[serde(default)]
+    pub correction_candidates: Vec<CorrectionCandidateDraft>,
+    #[serde(default)]
+    pub correction_alignments: Vec<CorrectionAlignmentDraft>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -89,6 +93,35 @@ pub struct FactDraft {
     pub evidence: EvidenceDraft,
     #[serde(default)]
     pub record_key: Option<String>,
+}
+
+/// A deterministic candidate found in an explicit correction phrase. It is not
+/// publishable until the application matches it to the current event field and
+/// the provider independently aligns the incoming and prior evidence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorrectionCandidateDraft {
+    pub event_label: String,
+    pub property: String,
+    pub previous_value: String,
+    pub corrected_value: String,
+    pub evidence: EvidenceDraft,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorrectionAlignmentDraft {
+    pub candidate: CorrectionCandidateDraft,
+    pub outcome: FieldAlignmentOutcome,
+    pub certainty: f64,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldAlignmentOutcome {
+    SameFieldCorrection,
+    ConditionalOrRejected,
+    DifferentFieldOrEvent,
+    Uncertain,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

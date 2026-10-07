@@ -3,8 +3,9 @@ use knowledge_garden::application::{
 };
 use knowledge_garden::providers::{JevSemanticProvider, SystemOneTransport};
 use knowledge_garden::semantic::{
-    EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, RelationshipDraft,
-    SemanticDecision, SemanticProvider, SourceUpdateDraft, SourceUpdateRole, TagDraft,
+    CorrectionAlignmentDraft, CorrectionCandidateDraft, EntityDraft, EvidenceDraft, FactDraft,
+    FieldAlignmentOutcome, KnowledgeDraft, ProviderError, RelationshipDraft, SemanticDecision,
+    SemanticProvider, SourceUpdateDraft, SourceUpdateRole, TagDraft,
 };
 use serde_json::Value;
 use std::collections::VecDeque;
@@ -274,10 +275,11 @@ impl SystemOneTransport for ContextCapturingTransport {
                 "choice" => {
                     let criteria = question["criteria"].as_object().unwrap();
                     let choice = match key.as_str() {
-                        "source_update_role" => "complete_replacement",
+                        "source_update_role" => "targeted_correction",
                         "source_update_evidence" => "span_0",
+                        name if name.starts_with("field_alignment_") => "same_field_correction",
                         "source_order_date" | "source_order_revision" | "event_date" => "none",
-                        "event_identity" => "unclear",
+                        "event_identity" => "event",
                         _ => criteria.keys().next().map(String::as_str).unwrap_or("none"),
                     };
                     answers.insert(
@@ -294,6 +296,36 @@ impl SystemOneTransport for ContextCapturingTransport {
         }
         Ok(serde_json::json!({"model":"typesafe/jev-1.13-capture","answers":answers}))
     }
+}
+
+#[test]
+fn jev_receives_exact_prior_field_context_for_explicit_correction_alignment() {
+    let incoming = "Correction dated May 19, 2024. For Observation V17: The visit total should read 15, not 12. This note corrects the count only.";
+    let prior = "Current published fields for event `Observation V17`:\n- property `visit_count` = `12 visits`; current support: ‘12 visits’";
+    let transport = Arc::new(ContextCapturingTransport(Mutex::new(None)));
+    let provider =
+        JevSemanticProvider::with_transport("recorded-test-credential".into(), transport.clone());
+
+    provider
+        .form_knowledge_with_prior(incoming, Some(prior))
+        .unwrap();
+
+    let request = transport.0.lock().unwrap().clone().unwrap();
+    assert!(request["questions"]["field_alignment_0"]["instructions"]
+        .as_str()
+        .unwrap()
+        .contains("same event and same property"));
+    assert!(request["questions"]["field_alignment_0"]["criteria"]
+        .get("conditional_or_rejected")
+        .is_some());
+    assert!(request["state"]["prior_source_projection"]
+        .as_str()
+        .unwrap()
+        .contains("12 visits"));
+    assert!(request["state"]["source_text"]
+        .as_str()
+        .unwrap()
+        .contains("15, not 12"));
 }
 
 #[test]
@@ -456,7 +488,15 @@ fn v17_recording() -> KnowledgeDraft {
         })
         .collect(),
         source_update: None,
+        ..KnowledgeDraft::default()
     }
+}
+
+fn ordered_v17_recording() -> KnowledgeDraft {
+    let mut draft = v17_recording();
+    let text = "Revision 1 dated May 18, 2024; observation V17 on May 17, 2024; observer Maya; location Riverside; 12 visits; duration 10 minutes. It possibly occurred at Riverside. A different person named Maya filed another report.";
+    draft.source_update = Some(recorded_update(text, SourceUpdateRole::Unknown));
+    draft
 }
 
 fn replacement_recording(text: &str, visits: u32, include_duration: bool) -> KnowledgeDraft {
@@ -1298,6 +1338,14 @@ fn explicit_v17_count_only_correction_updates_just_the_count() {
         offset_basis: None,
         source_location: None,
     };
+    let correction_quote = "For Observation V17: The visit total should read 15, not 12.";
+    let correction_start = correction_text.find(correction_quote).unwrap();
+    let correction_evidence = EvidenceDraft {
+        quote: correction_quote.into(),
+        byte_start: correction_start,
+        byte_end: correction_start + correction_quote.len(),
+        ..evidence.clone()
+    };
     let update = recorded_update(correction_text, SourceUpdateRole::TargetedCorrection);
     let corrected = KnowledgeDraft {
         entities: vec![EntityDraft {
@@ -1319,12 +1367,31 @@ fn explicit_v17_count_only_correction_updates_just_the_count() {
             record_key: None,
         }],
         source_update: Some(update),
+        correction_candidates: vec![CorrectionCandidateDraft {
+            event_label: "Observation V17".into(),
+            property: "visit_count".into(),
+            previous_value: "12 visits".into(),
+            corrected_value: "15 visits".into(),
+            evidence: correction_evidence.clone(),
+        }],
+        correction_alignments: vec![CorrectionAlignmentDraft {
+            candidate: CorrectionCandidateDraft {
+                event_label: "Observation V17".into(),
+                property: "visit_count".into(),
+                previous_value: "12 visits".into(),
+                corrected_value: "15 visits".into(),
+                evidence: correction_evidence,
+            },
+            outcome: FieldAlignmentOutcome::SameFieldCorrection,
+            certainty: 0.99,
+            model: "test-jev".into(),
+        }],
         ..KnowledgeDraft::default()
     };
     let mut app = Application::open_with_semantic_provider(
         workspace.path().join("collection"),
         Arc::new(RecordedProvider::sequence(vec![
-            Ok(v17_recording()),
+            Ok(ordered_v17_recording()),
             Ok(corrected),
         ])),
     )
@@ -1347,7 +1414,7 @@ fn explicit_v17_count_only_correction_updates_just_the_count() {
         .find(|page| page.title == "Observation V17")
         .unwrap();
     let markdown = app.open_knowledge_page(&v17.page_id).unwrap().markdown;
-    assert!(markdown.contains("15 visits"));
+    assert!(markdown.contains("- **visit count:** 15 visits"));
     assert!(markdown.contains("May 17, 2024"));
     assert!(markdown.contains("Maya (observer)"));
     assert!(markdown.contains("Riverside"));
@@ -1358,10 +1425,13 @@ fn explicit_v17_count_only_correction_updates_just_the_count() {
             ..PageSearchRequest::default()
         })
         .unwrap();
-    assert!(current_count_search
-        .pages
-        .iter()
-        .any(|page| page.page_id == v17.page_id));
+    assert!(
+        current_count_search
+            .pages
+            .iter()
+            .any(|page| page.page_id == v17.page_id),
+        "corrected V17 missing from current count search: {current_count_search:?}"
+    );
     let old_count_search = app
         .search_pages(PageSearchRequest {
             query: "12 visits".into(),
@@ -1379,6 +1449,268 @@ fn explicit_v17_count_only_correction_updates_just_the_count() {
         .pages
         .iter()
         .any(|page| page.page_id == initial_source.info.page_id));
+}
+
+#[test]
+fn correction_with_wrong_stated_previous_value_stays_pending_and_preserves_current_count() {
+    let workspace = tempdir().unwrap();
+    let initial_path = workspace.path().join("V17.txt");
+    let initial_text = "Revision 1 dated May 18, 2024; observation V17 on May 17, 2024; observer Maya; location Riverside; 12 visits; duration 10 minutes. It possibly occurred at Riverside. A different person named Maya filed another report.";
+    fs::write(&initial_path, initial_text).unwrap();
+    let correction_path = workspace.path().join("correction.txt");
+    let correction_text = "Correction dated May 19, 2024. For Observation V17: The visit total should read 15, not 11.";
+    fs::write(&correction_path, correction_text).unwrap();
+    let correction_quote = "For Observation V17: The visit total should read 15, not 11.";
+    let correction_start = correction_text.find(correction_quote).unwrap();
+    let evidence = EvidenceDraft {
+        quote: correction_quote.into(),
+        byte_start: correction_start,
+        byte_end: correction_start + correction_quote.len(),
+        origin: "observed".into(),
+        qualifier: None,
+        offset_basis: None,
+        source_location: None,
+    };
+    let candidate = CorrectionCandidateDraft {
+        event_label: "Observation V17".into(),
+        property: "visit_count".into(),
+        previous_value: "11 visits".into(),
+        corrected_value: "15 visits".into(),
+        evidence,
+    };
+    let correction = KnowledgeDraft {
+        entities: vec![EntityDraft {
+            kind: "event".into(),
+            label: "Observation V17".into(),
+            evidence: EvidenceDraft {
+                quote: "Observation V17".into(),
+                byte_start: correction_text.find("Observation V17").unwrap(),
+                byte_end: correction_text.find("Observation V17").unwrap()
+                    + "Observation V17".len(),
+                origin: "observed".into(),
+                qualifier: None,
+                offset_basis: None,
+                source_location: None,
+            },
+        }],
+        source_update: Some(recorded_update(
+            correction_text,
+            SourceUpdateRole::TargetedCorrection,
+        )),
+        correction_alignments: vec![CorrectionAlignmentDraft {
+            candidate: candidate.clone(),
+            outcome: FieldAlignmentOutcome::SameFieldCorrection,
+            certainty: 0.99,
+            model: "test-jev".into(),
+        }],
+        correction_candidates: vec![candidate],
+        ..KnowledgeDraft::default()
+    };
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(ordered_v17_recording()),
+            Ok(correction),
+        ])),
+    )
+    .unwrap();
+    let initial = app
+        .import_source(&initial_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let incoming = app
+        .import_source(&correction_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    assert_eq!(
+        app.open_source(&incoming.info.source_id)
+            .unwrap()
+            .info
+            .semantic_state,
+        "pending"
+    );
+    let current_initial = app.open_source(&initial.info.source_id).unwrap();
+    assert_eq!(
+        current_initial.info.semantic_state, "complete",
+        "{:?}",
+        current_initial.info.semantic_error
+    );
+    let v17 = current_initial
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.title == "Observation V17")
+        .unwrap();
+    assert!(app
+        .open_knowledge_page(&v17.page_id)
+        .unwrap()
+        .markdown
+        .contains("- **visit count:** 12 visits"));
+}
+
+#[test]
+fn conditional_count_correction_stays_pending_and_preserves_current_count() {
+    let workspace = tempdir().unwrap();
+    let initial_path = workspace.path().join("V17.txt");
+    let initial_text = "Revision 1 dated May 18, 2024; observation V17 on May 17, 2024; observer Maya; location Riverside; 12 visits; duration 10 minutes. It possibly occurred at Riverside. A different person named Maya filed another report.";
+    fs::write(&initial_path, initial_text).unwrap();
+    let correction_path = workspace.path().join("conditional-correction.txt");
+    let correction_text = "Correction dated May 19, 2024. If approved, for Observation V17 the visit total should read 15, not 12.";
+    fs::write(&correction_path, correction_text).unwrap();
+    let correction_quote =
+        "If approved, for Observation V17 the visit total should read 15, not 12.";
+    let correction_start = correction_text.find(correction_quote).unwrap();
+    let candidate = CorrectionCandidateDraft {
+        event_label: "Observation V17".into(),
+        property: "visit_count".into(),
+        previous_value: "12 visits".into(),
+        corrected_value: "15 visits".into(),
+        evidence: EvidenceDraft {
+            quote: correction_quote.into(),
+            byte_start: correction_start,
+            byte_end: correction_start + correction_quote.len(),
+            origin: "observed".into(),
+            qualifier: None,
+            offset_basis: None,
+            source_location: None,
+        },
+    };
+    let correction = KnowledgeDraft {
+        entities: vec![EntityDraft {
+            kind: "event".into(),
+            label: "Observation V17".into(),
+            evidence: EvidenceDraft {
+                quote: "Observation V17".into(),
+                byte_start: correction_text.find("Observation V17").unwrap(),
+                byte_end: correction_text.find("Observation V17").unwrap()
+                    + "Observation V17".len(),
+                origin: "observed".into(),
+                qualifier: None,
+                offset_basis: None,
+                source_location: None,
+            },
+        }],
+        source_update: Some(recorded_update(
+            correction_text,
+            SourceUpdateRole::TargetedCorrection,
+        )),
+        correction_alignments: vec![CorrectionAlignmentDraft {
+            candidate: candidate.clone(),
+            outcome: FieldAlignmentOutcome::ConditionalOrRejected,
+            certainty: 0.99,
+            model: "test-jev".into(),
+        }],
+        correction_candidates: vec![candidate],
+        ..KnowledgeDraft::default()
+    };
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(ordered_v17_recording()),
+            Ok(correction),
+        ])),
+    )
+    .unwrap();
+    let initial = app
+        .import_source(&initial_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let incoming = app
+        .import_source(&correction_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    assert_eq!(
+        app.open_source(&incoming.info.source_id)
+            .unwrap()
+            .info
+            .semantic_state,
+        "pending"
+    );
+    let v17 = app
+        .open_source(&initial.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.title == "Observation V17")
+        .unwrap();
+    assert!(app
+        .open_knowledge_page(&v17.page_id)
+        .unwrap()
+        .markdown
+        .contains("- **visit count:** 12 visits"));
+}
+
+#[test]
+fn explicit_correction_without_alignment_stays_pending_and_preserves_current_count() {
+    let workspace = tempdir().unwrap();
+    let initial_path = workspace.path().join("V17.txt");
+    let initial_text = "Revision 1 dated May 18, 2024; observation V17 on May 17, 2024; observer Maya; location Riverside; 12 visits; duration 10 minutes. It possibly occurred at Riverside. A different person named Maya filed another report.";
+    fs::write(&initial_path, initial_text).unwrap();
+    let correction_path = workspace.path().join("unresolved-correction.txt");
+    let correction_text = "Correction dated May 19, 2024. For Observation V17: The visit total should read 15, not 12.";
+    fs::write(&correction_path, correction_text).unwrap();
+    let correction_quote = "For Observation V17: The visit total should read 15, not 12.";
+    let correction_start = correction_text.find(correction_quote).unwrap();
+    let candidate = CorrectionCandidateDraft {
+        event_label: "Observation V17".into(),
+        property: "visit_count".into(),
+        previous_value: "12 visits".into(),
+        corrected_value: "15 visits".into(),
+        evidence: EvidenceDraft {
+            quote: correction_quote.into(),
+            byte_start: correction_start,
+            byte_end: correction_start + correction_quote.len(),
+            origin: "observed".into(),
+            qualifier: None,
+            offset_basis: None,
+            source_location: None,
+        },
+    };
+    let unresolved = KnowledgeDraft {
+        source_update: Some(recorded_update(
+            correction_text,
+            SourceUpdateRole::TargetedCorrection,
+        )),
+        correction_candidates: vec![candidate],
+        ..KnowledgeDraft::default()
+    };
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(ordered_v17_recording()),
+            Ok(unresolved),
+        ])),
+    )
+    .unwrap();
+    let initial = app
+        .import_source(&initial_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let incoming = app
+        .import_source(&correction_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    assert_eq!(
+        app.open_source(&incoming.info.source_id)
+            .unwrap()
+            .info
+            .semantic_state,
+        "pending"
+    );
+    let v17 = app
+        .open_source(&initial.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.title == "Observation V17")
+        .unwrap();
+    assert!(app
+        .open_knowledge_page(&v17.page_id)
+        .unwrap()
+        .markdown
+        .contains("- **visit count:** 12 visits"));
 }
 
 #[test]
@@ -1458,6 +1790,7 @@ fn application_keeps_two_same_name_observers_as_distinct_evidence_backed_entitie
             probability: Some(0.98),
         }],
         source_update: None,
+        ..KnowledgeDraft::default()
     };
     let mut app = Application::open_with_semantic_provider(
         workspace.path().join("collection"),
