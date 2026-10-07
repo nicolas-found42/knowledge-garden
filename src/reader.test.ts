@@ -507,7 +507,12 @@ describe("collection reader", () => {
     const digest = "b".repeat(64);
     const audioPage: SourcePage = {
       ...riverside,
-      info: { ...riverside.info, source_id: `source-${digest}`, format: "m4a", asset: "original.m4a" },
+      info: {
+        ...riverside.info,
+        source_id: `source-${digest}`,
+        format: "m4a",
+        asset: "original.m4a",
+      },
       body: `# Visit recording\n\n[Play retained original](original.m4a)\n\n[1,000–2,000 ms · confidence 0.51 · speaker unidentified](?audio_seek=source-${digest}&at_ms=1000)`,
       markdown: "# Visit recording",
     };
@@ -515,12 +520,20 @@ describe("collection reader", () => {
     const root = document.createElement("div");
     document.body.append(root);
     dispose = await mountReader(root, api);
-    await userEvent.setup().click(screen.getByRole("button", { name: "Add source" }));
-    const timestamp = await screen.findByRole("link", { name: /1,000–2,000 ms/ });
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Add source" }));
+    const timestamp = await screen.findByRole("link", {
+      name: /1,000–2,000 ms/,
+    });
     await userEvent.setup().click(timestamp);
-    await waitFor(() => expect(api.openOriginal).toHaveBeenCalledWith(`source-${digest}`));
+    await waitFor(() =>
+      expect(api.openOriginal).toHaveBeenCalledWith(`source-${digest}`),
+    );
     expect(screen.getByText(/Seek to 0:01 in your audio player/)).toBeTruthy();
-    expect(screen.getByText(/precise seeking is unavailable in this reader/)).toBeTruthy();
+    expect(
+      screen.getByText(/precise seeking is unavailable in this reader/),
+    ).toBeTruthy();
   });
 });
 

@@ -338,9 +338,9 @@ impl SystemOneTransport for V18ReferenceTransport {
                 .as_object()
                 .ok_or_else(|| ProviderError::permanent("missing criteria".into()))?;
             let choice = if event_key {
-                if instructions.contains("V18") {
-                    "event"
-                } else if matches!(self.0, V18AnswerMode::TwoDescribedEvents) {
+                if instructions.contains("V18")
+                    || matches!(self.0, V18AnswerMode::TwoDescribedEvents)
+                {
                     "event"
                 } else {
                     "referenced_event"
@@ -2209,6 +2209,72 @@ fn explicit_correction_without_alignment_stays_pending_and_preserves_current_cou
         .unwrap()
         .markdown
         .contains("- **visit count:** 12 visits"));
+}
+
+#[test]
+fn first_correction_in_an_empty_collection_stays_recoverable_without_publishing_an_event() {
+    let workspace = tempdir().unwrap();
+    let correction_path = workspace.path().join("first-correction.txt");
+    let correction_text = "Correction dated May 19, 2024. For Observation V17: The visit total should read 15, not 12.";
+    fs::write(&correction_path, correction_text).unwrap();
+    let correction_quote = "For Observation V17: The visit total should read 15, not 12.";
+    let correction_start = correction_text.find(correction_quote).unwrap();
+    let correction = KnowledgeDraft {
+        entities: vec![EntityDraft {
+            kind: "event".into(),
+            label: "Observation V17".into(),
+            evidence: EvidenceDraft {
+                quote: "Observation V17".into(),
+                byte_start: correction_text.find("Observation V17").unwrap(),
+                byte_end: correction_text.find("Observation V17").unwrap()
+                    + "Observation V17".len(),
+                origin: "observed".into(),
+                qualifier: None,
+                offset_basis: None,
+                source_location: None,
+            },
+        }],
+        source_update: Some(recorded_update(
+            correction_text,
+            SourceUpdateRole::TargetedCorrection,
+        )),
+        correction_candidates: vec![CorrectionCandidateDraft {
+            event_label: "Observation V17".into(),
+            property: "visit_count".into(),
+            previous_value: "12 visits".into(),
+            corrected_value: "15 visits".into(),
+            evidence: EvidenceDraft {
+                quote: correction_quote.into(),
+                byte_start: correction_start,
+                byte_end: correction_start + correction_quote.len(),
+                origin: "observed".into(),
+                qualifier: None,
+                offset_basis: None,
+                source_location: None,
+            },
+        }],
+        ..KnowledgeDraft::default()
+    };
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::once(Ok(correction))),
+    )
+    .unwrap();
+
+    let imported = app
+        .import_source(&correction_path, AcquisitionMethod::Picker)
+        .unwrap();
+    assert!(!workspace.path().join("collection/pages").exists());
+
+    // With no established prior event, explicit correction language must remain
+    // inspectable and retryable rather than aborting the public resume operation.
+    app.resume_due_semantic_jobs().unwrap();
+
+    let current = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(current.info.semantic_state, "pending");
+    assert!(current.info.semantic_error.is_some());
+    assert!(current.body.contains(correction_text));
+    assert!(current.knowledge_pages.is_empty());
 }
 
 #[test]
@@ -4717,6 +4783,195 @@ fn same_label_reasoning_events_from_distinct_sessions_remain_distinct_after_rest
         "two distinct reasoning targets remain navigable after restart/replay"
     );
     assert_eq!(current_ids, original_ids.into_iter().collect());
+}
+
+#[test]
+fn same_label_people_from_separate_sources_remain_distinct() {
+    let workspace = tempdir().unwrap();
+    let north_path = workspace.path().join("north-person.txt");
+    let south_path = workspace.path().join("south-person.txt");
+    let north_text = "Maya was a distinct observer at North Clinic.";
+    let south_text = "Maya was a different person, an observer at South Clinic.";
+    fs::write(&north_path, north_text).unwrap();
+    fs::write(&south_path, south_text).unwrap();
+
+    let person_draft = |text: &str, clinic: &str| {
+        let evidence = EvidenceDraft {
+            quote: text.to_owned(),
+            byte_start: 0,
+            byte_end: text.len(),
+            origin: "observed".into(),
+            qualifier: None,
+            offset_basis: None,
+            source_location: None,
+        };
+        KnowledgeDraft {
+            entities: vec![EntityDraft {
+                kind: "person".into(),
+                label: "Maya".into(),
+                evidence: evidence.clone(),
+            }],
+            facts: vec![FactDraft {
+                subject: "Maya".into(),
+                property: "affiliation".into(),
+                value: clinic.into(),
+                evidence,
+                record_key: None,
+            }],
+            ..KnowledgeDraft::default()
+        }
+    };
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(person_draft(north_text, "North Clinic")),
+            Ok(person_draft(south_text, "South Clinic")),
+        ])),
+    )
+    .unwrap();
+
+    let north = app
+        .import_source(&north_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let south = app
+        .import_source(&south_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let north_person = app
+        .open_source(&north.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.kind == "person")
+        .unwrap();
+    let south_person = app
+        .open_source(&south.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.kind == "person")
+        .unwrap();
+    assert_ne!(
+        north_person.page_id, south_person.page_id,
+        "equal person labels from distinct source evidence must not identify one person"
+    );
+    for (page, clinic) in [
+        (north_person, "North Clinic"),
+        (south_person, "South Clinic"),
+    ] {
+        let markdown = app.open_knowledge_page(&page.page_id).unwrap().markdown;
+        assert!(markdown.contains(clinic), "{markdown}");
+    }
+}
+
+#[test]
+fn same_label_observations_from_separate_sources_remain_distinct() {
+    let workspace = tempdir().unwrap();
+    let north_path = workspace.path().join("north-observation.txt");
+    let south_path = workspace.path().join("south-observation.txt");
+    let north_text = "On May 18, a distinct Observation V42 occurred at North Pier with 4 visits.";
+    let south_text =
+        "On May 19, an independent Observation V42 occurred at South Pier with 9 visits.";
+    fs::write(&north_path, north_text).unwrap();
+    fs::write(&south_path, south_text).unwrap();
+
+    let observation_draft = |text: &str, date: &str, pier: &str, visits: &str| {
+        let evidence = |quote: &str| EvidenceDraft {
+            quote: quote.into(),
+            byte_start: text.find(quote).unwrap(),
+            byte_end: text.find(quote).unwrap() + quote.len(),
+            origin: "observed".into(),
+            qualifier: None,
+            offset_basis: None,
+            source_location: None,
+        };
+        KnowledgeDraft {
+            entities: vec![EntityDraft {
+                kind: "event".into(),
+                label: "Observation V42".into(),
+                evidence: evidence("Observation V42"),
+            }],
+            facts: vec![
+                FactDraft {
+                    subject: "Observation V42".into(),
+                    property: "occurred_on".into(),
+                    value: date.into(),
+                    evidence: evidence(date),
+                    record_key: None,
+                },
+                FactDraft {
+                    subject: "Observation V42".into(),
+                    property: "location".into(),
+                    value: pier.into(),
+                    evidence: evidence(pier),
+                    record_key: None,
+                },
+                FactDraft {
+                    subject: "Observation V42".into(),
+                    property: "visit_count".into(),
+                    value: visits.into(),
+                    evidence: evidence(visits),
+                    record_key: None,
+                },
+            ],
+            ..KnowledgeDraft::default()
+        }
+    };
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(observation_draft(
+                north_text,
+                "May 18",
+                "North Pier",
+                "4 visits",
+            )),
+            Ok(observation_draft(
+                south_text,
+                "May 19",
+                "South Pier",
+                "9 visits",
+            )),
+        ])),
+    )
+    .unwrap();
+
+    let north = app
+        .import_source(&north_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let south = app
+        .import_source(&south_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let north_event = app
+        .open_source(&north.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.kind == "event")
+        .unwrap();
+    let south_event = app
+        .open_source(&south.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.kind == "event")
+        .unwrap();
+    assert_ne!(
+        north_event.page_id, south_event.page_id,
+        "same event label and field shape do not establish a shared observation"
+    );
+    for (page, date, pier, visits) in [
+        (north_event, "May 18", "North Pier", "4 visits"),
+        (south_event, "May 19", "South Pier", "9 visits"),
+    ] {
+        let markdown = app.open_knowledge_page(&page.page_id).unwrap().markdown;
+        assert!(markdown.contains(date), "{markdown}");
+        assert!(markdown.contains(pier), "{markdown}");
+        assert!(markdown.contains(visits), "{markdown}");
+    }
 }
 
 #[test]
