@@ -1400,8 +1400,11 @@ impl Application {
                 .is_some_and(|version| is_audio_format(&version.format));
             let audio_ready = if pending_is_audio {
                 pending_version_id.is_some_and(|version_id| {
-                    candidate_audio_processing(&page.info, version_id)
-                        .is_some_and(|audio| audio.state == "complete")
+                    candidate_audio_processing(&page.info, version_id).is_some_and(|audio| {
+                        audio.state == "complete"
+                            && (page.info.current_version_id.is_none()
+                                || !audio.segments.is_empty())
+                    })
                 })
             } else {
                 true
@@ -2289,35 +2292,45 @@ impl Application {
             {
                 let mut page = self.open_source(&source_id)?;
                 if page.info.pending_version_id.as_deref() != Some(&version_id) { return Ok(()); }
-                let audio = candidate_audio_processing_mut(&mut page.info, &version_id)
-                    .ok_or_else(|| GardenError::Invalid("Pending audio processing state disappeared.".into()))?;
-                let window_end = start.saturating_add(batch.processed_duration_ms);
-                audio.segments.retain(|segment| segment.end_ms <= start || segment.start_ms >= window_end);
-                for (index, mut segment) in batch.segments.into_iter().enumerate() {
-                    if segment.start_ms < start || segment.start_ms >= window_end || segment.end_ms <= segment.start_ms {
-                        continue;
+                let replacement = page.info.current_version_id.is_some();
+                let (complete, no_segments) = {
+                    let audio = candidate_audio_processing_mut(&mut page.info, &version_id)
+                        .ok_or_else(|| GardenError::Invalid("Pending audio processing state disappeared.".into()))?;
+                    let window_end = start.saturating_add(batch.processed_duration_ms);
+                    audio.segments.retain(|segment| segment.end_ms <= start || segment.start_ms >= window_end);
+                    for (index, mut segment) in batch.segments.into_iter().enumerate() {
+                        if segment.start_ms < start || segment.start_ms >= window_end || segment.end_ms <= segment.start_ms {
+                            continue;
+                        }
+                        segment.end_ms = segment.end_ms.min(window_end);
+                        segment.segment_id = stable_audio_segment_id(&version_id, start, index);
+                        segment.speaker = None;
+                        segment.speaker_state = "unidentified".into();
+                        audio.segments.push(segment);
                     }
-                    segment.end_ms = segment.end_ms.min(window_end);
-                    segment.segment_id = stable_audio_segment_id(&version_id, start, index);
-                    segment.speaker = None;
-                    segment.speaker_state = "unidentified".into();
-                    audio.segments.push(segment);
-                }
-                audio.segments.sort_by_key(|segment| (segment.start_ms, segment.end_ms, segment.segment_id.clone()));
-                audio.next_start_ms = window_end;
-                audio.state = if window_end >= audio.duration_ms { "complete" } else { "pending" }.into();
-                audio.retry_at_ms = None;
-            audio.detail = format!("{} ms examined. Local large-v3-turbo Whisper output is a best-guess transcript without calibrated confidence or alternatives. Silence, overlap, accent/noise effects, and unrecognized speech are not distinguishable from omitted words; timestamps are estimates and speakers remain unidentified. Compare the original.", audio.next_start_ms);
-                if audio.state == "complete" {
-                    if audio.segments.is_empty() {
+                    audio.segments.sort_by_key(|segment| (segment.start_ms, segment.end_ms, segment.segment_id.clone()));
+                    audio.next_start_ms = window_end;
+                    audio.state = if window_end >= audio.duration_ms { "complete" } else { "pending" }.into();
+                    audio.retry_at_ms = None;
+                    audio.detail = format!("{} ms examined. Local large-v3-turbo Whisper output is a best-guess transcript without calibrated confidence or alternatives. Silence, overlap, accent/noise effects, and unrecognized speech are not distinguishable from omitted words; timestamps are estimates and speakers remain unidentified. Compare the original.", audio.next_start_ms);
+                    if audio.state == "complete" && audio.segments.is_empty() && replacement {
+                        audio.detail = format!("{} ms examined. No speech passage was recognized in this replacement. This does not distinguish silence, background noise, overlap, or unintelligible speech. The prior published transcript and original remain current; compare this exact candidate original.", audio.next_start_ms);
+                    }
+                    (audio.state == "complete", audio.segments.is_empty())
+                };
+                if complete && no_segments {
+                    if replacement {
+                        page.info.update_status = Some("pending".into());
+                        page.info.semantic_error = Some("The replacement audio was examined, but no speech passage was recognized. This does not prove silence; the prior published transcript and original remain current, and the exact replacement original is retained as an unpublished version.".into());
+                    } else {
                         page.info.current_version_id = Some(version_id.clone());
                         page.info.pending_version_id = None;
                         page.info.update_status = None;
                         page.info.semantic_state = "unavailable".into();
                         promote_candidate_audio(&mut page.info, &version_id);
-                    } else {
-                        page.info.semantic_state = "pending".into();
                     }
+                } else if complete {
+                    page.info.semantic_state = "pending".into();
                 }
                 let body = source_body(&page.info, "", None);
                 page.body = body.clone();
@@ -5871,7 +5884,13 @@ fn append_pending_audio_body(info: &SourceInfo, body: &mut String) {
         audio.detail.replace(['\n', '\r'], " ")
     ));
     if audio.segments.is_empty() {
-        body.push_str("\nNo replacement transcript passages are available yet. The previously published transcript and current original remain available above.\n");
+        if audio.state == "complete" {
+            body.push_str("\nNo speech passages were recognized in the examined replacement audio. This does not establish silence: background noise, overlapping voices, and unintelligible speech remain possible. The exact replacement original is retained above, and the previously published transcript and current original remain available.\n");
+        } else if audio.state == "failed" {
+            body.push_str("\nNo replacement transcript passages were retained because processing stopped. Review the exact replacement original above. The previously published transcript and current original remain available.\n");
+        } else {
+            body.push_str("\nNo replacement transcript passages are available yet. The previously published transcript and current original remain available above.\n");
+        }
         return;
     }
     body.push_str("\n### Candidate transcript · not published\n\nThe following text is bound to the replacement original above and has not replaced current knowledge yet. Timestamps are estimates; compare the retained audio.\n");
