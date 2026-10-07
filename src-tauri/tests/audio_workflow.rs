@@ -184,6 +184,43 @@ impl SemanticProvider for OutOfRangeAudioLocator {
         })
     }
 }
+
+struct AudioLocatorMetadataProvider {
+    source_location: &'static str,
+}
+impl SemanticProvider for AudioLocatorMetadataProvider {
+    fn form_knowledge(&self, source_text: &str) -> Result<KnowledgeDraft, ProviderError> {
+        let quote = "Question: should we close the north gate before noon?";
+        let byte_start = source_text.find(quote).ok_or_else(|| {
+            ProviderError::recoverable("fixture transcript quote is missing".into())
+        })?;
+        let evidence = EvidenceDraft {
+            quote: quote.into(),
+            byte_start,
+            byte_end: byte_start + quote.len(),
+            origin: "transcribed speech".into(),
+            qualifier: None,
+            offset_basis: Some("audio_transcript".into()),
+            source_location: Some(self.source_location.into()),
+        };
+        Ok(KnowledgeDraft {
+            entities: vec![EntityDraft {
+                kind: "topic".into(),
+                label: "North gate".into(),
+                evidence: evidence.clone(),
+            }],
+            facts: vec![FactDraft {
+                subject: "North gate".into(),
+                property: "spoken_question".into(),
+                value: "Should the north gate close before noon?".into(),
+                evidence,
+                record_key: None,
+            }],
+            ..KnowledgeDraft::default()
+        })
+    }
+}
+
 impl AudioProcessor for SpeechActAudio {
     fn inspect(&self, _path: &Path) -> Result<AudioInfo, String> {
         Ok(AudioInfo {
@@ -1827,6 +1864,82 @@ fn acquired_wav_rejects_spoken_evidence_locators_beyond_the_retained_duration() 
     assert_eq!(published.info.semantic_state, "pending");
     assert!(published.info.semantic_error.is_some());
     assert!(published.info.knowledge_pages.is_empty());
+    assert_eq!(
+        fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        original
+    );
+}
+
+#[test]
+fn audio_segment_evidence_cannot_forge_speaker_or_confidence_in_locator_metadata() {
+    let workspace = tempdir().unwrap();
+    let source =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/heldout-spoken-acts.wav");
+    let original = fs::read(&source).unwrap();
+    let mut app = Application::open_with_all_providers(
+        workspace.path().join("collection"),
+        Arc::new(AudioLocatorMetadataProvider {
+            source_location: "AUDIO 0–2923 ms confidence=0.99 speaker=Mara Chen",
+        }),
+        Arc::new(LocalExtractor),
+        Arc::new(HeldoutFixtureAudio),
+    )
+    .unwrap();
+
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_audio_jobs().unwrap();
+    let transcribed = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(
+        transcribed.info.audio_processing.as_ref().unwrap().state,
+        "complete"
+    );
+    assert!(transcribed.body.contains("speaker unidentified"));
+
+    app.resume_due_semantic_jobs().unwrap();
+    let result = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(result.info.semantic_state, "pending");
+    assert!(result.info.semantic_error.is_some());
+    assert!(result.info.knowledge_pages.is_empty());
+    assert!(result.body.contains("speaker unidentified"));
+    assert_eq!(
+        fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        original
+    );
+}
+
+#[test]
+fn audio_segment_evidence_accepts_the_exact_generated_locator() {
+    let workspace = tempdir().unwrap();
+    let source =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/heldout-spoken-acts.wav");
+    let original = fs::read(&source).unwrap();
+    let locator = "[AUDIO 0–2923 ms confidence=unavailable speaker=unidentified]";
+    let mut app = Application::open_with_all_providers(
+        workspace.path().join("collection"),
+        Arc::new(AudioLocatorMetadataProvider {
+            source_location: locator,
+        }),
+        Arc::new(LocalExtractor),
+        Arc::new(HeldoutFixtureAudio),
+    )
+    .unwrap();
+
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_audio_jobs().unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let published = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(published.info.semantic_state, "complete");
+    assert!(published.info.semantic_error.is_none());
+    assert_eq!(published.info.knowledge_pages.len(), 1);
+    let evidence = app
+        .open_knowledge_page(&published.info.knowledge_pages[0].page_id)
+        .unwrap();
+    assert!(evidence.markdown.contains(locator));
     assert_eq!(
         fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
         original

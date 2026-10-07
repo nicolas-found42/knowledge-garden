@@ -6270,16 +6270,29 @@ fn draft_audio_evidence_is_segment_grounded(
         if !quotes_segment_text && !quotes_segment_prefix {
             return false;
         }
-        if evidence
-            .source_location
-            .as_deref()
-            .is_some_and(|value| audio_locator_range(value) != Some((start_ms, end_ms)))
-        {
-            return false;
-        }
-        audio.segments.iter().any(|segment| {
+        let Some(segment) = audio.segments.iter().find(|segment| {
             segment.start_ms == start_ms && segment.end_ms == end_ms && end_ms <= audio.duration_ms
-        })
+        }) else {
+            return false;
+        };
+        if let Some(source_location) = evidence.source_location.as_deref() {
+            let range = format!("AUDIO {start_ms}–{end_ms} ms");
+            let ascii_range = format!("AUDIO {start_ms}-{end_ms} ms");
+            let confidence = segment
+                .confidence
+                .map(|value| format!("{value:.2}"))
+                .unwrap_or_else(|| "unavailable".into());
+            let generated_locator = format!("{range} confidence={confidence} speaker=unidentified");
+            let bracketed_generated_locator = format!("[{generated_locator}]");
+            if source_location != range
+                && source_location != ascii_range
+                && source_location != generated_locator
+                && source_location != bracketed_generated_locator
+            {
+                return false;
+            }
+        }
+        true
     }
 
     let mut evidence = draft
