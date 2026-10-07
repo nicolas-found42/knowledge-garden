@@ -1582,6 +1582,38 @@ fn candidates(text: &str) -> Vec<Candidate> {
             origin,
         });
     }
+    // A narrow, explicitly corrective phrase is one candidate: the old number
+    // after "not" is contrastive evidence, not a second current count.
+    // Keep the entire sentence as provenance so Jev can confirm both the
+    // target field and the rejected prior value before publication.
+    let count_correction_re = regex(
+        r"(?i)\bvisit\s+total\s+(?:should\s+)?(?:read|be\s+corrected\s+to)\s+([0-9]+)\s*,?\s+not\s+([0-9]+)\b",
+    );
+    for matched in count_correction_re.captures_iter(text) {
+        let Some(whole) = matched.get(0) else {
+            continue;
+        };
+        let Some(corrected) = matched.get(1) else {
+            continue;
+        };
+        let (start, end) = sentence_bounds(text, whole.start(), whole.end());
+        let quote = text[start..end].to_owned();
+        let origin = origin_for(text, whole.start(), whole.end());
+        result.retain(|candidate| {
+            candidate.kind != CandidateKind::Count
+                || candidate.end <= start
+                || candidate.start >= end
+        });
+        result.push(Candidate {
+            kind: CandidateKind::Count,
+            value: format!("{} visits", corrected.as_str()),
+            quote,
+            start,
+            end,
+            qualifier: None,
+            origin,
+        });
+    }
     let duration_re = regex(r"(?i)\b[0-9]+\s*(?:minutes?|hours?|seconds?|days?)\b");
     for m in duration_re.find_iter(text) {
         let matched = m.as_str();
@@ -1849,4 +1881,21 @@ fn keychain_credential(account: &str) -> std::result::Result<String, ProviderErr
         ));
     }
     Ok(value)
+}
+
+#[cfg(test)]
+mod ticket5_tests {
+    use super::{candidates, CandidateKind};
+
+    #[test]
+    fn explicit_visit_total_correction_selects_the_new_count_only() {
+        let text = "For Observation V17: The visit total should read 15, not 12. This note corrects the count only.";
+        let counts = candidates(text)
+            .into_iter()
+            .filter(|candidate| candidate.kind == CandidateKind::Count)
+            .collect::<Vec<_>>();
+        assert_eq!(counts.len(), 1);
+        assert_eq!(counts[0].value, "15 visits");
+        assert!(counts[0].quote.contains("not 12"));
+    }
 }

@@ -3401,11 +3401,13 @@ fn fts_expression(query: &str) -> String {
 fn knowledge_search_content(header: &KnowledgePageHeader) -> String {
     let mut fields = vec![header.title.clone(), header.kind.clone()];
     for fact in &header.facts {
+        // Search current fact values, not evidence quotations. A correction's
+        // supporting sentence can repeat the rejected prior value ("15, not
+        // 12"); indexing that quote would make 12 look current again.
         fields.extend([
             fact.property.clone(),
             fact.value.clone(),
             fact.qualifier.clone().unwrap_or_default(),
-            fact.evidence.quote.clone(),
         ]);
     }
     for relationship in &header.relationships {
