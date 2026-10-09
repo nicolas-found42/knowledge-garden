@@ -174,6 +174,17 @@ pub trait SemanticProvider: Send + Sync {
 pub struct ProviderError {
     pub message: String,
     pub retryable: bool,
+    pub availability: Option<ProviderAvailability>,
+}
+
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderAvailability {
+    Network,
+    Quota,
+    Authentication,
+    ModelUnavailable,
+    CapabilityUnavailable,
 }
 
 impl ProviderError {
@@ -181,6 +192,7 @@ impl ProviderError {
         Self {
             message,
             retryable: true,
+            availability: None,
         }
     }
 
@@ -188,6 +200,15 @@ impl ProviderError {
         Self {
             message,
             retryable: false,
+            availability: None,
+        }
+    }
+
+    pub fn unavailable(message: String, cause: ProviderAvailability) -> Self {
+        Self {
+            message,
+            retryable: true,
+            availability: Some(cause),
         }
     }
 }

@@ -77,6 +77,7 @@ impl SystemOneTransport for OpenRouterSystemOneTransport {
                 return Err(ProviderError {
                     message: format!("Jev provider returned HTTP {status}; {resolution}."),
                     retryable,
+                    availability: None,
                 });
             }
             Err(_) => {
