@@ -1,7 +1,8 @@
 use crate::{
     application::{
-        AcquisitionMethod, Application, PageSearchRequest, PageSearchResults, SourceList,
-        SourcePage, UrlAcquisitionStatus,
+        AcquisitionMethod, Application, PageSearchRequest, PageSearchResults, PathDetailsRequest,
+        PathDetailsResponse, PathExploreRequest, PathExploreResponse, SourceList, SourcePage,
+        UrlAcquisitionStatus,
     },
     extraction::LocalExtractor,
     media::WhisperAudioProcessor,
@@ -78,6 +79,22 @@ async fn search_pages(
     request: PageSearchRequest,
 ) -> Result<PageSearchResults, String> {
     with_engine(&engine, move |app| app.search_pages(request)).await
+}
+
+#[tauri::command]
+async fn explore_paths(
+    engine: State<'_, Engine>,
+    request: PathExploreRequest,
+) -> Result<PathExploreResponse, String> {
+    with_engine(&engine, move |app| app.explore_paths(request)).await
+}
+
+#[tauri::command]
+async fn explore_path_details(
+    engine: State<'_, Engine>,
+    request: PathDetailsRequest,
+) -> Result<PathDetailsResponse, String> {
+    with_engine(&engine, move |app| app.explore_path_details(request)).await
 }
 
 #[tauri::command]
@@ -218,6 +235,8 @@ pub fn run() {
             open_knowledge_page,
             list_sources,
             search_pages,
+            explore_paths,
+            explore_path_details,
             open_original,
             preview_original,
             open_original_version,

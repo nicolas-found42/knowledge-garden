@@ -57,6 +57,24 @@ function testApi(): GardenApi {
       available_formats: [],
       available_statuses: [],
     } satisfies PageSearchResults),
+    explorePaths: vi.fn().mockResolvedValue({
+      start_page_id: "page-maya",
+      max_hops: 1,
+      graph_revision: "revision-1",
+      paths: [],
+      complete: true,
+      next_cursor: null,
+      relationships_examined: 0,
+      diagnostics: [],
+    }),
+    explorePathDetails: vi.fn().mockResolvedValue({
+      target_page_id: "page-riverside",
+      target_title: "Riverside",
+      steps: [],
+      complete: true,
+      next_cursor: null,
+      work_units: 0,
+    }),
     openSource: vi.fn().mockResolvedValue(riverside),
     openKnowledgePage: vi.fn(),
     openOriginal: vi.fn().mockResolvedValue(undefined),
@@ -839,4 +857,349 @@ it("shows Office projection offsets, original locators, and fallback guidance in
     ),
   ).toBeTruthy();
   expect(screen.getByRole("link", { name: "Retained original" })).toBeTruthy();
+});
+
+it("opens a relationship path by keyboard and pointer, then restores its scope and focus with Back", async () => {
+  const startSummary = {
+    page_id: "page-maya",
+    title: "Maya",
+    kind: "person",
+    path: "pages/page-maya.md",
+  };
+  const source: SourcePage = {
+    ...riverside,
+    info: { ...riverside.info, knowledge_pages: [startSummary] },
+    body: "# Field note\n\n[Maya](pages/page-maya.md)",
+  };
+  const startPage = {
+    page_id: "page-maya",
+    source_id: source.info.source_id,
+    title: "Maya",
+    kind: "person",
+    markdown: "---\npage_id: page-maya\n---\n\n# Maya",
+  };
+  const targetPage = {
+    page_id: "page-riverside",
+    source_id: source.info.source_id,
+    title: "Riverside",
+    kind: "place",
+    markdown: "---\npage_id: page-riverside\n---\n\n# Riverside",
+  };
+  const pathStep = {
+    from_page_id: "page-v17",
+    from_title: "V17",
+    to_page_id: targetPage.page_id,
+    to_title: targetPage.title,
+    kind: "occurred_at",
+    qualifier: "location reported with uncertainty",
+    traversal_direction: "with_arrow" as const,
+    evidence_quote: "V17 occurred at Riverside, uncertainly.",
+    source_id: source.info.source_id,
+    source_version_id: "d".repeat(64),
+    original_asset: "original.txt",
+    source_is_current: true,
+  };
+  const earlierPathStep = {
+    from_page_id: "page-v17",
+    from_title: "V17",
+    to_page_id: "page-maya",
+    to_title: "Maya",
+    kind: "observed_by",
+    qualifier: "field note",
+    traversal_direction: "against_arrow" as const,
+    evidence_quote: "Maya observed V17.",
+    source_id: source.info.source_id,
+    source_version_id: "d".repeat(64),
+    original_asset: "original.txt",
+    source_is_current: true,
+  };
+  const paths = {
+    start_page_id: startPage.page_id,
+    max_hops: 2,
+    graph_revision: "revision-1",
+    paths: [
+      {
+        target_page_id: targetPage.page_id,
+        target_title: targetPage.title,
+        target_kind: targetPage.kind,
+        detail_token: "detail-1",
+        step_count: 2,
+      },
+    ],
+    complete: true,
+    next_cursor: null,
+    relationships_examined: 3,
+    diagnostics: [],
+  };
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(source);
+  api.openSource = vi.fn().mockResolvedValue(source);
+  api.openKnowledgePage = vi
+    .fn()
+    .mockImplementation((pageId: string) =>
+      Promise.resolve(pageId === "page-maya" ? startPage : targetPage),
+    );
+  const explorePaths = vi.fn().mockResolvedValue(paths);
+  Object.assign(api, { explorePaths });
+  const explorePathDetails = vi
+    .fn()
+    .mockResolvedValueOnce({
+      target_page_id: targetPage.page_id,
+      target_title: targetPage.title,
+      steps: [pathStep],
+      complete: false,
+      next_cursor: "detail-page-2",
+      work_units: 1,
+    })
+    .mockResolvedValueOnce({
+      target_page_id: targetPage.page_id,
+      target_title: targetPage.title,
+      steps: [earlierPathStep],
+      complete: true,
+      next_cursor: null,
+      work_units: 1,
+    });
+  Object.assign(api, { explorePathDetails });
+
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(await screen.findByRole("link", { name: "Maya" }));
+
+  const exploreButton = await screen.findByRole("button", {
+    name: "Explore relationships",
+  });
+  exploreButton.focus();
+  await user.keyboard("{Enter}");
+  const hopLimit = await screen.findByRole("spinbutton", {
+    name: "Maximum relationship hops",
+  });
+  await user.clear(hopLimit);
+  await user.type(hopLimit, "2");
+  await user.keyboard("{Enter}");
+
+  await screen.findByRole("button", { name: /Open path stop Riverside/ });
+  expect(explorePaths).toHaveBeenCalledWith(
+    expect.objectContaining({ start_page_id: "page-maya", max_hops: 2 }),
+  );
+  expect(screen.getByText(/up to 2 relationship hops/)).toBeTruthy();
+  expect(
+    screen.queryByText("V17 occurred at Riverside, uncertainly."),
+  ).toBeNull();
+  await user.click(
+    screen.getByRole("button", { name: "Inspect path (2 steps)" }),
+  );
+  expect(
+    screen.getByText("V17 occurred at Riverside, uncertainly."),
+  ).toBeTruthy();
+  await user.click(
+    screen.getByRole("button", { name: "Load next path steps" }),
+  );
+  expect(
+    screen.getByText(
+      "V17 — observed by → Maya (field note) · traversed against the stored arrow",
+    ),
+  ).toBeTruthy();
+  await user.click(
+    screen.getAllByRole("button", { name: /Open supporting original/ })[0],
+  );
+  expect(api.openOriginalAsset).toHaveBeenCalledWith(
+    source.info.source_id,
+    "original.txt",
+  );
+  expect(explorePathDetails).toHaveBeenNthCalledWith(1, {
+    detail_token: "detail-1",
+    continuation: null,
+    work_budget: 50,
+  });
+  expect(explorePathDetails).toHaveBeenNthCalledWith(2, {
+    detail_token: "detail-1",
+    continuation: "detail-page-2",
+    work_budget: 50,
+  });
+
+  const main = root.querySelector("main")!;
+  main.scrollTop = 137;
+  screen.getByRole("button", { name: "Open path stop Riverside" }).focus();
+  await user.keyboard("{Enter}");
+  expect(
+    await screen.findByRole("article", { name: "Riverside" }),
+  ).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(
+    await screen.findByRole("spinbutton", {
+      name: "Maximum relationship hops",
+    }),
+  ).toHaveProperty("value", "2");
+  expect(document.activeElement).toBe(
+    await screen.findByRole("button", { name: /Riverside/ }),
+  );
+  expect(main.scrollTop).toBe(137);
+});
+
+it("discards a stale path cursor and restarts against the changed collection", async () => {
+  const summary = {
+    page_id: "page-maya",
+    title: "Maya",
+    kind: "person",
+    path: "pages/page-maya.md",
+  };
+  const source = {
+    ...riverside,
+    info: { ...riverside.info, knowledge_pages: [summary] },
+    body: "# Field note\n\n[Maya](pages/page-maya.md)",
+  };
+  const startPage = {
+    page_id: summary.page_id,
+    source_id: source.info.source_id,
+    title: summary.title,
+    kind: summary.kind,
+    markdown: "---\npage_id: page-maya\n---\n\n# Maya",
+  };
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(source);
+  api.openKnowledgePage = vi.fn().mockResolvedValue(startPage);
+  const explorePaths = vi
+    .fn()
+    .mockResolvedValueOnce({
+      start_page_id: "page-maya",
+      max_hops: 1,
+      graph_revision: "revision-1",
+      paths: [],
+      complete: false,
+      next_cursor: "cursor-from-revision-1",
+      relationships_examined: 1,
+      diagnostics: [],
+    })
+    .mockRejectedValueOnce(
+      new Error(
+        "Path exploration cursor is stale because the collection changed.",
+      ),
+    )
+    .mockResolvedValueOnce({
+      start_page_id: "page-maya",
+      max_hops: 1,
+      graph_revision: "revision-2",
+      paths: [],
+      complete: true,
+      next_cursor: null,
+      relationships_examined: 0,
+      diagnostics: [],
+    });
+  Object.assign(api, { explorePaths });
+
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(await screen.findByRole("link", { name: "Maya" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Explore relationships" }),
+  );
+  await user.click(
+    await screen.findByRole("button", { name: "Continue exploring" }),
+  );
+  expect(
+    await screen.findByText(
+      /collection changed while this path search was open/i,
+    ),
+  ).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Restart exploration" }));
+  await waitFor(() => expect(explorePaths).toHaveBeenCalledTimes(3));
+  expect(explorePaths.mock.calls[1][0].continuation).toBe(
+    "cursor-from-revision-1",
+  );
+  expect(explorePaths.mock.calls[2][0].continuation).toBeNull();
+});
+
+it("keeps a newer hop-scope result when an older path request resolves later", async () => {
+  const summary = {
+    page_id: "page-maya",
+    title: "Maya",
+    kind: "person",
+    path: "pages/page-maya.md",
+  };
+  const source = {
+    ...riverside,
+    info: { ...riverside.info, knowledge_pages: [summary] },
+    body: "# Field note\n\n[Maya](pages/page-maya.md)",
+  };
+  const startPage = {
+    page_id: summary.page_id,
+    source_id: source.info.source_id,
+    title: "Maya",
+    kind: "person",
+    markdown: "---\npage_id: page-maya\n---\n\n# Maya",
+  };
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(source);
+  api.openSource = vi.fn().mockResolvedValue(source);
+  api.openKnowledgePage = vi.fn().mockResolvedValue(startPage);
+  const pending: Array<(value: unknown) => void> = [];
+  const explorePaths = vi
+    .fn()
+    .mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
+  Object.assign(api, { explorePaths });
+
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(await screen.findByRole("link", { name: "Maya" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Explore relationships" }),
+  );
+
+  const response = (
+    maxHops: number,
+    targetId: string,
+    targetTitle: string,
+  ) => ({
+    start_page_id: "page-maya",
+    max_hops: maxHops,
+    graph_revision: "revision-1",
+    paths: [
+      {
+        target_page_id: targetId,
+        target_title: targetTitle,
+        target_kind: "event",
+        detail_token: `detail-${targetId}`,
+        step_count: maxHops,
+      },
+    ],
+    complete: true,
+    next_cursor: null,
+    relationships_examined: 1,
+    diagnostics: [],
+  });
+  pending.shift()!(response(1, "page-initial", "Initial"));
+  await screen.findByRole("button", { name: /Open path stop Initial/ });
+
+  const hopLimit = screen.getByRole("spinbutton", {
+    name: "Maximum relationship hops",
+  });
+  await user.clear(hopLimit);
+  await user.type(hopLimit, "1");
+  await user.click(screen.getByRole("button", { name: "Find paths" }));
+  await user.clear(hopLimit);
+  await user.type(hopLimit, "2");
+  await user.click(screen.getByRole("button", { name: "Find paths" }));
+  expect(explorePaths).toHaveBeenCalledTimes(3);
+
+  pending[1]!(response(2, "page-v18", "V18"));
+  await screen.findByRole("button", { name: /Open path stop V18/ });
+  pending[0]!(response(1, "page-v17", "V17"));
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: /Open path stop V18/ }),
+    ).toBeTruthy(),
+  );
+  expect(
+    screen.queryByRole("button", { name: /Open path stop V17/ }),
+  ).toBeNull();
+  expect(screen.getByText(/up to 2 relationship hops/)).toBeTruthy();
 });
