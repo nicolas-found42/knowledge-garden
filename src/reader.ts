@@ -470,7 +470,7 @@ export async function mountReader(
     if (next.external_edit_status === "uncertain") {
       const editNotice = element(
         "p",
-        "Some external Markdown changes could not be interpreted safely. The owner text is retained; this page may need correction before its current facts are certain.",
+        "Some external Markdown changes could not be interpreted safely. The owner content is retained; these changes have not been promoted to current facts. Unedited facts continue updating.",
       );
       editNotice.className = "update-status";
       editNotice.setAttribute("role", "status");

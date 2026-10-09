@@ -5430,11 +5430,11 @@ fn uninterpretable_external_page_edit_is_retained_and_marked_uncertain() {
     let before = fs::read_to_string(&page_path).unwrap();
     let edited = before.replace(
         "- **duration:** 10 minutes",
-        "- **duration changed:** maybe 11 minutes",
+        "- **duration changed:** maybe 11 minutes\n\n    owner spacing preserved\n\n```text\n  exact indentation\n\n```",
     );
     assert_ne!(before, edited, "the fixture must edit the actual Markdown");
     let temp_path = page_path.with_extension("md.tmp");
-    fs::write(&temp_path, edited).unwrap();
+    fs::write(&temp_path, &edited).unwrap();
     fs::rename(&temp_path, &page_path).unwrap();
 
     fs::write(&source, second_text).unwrap();
@@ -5448,4 +5448,49 @@ fn uninterpretable_external_page_edit_is_retained_and_marked_uncertain() {
         .markdown
         .contains("- **duration changed:** maybe 11 minutes"));
     assert!(current.markdown.contains("- **visit count:** 15 visits"));
+    let durable = fs::read_to_string(&page_path).unwrap();
+    let header: serde_yaml_ng::Value = serde_yaml_ng::from_str(
+        durable
+            .split_once("\n---\n")
+            .unwrap()
+            .0
+            .trim_start_matches("---\n"),
+    )
+    .unwrap();
+    let retained_edit = header["uninterpreted_owner_edits"][0].as_str().unwrap();
+    assert!(
+        retained_edit.starts_with("owner-edits/"),
+        "raw saves belong in durable Markdown sidecars, not recursively embedded in page metadata"
+    );
+    assert_eq!(
+        fs::read_to_string(collection.join(retained_edit)).unwrap(),
+        edited,
+        "the complete uncertain owner save must be retained byte for byte"
+    );
+    app.rebuild_index().unwrap();
+    let after_first_rescan = fs::read_to_string(&page_path).unwrap();
+    app.rebuild_index().unwrap();
+    assert_eq!(
+        fs::read_to_string(&page_path).unwrap(),
+        after_first_rescan,
+        "rescanning generated authority and uncertain notes must not accumulate new notes"
+    );
+    drop(app);
+    fs::remove_dir_all(collection.join(".derived")).unwrap();
+    let mut reopened = Application::open(&collection).unwrap();
+    let restored = reopened.open_knowledge_page(&event.page_id).unwrap();
+    assert_eq!(restored.external_edit_status.as_deref(), Some("uncertain"));
+    assert!(restored.markdown.contains("- **visit count:** 15 visits"));
+    assert!(
+        !reopened
+            .search_pages(PageSearchRequest {
+                query: "10 minutes".into(),
+                ..PageSearchRequest::default()
+            })
+            .unwrap()
+            .pages
+            .iter()
+            .any(|page| page.page_id == event.page_id),
+        "exact owner-save recovery data must not index the obsolete duration as current knowledge"
+    );
 }

@@ -3068,6 +3068,7 @@ impl Application {
                 relationships: relationship_records,
                 tags: tag_records,
                 owner_content: Vec::new(),
+                uninterpreted_owner_edits: Vec::new(),
                 owner_metadata: std::collections::BTreeMap::new(),
                 external_edit_status: None,
             })?;
@@ -3144,6 +3145,7 @@ impl Application {
                 )?;
                 header.tags = self.reconcile_tags(old.tags, header.tags, &replaced_sources);
                 header.owner_content = old.owner_content;
+                header.uninterpreted_owner_edits = old.uninterpreted_owner_edits;
                 header.owner_metadata = old.owner_metadata;
                 header.external_edit_status = old.external_edit_status;
             }
@@ -4031,7 +4033,10 @@ impl Application {
         }
         let mut owner_content = header.owner_content.clone();
         let mut missing_generated_content = false;
-        for line in body.lines().filter(|line| !line.trim().is_empty()) {
+        for line in body.lines().filter(|line| {
+            !line.trim().is_empty()
+                && *line != "  - Authority: owner manual correction; source evidence remains retained separately."
+        }) {
             if let Some(remaining) = generated_lines.get_mut(line) {
                 if *remaining > 0 {
                     *remaining -= 1;
@@ -4049,6 +4054,18 @@ impl Application {
             }
         }
         missing_generated_content |= generated_lines.values().any(|remaining| *remaining > 0);
+        // The notes projection keeps readable owner wording, but cannot preserve
+        // spacing or arbitrary Markdown structure. Keep the exact uncertain save
+        // in a durable Markdown sidecar, never as current knowledge. References
+        // avoid recursively embedding earlier snapshots in each new owner save.
+        // A generated rescan is not a new owner save.
+        if missing_generated_content && body != generated_body {
+            let retained_edit = format!("owner-edits/{:x}.md", Sha256::digest(markdown.as_bytes()));
+            if !header.uninterpreted_owner_edits.contains(&retained_edit) {
+                write_atomic(&self.root.join(&retained_edit), markdown.as_bytes())?;
+                header.uninterpreted_owner_edits.push(retained_edit);
+            }
+        }
         header.owner_content = owner_content;
         header.external_edit_status =
             (missing_generated_content || was_uncertain).then(|| "uncertain".into());
@@ -5342,6 +5359,8 @@ fn fts_expression(query: &str) -> String {
 }
 
 fn knowledge_search_content(header: &KnowledgePageHeader) -> String {
+    // Owner-save recovery snapshots (including obsolete generated values) are
+    // preserved in Markdown but deliberately excluded from current-page search.
     let mut fields = vec![header.title.clone(), header.kind.clone()];
     for fact in &header.facts {
         // Search current fact values, not evidence quotations. A correction's
@@ -5753,6 +5772,8 @@ struct KnowledgePageHeader {
     tags: Vec<TagRecord>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     owner_content: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    uninterpreted_owner_edits: Vec<String>,
     #[serde(flatten)]
     owner_metadata: std::collections::BTreeMap<String, serde_yaml_ng::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
