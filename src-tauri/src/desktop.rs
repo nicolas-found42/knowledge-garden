@@ -82,6 +82,11 @@ async fn search_pages(
 }
 
 #[tauri::command]
+async fn path_graph_revision(engine: State<'_, Engine>) -> Result<String, String> {
+    with_engine(&engine, |app| app.path_graph_revision()).await
+}
+
+#[tauri::command]
 async fn explore_paths(
     engine: State<'_, Engine>,
     request: PathExploreRequest,
@@ -235,6 +240,7 @@ pub fn run() {
             open_knowledge_page,
             list_sources,
             search_pages,
+            path_graph_revision,
             explore_paths,
             explore_path_details,
             open_original,

@@ -47,6 +47,7 @@ export async function mountReader(
   const backButton = element("button", "Back");
   backButton.hidden = true;
   const searchButton = element("button", "Search");
+  searchButton.dataset.focusId = "toolbar-search";
   const sourcesButton = element("button", "Sources");
   sourcesButton.setAttribute("aria-expanded", "false");
   const addButton = element("button", "Add source");
@@ -161,6 +162,7 @@ export async function mountReader(
         kind: "paths";
         state: PathExploreUiState;
         windowScroll: number;
+        focusId: string | null;
       };
   const navigationHistory: NavigationState[] = [];
   let busy = false;
@@ -206,6 +208,10 @@ export async function mountReader(
       currentPathExplore.scrollTop = main.scrollTop;
       navigationHistory.push({
         kind: "paths",
+        focusId:
+          document.activeElement instanceof HTMLElement
+            ? (document.activeElement.dataset.focusId ?? null)
+            : null,
         state: {
           ...currentPathExplore,
           displayedPaths: [...currentPathExplore.displayedPaths],
@@ -733,6 +739,7 @@ export async function mountReader(
       const displayedSteps = detailState
         ? [...detailState.rawSteps].reverse()
         : [];
+      const endpointIds = new Set<string>();
       for (const step of displayedSteps) {
         const item = element("li");
         const reverse =
@@ -747,6 +754,62 @@ export async function mountReader(
           ),
           element("blockquote", step.evidence_quote),
         );
+        for (const [pageId, title] of [
+          [step.from_page_id, step.from_title],
+          [step.to_page_id, step.to_title],
+        ]) {
+          if (endpointIds.has(pageId)) continue;
+          endpointIds.add(pageId);
+          const endpoint = element("button", `Open path endpoint ${title}`);
+          endpoint.type = "button";
+          endpoint.dataset.focusId = `path-endpoint:${path.target_page_id}:${pageId}`;
+          endpoint.addEventListener("click", () => {
+            state.selectedTargetPageId = path.target_page_id;
+            pushCurrentState();
+            void api
+              .openKnowledgePage(pageId)
+              .then(showKnowledgePage)
+              .catch(report);
+          });
+          item.append(endpoint);
+        }
+        const support = element("button", "Read supporting source");
+        support.type = "button";
+        support.dataset.focusId = `path-support:${path.target_page_id}:${step.from_page_id}:${step.to_page_id}`;
+        support.addEventListener("click", () => {
+          state.selectedTargetPageId = path.target_page_id;
+          pushCurrentState();
+          void api
+            .openSource(step.source_id)
+            .then(showPage)
+            .then(() => {
+              highlightQuote(step.evidence_quote);
+              if (!step.source_is_current)
+                message(
+                  "This relationship is supported by an earlier retained source version. Open its supporting original to inspect that version.",
+                );
+            })
+            .catch(report);
+        });
+        item.append(support);
+        if (step.evidence_location)
+          item.append(element("p", step.evidence_location));
+        if (step.evidence_origin)
+          item.append(
+            element(
+              "p",
+              `Evidence origin: ${step.evidence_origin}${step.evidence_qualifier ? ` (${step.evidence_qualifier})` : ""}`,
+            ),
+          );
+        if (!step.source_is_current)
+          item.append(
+            element(
+              "p",
+              "Supporting evidence comes from an earlier retained source version.",
+            ),
+          );
+        if (step.original_guidance)
+          item.append(element("p", step.original_guidance));
         const original = element("button", "Open supporting original");
         original.type = "button";
         original.addEventListener("click", () => {
@@ -894,7 +957,12 @@ export async function mountReader(
     const byTarget = new Map(
       state.displayedPaths.map((path) => [path.target_page_id, path]),
     );
-    for (const path of response.paths) byTarget.set(path.target_page_id, path);
+    // A same-revision refresh must retain the detail session associated with
+    // any partially loaded route; its continuation belongs to that token.
+    for (const path of response.paths) {
+      if (!byTarget.has(path.target_page_id))
+        byTarget.set(path.target_page_id, path);
+    }
     state.displayedPaths = [...byTarget.values()];
     if (!preserveScroll) state.scrollTop = 0;
     renderPathExplorer(state, focusSelected);
@@ -907,6 +975,8 @@ export async function mountReader(
     continuation: string | null,
   ) {
     if (pendingPathDetails.has(path.target_page_id)) return;
+    const requestGeneration = pathRequestGeneration;
+    state.selectedTargetPageId = path.target_page_id;
     pendingPathDetails.add(path.target_page_id);
     renderPathExplorer(state, false, path.target_page_id);
     let response: PathDetailsResponse;
@@ -917,6 +987,12 @@ export async function mountReader(
         work_budget: PATH_WORK_BUDGET,
       });
     } catch (error) {
+      if (
+        requestGeneration !== pathRequestGeneration ||
+        currentPathExplore !== state ||
+        currentView !== "paths"
+      )
+        return;
       const detail = error instanceof Error ? error.message : String(error);
       if (/stale|expired|collection changed|no longer current/i.test(detail)) {
         state.requestCursor = null;
@@ -940,7 +1016,12 @@ export async function mountReader(
         );
       }
     }
-    if (currentPathExplore !== state || currentView !== "paths") return;
+    if (
+      requestGeneration !== pathRequestGeneration ||
+      currentPathExplore !== state ||
+      currentView !== "paths"
+    )
+      return;
     const detailState = state.detailsByTarget[path.target_page_id] ?? {
       rawSteps: [],
       cursor: null,
@@ -1322,6 +1403,12 @@ export async function mountReader(
     } else if (state.kind === "paths") {
       await requestPathPage(state.state, state.state.requestCursor, true, true);
       main.scrollTop = state.state.scrollTop;
+      if (state.focusId)
+        root
+          .querySelector<HTMLElement>(
+            `[data-focus-id="${CSS.escape(state.focusId)}"]`,
+          )
+          ?.focus({ preventScroll: true });
       window.scrollTo(0, state.windowScroll);
     } else if (state.kind === "source") {
       showPage(await api.openSource(state.sourceId));
@@ -1533,6 +1620,33 @@ export async function mountReader(
   }
   const refreshTimer = window.setInterval(() => {
     if (!urlForm.hidden) void refreshUrlQueue();
+    const paths = currentPathExplore;
+    if (currentView === "paths" && paths?.graphRevision && !paths.staleCursor) {
+      const revision = paths.graphRevision;
+      void api
+        .pathGraphRevision()
+        .then((currentRevision) => {
+          if (
+            disposed ||
+            currentView !== "paths" ||
+            currentPathExplore !== paths ||
+            paths.graphRevision !== revision ||
+            currentRevision === revision
+          )
+            return;
+          ++pathRequestGeneration;
+          paths.requestCursor = null;
+          paths.graphRevision = null;
+          paths.response = null;
+          paths.displayedPaths = [];
+          paths.detailsByTarget = {};
+          paths.diagnostics = [];
+          paths.selectedTargetPageId = null;
+          paths.staleCursor = true;
+          renderPathExplorer(paths, true);
+        })
+        .catch(report);
+    }
     const current = page;
     const updating = ["pending", "processing"].includes(
       current?.info.update_status ?? "",

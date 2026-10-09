@@ -57,6 +57,7 @@ function testApi(): GardenApi {
       available_formats: [],
       available_statuses: [],
     } satisfies PageSearchResults),
+    pathGraphRevision: vi.fn().mockResolvedValue("revision-1"),
     explorePaths: vi.fn().mockResolvedValue({
       start_page_id: "page-maya",
       max_hops: 1,
@@ -1086,6 +1087,23 @@ it("opens a relationship path by keyboard and pointer, then restores its scope a
   expect(
     screen.getByText("V17 occurred at Riverside, uncertainly."),
   ).toBeTruthy();
+  // Leave while the route is only partly loaded. Returning starts another
+  // reachability batch, but the detail continuation must keep its old token.
+  const partialTarget = screen.getByRole("button", {
+    name: "Open path stop Riverside",
+  });
+  partialTarget.focus();
+  await user.keyboard("{Enter}");
+  await screen.findByRole("article", { name: "Riverside" });
+  explorePaths.mockResolvedValue({
+    ...paths,
+    paths: paths.paths.map((path) => ({
+      ...path,
+      detail_token: "refreshed-detail-token",
+    })),
+  });
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  await screen.findByRole("button", { name: "Load next path steps" });
   await user.click(
     screen.getByRole("button", { name: "Load next path steps" }),
   );
@@ -1112,6 +1130,29 @@ it("opens a relationship path by keyboard and pointer, then restores its scope a
     work_budget: 50,
   });
 
+  const intermediate = screen.getByRole("button", {
+    name: "Open path endpoint V17",
+  });
+  intermediate.focus();
+  await user.keyboard("{Enter}");
+  expect(api.openKnowledgePage).toHaveBeenLastCalledWith("page-v17");
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(document.activeElement).toBe(
+    await screen.findByRole("button", { name: "Open path endpoint V17" }),
+  );
+  const support = screen.getAllByRole("button", {
+    name: "Read supporting source",
+  })[0];
+  support.focus();
+  await user.keyboard("{Enter}");
+  expect(api.openSource).toHaveBeenLastCalledWith(source.info.source_id);
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(document.activeElement).toBe(
+    (
+      await screen.findAllByRole("button", { name: "Read supporting source" })
+    )[0],
+  );
+
   const main = root.querySelector("main")!;
   main.scrollTop = 137;
   screen.getByRole("button", { name: "Open path stop Riverside" }).focus();
@@ -1126,7 +1167,7 @@ it("opens a relationship path by keyboard and pointer, then restores its scope a
     }),
   ).toHaveProperty("value", "2");
   expect(document.activeElement).toBe(
-    await screen.findByRole("button", { name: /Riverside/ }),
+    await screen.findByRole("button", { name: "Open path stop Riverside" }),
   );
   expect(main.scrollTop).toBe(137);
 });
@@ -1294,4 +1335,73 @@ it("keeps a newer hop-scope result when an older path request resolves later", a
     screen.queryByRole("button", { name: /Open path stop V17/ }),
   ).toBeNull();
   expect(screen.getByText(/up to 2 relationship hops/)).toBeTruthy();
+});
+
+it("retires displayed paths after a source update without loading another neighborhood", async () => {
+  const source = {
+    ...riverside,
+    body: "# Field note\n\n[Maya](pages/page-maya.md)",
+  };
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(source);
+  api.openKnowledgePage = vi.fn().mockResolvedValue({
+    page_id: "page-maya",
+    source_id: source.info.source_id,
+    title: "Maya",
+    kind: "person",
+    markdown: "# Maya",
+  });
+  api.explorePaths = vi.fn().mockResolvedValue({
+    start_page_id: "page-maya",
+    max_hops: 1,
+    graph_revision: "revision-1",
+    paths: [
+      {
+        target_page_id: "page-v17",
+        target_title: "V17",
+        target_kind: "event",
+        detail_token: "fixed",
+        step_count: 1,
+      },
+    ],
+    complete: true,
+    next_cursor: null,
+    relationships_examined: 1,
+    diagnostics: [],
+  });
+  const revision = vi.fn().mockResolvedValue("revision-1");
+  api.pathGraphRevision = revision;
+  const interval = vi.spyOn(window, "setInterval");
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(await screen.findByRole("link", { name: "Maya" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Explore relationships" }),
+  );
+  await screen.findByRole("button", { name: "Open path stop V17" });
+  try {
+    revision.mockResolvedValue("revision-2");
+    const refresh = interval.mock.calls.find(
+      (call) => call[1] === 3000,
+    )![0] as () => void;
+    refresh();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Open path stop V17" }),
+      ).toBeNull(),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Open path stop V17" }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Restart exploration" }),
+    ).toBeTruthy();
+    expect(api.explorePaths).toHaveBeenCalledTimes(1);
+    expect(api.pathGraphRevision).toHaveBeenCalled();
+  } finally {
+    interval.mockRestore();
+  }
 });

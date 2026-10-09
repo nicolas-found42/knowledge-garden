@@ -76,24 +76,10 @@ it("imports a real temporary source through the reader and preserves visible con
       available_formats: [],
       available_statuses: [],
     }),
-    explorePaths: async (request) => ({
-      start_page_id: request.start_page_id,
-      max_hops: request.max_hops,
-      graph_revision: "application-test-revision",
-      paths: [],
-      complete: true,
-      next_cursor: null,
-      relationships_examined: 0,
-      diagnostics: [],
-    }),
-    explorePathDetails: async () => ({
-      target_page_id: "page-test",
-      target_title: "Test page",
-      steps: [],
-      complete: true,
-      next_cursor: null,
-      work_units: 0,
-    }),
+    pathGraphRevision: async () => call("path-revision"),
+    explorePaths: async (request) => call("paths", JSON.stringify(request)),
+    explorePathDetails: async (request) =>
+      call("path-details", JSON.stringify(request)),
     openSource: async (id) => call<SourcePage>("open", id),
     openKnowledgePage: async (id) => call("knowledge", id),
     openOriginal: async (id) => {
@@ -199,6 +185,10 @@ it("preserves literal tool names and linked-only URL occurrences when reading ac
       available_formats: [],
       available_statuses: [],
     }),
+    pathGraphRevision: async () => call("path-revision"),
+    explorePaths: async (request) => call("paths", JSON.stringify(request)),
+    explorePathDetails: async (request) =>
+      call("path-details", JSON.stringify(request)),
     openSource: async (id) => call<SourcePage>("open", id),
     openKnowledgePage: async (id) => call<KnowledgePage>("knowledge", id),
     openOriginal: async (id) => {
@@ -432,3 +422,136 @@ it("keeps damaged Office originals inspectable and recovers an interrupted Offic
     ),
   ).toEqual(originalBytes);
 }, 30_000);
+
+it("explores imported typed paths with keyboard and pointer and returns from intermediate stops and evidence", async () => {
+  workspace = mkdtempSync(join(tmpdir(), "knowledge-garden-path-app-"));
+  const collection = join(workspace, "collection");
+  const source = join(workspace, "field-note.txt");
+  writeFileSync(
+    source,
+    "Maya observed V17. V17 occurred at Riverside, uncertainly. Riverside is self-linked. Riverside Park is an unrelated place.",
+  );
+  const call = <T>(operation: string, ...args: string[]): T =>
+    JSON.parse(
+      execFileSync(driver, [collection, operation, ...args], {
+        encoding: "utf8",
+        timeout: 10_000,
+      }),
+    );
+  let imported: SourcePage | undefined;
+  let original: string | undefined;
+  const api: GardenApi = {
+    chooseFile: async () => source,
+    importSource: async (path) => {
+      imported = call<SourcePage>("path-recorded-import", path);
+      return imported;
+    },
+    importUrl: async () => {
+      throw new Error("No URL in fixed graph");
+    },
+    listUrlAcquisitions: async () => [],
+    listSources: async (offset) => call("list", String(offset)),
+    searchPages: async (request) => call("search", JSON.stringify(request)),
+    pathGraphRevision: async () => call("path-revision"),
+    explorePaths: async (request) => call("paths", JSON.stringify(request)),
+    explorePathDetails: async (request) =>
+      call("path-details", JSON.stringify(request)),
+    openSource: async (id) => call("open", id),
+    openKnowledgePage: async (id) => call("knowledge", id),
+    openOriginal: async (id) => {
+      original = call("original", id);
+    },
+    openOriginalAsset: async (id, asset) => {
+      original = call("original-asset", id, asset);
+    },
+    openOriginalVersion: async (id, version, asset) => {
+      original = call("original-version", id, version, asset);
+    },
+    onDrop: async () => () => {},
+  };
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(await screen.findByRole("link", { name: "Maya" }));
+  (
+    await screen.findByRole("button", { name: "Explore relationships" })
+  ).focus();
+  await user.keyboard("{Enter}");
+  expect(
+    await screen.findByRole("button", { name: "Open path stop V17" }),
+  ).toBeTruthy();
+  expect(
+    screen.queryByRole("button", { name: "Open path stop Riverside" }),
+  ).toBeNull();
+  const hops = screen.getByRole("spinbutton", {
+    name: "Maximum relationship hops",
+  });
+  await user.clear(hops);
+  await user.type(hops, "2");
+  await user.keyboard("{Enter}");
+  await screen.findByRole("button", { name: "Open path stop Riverside" });
+  expect(
+    screen.queryByRole("button", { name: "Open path stop Riverside Park" }),
+  ).toBeNull();
+  await user.click(
+    screen.getByRole("button", { name: "Inspect path (2 steps)" }),
+  );
+  expect(
+    screen.getByText(/V17 — observed by → Maya.*against the stored arrow/),
+  ).toBeTruthy();
+  expect(
+    screen.getByText(/V17 — occurred at → Riverside.*uncertain location/),
+  ).toBeTruthy();
+  expect(screen.getAllByText(/source lines 1–1/).length).toBeGreaterThan(0);
+  const stop = screen
+    .getAllByRole("button", { name: "Open path endpoint V17" })
+    .at(-1)!;
+  stop.focus();
+  await user.keyboard("{Enter}");
+  expect(await screen.findByRole("article", { name: "V17" })).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(document.activeElement?.textContent).toBe("Open path endpoint V17");
+  const support = screen
+    .getAllByRole("button", { name: "Read supporting source" })
+    .at(-1)!;
+  support.focus();
+  await user.keyboard("{Enter}");
+  expect(
+    await screen.findByRole("article", { name: "field-note" }),
+  ).toBeTruthy();
+  expect(root.querySelector("mark")?.textContent).toBe(
+    "V17 occurred at Riverside",
+  );
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(document.activeElement?.textContent).toBe("Read supporting source");
+  await user.click(
+    screen.getAllByRole("button", { name: "Open supporting original" }).at(-1)!,
+  );
+  expect(readFileSync(original!, "utf8")).toContain(
+    "V17 occurred at Riverside, uncertainly",
+  );
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  const words = screen.getByRole("searchbox", { name: "Words or title" });
+  await user.type(words, "Riverside Park");
+  await user.keyboard("{Enter}");
+  await user.click(
+    await screen.findByRole("button", { name: "Riverside Park" }),
+  );
+  expect(
+    await screen.findByRole("article", { name: "Riverside Park" }),
+  ).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  await screen.findByRole("button", { name: "Riverside Park" });
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(
+    await screen.findByRole("spinbutton", {
+      name: "Maximum relationship hops",
+    }),
+  ).toHaveProperty("value", "2");
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Search" }),
+  );
+  expect(imported?.info.semantic_state).toBe("complete");
+});

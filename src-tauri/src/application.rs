@@ -2,7 +2,7 @@
 use crate::extraction::{LocalExtractor, SourceExtractor};
 use crate::meaning::{MeaningFilters, MeaningSearch};
 use crate::media::{
-    AudioInfo, AudioProcessingInfo, AudioProcessor, MAX_AUDIO_SEGMENT_MS, NativeAudioProcessor,
+    AudioInfo, AudioProcessingInfo, AudioProcessor, NativeAudioProcessor, MAX_AUDIO_SEGMENT_MS,
 };
 use crate::office::{CoveragePart, CoverageScope, CoverageStatus, OfficeProjection};
 use crate::semantic::{
@@ -11,7 +11,7 @@ use crate::semantic::{
     SourceUpdateRole,
 };
 use fs2::FileExt;
-use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -340,6 +340,10 @@ pub struct ExploredPathStep {
     pub qualifier: Option<String>,
     pub traversal_direction: TraversalDirection,
     pub evidence_quote: String,
+    pub evidence_location: String,
+    pub evidence_origin: String,
+    pub evidence_qualifier: Option<String>,
+    pub original_guidance: String,
     pub source_id: String,
     pub source_version_id: String,
     pub original_asset: String,
@@ -1580,6 +1584,15 @@ impl Application {
         read_knowledge_page(&path)
     }
 
+    /// Cheap freshness check; reads one index row rather than restarting traversal.
+    pub fn path_graph_revision(&self) -> Result<String> {
+        Ok(self.index.query_row(
+            "SELECT revision FROM relationship_graph_meta WHERE singleton=1",
+            [],
+            |row| row.get(0),
+        )?)
+    }
+
     pub fn explore_paths(&mut self, request: PathExploreRequest) -> Result<PathExploreResponse> {
         if request.max_hops == 0 {
             return Err(GardenError::Invalid(
@@ -1811,6 +1824,28 @@ impl Application {
                 qualifier: relationship.qualifier,
                 traversal_direction: direction,
                 evidence_quote: support.evidence.quote.clone(),
+                evidence_location: {
+                    let (basis, lines, bytes, _) =
+                        evidence_display_basis(support.evidence.offset_basis);
+                    format!(
+                        "{basis} · {lines} {}–{} · {bytes} {}–{}{}",
+                        support.evidence.line_start,
+                        support.evidence.line_end,
+                        support.evidence.byte_start,
+                        support.evidence.byte_end,
+                        support
+                            .evidence
+                            .source_location
+                            .as_deref()
+                            .map(|location| format!(" · {location}"))
+                            .unwrap_or_default()
+                    )
+                },
+                evidence_origin: support.evidence.origin.clone(),
+                evidence_qualifier: support.evidence.qualifier.clone(),
+                original_guidance: evidence_display_basis(support.evidence.offset_basis)
+                    .3
+                    .into(),
                 source_id: support.source_id.clone(),
                 source_version_id: support.source_version_id.clone(),
                 original_asset,

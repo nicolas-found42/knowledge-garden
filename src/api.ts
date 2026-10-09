@@ -217,6 +217,10 @@ export interface ExploredPathStep {
   qualifier: string | null;
   traversal_direction: "with_arrow" | "against_arrow";
   evidence_quote: string;
+  evidence_location: string;
+  evidence_origin: string;
+  evidence_qualifier: string | null;
+  original_guidance: string;
   source_id: string;
   source_version_id: string;
   original_asset: string;
@@ -271,6 +275,7 @@ export interface GardenApi {
   listUrlAcquisitions(): Promise<UrlAcquisitionStatus[]>;
   listSources(offset: number): Promise<SourceList>;
   searchPages(request: PageSearchRequest): Promise<PageSearchResults>;
+  pathGraphRevision(): Promise<string>;
   explorePaths(request: PathExploreRequest): Promise<PathExploreResponse>;
   explorePathDetails(request: PathDetailsRequest): Promise<PathDetailsResponse>;
   openSource(sourceId: string): Promise<SourcePage>;
@@ -309,6 +314,7 @@ export const desktopApi: GardenApi = {
   listUrlAcquisitions: () => invoke("list_url_acquisitions"),
   listSources: (offset) => invoke("list_sources", { offset }),
   searchPages: (request) => invoke("search_pages", { request }),
+  pathGraphRevision: () => invoke("path_graph_revision"),
   explorePaths: (request) => invoke("explore_paths", { request }),
   explorePathDetails: (request) => invoke("explore_path_details", { request }),
   openSource: (sourceId) => invoke("open_source", { sourceId }),

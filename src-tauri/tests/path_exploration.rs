@@ -7,7 +7,7 @@ use knowledge_garden::semantic::{
     EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, RelationshipDraft, SemanticProvider,
     SourceUpdateDraft, SourceUpdateRole,
 };
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use std::sync::Arc;
 use tempfile::tempdir;
 
@@ -373,7 +373,8 @@ fn accepted_complete_replacement_withdraws_obsolete_path_support() {
         .current_version_id
         .unwrap();
 
-    let replacement = "Revision 2 complete replacement. Maya and V17 remain as disconnected references.";
+    let replacement =
+        "Revision 2 complete replacement. Maya and V17 remain as disconnected references.";
     std::fs::write(&source_a, replacement).unwrap();
     app.import_source(&source_a, AcquisitionMethod::Picker)
         .unwrap();
@@ -723,13 +724,11 @@ fn public_path_exploration_preserves_arrows_and_reports_supporting_evidence() {
         riverside_steps[1].relationship_id,
         repeated_steps[1].relationship_id
     );
-    assert!(
-        two_hop["paths"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|path| path["target_title"] != "Paris")
-    );
+    assert!(two_hop["paths"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|path| path["target_title"] != "Paris"));
 
     let reverse = app
         .explore_paths(PathExploreRequest {
@@ -756,20 +755,16 @@ fn public_path_exploration_preserves_arrows_and_reports_supporting_evidence() {
         reverse_steps[0].traversal_direction,
         knowledge_garden::application::TraversalDirection::AgainstArrow
     );
-    assert!(
-        reverse["paths"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|path| path["target_title"] != "Paris")
-    );
-    assert!(
-        !reverse["paths"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|path| path["target_page_id"] == riverside["target_page_id"])
-    );
+    assert!(reverse["paths"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|path| path["target_title"] != "Paris"));
+    assert!(!reverse["paths"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|path| path["target_page_id"] == riverside["target_page_id"]));
 
     let from_riverside = app
         .explore_paths(PathExploreRequest {
@@ -793,13 +788,11 @@ fn public_path_exploration_preserves_arrows_and_reports_supporting_evidence() {
         "cycles and the self-link must not duplicate stops"
     );
     assert!(!returned_ids.contains(riverside["target_page_id"].as_str().unwrap()));
-    assert!(
-        from_riverside["paths"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|path| path["target_title"] == "V17")
-    );
+    assert!(from_riverside["paths"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|path| path["target_title"] == "V17"));
 }
 
 #[test]
@@ -1226,30 +1219,24 @@ fn missing_endpoint_is_reported_without_hiding_other_routes() {
         })
         .unwrap();
     let explored = serde_json::to_value(explored).unwrap();
-    assert!(
-        explored["paths"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|path| path["target_page_id"] != missing.page_id)
-    );
-    assert!(
-        explored["paths"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|path| path["target_title"] == "V17")
-    );
-    assert!(
-        explored["diagnostics"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|diagnostic| {
-                diagnostic["kind"] == "missing_endpoint"
-                    && diagnostic["endpoint_page_id"] == missing.page_id
-            })
-    );
+    assert!(explored["paths"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|path| path["target_page_id"] != missing.page_id));
+    assert!(explored["paths"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|path| path["target_title"] == "V17"));
+    assert!(explored["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|diagnostic| {
+            diagnostic["kind"] == "missing_endpoint"
+                && diagnostic["endpoint_page_id"] == missing.page_id
+        }));
 }
 
 #[test]
@@ -1329,4 +1316,113 @@ fn missing_relationship_support_is_reported_without_silently_omitting_the_edge()
         knowledge_garden::application::PathExploreDiagnosticKind::MissingSupport
     );
     assert_eq!(result.diagnostics[0].endpoint_page_id, v17_page_id);
+}
+
+#[test]
+fn similarity_edges_retain_their_meaning_and_never_assert_identity_or_causation() {
+    let workspace = tempdir().unwrap();
+    let text = "Riverside is similar to Riverside Park, but their identity is unconfirmed.";
+    let source = workspace.path().join("similarity.txt");
+    std::fs::write(&source, text).unwrap();
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(FixedGraph(KnowledgeDraft {
+            entities: vec![
+                entity(text, "place", "Riverside"),
+                entity(text, "place", "Riverside Park"),
+            ],
+            relationships: vec![RelationshipDraft {
+                from: "Riverside".into(),
+                to: "Riverside Park".into(),
+                kind: "similar_to".into(),
+                qualifier: Some("identity unconfirmed".into()),
+                evidence: evidence(text, text),
+            }],
+            ..KnowledgeDraft::default()
+        })),
+    )
+    .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let processed = app.open_source(&imported.info.source_id).unwrap();
+    let start = processed
+        .knowledge_pages
+        .iter()
+        .find(|page| page.title == "Riverside")
+        .unwrap();
+    let result = app
+        .explore_paths(PathExploreRequest {
+            start_page_id: start.page_id.clone(),
+            max_hops: 1,
+            page_size: 50,
+            relationship_work_budget: 50,
+            continuation: None,
+        })
+        .unwrap();
+    assert_eq!(result.paths.len(), 1);
+    assert_eq!(result.paths[0].target_title, "Riverside Park");
+    let steps = load_path_steps(&mut app, &result.paths[0].detail_token);
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].kind, "similar_to");
+    assert_eq!(steps[0].qualifier.as_deref(), Some("identity unconfirmed"));
+    assert_eq!(steps[0].evidence_quote, text);
+    assert_eq!(steps[0].evidence_origin, "observed");
+    assert!(steps[0].evidence_location.contains("source lines 1–1"));
+    assert!(
+        steps[0].original_guidance.contains("fallback")
+            || steps[0].original_guidance.contains("beginning")
+    );
+    assert_eq!(app.path_graph_revision().unwrap(), result.graph_revision);
+}
+
+#[test]
+fn removal_of_the_only_acquired_support_retires_the_path_on_index_refresh() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("report.txt");
+    std::fs::write(&source, "Maya observed V17.").unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open_with_semantic_provider(
+        &collection,
+        Arc::new(RelationshipWithdrawalGraph),
+    )
+    .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let processed = app.open_source(&imported.info.source_id).unwrap();
+    let maya = processed
+        .knowledge_pages
+        .iter()
+        .find(|page| page.title == "Maya")
+        .unwrap();
+    let request = PathExploreRequest {
+        start_page_id: maya.page_id.clone(),
+        max_hops: 1,
+        page_size: 50,
+        relationship_work_budget: 50,
+        continuation: None,
+    };
+    let before = app.explore_paths(request.clone()).unwrap();
+    assert_eq!(before.paths.len(), 1);
+    let retained_source_directory = collection
+        .join("sources")
+        .join(imported.info.source_id.strip_prefix("source-").unwrap());
+    std::fs::remove_dir_all(retained_source_directory).unwrap();
+    app.rebuild_index().unwrap();
+    assert_ne!(app.path_graph_revision().unwrap(), before.graph_revision);
+    let after = app.explore_paths(request).unwrap();
+    assert!(after.paths.is_empty());
+    assert!(after.diagnostics.iter().any(|diagnostic| diagnostic.kind
+        == knowledge_garden::application::PathExploreDiagnosticKind::MissingSupport));
+    let stale = app
+        .explore_path_details(PathDetailsRequest {
+            detail_token: before.paths[0].detail_token.clone(),
+            continuation: None,
+            work_budget: 50,
+        })
+        .unwrap_err();
+    assert!(stale.to_string().contains("stale"));
 }
