@@ -1442,3 +1442,71 @@ fn removal_of_the_only_acquired_support_retires_the_path_on_index_refresh() {
         .unwrap_err();
     assert!(stale.to_string().contains("stale"));
 }
+
+#[test]
+fn each_index_refresh_uses_fresh_endpoint_labels_without_changing_relationship_meaning() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("labels.txt");
+    std::fs::write(&source, "Maya is a field observer. Maya observed V17.").unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app =
+        Application::open_with_semantic_provider(&collection, Arc::new(VersionedOfficeGraph))
+            .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let processed = app.open_source(&imported.info.source_id).unwrap();
+    let maya = processed
+        .knowledge_pages
+        .iter()
+        .find(|page| page.title == "Maya")
+        .unwrap();
+    let visit = processed
+        .knowledge_pages
+        .iter()
+        .find(|page| page.title == "V17")
+        .unwrap();
+    let visit_path = collection
+        .join("pages")
+        .join(format!("{}.md", visit.page_id));
+    for title in ["Visit 17 renamed", "Visit 17 renamed again"] {
+        let markdown = std::fs::read_to_string(&visit_path).unwrap();
+        let (metadata, body) = markdown
+            .strip_prefix("---\n")
+            .unwrap()
+            .split_once("\n---\n")
+            .unwrap();
+        let mut header: serde_yaml_ng::Value = serde_yaml_ng::from_str(metadata).unwrap();
+        header["title"] = serde_yaml_ng::Value::String(title.into());
+        std::fs::write(
+            &visit_path,
+            format!(
+                "---\n{}\n---\n{body}",
+                serde_yaml_ng::to_string(&header).unwrap().trim_end()
+            ),
+        )
+        .unwrap();
+        app.rebuild_index().unwrap();
+        let result = app
+            .explore_paths(PathExploreRequest {
+                start_page_id: maya.page_id.clone(),
+                max_hops: 1,
+                page_size: 50,
+                relationship_work_budget: 50,
+                continuation: None,
+            })
+            .unwrap();
+        assert_eq!(result.paths.len(), 1);
+        assert_eq!(result.paths[0].target_title, title);
+        let steps = load_path_steps(&mut app, &result.paths[0].detail_token);
+        assert_eq!(steps[0].from_title, title);
+        assert_eq!(steps[0].kind, "observed_by");
+        assert_eq!(steps[0].evidence_quote, "Maya observed V17");
+        let retained = app.open_knowledge_page(&maya.page_id).unwrap();
+        assert!(retained.markdown.contains(&format!("[{title}]")));
+        assert!(!retained
+            .markdown
+            .contains("Authority: owner manual correction"));
+    }
+}

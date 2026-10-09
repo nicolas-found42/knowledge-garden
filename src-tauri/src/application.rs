@@ -4777,6 +4777,16 @@ impl Application {
         header: &mut KnowledgePageHeader,
         path: &Path,
     ) -> Result<bool> {
+        let labels = self.knowledge_page_labels()?;
+        self.capture_manual_fact_corrections_with_labels(header, path, &labels)
+    }
+
+    fn capture_manual_fact_corrections_with_labels(
+        &self,
+        header: &mut KnowledgePageHeader,
+        path: &Path,
+        labels: &std::collections::HashMap<String, String>,
+    ) -> Result<bool> {
         let markdown = fs::read_to_string(path)?;
         let Some((_, body)) = markdown.split_once("\n---\n") else {
             return Ok(false);
@@ -4830,8 +4840,11 @@ impl Application {
             fact.value = corrected_value;
             fact.origin = "manual_correction".into();
         }
-        let generated =
-            self.render_knowledge_page(header.clone(), &std::collections::HashMap::new())?;
+        let generated = self.render_knowledge_page_with_labels(
+            header.clone(),
+            &std::collections::HashMap::new(),
+            labels,
+        )?;
         let generated_body = generated
             .split_once("\n---\n")
             .map(|(_, body)| body)
@@ -4898,16 +4911,32 @@ impl Application {
             .map(|entry| entry.path())
             .filter(|path| path.extension().is_some_and(|extension| extension == "md"))
             .collect::<Vec<_>>();
+        // Capture one fresh snapshot for this operation. Each page render borrows
+        // it, avoiding a complete label-file scan for every retained page.
+        let labels = self.knowledge_page_labels()?;
         for path in paths {
             let mut header = read_knowledge_header(&path)?;
             ensure_legacy_supports(&mut header);
-            if self.capture_manual_fact_corrections(&mut header, &path)? {
-                let markdown =
-                    self.render_knowledge_page(header, &std::collections::HashMap::new())?;
+            if self.capture_manual_fact_corrections_with_labels(&mut header, &path, &labels)? {
+                let markdown = self.render_knowledge_page_with_labels(
+                    header,
+                    &std::collections::HashMap::new(),
+                    &labels,
+                )?;
                 write_atomic(&path, markdown.as_bytes())?;
             }
         }
         Ok(())
+    }
+
+    fn knowledge_page_labels(&self) -> Result<std::collections::HashMap<String, String>> {
+        let pages_dir = self.root.join("pages");
+        Ok(fs::read_dir(&pages_dir)?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "md"))
+            .filter_map(|entry| read_knowledge_page(&entry.path()).ok())
+            .map(|page| (page.page_id, page.title))
+            .collect::<std::collections::HashMap<_, _>>())
     }
 
     fn render_knowledge_page(
@@ -4915,16 +4944,16 @@ impl Application {
         header: KnowledgePageHeader,
         additional_labels: &std::collections::HashMap<String, String>,
     ) -> Result<String> {
-        let pages_dir = self.root.join("pages");
-        let mut labels = fs::read_dir(&pages_dir)?
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "md"))
-            .filter_map(|entry| read_knowledge_page(&entry.path()).ok())
-            .map(|page| (page.page_id, page.title))
-            .collect::<std::collections::HashMap<_, _>>();
-        for (page_id, title) in additional_labels {
-            labels.insert(page_id.clone(), title.clone());
-        }
+        let labels = self.knowledge_page_labels()?;
+        self.render_knowledge_page_with_labels(header, additional_labels, &labels)
+    }
+
+    fn render_knowledge_page_with_labels(
+        &self,
+        header: KnowledgePageHeader,
+        additional_labels: &std::collections::HashMap<String, String>,
+        labels: &std::collections::HashMap<String, String>,
+    ) -> Result<String> {
         let mut body = format!("# {}\n\n## Facts\n", escape_heading(&header.title));
         for fact in &header.facts {
             let support = self.latest_support(&fact.supports)?;
@@ -5034,9 +5063,9 @@ impl Application {
             };
             body.push_str(&format!(
                 "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Source support count: {}\n  - Links: [Source page]({}) · [Retained original]({}){}\n",
-                escape_markdown(labels.get(&rel.from_page_id).map(String::as_str).unwrap_or(&rel.from_page_id)), rel.from_page_id,
+                escape_markdown(additional_labels.get(&rel.from_page_id).or_else(|| labels.get(&rel.from_page_id)).map(String::as_str).unwrap_or(&rel.from_page_id)), rel.from_page_id,
                 escape_markdown(&rel.kind.replace('_', " ")),
-                escape_markdown(labels.get(&rel.to_page_id).map(String::as_str).unwrap_or(&rel.to_page_id)), rel.to_page_id,
+                escape_markdown(additional_labels.get(&rel.to_page_id).or_else(|| labels.get(&rel.to_page_id)).map(String::as_str).unwrap_or(&rel.to_page_id)), rel.to_page_id,
                 rel.qualifier.as_deref().map(|q| format!(" (qualifier: {})", escape_markdown(q))).unwrap_or_default(),
                 rel.relationship_id, escape_markdown(&evidence.quote), escape_markdown(origin),
                 line_label, evidence.line_start, evidence.line_end, byte_label, evidence.byte_start, evidence.byte_end,
