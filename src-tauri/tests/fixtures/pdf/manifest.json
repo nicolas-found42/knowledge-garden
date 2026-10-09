@@ -1,0 +1,53 @@
+{
+  "synthetic": true,
+  "source_files": [
+    {
+      "file": "columns.pdf",
+      "bytes": 1463,
+      "sha256": "4c8e05d16ce26e741280df5a5b9854e4f806a86e9af9fb832180111050c73db4"
+    },
+    {
+      "file": "damaged.pdf",
+      "bytes": 67,
+      "sha256": "da637920fa92b34b528860a30befe5bfb0e84cd8dcde352da65342e401c72e08"
+    },
+    {
+      "file": "encrypted.pdf",
+      "bytes": 1993,
+      "sha256": "4cfb0436686c7fedd00e9c84fb13cf2acad0dd24c0f9d5f1e752b984e7b6e977"
+    },
+    {
+      "file": "homework.pdf",
+      "bytes": 1503,
+      "sha256": "06825a5735dcacf5ebc89ec3bdb5e37ee77eee83b99047e9733042f137278146"
+    },
+    {
+      "file": "low-quality.pdf",
+      "bytes": 108604,
+      "sha256": "c2f3372fe2e3e95d757eda0d64df69c865399e94cc1f3a848fb62a97af0da6dc"
+    },
+    {
+      "file": "mixed.pdf",
+      "bytes": 14129,
+      "sha256": "6b80419b3dfa124b7a5892cd053fc8a52b89e993a5052096e38a6275a82b2a99"
+    },
+    {
+      "file": "rotated-report.pdf",
+      "bytes": 58475,
+      "sha256": "438b20a4b1057309813072c5537bc4b69b6e597d78fe41cec4fc9fc28cb19da7"
+    },
+    {
+      "file": "scanned-report.pdf",
+      "bytes": 58905,
+      "sha256": "c0750d906438e34d1c92efee7843cfcd7f2e14aa3d4fa4dad37b5bd50e4369ae"
+    },
+    {
+      "file": "text-report.pdf",
+      "bytes": 1963,
+      "sha256": "1db8bb075ea745f205828a8bfa9f35aca46ec3f6f403138367eec19dda65f44e"
+    }
+  ],
+  "visual_qa": "visual-qa.png",
+  "rendering": "Poppler pdftoppm all10 readable pages inspected; Fontconfig warning emitted on text fonts, exit0 and expected content rendered.",
+  "not_accuracy_evidence": true
+}
