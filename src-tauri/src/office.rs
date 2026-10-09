@@ -10,6 +10,7 @@ const MAX_RELATIONSHIP_SCAN_BYTES: u64 = 8 * 1024 * 1024;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CoverageScope {
+    PdfPages,
     MainDocument,
     ConversationMessages,
     Tables,

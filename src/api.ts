@@ -13,6 +13,7 @@ export type ExtractionState =
   | "too_large";
 
 export type CoverageScope =
+  | "pdf_pages"
   | "main_document"
   | "tables"
   | "slide_text"
