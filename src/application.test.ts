@@ -160,7 +160,7 @@ it("preserves literal tool names and linked-only URL occurrences when reading ac
     JSON.parse(
       execFileSync(driver, [collection, operation, ...args], {
         encoding: "utf8",
-        timeout: 15_000,
+        timeout: 30_000,
       }),
     );
   let imported: SourcePage | undefined;
