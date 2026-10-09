@@ -1,0 +1,36 @@
+[
+  {
+    "file": "field-visit.docx",
+    "sha256": "81b638fb10f7e2c206621c96537b5abd8516c5d7fb85c0f61b4c302d0930ace7",
+    "zip_bad_member": null,
+    "xml_parts_well_formed": 16,
+    "embedded_parts": [
+      "word/embeddings/oleObject1.bin"
+    ],
+    "external_relationships": [
+      [
+        "word/_rels/document.xml.rels",
+        "https://example.invalid/unacquired-methods"
+      ]
+    ],
+    "notes_parts": []
+  },
+  {
+    "file": "visit-summary.pptx",
+    "sha256": "abdb9ee97b6c50b884514d375f5bae26044cb847196b3f581fedddb1af2bb030",
+    "zip_bad_member": null,
+    "xml_parts_well_formed": 21,
+    "embedded_parts": [
+      "ppt/embeddings/oleObject1.bin"
+    ],
+    "external_relationships": [
+      [
+        "ppt/slides/_rels/slide1.xml.rels",
+        "https://example.invalid/linked-method"
+      ]
+    ],
+    "notes_parts": [
+      "ppt/notesSlides/notesSlide1.xml"
+    ]
+  }
+]
