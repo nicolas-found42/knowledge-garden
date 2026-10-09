@@ -588,10 +588,24 @@ fn ordered_v17_recording() -> KnowledgeDraft {
 }
 
 fn replacement_recording(text: &str, visits: u32, include_duration: bool) -> KnowledgeDraft {
+    replacement_recording_with_duration(text, visits, include_duration, "10 minutes")
+}
+
+fn replacement_recording_with_duration(
+    text: &str,
+    visits: u32,
+    include_duration: bool,
+    duration: &str,
+) -> KnowledgeDraft {
     let evidence = |quote: &str| EvidenceDraft {
         quote: quote.to_owned(),
-        byte_start: text.find(quote).unwrap(),
-        byte_end: text.find(quote).unwrap() + quote.len(),
+        byte_start: text
+            .find(quote)
+            .unwrap_or_else(|| panic!("missing evidence quote `{quote}` in source: {text}")),
+        byte_end: text
+            .find(quote)
+            .unwrap_or_else(|| panic!("missing evidence quote `{quote}` in source: {text}"))
+            + quote.len(),
         origin: "observed".to_owned(),
         qualifier: None,
         offset_basis: None,
@@ -617,8 +631,8 @@ fn replacement_recording(text: &str, visits: u32, include_duration: bool) -> Kno
         facts.push(FactDraft {
             subject: "Observation V17".into(),
             property: "duration".into(),
-            value: "10 minutes".into(),
-            evidence: evidence("Duration: 10 minutes."),
+            value: duration.into(),
+            evidence: evidence(&format!("Duration: {duration}.")),
             record_key: None,
         });
     }
@@ -1668,6 +1682,98 @@ fn explicit_v17_count_only_correction_updates_just_the_count() {
         .pages
         .iter()
         .any(|page| page.page_id == initial_source.info.page_id));
+}
+
+#[test]
+fn count_only_correction_preserves_a_separate_manual_duration_correction() {
+    let workspace = tempdir().unwrap();
+    let initial_path = workspace.path().join("V17.txt");
+    let initial_text = "Revision 1 dated May 18, 2024; observation V17 on May 17, 2024; observer Maya; location Riverside; 12 visits; duration 10 minutes. It possibly occurred at Riverside. A different person named Maya filed another report.";
+    fs::write(&initial_path, initial_text).unwrap();
+    let correction_path = workspace.path().join("correction.txt");
+    let correction_text = "Correction dated May 19, 2024. For Observation V17: The visit total should read 15, not 12. This note corrects the count only.";
+    fs::write(&correction_path, correction_text).unwrap();
+    let evidence = |quote: &str| EvidenceDraft {
+        quote: quote.to_owned(),
+        byte_start: correction_text.find(quote).unwrap(),
+        byte_end: correction_text.find(quote).unwrap() + quote.len(),
+        origin: "observed".into(),
+        qualifier: None,
+        offset_basis: None,
+        source_location: None,
+    };
+    let correction_quote = "For Observation V17: The visit total should read 15, not 12.";
+    let candidate = CorrectionCandidateDraft {
+        event_label: "Observation V17".into(),
+        property: "visit_count".into(),
+        previous_value: "12 visits".into(),
+        corrected_value: "15 visits".into(),
+        evidence: evidence(correction_quote),
+    };
+    let correction = KnowledgeDraft {
+        entities: vec![EntityDraft {
+            kind: "event".into(),
+            label: "Observation V17".into(),
+            evidence: evidence("Observation V17"),
+        }],
+        facts: vec![FactDraft {
+            subject: "Observation V17".into(),
+            property: "visit_count".into(),
+            value: "15 visits".into(),
+            evidence: evidence(correction_text),
+            record_key: None,
+        }],
+        source_update: Some(recorded_update(
+            correction_text,
+            SourceUpdateRole::TargetedCorrection,
+        )),
+        correction_candidates: vec![candidate.clone()],
+        correction_alignments: vec![CorrectionAlignmentDraft {
+            candidate,
+            outcome: FieldAlignmentOutcome::SameFieldCorrection,
+            certainty: 0.99,
+            model: "test-jev".into(),
+        }],
+        ..KnowledgeDraft::default()
+    };
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open_with_semantic_provider(
+        &collection,
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(ordered_v17_recording()),
+            Ok(correction),
+        ])),
+    )
+    .unwrap();
+    let initial_source = app
+        .import_source(&initial_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let event = app
+        .open_source(&initial_source.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.title == "Observation V17")
+        .unwrap();
+    let page_path = collection
+        .join("pages")
+        .join(format!("{}.md", event.page_id));
+    let before = fs::read_to_string(&page_path).unwrap();
+    let owner_corrected =
+        before.replace("- **duration:** 10 minutes", "- **duration:** 11 minutes");
+    assert_ne!(before, owner_corrected);
+    fs::write(&page_path, owner_corrected).unwrap();
+    app.rebuild_index().unwrap();
+
+    app.import_source(&correction_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let corrected = app.open_knowledge_page(&event.page_id).unwrap();
+    assert!(corrected.markdown.contains("- **visit count:** 15 visits"));
+    assert!(corrected.markdown.contains("- **duration:** 11 minutes"));
+    assert!(corrected.markdown.contains("manual_correction:"));
+    assert!(corrected.markdown.contains("value: 11 minutes"));
 }
 
 #[test]
@@ -5125,4 +5231,266 @@ fn same_source_reasoning_with_collapsed_message_identity_stays_pending_until_ret
         .filter(|page| page.kind == "reasoning_event")
         .collect::<Vec<_>>();
     assert_ne!(event_pages[0].page_id, event_pages[1].page_id);
+}
+
+#[test]
+fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("V17.txt");
+    let first_text = "Complete report, revision 1 dated May 18, 2024.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 12. Duration: 10 minutes.\n";
+    let second_text = "Complete report, revision 2 dated May 20, 2024. This report completely replaces revision 1 of this same observation record.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 15. Duration: 12 minutes.\n";
+    let third_text = "Complete report, revision 3 dated May 21, 2024. This report completely replaces revision 2 of this same observation record.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 16.\n";
+    fs::write(&source, first_text).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open_with_semantic_provider(
+        &collection,
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(replacement_recording(first_text, 12, true)),
+            Ok(replacement_recording_with_duration(
+                second_text,
+                15,
+                true,
+                "12 minutes",
+            )),
+            Ok(replacement_recording(third_text, 16, false)),
+        ])),
+    )
+    .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let event = app
+        .open_source(&imported.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.title == "Observation V17")
+        .unwrap();
+    let page_path = collection
+        .join("pages")
+        .join(format!("{}.md", event.page_id));
+
+    // A plain external editor corrects one fact and changes independent prose
+    // and owner metadata. Save through a same-directory rename, as editors do.
+    let before = fs::read_to_string(&page_path).unwrap();
+    let (frontmatter, body) = before.split_once("\n---\n").unwrap();
+    let body = body
+        .replace("- **duration:** 10 minutes", "- **duration:** 11 minutes")
+        .replace(
+            "\n## Facts\n",
+            "\nOwner note: reviewed and corrected after field playback.\n\n## Facts\n",
+        );
+    let edited = format!("{frontmatter}\nowner_metadata:\n  review: field-playback\n---\n{body}");
+    assert_ne!(
+        before, edited,
+        "the fixture must change the actual Markdown"
+    );
+    let temp_path = page_path.with_extension("md.tmp");
+    fs::write(&temp_path, &edited).unwrap();
+    fs::rename(&temp_path, &page_path).unwrap();
+    let externally_edited = app.open_knowledge_page(&event.page_id).unwrap();
+    assert!(externally_edited
+        .markdown
+        .contains("- **duration:** 11 minutes"));
+    assert!(externally_edited
+        .markdown
+        .contains("Owner note: reviewed and corrected after field playback."));
+
+    // A derived-index reconstruction rescans the external file before the next
+    // source publication, so the correction becomes durable before refresh.
+    app.rebuild_index().unwrap();
+    let rescanned = app.open_knowledge_page(&event.page_id).unwrap();
+    assert!(rescanned.markdown.contains("- **duration:** 11 minutes"));
+    let rescanned_header = fs::read_to_string(&page_path).unwrap();
+    assert!(rescanned_header.contains("manual_correction:"));
+    assert!(rescanned_header.contains("value: 11 minutes"));
+
+    // A later complete source update changes the unedited count and also reports
+    // a different duration; the owner's external correction remains authoritative.
+    fs::write(&source, second_text).unwrap();
+    app.import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let current = app.open_knowledge_page(&event.page_id).unwrap();
+    assert!(current.markdown.contains("- **visit count:** 15 visits"));
+    assert!(
+        current.markdown.contains("- **duration:** 11 minutes"),
+        "source refresh must preserve the owner's external fact edit: {}",
+        current.markdown
+    );
+    assert!(!current.markdown.contains("- **duration:** 12 minutes"));
+    assert!(
+        current
+            .markdown
+            .contains("Owner note: reviewed and corrected after field playback."),
+        "owner prose should survive source replacement: {}",
+        current.markdown
+    );
+
+    // A later complete replacement of this same observation omits duration;
+    // manual authority survives support removal while the count keeps updating.
+    fs::write(&source, third_text).unwrap();
+    app.import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let unsupported_by_source = app.open_knowledge_page(&event.page_id).unwrap();
+    assert!(unsupported_by_source
+        .markdown
+        .contains("- **visit count:** 16 visits"));
+    assert!(unsupported_by_source
+        .markdown
+        .contains("- **duration:** 11 minutes"));
+    let corrected_fact_section = unsupported_by_source
+        .markdown
+        .split("- **duration:** 11 minutes")
+        .nth(1)
+        .unwrap()
+        .split("\n\n")
+        .next()
+        .unwrap();
+    let source_status = app.open_source(&imported.info.source_id).unwrap().info;
+    assert!(
+        corrected_fact_section.contains("Source support count: 0"),
+        "the fact should remain solely because of manual authority after source support removal: {corrected_fact_section}\nsource status: {source_status:#?}\nfull page: {}",
+        unsupported_by_source.markdown
+    );
+    assert!(!unsupported_by_source
+        .markdown
+        .contains("duration: 12 minutes"));
+
+    drop(app);
+    fs::remove_dir_all(collection.join(".derived")).unwrap();
+    let mut reopened = Application::open(&collection).unwrap();
+    let after_rebuild = reopened.open_knowledge_page(&event.page_id).unwrap();
+    assert!(after_rebuild
+        .markdown
+        .contains("- **visit count:** 16 visits"));
+    assert!(after_rebuild
+        .markdown
+        .contains("- **duration:** 11 minutes"));
+    assert!(after_rebuild
+        .markdown
+        .contains("Owner note: reviewed and corrected after field playback."));
+    let durable_page = fs::read_to_string(
+        collection
+            .join("pages")
+            .join(format!("{}.md", event.page_id)),
+    )
+    .unwrap();
+    assert!(durable_page.contains("review: field-playback"));
+    assert!(durable_page.contains("manual_correction:"));
+    assert!(durable_page.contains("value: 11 minutes"));
+    assert!(reopened
+        .search_pages(PageSearchRequest {
+            query: "11 minutes".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap()
+        .pages
+        .iter()
+        .any(|page| page.page_id == event.page_id));
+}
+
+#[test]
+fn uninterpretable_external_page_edit_is_retained_and_marked_uncertain() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("V17.txt");
+    let first_text = "Complete report, revision 1 dated May 18, 2024.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 12. Duration: 10 minutes.\n";
+    let second_text = "Complete report, revision 2 dated May 20, 2024. This report completely replaces revision 1 of this same observation record.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 15. Duration: 12 minutes.\n";
+    fs::write(&source, first_text).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open_with_semantic_provider(
+        &collection,
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(replacement_recording(first_text, 12, true)),
+            Ok(replacement_recording_with_duration(
+                second_text,
+                15,
+                true,
+                "12 minutes",
+            )),
+        ])),
+    )
+    .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let event = app
+        .open_source(&imported.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.title == "Observation V17")
+        .unwrap();
+    let page_path = collection
+        .join("pages")
+        .join(format!("{}.md", event.page_id));
+    let before = fs::read_to_string(&page_path).unwrap();
+    let edited = before.replace(
+        "- **duration:** 10 minutes",
+        "- **duration changed:** maybe 11 minutes\n\n    owner spacing preserved\n\n```text\n  exact indentation\n\n```",
+    );
+    assert_ne!(before, edited, "the fixture must edit the actual Markdown");
+    let temp_path = page_path.with_extension("md.tmp");
+    fs::write(&temp_path, &edited).unwrap();
+    fs::rename(&temp_path, &page_path).unwrap();
+
+    fs::write(&source, second_text).unwrap();
+    app.import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let current = app.open_knowledge_page(&event.page_id).unwrap();
+    assert_eq!(current.external_edit_status.as_deref(), Some("uncertain"));
+    assert!(current
+        .markdown
+        .contains("- **duration changed:** maybe 11 minutes"));
+    assert!(current.markdown.contains("- **visit count:** 15 visits"));
+    let durable = fs::read_to_string(&page_path).unwrap();
+    let header: serde_yaml_ng::Value = serde_yaml_ng::from_str(
+        durable
+            .split_once("\n---\n")
+            .unwrap()
+            .0
+            .trim_start_matches("---\n"),
+    )
+    .unwrap();
+    let retained_edit = header["uninterpreted_owner_edits"][0].as_str().unwrap();
+    assert!(
+        retained_edit.starts_with("owner-edits/"),
+        "raw saves belong in durable Markdown sidecars, not recursively embedded in page metadata"
+    );
+    assert_eq!(
+        fs::read_to_string(collection.join(retained_edit)).unwrap(),
+        edited,
+        "the complete uncertain owner save must be retained byte for byte"
+    );
+    app.rebuild_index().unwrap();
+    let after_first_rescan = fs::read_to_string(&page_path).unwrap();
+    app.rebuild_index().unwrap();
+    assert_eq!(
+        fs::read_to_string(&page_path).unwrap(),
+        after_first_rescan,
+        "rescanning generated authority and uncertain notes must not accumulate new notes"
+    );
+    drop(app);
+    fs::remove_dir_all(collection.join(".derived")).unwrap();
+    let mut reopened = Application::open(&collection).unwrap();
+    let restored = reopened.open_knowledge_page(&event.page_id).unwrap();
+    assert_eq!(restored.external_edit_status.as_deref(), Some("uncertain"));
+    assert!(restored.markdown.contains("- **visit count:** 15 visits"));
+    assert!(
+        !reopened
+            .search_pages(PageSearchRequest {
+                query: "10 minutes".into(),
+                ..PageSearchRequest::default()
+            })
+            .unwrap()
+            .pages
+            .iter()
+            .any(|page| page.page_id == event.page_id),
+        "exact owner-save recovery data must not index the obsolete duration as current knowledge"
+    );
 }

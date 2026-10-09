@@ -860,6 +860,7 @@ it("opens linked knowledge pages, returns to their source, and opens the retaine
     source_id: source.info.source_id,
     title: "Observation V17",
     kind: "event",
+    external_edit_status: "uncertain",
     markdown: `---\npage_id: page-v17\n---\n\n# Observation V17\n\n12 visits.\n\n[Source page](../sources/${digest}/index.md) · [Current original](../sources/${digest}/original.txt) · [Retained original](../sources/${digest}/versions/${oldVersion}/original.txt)`,
   };
   const api = testApi();
@@ -877,6 +878,10 @@ it("opens linked knowledge pages, returns to their source, and opens the retaine
   expect(
     await screen.findByRole("article", { name: "Observation V17" }),
   ).toBeTruthy();
+  const editStatus = await screen.findByText(
+    /Some external Markdown changes could not be interpreted safely\./,
+  );
+  expect(editStatus.getAttribute("role")).toBe("status");
   expect(api.openKnowledgePage).toHaveBeenCalledWith("page-v17");
   await user.click(screen.getByRole("link", { name: "Source page" }));
   expect(api.openSource).toHaveBeenCalledWith(source.info.source_id);

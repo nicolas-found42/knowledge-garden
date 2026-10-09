@@ -567,6 +567,15 @@ export async function mountReader(
       ).catch(report);
     });
     article.prepend(explore, returnLink);
+    if (next.external_edit_status === "uncertain") {
+      const editNotice = element(
+        "p",
+        "Some external Markdown changes could not be interpreted safely. The owner content is retained; these changes have not been promoted to current facts. Unedited facts continue updating.",
+      );
+      editNotice.className = "update-status";
+      editNotice.setAttribute("role", "status");
+      article.prepend(editNotice);
+    }
   }
 
   function renderPathExplorer(

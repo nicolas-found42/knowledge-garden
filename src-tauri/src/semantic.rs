@@ -215,4 +215,6 @@ pub struct KnowledgePage {
     pub title: String,
     pub kind: String,
     pub markdown: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_edit_status: Option<String>,
 }
