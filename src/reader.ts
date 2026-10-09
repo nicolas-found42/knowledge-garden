@@ -467,6 +467,15 @@ export async function mountReader(
     const returnLink = element("a", "Return to source page");
     returnLink.href = `../sources/${next.source_id.slice("source-".length)}/index.md`;
     article.prepend(returnLink);
+    if (next.external_edit_status === "uncertain") {
+      const editNotice = element(
+        "p",
+        "Some external Markdown changes could not be interpreted safely. The owner content is retained; these changes have not been promoted to current facts. Unedited facts continue updating.",
+      );
+      editNotice.className = "update-status";
+      editNotice.setAttribute("role", "status");
+      article.prepend(editNotice);
+    }
   }
 
   function highlightQuote(quote: string | null | undefined) {
