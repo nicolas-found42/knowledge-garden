@@ -4,10 +4,73 @@ use knowledge_garden::application::{
 };
 use knowledge_garden::providers::{JevSemanticProvider, SystemOneTransport};
 use knowledge_garden::semantic::{
-    EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, SemanticProvider,
+    EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, RelationshipDraft,
+    SemanticProvider,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
+
+struct RecordedPathProvider;
+impl SemanticProvider for RecordedPathProvider {
+    fn form_knowledge(&self, text: &str) -> Result<KnowledgeDraft, ProviderError> {
+        let evidence = |quote: &str| {
+            let start = text.find(quote).expect("fixed path fixture span");
+            EvidenceDraft {
+                quote: quote.into(),
+                byte_start: start,
+                byte_end: start + quote.len(),
+                origin: "recorded_fixture".into(),
+                qualifier: None,
+                offset_basis: None,
+                source_location: None,
+            }
+        };
+        let entities = [
+            ("Maya", "person"),
+            ("V17", "event"),
+            ("Riverside", "place"),
+            ("Riverside Park", "place"),
+        ]
+        .into_iter()
+        .map(|(label, kind)| EntityDraft {
+            label: label.into(),
+            kind: kind.into(),
+            evidence: evidence(label),
+        })
+        .collect();
+        let relationships = [
+            ("V17", "Maya", "observed_by", "Maya observed V17", None),
+            (
+                "V17",
+                "Riverside",
+                "occurred_at",
+                "V17 occurred at Riverside",
+                Some("uncertain location"),
+            ),
+            (
+                "Riverside",
+                "Riverside",
+                "related_to",
+                "Riverside is self-linked",
+                None,
+            ),
+        ]
+        .into_iter()
+        .map(|(from, to, kind, quote, qualifier)| RelationshipDraft {
+            from: from.into(),
+            to: to.into(),
+            kind: kind.into(),
+            qualifier: qualifier.map(String::from),
+            evidence: evidence(quote),
+        })
+        .collect();
+        Ok(KnowledgeDraft {
+            entities,
+            relationships,
+            ..KnowledgeDraft::default()
+        })
+    }
+}
 
 struct RecordedConversationTransport;
 
@@ -112,6 +175,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             args.get(1).ok_or("missing test collection")?,
             std::sync::Arc::new(JevSemanticProvider::from_environment_and_keychain()),
         )?
+    } else if operation == "path-recorded-import" {
+        Application::open_with_semantic_provider(
+            args.get(1).ok_or("missing test collection")?,
+            std::sync::Arc::new(RecordedPathProvider),
+        )?
     } else if recorded_conversation {
         Application::open_with_semantic_provider(
             args.get(1).ok_or("missing test collection")?,
@@ -153,7 +221,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             app.resume_due_semantic_jobs()?;
             output(app.open_source(&page.info.source_id)?);
         }
-        "office-recorded-import" | "conversation-recorded-import" => {
+        "office-recorded-import" | "conversation-recorded-import" | "path-recorded-import" => {
             let page = app.import_source(
                 args.get(3).ok_or("missing fixture path")?,
                 AcquisitionMethod::Picker,
@@ -191,6 +259,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let _ = app.claim_due_semantic_jobs(8)?;
             output(app.open_source(args.get(3).ok_or("missing source identity")?)?);
         }
+        "path-revision" => output(app.path_graph_revision()?),
+        "paths" => output(app.explore_paths(serde_json::from_str(
+            args.get(3).ok_or("missing path request")?,
+        )?)?),
+        "path-details" => output(app.explore_path_details(serde_json::from_str(
+            args.get(3).ok_or("missing detail request")?,
+        )?)?),
         "list" => output(app.list_sources(args.get(3).ok_or("missing offset")?.parse()?)?),
         "search" => {
             let query_or_request = args.get(3).cloned().unwrap_or_default();

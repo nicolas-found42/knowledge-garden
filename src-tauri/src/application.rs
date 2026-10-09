@@ -40,6 +40,11 @@ const PAGE_SIZE: usize = 50;
 const MAX_RETRYABLE_PROVIDER_FAILURES: u32 = 3;
 const MAX_AUDIO_FAILED_ATTEMPTS: u32 = 3;
 const MAX_AUDIO_INTERRUPTION_ATTEMPTS: u32 = 3;
+const MAX_PATH_WORK_BUDGET: usize = 50;
+const MAX_PATH_CURSOR_BYTES: usize = 128;
+const PATH_QUERY_IDLE_TTL_MS: i64 = 24 * 60 * 60 * 1_000;
+const PATH_CURSOR_PREFIX: &str = "kg-path-v2:";
+const PATH_DETAIL_CURSOR_PREFIX: &str = "kg-path-detail-v1:";
 
 #[derive(Debug, Error)]
 pub enum GardenError {
@@ -273,6 +278,166 @@ pub struct PageResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PathExploreRequest {
+    pub start_page_id: String,
+    /// Owner-selected relationship depth. This is not an implementation cap.
+    pub max_hops: usize,
+    pub page_size: usize,
+    /// Maximum frontier/adjacency advancement units during this request.
+    pub relationship_work_budget: usize,
+    #[serde(default)]
+    pub continuation: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PathExploreResponse {
+    pub start_page_id: String,
+    pub max_hops: usize,
+    pub graph_revision: String,
+    pub paths: Vec<ExploredPath>,
+    pub complete: bool,
+    pub next_cursor: Option<String>,
+    /// Actual relationship rows loaded; frontier-only pruning also consumes the request budget.
+    pub relationships_examined: usize,
+    pub diagnostics: Vec<PathExploreDiagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExploredPath {
+    pub target_page_id: String,
+    pub target_title: String,
+    pub target_kind: String,
+    pub detail_token: String,
+    pub step_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PathDetailsRequest {
+    pub detail_token: String,
+    #[serde(default)]
+    pub continuation: Option<String>,
+    pub work_budget: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PathDetailsResponse {
+    pub target_page_id: String,
+    pub target_title: String,
+    pub steps: Vec<ExploredPathStep>,
+    pub complete: bool,
+    pub next_cursor: Option<String>,
+    pub work_units: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExploredPathStep {
+    pub relationship_id: String,
+    pub from_page_id: String,
+    pub from_title: String,
+    pub to_page_id: String,
+    pub to_title: String,
+    pub kind: String,
+    pub qualifier: Option<String>,
+    pub traversal_direction: TraversalDirection,
+    pub evidence_quote: String,
+    pub evidence_location: String,
+    pub evidence_origin: String,
+    pub evidence_qualifier: Option<String>,
+    pub original_guidance: String,
+    pub source_id: String,
+    pub source_version_id: String,
+    pub original_asset: String,
+    pub source_is_current: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TraversalDirection {
+    WithArrow,
+    AgainstArrow,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PathExploreDiagnostic {
+    pub kind: PathExploreDiagnosticKind,
+    pub relationship_id: String,
+    pub endpoint_page_id: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PathExploreDiagnosticKind {
+    MissingEndpoint,
+    MissingSupport,
+}
+
+fn path_edge_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(String, String, String, String)> {
+    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+}
+
+fn prune_expired_path_state(index: &Connection, cutoff: i64) -> Result<()> {
+    let batch = MAX_PATH_WORK_BUDGET as i64;
+    index.execute(
+        "DELETE FROM path_detail_cursors WHERE rowid IN (
+             SELECT c.rowid FROM path_detail_cursors c
+             JOIN path_detail_sessions s USING(detail_token)
+             JOIN path_exploration_queries q USING(query_id)
+             WHERE q.updated_at < ?1 ORDER BY q.updated_at, c.rowid LIMIT ?2
+         )",
+        params![cutoff, batch],
+    )?;
+    index.execute(
+        "DELETE FROM path_detail_sessions WHERE detail_token IN (
+             SELECT s.detail_token FROM path_detail_sessions s
+             JOIN path_exploration_queries q USING(query_id)
+             WHERE q.updated_at < ?1
+               AND NOT EXISTS (
+                   SELECT 1 FROM path_detail_cursors c WHERE c.detail_token=s.detail_token
+               )
+             ORDER BY q.updated_at, s.detail_token LIMIT ?2
+         )",
+        params![cutoff, batch],
+    )?;
+    index.execute(
+        "DELETE FROM path_query_nodes WHERE rowid IN (
+             SELECT n.rowid FROM path_query_nodes n
+             JOIN path_exploration_queries q USING(query_id)
+             WHERE q.updated_at < ?1 ORDER BY q.updated_at, n.rowid LIMIT ?2
+         )",
+        params![cutoff, batch],
+    )?;
+    index.execute(
+        "DELETE FROM path_query_visited WHERE rowid IN (
+             SELECT v.rowid FROM path_query_visited v
+             JOIN path_exploration_queries q USING(query_id)
+             WHERE q.updated_at < ?1 ORDER BY q.updated_at, v.rowid LIMIT ?2
+         )",
+        params![cutoff, batch],
+    )?;
+    index.execute(
+        "DELETE FROM path_query_frontier WHERE rowid IN (
+             SELECT f.rowid FROM path_query_frontier f
+             JOIN path_exploration_queries q USING(query_id)
+             WHERE q.updated_at < ?1 ORDER BY q.updated_at, f.rowid LIMIT ?2
+         )",
+        params![cutoff, batch],
+    )?;
+    index.execute(
+        "DELETE FROM path_exploration_queries WHERE query_id IN (
+             SELECT q.query_id FROM path_exploration_queries q
+             WHERE q.updated_at < ?1
+               AND NOT EXISTS (SELECT 1 FROM path_detail_sessions s WHERE s.query_id=q.query_id)
+               AND NOT EXISTS (SELECT 1 FROM path_query_nodes n WHERE n.query_id=q.query_id)
+               AND NOT EXISTS (SELECT 1 FROM path_query_visited v WHERE v.query_id=q.query_id)
+               AND NOT EXISTS (SELECT 1 FROM path_query_frontier f WHERE f.query_id=q.query_id)
+             ORDER BY q.updated_at, q.query_id LIMIT ?2
+         )",
+        params![cutoff, batch],
+    )?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchMatchLocation {
     pub record_id: String,
     pub source_id: String,
@@ -462,6 +627,7 @@ impl Application {
         let index = Connection::open(root.join(".derived/lookup.sqlite"))?;
         index.execute_batch(
             "PRAGMA journal_mode=WAL;
+             PRAGMA foreign_keys=ON;
              CREATE TABLE IF NOT EXISTS sources (
                  source_id TEXT PRIMARY KEY, summary TEXT NOT NULL
              );
@@ -482,6 +648,80 @@ impl Application {
                  PRIMARY KEY (page_id, normalized, source_id, source_version_id, support_json)
              );
              CREATE INDEX IF NOT EXISTS page_tags_normalized ON page_tags(normalized, page_id);
+             CREATE TABLE IF NOT EXISTS knowledge_pages (
+                 page_id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS relationship_edges (
+                 relationship_id TEXT PRIMARY KEY,
+                 from_page_id TEXT NOT NULL,
+                 to_page_id TEXT NOT NULL,
+                 relationship_json TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS relationship_edges_from_ordered
+                 ON relationship_edges(from_page_id, relationship_id);
+             CREATE INDEX IF NOT EXISTS relationship_edges_to_ordered
+                 ON relationship_edges(to_page_id, relationship_id);
+             CREATE TABLE IF NOT EXISTS relationship_graph_meta (
+                 singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                 revision TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS path_exploration_queries (
+                 query_id TEXT PRIMARY KEY,
+                 graph_revision TEXT NOT NULL,
+                 start_page_id TEXT NOT NULL,
+                 max_hops INTEGER NOT NULL,
+                 next_sequence INTEGER NOT NULL,
+                 updated_at INTEGER NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS path_query_frontier (
+                 query_id TEXT NOT NULL REFERENCES path_exploration_queries(query_id) ON DELETE CASCADE,
+                 sequence INTEGER NOT NULL,
+                 page_id TEXT NOT NULL,
+                 depth INTEGER NOT NULL,
+                 last_relationship_id TEXT,
+                 path_node_id TEXT,
+                 PRIMARY KEY (query_id, sequence)
+             );
+             CREATE TABLE IF NOT EXISTS path_query_visited (
+                 query_id TEXT NOT NULL REFERENCES path_exploration_queries(query_id) ON DELETE CASCADE,
+                 page_id TEXT NOT NULL,
+                 path_node_id TEXT,
+                 PRIMARY KEY (query_id, page_id)
+             );
+             CREATE TABLE IF NOT EXISTS path_query_nodes (
+                 query_id TEXT NOT NULL REFERENCES path_exploration_queries(query_id) ON DELETE CASCADE,
+                 node_id TEXT NOT NULL,
+                 parent_node_id TEXT,
+                 page_id TEXT NOT NULL,
+                 depth INTEGER NOT NULL,
+                 step_json TEXT NOT NULL,
+                 PRIMARY KEY (query_id, node_id)
+             );
+             CREATE TABLE IF NOT EXISTS path_detail_sessions (
+                 detail_token TEXT PRIMARY KEY,
+                 query_id TEXT NOT NULL REFERENCES path_exploration_queries(query_id) ON DELETE CASCADE,
+                 target_page_id TEXT NOT NULL,
+                 target_title TEXT NOT NULL,
+                 current_node_id TEXT,
+                 cursor_token TEXT,
+                 complete INTEGER NOT NULL DEFAULT 0,
+                 updated_at INTEGER NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS path_detail_cursors (
+                 cursor_token TEXT PRIMARY KEY,
+                 detail_token TEXT NOT NULL REFERENCES path_detail_sessions(detail_token) ON DELETE CASCADE,
+                 next_node_id TEXT
+             );
+             CREATE INDEX IF NOT EXISTS path_query_frontier_ordered
+                 ON path_query_frontier(query_id, sequence);
+             CREATE INDEX IF NOT EXISTS path_query_nodes_parent
+                 ON path_query_nodes(query_id, parent_node_id);
+             CREATE INDEX IF NOT EXISTS path_detail_sessions_query
+                 ON path_detail_sessions(query_id, detail_token);
+             CREATE INDEX IF NOT EXISTS path_detail_cursors_session
+                 ON path_detail_cursors(detail_token, cursor_token);
+             CREATE INDEX IF NOT EXISTS path_exploration_queries_expiry
+                 ON path_exploration_queries(updated_at, query_id);
              CREATE VIRTUAL TABLE IF NOT EXISTS page_search USING fts5(
                  page_id UNINDEXED,
                  source_id UNINDEXED,
@@ -1002,8 +1242,8 @@ impl Application {
                     Err(detail) => {
                         existing.info.update_status = Some("pending".into());
                         existing.info.semantic_error = Some(format!(
-                                "The changed Office version was retained, but extraction failed: {detail}"
-                            ));
+                            "The changed Office version was retained, but extraction failed: {detail}"
+                        ));
                         self.write_source_page(&existing)?;
                         self.index_page(&existing.info)?;
                         return self.open_source(&source_id);
@@ -1089,7 +1329,16 @@ impl Application {
                 (ExtractionState::InvalidUtf8, "The downloaded HTML is not valid UTF-8. The exact original is retained without lossy extraction.".into(), String::new(), None, None)
             } else if let Some(web) = web_projection {
                 if count > MAX_TEXT_BYTES as u64 {
-                    (ExtractionState::PartialText, format!("{} Only the first 2 MiB of the response was projected; the complete original is retained.", web.detail), web.semantic_text.clone(), None, None)
+                    (
+                        ExtractionState::PartialText,
+                        format!(
+                            "{} Only the first 2 MiB of the response was projected; the complete original is retained.",
+                            web.detail
+                        ),
+                        web.semantic_text.clone(),
+                        None,
+                        None,
+                    )
                 } else {
                     (
                         ExtractionState::StructuredText,
@@ -1333,6 +1582,517 @@ impl Application {
         }
         let path = self.root.join("pages").join(format!("{page_id}.md"));
         read_knowledge_page(&path)
+    }
+
+    /// Cheap freshness check; reads one index row rather than restarting traversal.
+    pub fn path_graph_revision(&self) -> Result<String> {
+        Ok(self.index.query_row(
+            "SELECT revision FROM relationship_graph_meta WHERE singleton=1",
+            [],
+            |row| row.get(0),
+        )?)
+    }
+
+    pub fn explore_paths(&mut self, request: PathExploreRequest) -> Result<PathExploreResponse> {
+        if request.max_hops == 0 {
+            return Err(GardenError::Invalid(
+                "Choose a path depth of at least one relationship.".into(),
+            ));
+        }
+        if !(1..=PAGE_SIZE).contains(&request.page_size) {
+            return Err(GardenError::Invalid(format!(
+                "Path result pages must contain 1 to {PAGE_SIZE} results."
+            )));
+        }
+        if !(1..=MAX_PATH_WORK_BUDGET).contains(&request.relationship_work_budget) {
+            return Err(GardenError::Invalid(format!(
+                "Relationship work budget must be between 1 and {MAX_PATH_WORK_BUDGET}."
+            )));
+        }
+        let max_hops = i64::try_from(request.max_hops).map_err(|_| {
+            GardenError::Invalid("Path depth is outside the supported range.".into())
+        })?;
+        let now = i64::try_from(now_millis()?).map_err(|_| {
+            GardenError::Invalid("Path query clock is outside the supported range.".into())
+        })?;
+        let graph_revision: String = self.index.query_row(
+            "SELECT revision FROM relationship_graph_meta WHERE singleton=1",
+            [],
+            |row| row.get(0),
+        )?;
+        let expiration_cutoff = now.saturating_sub(PATH_QUERY_IDLE_TTL_MS);
+        prune_expired_path_state(&self.index, expiration_cutoff)?;
+        let query_id = if let Some(encoded) = request.continuation.as_deref() {
+            let query_id = parse_opaque_path_token(encoded, PATH_CURSOR_PREFIX)?;
+            let state = self
+                .index
+                .query_row(
+                    "SELECT graph_revision, start_page_id, max_hops, updated_at FROM path_exploration_queries WHERE query_id=?1",
+                    [&query_id],
+                    |row| Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                    )),
+                )
+                .optional()?
+                .ok_or_else(|| {
+                    GardenError::Invalid("Path exploration cursor expired or is invalid; restart the search.".into())
+                })?;
+            if state.3 < expiration_cutoff {
+                return Err(GardenError::Invalid(
+                    "Path exploration cursor expired; restart the search.".into(),
+                ));
+            }
+            if state.0 != graph_revision {
+                return Err(GardenError::Invalid(
+                    "Path exploration cursor is stale because the collection changed.".into(),
+                ));
+            }
+            if state.1 != request.start_page_id || state.2 != max_hops {
+                return Err(GardenError::Invalid(
+                    "Path exploration cursor does not match this starting page and hop depth."
+                        .into(),
+                ));
+            }
+            self.index.execute(
+                "UPDATE path_exploration_queries SET updated_at=?1 WHERE query_id=?2",
+                params![now, query_id],
+            )?;
+            query_id
+        } else {
+            let exists = self.index.query_row(
+                "SELECT EXISTS(SELECT 1 FROM knowledge_pages WHERE page_id=?1)",
+                [&request.start_page_id],
+                |row| row.get::<_, bool>(0),
+            )?;
+            if !exists {
+                return Err(GardenError::Invalid(
+                    "The starting knowledge page is unavailable.".into(),
+                ));
+            }
+            let query_id = Uuid::new_v4().to_string();
+            self.index.execute(
+                "INSERT INTO path_exploration_queries(query_id, graph_revision, start_page_id, max_hops, next_sequence, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, 1, ?5)",
+                params![query_id, graph_revision, request.start_page_id, max_hops, now],
+            )?;
+            self.index.execute(
+                "INSERT INTO path_query_frontier(query_id, sequence, page_id, depth, last_relationship_id, path_node_id)
+                 VALUES (?1, 0, ?2, 0, NULL, NULL)",
+                params![query_id, request.start_page_id],
+            )?;
+            self.index.execute(
+                "INSERT INTO path_query_visited(query_id, page_id, path_node_id) VALUES (?1, ?2, NULL)",
+                params![query_id, request.start_page_id],
+            )?;
+            query_id
+        };
+        let mut paths = Vec::new();
+        let mut diagnostics = Vec::new();
+        let mut relationships_examined = 0;
+        let mut work_units = 0;
+        while work_units < request.relationship_work_budget && paths.len() < request.page_size {
+            let frontier = self
+                .index
+                .query_row(
+                    "SELECT sequence, page_id, depth, last_relationship_id, path_node_id
+                     FROM path_query_frontier WHERE query_id=?1 ORDER BY sequence LIMIT 1",
+                    [&query_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, Option<String>>(3)?,
+                            row.get::<_, Option<String>>(4)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            let Some((sequence, page_id, depth, last_relationship_id, path_node_id)) = frontier
+            else {
+                break;
+            };
+            // Advancing a frontier row, including retiring a dead end, costs work too.
+            work_units += 1;
+            if depth >= max_hops {
+                self.index.execute(
+                    "DELETE FROM path_query_frontier WHERE query_id=?1 AND sequence=?2",
+                    params![query_id, sequence],
+                )?;
+                continue;
+            }
+            let edge = if let Some(last_id) = last_relationship_id.as_deref() {
+                self.index
+                    .query_row(
+                        "SELECT relationship_id, from_page_id, to_page_id, relationship_json
+                         FROM (
+                             SELECT relationship_id, from_page_id, to_page_id, relationship_json
+                             FROM relationship_edges WHERE from_page_id=?1 AND relationship_id>?2
+                             UNION ALL
+                             SELECT relationship_id, from_page_id, to_page_id, relationship_json
+                             FROM relationship_edges WHERE to_page_id=?1 AND relationship_id>?2
+                                 AND from_page_id<>?1
+                         ) ORDER BY relationship_id LIMIT 1",
+                        params![page_id, last_id],
+                        path_edge_row,
+                    )
+                    .optional()?
+            } else {
+                self.index
+                    .query_row(
+                        "SELECT relationship_id, from_page_id, to_page_id, relationship_json
+                         FROM (
+                             SELECT relationship_id, from_page_id, to_page_id, relationship_json
+                             FROM relationship_edges WHERE from_page_id=?1
+                             UNION ALL
+                             SELECT relationship_id, from_page_id, to_page_id, relationship_json
+                             FROM relationship_edges WHERE to_page_id=?1 AND from_page_id<>?1
+                         ) ORDER BY relationship_id LIMIT 1",
+                        [&page_id],
+                        path_edge_row,
+                    )
+                    .optional()?
+            };
+            let Some((relationship_id, from_page_id, to_page_id, serialized)) = edge else {
+                self.index.execute(
+                    "DELETE FROM path_query_frontier WHERE query_id=?1 AND sequence=?2",
+                    params![query_id, sequence],
+                )?;
+                continue;
+            };
+            relationships_examined += 1;
+            self.index.execute(
+                "UPDATE path_query_frontier SET last_relationship_id=?1 WHERE query_id=?2 AND sequence=?3",
+                params![relationship_id, query_id, sequence],
+            )?;
+            let relationship: RelationshipRecord = serde_json::from_str(&serialized)?;
+            let (neighbor_id, direction) = if from_page_id == page_id {
+                (to_page_id.clone(), TraversalDirection::WithArrow)
+            } else {
+                (from_page_id.clone(), TraversalDirection::AgainstArrow)
+            };
+            let endpoint = self
+                .index
+                .query_row(
+                    "SELECT title, kind FROM knowledge_pages WHERE page_id=?1",
+                    [&neighbor_id],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .optional()?;
+            let Some((neighbor_title, neighbor_kind)) = endpoint else {
+                diagnostics.push(PathExploreDiagnostic {
+                    kind: PathExploreDiagnosticKind::MissingEndpoint,
+                    relationship_id,
+                    endpoint_page_id: neighbor_id,
+                });
+                continue;
+            };
+            let Some(support) = self.latest_relationship_support(&relationship.supports)? else {
+                diagnostics.push(PathExploreDiagnostic {
+                    kind: PathExploreDiagnosticKind::MissingSupport,
+                    relationship_id,
+                    endpoint_page_id: neighbor_id,
+                });
+                continue;
+            };
+            let Some((original_asset, source_is_current)) = self.path_support_asset(support)?
+            else {
+                diagnostics.push(PathExploreDiagnostic {
+                    kind: PathExploreDiagnosticKind::MissingSupport,
+                    relationship_id,
+                    endpoint_page_id: neighbor_id,
+                });
+                continue;
+            };
+            let inserted = self.index.execute(
+                "INSERT OR IGNORE INTO path_query_visited(query_id, page_id, path_node_id) VALUES (?1, ?2, NULL)",
+                params![query_id, neighbor_id],
+            )?;
+            if inserted == 0 {
+                continue;
+            }
+            let step = ExploredPathStep {
+                relationship_id,
+                from_page_id: from_page_id.clone(),
+                from_title: self.path_page_title(&from_page_id)?,
+                to_page_id: to_page_id.clone(),
+                to_title: self.path_page_title(&to_page_id)?,
+                kind: relationship.kind,
+                qualifier: relationship.qualifier,
+                traversal_direction: direction,
+                evidence_quote: support.evidence.quote.clone(),
+                evidence_location: {
+                    let (basis, lines, bytes, _) =
+                        evidence_display_basis(support.evidence.offset_basis);
+                    format!(
+                        "{basis} · {lines} {}–{} · {bytes} {}–{}{}",
+                        support.evidence.line_start,
+                        support.evidence.line_end,
+                        support.evidence.byte_start,
+                        support.evidence.byte_end,
+                        support
+                            .evidence
+                            .source_location
+                            .as_deref()
+                            .map(|location| format!(" · {location}"))
+                            .unwrap_or_default()
+                    )
+                },
+                evidence_origin: support.evidence.origin.clone(),
+                evidence_qualifier: support.evidence.qualifier.clone(),
+                original_guidance: evidence_display_basis(support.evidence.offset_basis)
+                    .3
+                    .into(),
+                source_id: support.source_id.clone(),
+                source_version_id: support.source_version_id.clone(),
+                original_asset,
+                source_is_current,
+            };
+            let next_depth = depth + 1;
+            let new_node_id = Uuid::new_v4().to_string();
+            self.index.execute(
+                "INSERT INTO path_query_nodes(query_id, node_id, parent_node_id, page_id, depth, step_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    query_id,
+                    new_node_id,
+                    path_node_id,
+                    neighbor_id,
+                    next_depth,
+                    serde_json::to_string(&step)?
+                ],
+            )?;
+            let detail_token = Uuid::new_v4().to_string();
+            self.index.execute(
+                "UPDATE path_query_visited SET path_node_id=?1 WHERE query_id=?2 AND page_id=?3",
+                params![new_node_id, query_id, neighbor_id],
+            )?;
+            self.index.execute(
+                "INSERT INTO path_detail_sessions(detail_token, query_id, target_page_id, target_title, current_node_id, cursor_token, complete, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, NULL, 0, ?6)",
+                params![detail_token, query_id, neighbor_id, neighbor_title, new_node_id, now],
+            )?;
+            paths.push(ExploredPath {
+                target_page_id: neighbor_id.clone(),
+                target_title: neighbor_title,
+                target_kind: neighbor_kind,
+                detail_token,
+                step_count: next_depth as usize,
+            });
+            if next_depth < max_hops {
+                let next_sequence: i64 = self.index.query_row(
+                    "SELECT COALESCE(MAX(sequence) + 1, 0) FROM path_query_frontier WHERE query_id=?1",
+                    [&query_id],
+                    |row| row.get(0),
+                )?;
+                self.index.execute(
+                    "INSERT INTO path_query_frontier(query_id, sequence, page_id, depth, last_relationship_id, path_node_id)
+                     VALUES (?1, ?2, ?3, ?4, NULL, ?5)",
+                    params![query_id, next_sequence, neighbor_id, next_depth, new_node_id],
+                )?;
+            }
+        }
+        let frontier_remaining: bool = self.index.query_row(
+            "SELECT EXISTS(SELECT 1 FROM path_query_frontier WHERE query_id=?1)",
+            [&query_id],
+            |row| row.get(0),
+        )?;
+        let complete = !frontier_remaining;
+        Ok(PathExploreResponse {
+            start_page_id: request.start_page_id,
+            max_hops: request.max_hops,
+            graph_revision,
+            paths,
+            complete,
+            next_cursor: (!complete).then(|| format!("{PATH_CURSOR_PREFIX}{query_id}")),
+            relationships_examined,
+            diagnostics,
+        })
+    }
+
+    pub fn explore_path_details(
+        &mut self,
+        request: PathDetailsRequest,
+    ) -> Result<PathDetailsResponse> {
+        if !(1..=MAX_PATH_WORK_BUDGET).contains(&request.work_budget) {
+            return Err(GardenError::Invalid(format!(
+                "Path detail work budget must be between 1 and {MAX_PATH_WORK_BUDGET}."
+            )));
+        }
+        let detail_token = parse_uuid_token(&request.detail_token)?;
+        let current_revision: String = self.index.query_row(
+            "SELECT revision FROM relationship_graph_meta WHERE singleton=1",
+            [],
+            |row| row.get(0),
+        )?;
+        let now = i64::try_from(now_millis()?).map_err(|_| {
+            GardenError::Invalid("Path query clock is outside the supported range.".into())
+        })?;
+        let expiration_cutoff = now.saturating_sub(PATH_QUERY_IDLE_TTL_MS);
+        prune_expired_path_state(&self.index, expiration_cutoff)?;
+        let session = self
+            .index
+            .query_row(
+                "SELECT s.query_id, s.target_page_id, s.target_title, s.current_node_id,
+                        s.cursor_token, s.complete, q.graph_revision, q.updated_at
+                 FROM path_detail_sessions s
+                 JOIN path_exploration_queries q USING(query_id)
+                 WHERE s.detail_token=?1",
+                [&detail_token],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, bool>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, i64>(7)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| {
+                GardenError::Invalid(
+                    "Selected path detail expired or is invalid; select the stop again.".into(),
+                )
+            })?;
+        if session.7 < expiration_cutoff {
+            return Err(GardenError::Invalid(
+                "Selected path detail expired; restart the search.".into(),
+            ));
+        }
+        if session.6 != current_revision {
+            return Err(GardenError::Invalid(
+                "Selected path detail is stale because the collection changed.".into(),
+            ));
+        }
+        if session.5 {
+            return Ok(PathDetailsResponse {
+                target_page_id: session.1,
+                target_title: session.2,
+                steps: Vec::new(),
+                complete: true,
+                next_cursor: None,
+                work_units: 0,
+            });
+        }
+        let current_node = if let Some(encoded) = request.continuation.as_deref() {
+            let cursor_token = parse_opaque_path_token(encoded, PATH_DETAIL_CURSOR_PREFIX)?;
+            if session.4.as_deref() != Some(cursor_token.as_str()) {
+                return Err(GardenError::Invalid(
+                    "Path detail cursor is no longer current; use the latest cursor or restart the search.".into(),
+                ));
+            }
+            self.index
+                .query_row(
+                    "SELECT next_node_id FROM path_detail_cursors WHERE cursor_token=?1 AND detail_token=?2",
+                    params![cursor_token, detail_token],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .optional()?
+                .ok_or_else(|| GardenError::Invalid("Path detail cursor expired or is invalid.".into()))?
+        } else {
+            if session.4.is_some() {
+                return Err(GardenError::Invalid(
+                    "Path detail cursor is required to continue this route.".into(),
+                ));
+            }
+            session.3.clone()
+        };
+        let mut next_node = current_node;
+        let mut steps = Vec::new();
+        let mut work_units = 0;
+        while work_units < request.work_budget {
+            let Some(node_id) = next_node.clone() else {
+                break;
+            };
+            let node = self
+                .index
+                .query_row(
+                    "SELECT parent_node_id, step_json FROM path_query_nodes WHERE query_id=?1 AND node_id=?2",
+                    params![session.0, node_id],
+                    |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+                )
+                .optional()?
+                .ok_or_else(|| GardenError::Invalid("Selected path detail is incomplete; restart the search.".into()))?;
+            steps.push(serde_json::from_str(&node.1)?);
+            next_node = node.0;
+            work_units += 1;
+        }
+        let complete = next_node.is_none();
+        let next_cursor = if complete {
+            self.index.execute(
+                "UPDATE path_detail_sessions SET current_node_id=NULL, cursor_token=NULL, complete=1, updated_at=?1 WHERE detail_token=?2",
+                params![now, detail_token],
+            )?;
+            self.index.execute(
+                "UPDATE path_exploration_queries SET updated_at=?1 WHERE query_id=?2",
+                params![now, session.0],
+            )?;
+            None
+        } else {
+            let cursor_token = Uuid::new_v4().to_string();
+            self.index.execute(
+                "INSERT INTO path_detail_cursors(cursor_token, detail_token, next_node_id) VALUES (?1, ?2, ?3)",
+                params![cursor_token, detail_token, next_node],
+            )?;
+            self.index.execute(
+                "UPDATE path_detail_sessions SET current_node_id=?1, cursor_token=?2, updated_at=?3 WHERE detail_token=?4",
+                params![next_node, cursor_token, now, detail_token],
+            )?;
+            self.index.execute(
+                "UPDATE path_exploration_queries SET updated_at=?1 WHERE query_id=?2",
+                params![now, session.0],
+            )?;
+            Some(format!("{PATH_DETAIL_CURSOR_PREFIX}{cursor_token}"))
+        };
+        Ok(PathDetailsResponse {
+            target_page_id: session.1,
+            target_title: session.2,
+            steps,
+            complete,
+            next_cursor,
+            work_units,
+        })
+    }
+
+    fn path_page_title(&self, page_id: &str) -> Result<String> {
+        Ok(self.index.query_row(
+            "SELECT title FROM knowledge_pages WHERE page_id=?1",
+            [page_id],
+            |row| row.get(0),
+        )?)
+    }
+
+    fn path_support_asset(&self, support: &SupportRecord) -> Result<Option<(String, bool)>> {
+        let Ok(source_dir) = self.source_dir(&support.source_id) else {
+            return Ok(None);
+        };
+        let path = source_dir.join("index.md");
+        if !path.is_file() {
+            return Ok(None);
+        }
+        let source = read_page(&path)?;
+        if let Some(version) = source
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == support.source_version_id)
+        {
+            let current = source.info.current_version_id.as_deref()
+                == Some(support.source_version_id.as_str());
+            return Ok(Some((version.asset.clone(), current)));
+        }
+        if support.source_version_id == "legacy" || support.source_version_id == source.info.sha256
+        {
+            return Ok(Some((source.info.asset, true)));
+        }
+        Ok(None)
     }
 
     /// Claim persisted work under the collection lock. Provider I/O happens after this returns,
@@ -2470,7 +3230,10 @@ impl Application {
                     audio.detail = "Audio transcription stopped after three interrupted segment attempts for this source version. The exact retained original and any previously published transcript remain available; a new source version has an independent recovery budget.".into();
                 } else {
                     audio.state = "pending".into();
-                    audio.detail = format!("A bounded audio segment was interrupted ({}/{}). The same time range remains queued within this source version's interruption budget; the retained original remains available.", audio.processing_interruptions, MAX_AUDIO_INTERRUPTION_ATTEMPTS);
+                    audio.detail = format!(
+                        "A bounded audio segment was interrupted ({}/{}). The same time range remains queued within this source version's interruption budget; the retained original remains available.",
+                        audio.processing_interruptions, MAX_AUDIO_INTERRUPTION_ATTEMPTS
+                    );
                 }
                 self.write_source_page(&page)?;
                 self.index_page(&page.info)?;
@@ -2531,7 +3294,10 @@ impl Application {
             }
             audio.state = "processing".into();
             audio.attempts = audio.attempts.saturating_add(1);
-            audio.detail = format!("Transcribing original audio from {start} to {} ms with the pinned local Whisper model. Speaker identity is unavailable.", start + duration);
+            audio.detail = format!(
+                "Transcribing original audio from {start} to {} ms with the pinned local Whisper model. Speaker identity is unavailable.",
+                start + duration
+            );
             self.write_source_page(&page)?;
             self.index_page(&page.info)?;
         }
@@ -2639,12 +3405,18 @@ impl Application {
         if audio.failed_attempts >= MAX_AUDIO_FAILED_ATTEMPTS {
             audio.state = "failed".into();
             audio.retry_at_ms = None;
-            audio.detail = format!("Local transcription stopped after {} failed attempts for this source version: {error}. The exact retained original and any previously published transcript remain available; a new source version has an independent retry budget.", audio.failed_attempts);
+            audio.detail = format!(
+                "Local transcription stopped after {} failed attempts for this source version: {error}. The exact retained original and any previously published transcript remain available; a new source version has an independent retry budget.",
+                audio.failed_attempts
+            );
         } else {
             let seconds = (1_u64 << audio.attempts.min(10)).min(3600);
             audio.state = "pending".into();
             audio.retry_at_ms = Some(now_millis()? as u64 + seconds * 1000);
-            audio.detail = format!("Local transcription could not finish this range ({}/{} failed attempts): {error}. It will retry automatically within this source version's bounded budget; the retained original remains playable.", audio.failed_attempts, MAX_AUDIO_FAILED_ATTEMPTS);
+            audio.detail = format!(
+                "Local transcription could not finish this range ({}/{} failed attempts): {error}. It will retry automatically within this source version's bounded budget; the retained original remains playable.",
+                audio.failed_attempts, MAX_AUDIO_FAILED_ATTEMPTS
+            );
         }
         let body = source_body(&page.info, "", None);
         page.body = body.clone();
@@ -2901,7 +3673,9 @@ impl Application {
                     EvidenceOffsetBasis::WebVisibleText => {
                         "extracted web visible-text projection; offsets are not downloaded HTML byte offsets"
                     }
-                    EvidenceOffsetBasis::AudioTranscript => "machine-generated transcript; audio wording and speaker remain unverified",
+                    EvidenceOffsetBasis::AudioTranscript => {
+                        "machine-generated transcript; audio wording and speaker remain unverified"
+                    }
                 };
                 let locator = fact
                     .evidence
@@ -2975,17 +3749,36 @@ impl Application {
                     .find(|(_, page, _)| page.page_id == relationship.to_page_id)
                     .map(|(entity, page, _)| (entity, page))
                     .unwrap();
-                let (line_basis, byte_basis, locator, guidance) = match relationship.evidence.offset_basis {
-                    EvidenceOffsetBasis::PreservedText => ("source lines", "source bytes", String::new(), "Original opens at the beginning; use these source lines and byte offsets to locate this passage."),
+                let (line_basis, byte_basis, locator, guidance) = match relationship
+                    .evidence
+                    .offset_basis
+                {
+                    EvidenceOffsetBasis::PreservedText => (
+                        "source lines",
+                        "source bytes",
+                        String::new(),
+                        "Original opens at the beginning; use these source lines and byte offsets to locate this passage.",
+                    ),
                     EvidenceOffsetBasis::ExtractedOfficeProjection => (
                         "extracted projection lines",
                         "extracted projection bytes",
-                        relationship.evidence.source_location.as_deref().map(|location| format!(" · original locator: {location}")).unwrap_or_default(),
+                        relationship
+                            .evidence
+                            .source_location
+                            .as_deref()
+                            .map(|location| format!(" · original locator: {location}"))
+                            .unwrap_or_default(),
                         "The original opens as a fallback; use the OOXML part and location above to find the extracted passage.",
                     ),
                     EvidenceOffsetBasis::ExtractedImageProjection => (
-                        "image projection lines", "image projection bytes",
-                        relationship.evidence.source_location.as_deref().map(|location| format!(" · image locator: {location}")).unwrap_or_default(),
+                        "image projection lines",
+                        "image projection bytes",
+                        relationship
+                            .evidence
+                            .source_location
+                            .as_deref()
+                            .map(|location| format!(" · image locator: {location}"))
+                            .unwrap_or_default(),
                         "Open the image preview or retained original using the normalized region locator; whole-image fallback when no region exists.",
                     ),
                     EvidenceOffsetBasis::ExtractedConversationProjection => (
@@ -2996,10 +3789,25 @@ impl Application {
                     EvidenceOffsetBasis::WebVisibleText => (
                         "visible-text projection lines",
                         "visible-text projection bytes",
-                        relationship.evidence.source_location.as_deref().map(|location| format!(" · original locator: {location}")).unwrap_or_default(),
+                        relationship
+                            .evidence
+                            .source_location
+                            .as_deref()
+                            .map(|location| format!(" · original locator: {location}"))
+                            .unwrap_or_default(),
                         "The retained original opens as a fallback; offsets refer to the stated web visible-text projection.",
                     ),
-                    EvidenceOffsetBasis::AudioTranscript => ("transcript lines", "transcript bytes", relationship.evidence.source_location.as_deref().map(|value| format!(" · audio locator: {value}")).unwrap_or_default(), "Open the retained original and seek manually to the timestamp; precise seeking is unavailable. The statement is machine-transcribed and unverified."),
+                    EvidenceOffsetBasis::AudioTranscript => (
+                        "transcript lines",
+                        "transcript bytes",
+                        relationship
+                            .evidence
+                            .source_location
+                            .as_deref()
+                            .map(|value| format!(" · audio locator: {value}"))
+                            .unwrap_or_default(),
+                        "Open the retained original and seek manually to the timestamp; precise seeking is unavailable. The statement is machine-transcribed and unverified.",
+                    ),
                 };
                 let audio_link =
                     if relationship.evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript {
@@ -3922,7 +4730,15 @@ impl Application {
             return Ok(("unavailable".into(), "unavailable".into()));
         };
         let source_dir = self.source_dir(&support.source_id)?;
-        let source_page = read_page(&source_dir.join("index.md"))?;
+        let source_page = match read_page(&source_dir.join("index.md")) {
+            Ok(page) => page,
+            // Source removal must not prevent rebuilding the derived graph. The
+            // retained knowledge stays readable, with unavailable support links.
+            Err(GardenError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(("unavailable".into(), "unavailable".into()));
+            }
+            Err(error) => return Err(error),
+        };
         let version = source_page
             .info
             .versions_seen
@@ -3960,6 +4776,16 @@ impl Application {
         &self,
         header: &mut KnowledgePageHeader,
         path: &Path,
+    ) -> Result<bool> {
+        let labels = self.knowledge_page_labels()?;
+        self.capture_manual_fact_corrections_with_labels(header, path, &labels)
+    }
+
+    fn capture_manual_fact_corrections_with_labels(
+        &self,
+        header: &mut KnowledgePageHeader,
+        path: &Path,
+        labels: &std::collections::HashMap<String, String>,
     ) -> Result<bool> {
         let markdown = fs::read_to_string(path)?;
         let Some((_, body)) = markdown.split_once("\n---\n") else {
@@ -4014,8 +4840,11 @@ impl Application {
             fact.value = corrected_value;
             fact.origin = "manual_correction".into();
         }
-        let generated =
-            self.render_knowledge_page(header.clone(), &std::collections::HashMap::new())?;
+        let generated = self.render_knowledge_page_with_labels(
+            header.clone(),
+            &std::collections::HashMap::new(),
+            labels,
+        )?;
         let generated_body = generated
             .split_once("\n---\n")
             .map(|(_, body)| body)
@@ -4082,16 +4911,32 @@ impl Application {
             .map(|entry| entry.path())
             .filter(|path| path.extension().is_some_and(|extension| extension == "md"))
             .collect::<Vec<_>>();
+        // Capture one fresh snapshot for this operation. Each page render borrows
+        // it, avoiding a complete label-file scan for every retained page.
+        let labels = self.knowledge_page_labels()?;
         for path in paths {
             let mut header = read_knowledge_header(&path)?;
             ensure_legacy_supports(&mut header);
-            if self.capture_manual_fact_corrections(&mut header, &path)? {
-                let markdown =
-                    self.render_knowledge_page(header, &std::collections::HashMap::new())?;
+            if self.capture_manual_fact_corrections_with_labels(&mut header, &path, &labels)? {
+                let markdown = self.render_knowledge_page_with_labels(
+                    header,
+                    &std::collections::HashMap::new(),
+                    &labels,
+                )?;
                 write_atomic(&path, markdown.as_bytes())?;
             }
         }
         Ok(())
+    }
+
+    fn knowledge_page_labels(&self) -> Result<std::collections::HashMap<String, String>> {
+        let pages_dir = self.root.join("pages");
+        Ok(fs::read_dir(&pages_dir)?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "md"))
+            .filter_map(|entry| read_knowledge_page(&entry.path()).ok())
+            .map(|page| (page.page_id, page.title))
+            .collect::<std::collections::HashMap<_, _>>())
     }
 
     fn render_knowledge_page(
@@ -4099,16 +4944,16 @@ impl Application {
         header: KnowledgePageHeader,
         additional_labels: &std::collections::HashMap<String, String>,
     ) -> Result<String> {
-        let pages_dir = self.root.join("pages");
-        let mut labels = fs::read_dir(&pages_dir)?
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "md"))
-            .filter_map(|entry| read_knowledge_page(&entry.path()).ok())
-            .map(|page| (page.page_id, page.title))
-            .collect::<std::collections::HashMap<_, _>>();
-        for (page_id, title) in additional_labels {
-            labels.insert(page_id.clone(), title.clone());
-        }
+        let labels = self.knowledge_page_labels()?;
+        self.render_knowledge_page_with_labels(header, additional_labels, &labels)
+    }
+
+    fn render_knowledge_page_with_labels(
+        &self,
+        header: KnowledgePageHeader,
+        additional_labels: &std::collections::HashMap<String, String>,
+        labels: &std::collections::HashMap<String, String>,
+    ) -> Result<String> {
         let mut body = format!("# {}\n\n## Facts\n", escape_heading(&header.title));
         for fact in &header.facts {
             let support = self.latest_support(&fact.supports)?;
@@ -4218,9 +5063,9 @@ impl Application {
             };
             body.push_str(&format!(
                 "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Source support count: {}\n  - Links: [Source page]({}) · [Retained original]({}){}\n",
-                escape_markdown(labels.get(&rel.from_page_id).map(String::as_str).unwrap_or(&rel.from_page_id)), rel.from_page_id,
+                escape_markdown(additional_labels.get(&rel.from_page_id).or_else(|| labels.get(&rel.from_page_id)).map(String::as_str).unwrap_or(&rel.from_page_id)), rel.from_page_id,
                 escape_markdown(&rel.kind.replace('_', " ")),
-                escape_markdown(labels.get(&rel.to_page_id).map(String::as_str).unwrap_or(&rel.to_page_id)), rel.to_page_id,
+                escape_markdown(additional_labels.get(&rel.to_page_id).or_else(|| labels.get(&rel.to_page_id)).map(String::as_str).unwrap_or(&rel.to_page_id)), rel.to_page_id,
                 rel.qualifier.as_deref().map(|q| format!(" (qualifier: {})", escape_markdown(q))).unwrap_or_default(),
                 rel.relationship_id, escape_markdown(&evidence.quote), escape_markdown(origin),
                 line_label, evidence.line_start, evidence.line_end, byte_label, evidence.byte_start, evidence.byte_end,
@@ -4879,6 +5724,8 @@ impl Application {
         transaction.execute("DELETE FROM page_tags", [])?;
         transaction.execute("DELETE FROM source_origins", [])?;
         transaction.execute("DELETE FROM source_versions", [])?;
+        transaction.execute("DELETE FROM knowledge_pages", [])?;
+        transaction.execute("DELETE FROM relationship_edges", [])?;
         for entry in fs::read_dir(self.root.join("sources"))? {
             let entry = entry?;
             if !entry.file_type()?.is_dir() {
@@ -4904,6 +5751,175 @@ impl Application {
             let documents = self.search_documents_for_source(&page.info)?;
             write_search_documents(&transaction, &documents)?;
         }
+        let pages_dir = self.root.join("pages");
+        if pages_dir.is_dir() {
+            for entry in fs::read_dir(&pages_dir)? {
+                let path = entry?.path();
+                if path.extension().and_then(|extension| extension.to_str()) != Some("md") {
+                    continue;
+                }
+                let header = read_knowledge_header(&path)?;
+                transaction.execute(
+                    "INSERT OR REPLACE INTO knowledge_pages(page_id, title, kind) VALUES (?1, ?2, ?3)",
+                    params![header.page_id, header.title, header.kind],
+                )?;
+                for relationship in &header.relationships {
+                    let mut relationship = relationship.clone();
+                    if relationship.supports.is_empty() {
+                        relationship.supports.push(SupportRecord {
+                            source_id: header.source_id.clone(),
+                            source_version_id: "legacy".into(),
+                            value: relationship.kind.clone(),
+                            qualifier: relationship.qualifier.clone(),
+                            origin: relationship.origin.clone(),
+                            evidence: relationship.evidence.clone(),
+                        });
+                    }
+                    relationship.supports.sort_by(|left, right| {
+                        (
+                            &left.source_id,
+                            &left.source_version_id,
+                            &left.value,
+                            left.evidence.byte_start,
+                            left.evidence.byte_end,
+                        )
+                            .cmp(&(
+                                &right.source_id,
+                                &right.source_version_id,
+                                &right.value,
+                                right.evidence.byte_start,
+                                right.evidence.byte_end,
+                            ))
+                    });
+                    let serialized = serde_json::to_string(&relationship)?;
+                    transaction.execute(
+                        "INSERT INTO relationship_edges(relationship_id, from_page_id, to_page_id, relationship_json) VALUES (?1, ?2, ?3, ?4)
+                         ON CONFLICT(relationship_id) DO UPDATE SET relationship_json=MIN(relationship_edges.relationship_json, excluded.relationship_json)",
+                        params![relationship.relationship_id, relationship.from_page_id, relationship.to_page_id, serialized],
+                    )?;
+                }
+            }
+        }
+        let graph_revision = {
+            let mut digest = Sha256::new();
+            {
+                let mut statement = transaction
+                    .prepare("SELECT page_id, title, kind FROM knowledge_pages ORDER BY page_id")?;
+                let rows = statement.query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })?;
+                for row in rows {
+                    let (id, title, kind) = row?;
+                    for value in [&id, &title, &kind] {
+                        digest.update((value.len() as u64).to_be_bytes());
+                        digest.update(value.as_bytes());
+                    }
+                }
+            }
+            let mut statement = transaction.prepare(
+                "SELECT relationship_id, relationship_json FROM relationship_edges ORDER BY relationship_id",
+            )?;
+            let rows = statement.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in rows {
+                let (id, relationship) = row?;
+                digest.update((id.len() as u64).to_be_bytes());
+                digest.update(id.as_bytes());
+                digest.update((relationship.len() as u64).to_be_bytes());
+                digest.update(relationship.as_bytes());
+            }
+            // Relationship support metadata is also part of the path projection:
+            // support_order selects the displayed evidence by source date,
+            // revision, and arrival, while path_support_asset resolves the
+            // retained original and reports whether its version is current.
+            // Bind those exact inputs so a promoted source version cannot leave
+            // an old path-detail token looking current when its edge JSON is
+            // unchanged (for example, an aligned Office refresh).
+            let mut support_keys = HashSet::new();
+            let mut statement = transaction.prepare(
+                "SELECT relationship_json FROM relationship_edges ORDER BY relationship_id",
+            )?;
+            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+            for row in rows {
+                let relationship: RelationshipRecord = serde_json::from_str(&row?)?;
+                for support in relationship.supports {
+                    support_keys.insert((support.source_id, support.source_version_id));
+                }
+            }
+            let mut support_keys = support_keys.into_iter().collect::<Vec<_>>();
+            support_keys.sort();
+            for (source_id, source_version_id) in support_keys {
+                for value in [&source_id, &source_version_id] {
+                    digest.update((value.len() as u64).to_be_bytes());
+                    digest.update(value.as_bytes());
+                }
+                let Some(source_digest) = source_id.strip_prefix("source-") else {
+                    digest.update([0]);
+                    continue;
+                };
+                if source_digest.len() != 64
+                    || !source_digest
+                        .bytes()
+                        .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+                {
+                    return Err(GardenError::Invalid("Invalid source identity.".into()));
+                }
+                let path = self
+                    .root
+                    .join("sources")
+                    .join(source_digest)
+                    .join("index.md");
+                if !path.is_file() {
+                    digest.update([0]);
+                    continue;
+                }
+                let info = read_page(&path)?.info;
+                if let Some(version) = info
+                    .versions_seen
+                    .iter()
+                    .find(|version| version.source_version_id == source_version_id)
+                {
+                    digest.update([1]);
+                    digest.update([u8::from(version.source_date.is_some())]);
+                    for value in [
+                        version.source_date.as_deref().unwrap_or(""),
+                        version.received_at.as_str(),
+                        version.asset.as_str(),
+                    ] {
+                        digest.update((value.len() as u64).to_be_bytes());
+                        digest.update(value.as_bytes());
+                    }
+                    match version.source_revision {
+                        Some(revision) => {
+                            digest.update([1]);
+                            digest.update(revision.to_be_bytes());
+                        }
+                        None => digest.update([0]),
+                    }
+                    digest.update([u8::from(
+                        info.current_version_id.as_deref() == Some(source_version_id.as_str()),
+                    )]);
+                } else if source_version_id == "legacy" || source_version_id == info.sha256 {
+                    digest.update([2]);
+                    for value in [&info.sha256, &info.asset] {
+                        digest.update((value.len() as u64).to_be_bytes());
+                        digest.update(value.as_bytes());
+                    }
+                } else {
+                    digest.update([3]);
+                }
+            }
+            format!("{:x}", digest.finalize())
+        };
+        transaction.execute(
+            "INSERT INTO relationship_graph_meta(singleton, revision) VALUES (1, ?1) ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision",
+            [graph_revision],
+        )?;
         transaction.commit()?;
         if let Some(meaning) = self.meaning_search.as_mut() {
             match meaning.sync(&self.index) {
@@ -5137,7 +6153,10 @@ fn check_omission_evidence(
                 && !support.evidence.quote.trim().is_empty()
                 && text.contains(&support.evidence.quote)
         }) {
-            return Err(GardenError::Invalid(format!("Replacement extraction omitted `{}` although its prior supporting quote remains present. Keep the last successful version and retry scoped extraction.", fact.property)));
+            return Err(GardenError::Invalid(format!(
+                "Replacement extraction omitted `{}` although its prior supporting quote remains present. Keep the last successful version and retry scoped extraction.",
+                fact.property
+            )));
         }
     }
     Ok(())
@@ -5670,7 +6689,8 @@ fn evidence_display_basis(
         ),
         EvidenceOffsetBasis::ExtractedImageProjection => (
             "extracted image projection; offsets are not original image byte offsets",
-            "image projection lines", "image projection bytes",
+            "image projection lines",
+            "image projection bytes",
             "Open the image preview or retained original using normalized region coordinates; otherwise use the disclosed whole-image fallback.",
         ),
         EvidenceOffsetBasis::ExtractedConversationProjection => (
@@ -6228,6 +7248,31 @@ fn now_millis() -> Result<u128> {
         .as_millis())
 }
 
+fn parse_opaque_path_token(token: &str, prefix: &str) -> Result<String> {
+    if token.len() > MAX_PATH_CURSOR_BYTES {
+        return Err(GardenError::Invalid(
+            "Path exploration cursor exceeds the supported size.".into(),
+        ));
+    }
+    let value = token.strip_prefix(prefix).ok_or_else(|| {
+        GardenError::Invalid("Path exploration cursor is invalid; restart the search.".into())
+    })?;
+    Uuid::parse_str(value)
+        .map(|parsed| parsed.to_string())
+        .map_err(|_| GardenError::Invalid("Path exploration cursor is invalid.".into()))
+}
+
+fn parse_uuid_token(token: &str) -> Result<String> {
+    if token.len() > MAX_PATH_CURSOR_BYTES {
+        return Err(GardenError::Invalid(
+            "Path exploration token exceeds the supported size.".into(),
+        ));
+    }
+    Uuid::parse_str(token)
+        .map(|value| value.to_string())
+        .map_err(|_| GardenError::Invalid("Path exploration token is invalid.".into()))
+}
+
 fn stable_audio_segment_id(version_id: &str, window_start_ms: u64, ordinal: usize) -> String {
     let mut digest = Sha256::new();
     digest.update(version_id.as_bytes());
@@ -6237,7 +7282,9 @@ fn stable_audio_segment_id(version_id: &str, window_start_ms: u64, ordinal: usiz
 }
 
 fn audio_semantic_text(audio: &AudioProcessingInfo) -> String {
-    let mut lines = String::from("Machine-generated transcript from retained audio. Wording and timestamps are unverified estimates; this local recognizer emits no calibrated confidence or alternatives, and speaker identity is unavailable.\n");
+    let mut lines = String::from(
+        "Machine-generated transcript from retained audio. Wording and timestamps are unverified estimates; this local recognizer emits no calibrated confidence or alternatives, and speaker identity is unavailable.\n",
+    );
     for segment in &audio.segments {
         lines.push_str(&format!(
             "[AUDIO {}–{} ms confidence={} speaker=unidentified] {}\n",
@@ -6492,8 +7539,10 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
     }
     let longest_run = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
     let fence = "`".repeat(3.max(longest_run + 1));
-    format!("# {title}\n\n[Open original]({})\n\n## Source text · lines 1–{}\n\n{fence}text\n{text}\n{fence}\n",
-        info.asset, info.line_count)
+    format!(
+        "# {title}\n\n[Open original]({})\n\n## Source text · lines 1–{}\n\n{fence}text\n{text}\n{fence}\n",
+        info.asset, info.line_count
+    )
 }
 
 fn audio_seek_href(source_id: &str, start_ms: u64) -> String {

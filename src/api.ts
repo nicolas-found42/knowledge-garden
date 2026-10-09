@@ -200,6 +200,74 @@ export interface PageSearchResults {
   meaning_search_status?: string;
 }
 
+export interface PathExploreRequest {
+  start_page_id: string;
+  max_hops: number;
+  page_size: number;
+  relationship_work_budget: number;
+  continuation: string | null;
+}
+
+export interface ExploredPathStep {
+  relationship_id: string;
+  from_page_id: string;
+  from_title: string;
+  to_page_id: string;
+  to_title: string;
+  kind: string;
+  qualifier: string | null;
+  traversal_direction: "with_arrow" | "against_arrow";
+  evidence_quote: string;
+  evidence_location: string;
+  evidence_origin: string;
+  evidence_qualifier: string | null;
+  original_guidance: string;
+  source_id: string;
+  source_version_id: string;
+  original_asset: string;
+  source_is_current: boolean;
+}
+
+export interface ExploredPath {
+  target_page_id: string;
+  target_title: string;
+  target_kind: string;
+  detail_token: string;
+  step_count: number;
+}
+
+export interface PathDetailsRequest {
+  detail_token: string;
+  continuation: string | null;
+  work_budget: number;
+}
+
+export interface PathDetailsResponse {
+  target_page_id: string;
+  target_title: string;
+  steps: ExploredPathStep[];
+  complete: boolean;
+  next_cursor: string | null;
+  work_units: number;
+}
+
+export interface PathExploreDiagnostic {
+  kind: "missing_endpoint" | "missing_support";
+  relationship_id: string;
+  endpoint_page_id: string;
+}
+
+export interface PathExploreResponse {
+  start_page_id: string;
+  max_hops: number;
+  graph_revision: string;
+  paths: ExploredPath[];
+  complete: boolean;
+  next_cursor: string | null;
+  relationships_examined: number;
+  diagnostics: PathExploreDiagnostic[];
+}
+
 /** The reader's application boundary. Desktop paths never come from page HTML. */
 export interface GardenApi {
   chooseFile(): Promise<string | null>;
@@ -208,6 +276,9 @@ export interface GardenApi {
   listUrlAcquisitions(): Promise<UrlAcquisitionStatus[]>;
   listSources(offset: number): Promise<SourceList>;
   searchPages(request: PageSearchRequest): Promise<PageSearchResults>;
+  pathGraphRevision(): Promise<string>;
+  explorePaths(request: PathExploreRequest): Promise<PathExploreResponse>;
+  explorePathDetails(request: PathDetailsRequest): Promise<PathDetailsResponse>;
   openSource(sourceId: string): Promise<SourcePage>;
   openKnowledgePage(pageId: string): Promise<KnowledgePage>;
   openOriginal(sourceId: string): Promise<void>;
@@ -244,6 +315,9 @@ export const desktopApi: GardenApi = {
   listUrlAcquisitions: () => invoke("list_url_acquisitions"),
   listSources: (offset) => invoke("list_sources", { offset }),
   searchPages: (request) => invoke("search_pages", { request }),
+  pathGraphRevision: () => invoke("path_graph_revision"),
+  explorePaths: (request) => invoke("explore_paths", { request }),
+  explorePathDetails: (request) => invoke("explore_path_details", { request }),
   openSource: (sourceId) => invoke("open_source", { sourceId }),
   openKnowledgePage: (pageId) => invoke("open_knowledge_page", { pageId }),
   openOriginal: (sourceId) => invoke("open_original", { sourceId }),
