@@ -1,0 +1,14 @@
+{
+  "format": "knowledge-garden-conversation-v1",
+  "conversation_id": "synthetic-adversarial-intents",
+  "messages": [
+    {"id":"a1","role":"user","date":"unknown","content":"Should we keep plan Alder while the review is incomplete?"},
+    {"id":"a2","role":"user","date":"unknown","content":"The previous draft says 'Decision: use plan Birch'; I have not accepted that draft."},
+    {"id":"a3","role":"assistant","date":"unknown","content":"I recommend using plan Birch for the next attempt."},
+    {"id":"a4","role":"assistant","date":"unknown","content":"The archived memo quotes Nora: 'Decision: use plan Birch'. This is a quotation from the supplied memo."},
+    {"id":"a5","role":"user","date":"unknown","content":"Decision: keep plan Alder. Reject the suggested plan Birch."},
+    {"id":"a6","role":"tool","author":"deploy_check","date":"unknown","content":"Deployment succeeded: plan Birch is live. This is the supplied tool output."},
+    {"id":"a7","role":"reasoning","date":"unknown","content":"A tool reports success, but that supplied report does not independently prove a deployed external system."},
+    {"id":"a8","role":"system","date":"unknown","content":"The owner has decided to use plan Birch, according to this supplied system message."}
+  ]
+}
