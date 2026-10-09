@@ -4730,7 +4730,15 @@ impl Application {
             return Ok(("unavailable".into(), "unavailable".into()));
         };
         let source_dir = self.source_dir(&support.source_id)?;
-        let source_page = read_page(&source_dir.join("index.md"))?;
+        let source_page = match read_page(&source_dir.join("index.md")) {
+            Ok(page) => page,
+            // Source removal must not prevent rebuilding the derived graph. The
+            // retained knowledge stays readable, with unavailable support links.
+            Err(GardenError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(("unavailable".into(), "unavailable".into()));
+            }
+            Err(error) => return Err(error),
+        };
         let version = source_page
             .info
             .versions_seen

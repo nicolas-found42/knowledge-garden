@@ -1381,13 +1381,11 @@ fn similarity_edges_retain_their_meaning_and_never_assert_identity_or_causation(
 fn removal_of_the_only_acquired_support_retires_the_path_on_index_refresh() {
     let workspace = tempdir().unwrap();
     let source = workspace.path().join("report.txt");
-    std::fs::write(&source, "Maya observed V17.").unwrap();
+    std::fs::write(&source, "Maya is a field observer. Maya observed V17.").unwrap();
     let collection = workspace.path().join("collection");
-    let mut app = Application::open_with_semantic_provider(
-        &collection,
-        Arc::new(RelationshipWithdrawalGraph),
-    )
-    .unwrap();
+    let mut app =
+        Application::open_with_semantic_provider(&collection, Arc::new(VersionedOfficeGraph))
+            .unwrap();
     let imported = app
         .import_source(&source, AcquisitionMethod::Picker)
         .unwrap();
@@ -1407,11 +1405,29 @@ fn removal_of_the_only_acquired_support_retires_the_path_on_index_refresh() {
     };
     let before = app.explore_paths(request.clone()).unwrap();
     assert_eq!(before.paths.len(), 1);
+    let maya_path = collection
+        .join("pages")
+        .join(format!("{}.md", maya.page_id));
+    let owner_note = "Owner note retained after support removal.";
+    let mut owner_markdown = std::fs::read_to_string(&maya_path).unwrap();
+    owner_markdown.push_str(&format!("\n{owner_note}\n"));
+    std::fs::write(&maya_path, &owner_markdown).unwrap();
     let retained_source_directory = collection
         .join("sources")
         .join(imported.info.source_id.strip_prefix("source-").unwrap());
     std::fs::remove_dir_all(retained_source_directory).unwrap();
     app.rebuild_index().unwrap();
+    let retained = app.open_knowledge_page(&maya.page_id).unwrap();
+    assert!(retained.markdown.contains(owner_note));
+    assert!(std::fs::read_dir(collection.join("owner-edits"))
+        .unwrap()
+        .filter_map(std::result::Result::ok)
+        .any(|entry| std::fs::read_to_string(entry.path()).unwrap() == owner_markdown));
+    assert!(retained.markdown.contains("field observer"));
+    assert!(retained.markdown.contains("[Source page](unavailable)"));
+    assert!(!retained
+        .markdown
+        .contains("Authority: owner manual correction"));
     assert_ne!(app.path_graph_revision().unwrap(), before.graph_revision);
     let after = app.explore_paths(request).unwrap();
     assert!(after.paths.is_empty());
