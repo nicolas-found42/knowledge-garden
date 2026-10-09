@@ -73,6 +73,13 @@ export interface SourceInfo {
   semantic_error: string | null;
   semantic_attempts: number;
   semantic_retry_at: string | null;
+  provider_availability?:
+    | "network"
+    | "quota"
+    | "authentication"
+    | "model_unavailable"
+    | "capability_unavailable"
+    | null;
   knowledge_pages: KnowledgePageSummary[];
   semantic_decisions: {
     question: string;

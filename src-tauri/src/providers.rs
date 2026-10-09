@@ -77,11 +77,18 @@ impl SystemOneTransport for OpenRouterSystemOneTransport {
                 return Err(ProviderError {
                     message: format!("Jev provider returned HTTP {status}; {resolution}."),
                     retryable,
+                    availability: None,
                 });
+            }
+            Err(error) if error.is_connect() || error.is_timeout() => {
+                return Err(ProviderError::unavailable(
+                    "Jev could not be reached; semantic work will retry automatically.".into(),
+                    crate::semantic::ProviderAvailability::Network,
+                ))
             }
             Err(_) => {
                 return Err(ProviderError::recoverable(
-                    "Jev could not be reached; semantic work will retry automatically.".into(),
+                    "Jev transport failed without a recognized connectivity cause; semantic work will retry within its finite failure budget.".into(),
                 ))
             }
         };

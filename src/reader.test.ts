@@ -66,6 +66,41 @@ function testApi(): GardenApi {
   };
 }
 
+it.each([
+  ["network", "Waiting for network access"],
+  ["quota", "Waiting for provider quota"],
+  ["authentication", "Waiting for provider credentials"],
+  ["model_unavailable", "Waiting for the selected model"],
+  ["capability_unavailable", "Waiting for provider capability"],
+] as const)(
+  "discloses %s cooldown while local content and originals stay readable",
+  async (cause, label) => {
+    const api = testApi();
+    api.importSource = vi.fn().mockResolvedValue({
+      ...riverside,
+      info: {
+        ...riverside.info,
+        provider_availability: cause,
+        semantic_retry_at: "1791524900000",
+        semantic_error: "Remote semantic processing will retry automatically.",
+      },
+    });
+    const root = document.createElement("div");
+    document.body.append(root);
+    dispose = await mountReader(root, api);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Add source" }));
+    expect(screen.getByRole("article").textContent).toContain(
+      "Observation V17 took place at Riverside",
+    );
+    await user.click(screen.getByText("Source information"));
+    expect(screen.getByText(label)).toBeTruthy();
+    expect(screen.getByText(/Automatic retry scheduled/)).toBeTruthy();
+    await user.click(screen.getByRole("link", { name: "Open original" }));
+    expect(api.openOriginal).toHaveBeenCalledWith("source-riverside");
+  },
+);
+
 it("loads a photo preview only on request and keeps its region guidance beside the image", async () => {
   const api = testApi();
   const preview = vi.fn().mockResolvedValue("data:image/jpeg;base64,/9j/");

@@ -4582,6 +4582,74 @@ fn repeated_initial_quota_failures_exhaust_the_same_persisted_budget() {
 }
 
 #[test]
+fn prolonged_offline_import_survives_restart_and_cache_loss_then_resumes_automatically() {
+    use knowledge_garden::semantic::ProviderAvailability;
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("offline-report.txt");
+    let collection = workspace.path().join("collection");
+    fs::write(&path, REVISION_1).unwrap();
+    let mut results = (0..5)
+        .map(|_| {
+            Err(ProviderError::unavailable(
+                "The network is unavailable.".into(),
+                ProviderAvailability::Network,
+            ))
+        })
+        .collect::<Vec<_>>();
+    results.push(Ok(v17_recording()));
+    let provider = Arc::new(RecordedProvider::sequence(results));
+    let mut app = Application::open_with_semantic_provider(&collection, provider.clone()).unwrap();
+    let imported = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    let source_id = imported.info.source_id.clone();
+    let page_id = imported.info.page_id.clone();
+    let version_id = imported.info.pending_version_id.clone();
+    for _ in 0..5 {
+        let jobs = app.claim_due_semantic_jobs_at(1, u128::MAX).unwrap();
+        assert_eq!(jobs.len(), 1, "an availability outage must stay resumable");
+        let job = jobs.into_iter().next().unwrap();
+        app.finish_semantic_job(job, provider.form_knowledge(REVISION_1))
+            .unwrap();
+        let pending = app.open_source(&source_id).unwrap();
+        assert_eq!(pending.info.semantic_state, "pending");
+        assert!(pending.info.semantic_retry_at.is_some());
+        assert_eq!(
+            pending.info.provider_availability,
+            Some(ProviderAvailability::Network)
+        );
+        assert_eq!(pending.info.versions_seen[0].retryable_provider_failures, 0);
+        assert_eq!(
+            fs::read(app.original_path(&source_id).unwrap()).unwrap(),
+            REVISION_1.as_bytes()
+        );
+        let matches = app
+            .search_pages(PageSearchRequest {
+                query: "Riverside".into(),
+                mode: PageSearchMode::Keyword,
+                ..PageSearchRequest::default()
+            })
+            .unwrap();
+        assert!(matches.pages.iter().any(|page| page.page_id == page_id));
+        drop(app);
+        fs::remove_dir_all(collection.join(".derived")).unwrap();
+        app = Application::open_with_semantic_provider(&collection, provider.clone()).unwrap();
+    }
+    app.resume_due_semantic_jobs_at(u128::MAX).unwrap();
+    let completed = app.open_source(&source_id).unwrap();
+    assert_eq!(completed.info.semantic_state, "complete");
+    assert_eq!(completed.info.provider_availability, None);
+    assert_eq!(completed.info.current_version_id, version_id);
+    assert_eq!(completed.info.page_id, page_id);
+    assert_eq!(app.list_sources(0).unwrap().sources.len(), 1);
+    let event = completed
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "event")
+        .unwrap();
+    let knowledge = app.open_knowledge_page(&event.page_id).unwrap();
+    assert!(knowledge.markdown.contains("12 visits"));
+}
+
+#[test]
 fn repeated_interrupted_initial_attempts_stop_without_losing_the_original() {
     let workspace = tempdir().unwrap();
     let path = workspace.path().join("interrupted-initial.txt");
