@@ -4818,7 +4818,7 @@ impl Application {
             else {
                 continue;
             };
-            if property.replace(' ', "_") != fact.property {
+            if property != escape_markdown(&fact.property.replace('_', " ")) {
                 continue;
             }
             let qualifier_suffix = fact
@@ -4830,10 +4830,15 @@ impl Application {
             if value == expected_value {
                 continue;
             }
-            let corrected_value = value
+            let Some(corrected_value) = value
                 .strip_suffix(&qualifier_suffix)
-                .unwrap_or(&value)
-                .to_owned();
+                .and_then(decode_generated_fact_value)
+            else {
+                // A missing/changed qualifier or malformed generated escape is
+                // outside the supported value-edit grammar. The body diff below
+                // retains the exact save with uncertainty without promoting it.
+                continue;
+            };
             fact.manual_correction = Some(ManualFactCorrection {
                 value: corrected_value.clone(),
             });
@@ -7132,6 +7137,25 @@ fn escape_heading(value: &str) -> String {
     value
         .replace(['\n', '\r'], " ")
         .replace(['[', ']', '<', '>'], "")
+}
+
+// Invert only the plaintext punctuation escapes emitted by escape_markdown.
+// This deliberately does not infer arbitrary Markdown formatting or meaning.
+fn decode_generated_fact_value(value: &str) -> Option<String> {
+    let mut decoded = String::with_capacity(value.len());
+    let mut characters = value.chars();
+    while let Some(character) = characters.next() {
+        if character == '\\' {
+            let escaped = characters.next()?;
+            if !escaped.is_ascii_punctuation() {
+                return None;
+            }
+            decoded.push(escaped);
+        } else {
+            decoded.push(character);
+        }
+    }
+    Some(decoded)
 }
 
 fn escape_markdown(value: &str) -> String {

@@ -7,7 +7,7 @@ Knowledge pages in `pages/` are ordinary Markdown. To correct a fact, change the
   - Fact identity: `fact-...`
 ```
 
-Keep any generated qualifier suffix intact. The application detects this supported form during automatic reconciliation or an index rescan. It records the value as an authoritative manual correction under that same fact identity. Later sources can change the fact's support, but cannot replace the owner's corrected value. Other facts on the page continue refreshing. The source's original quotation remains evidence of what the source said, separately from the owner's authority.
+Keep any generated qualifier suffix intact. Removing or changing it is preserved as uncertain content and does not create or replace manual authority. Backslash escapes emitted by the application for ASCII punctuation are decoded once when storing the corrected wording; literal backslashes use the generated doubled-backslash form. Dangling backslashes and escapes before non-punctuation fall outside this bounded grammar. This does not interpret arbitrary Markdown formatting. The application detects this supported form during automatic reconciliation or an index rescan. It records the value as an authoritative manual correction under that same fact identity. Later sources can change the fact's support, but cannot replace the owner's corrected value. Other facts on the page continue refreshing. The source's original quotation remains evidence of what the source said, separately from the owner's authority.
 
 Owner prose and unknown YAML properties also survive regeneration. Prose that differs from the generated page is retained under Owner notes. This readable projection can change layout; it does not promise to infer arbitrary Markdown structure or meaning.
 

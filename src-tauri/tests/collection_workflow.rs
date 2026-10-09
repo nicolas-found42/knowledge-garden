@@ -5494,3 +5494,245 @@ fn uninterpretable_external_page_edit_is_retained_and_marked_uncertain() {
         "exact owner-save recovery data must not index the obsolete duration as current knowledge"
     );
 }
+
+#[test]
+fn external_generated_markdown_escapes_decode_to_the_owner_fact_wording() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("V17.txt");
+    let first_text = "Complete report, revision 1 dated May 18, 2024.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 12. Duration: 11.5 minutes.\n";
+    let replacement_text = "Complete report, revision 2 dated May 20, 2024. This report completely replaces revision 1 of this same observation record.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 15. Duration: 13.5 minutes.\n";
+    fs::write(&source, first_text).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open_with_semantic_provider(
+        &collection,
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(replacement_recording_with_duration(
+                first_text,
+                12,
+                true,
+                "11.5 minutes",
+            )),
+            Ok(replacement_recording_with_duration(
+                replacement_text,
+                15,
+                true,
+                "13.5 minutes",
+            )),
+        ])),
+    )
+    .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let event = app
+        .open_source(&imported.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.title == "Observation V17")
+        .unwrap();
+    let page_path = collection
+        .join("pages")
+        .join(format!("{}.md", event.page_id));
+    let generated = fs::read_to_string(&page_path).unwrap();
+    assert!(generated.contains(r"- **duration:** 11\.5 minutes"));
+    let edited = generated.replace(
+        r"- **duration:** 11\.5 minutes",
+        r"- **duration:** 12\.5 minutes",
+    );
+    assert_ne!(generated, edited);
+    fs::write(&page_path, edited).unwrap();
+    app.rebuild_index().unwrap();
+    let current = app.open_knowledge_page(&event.page_id).unwrap();
+    let header: serde_yaml_ng::Value = serde_yaml_ng::from_str(
+        current
+            .markdown
+            .split_once("\n---\n")
+            .unwrap()
+            .0
+            .trim_start_matches("---\n"),
+    )
+    .unwrap();
+    let duration = header["facts"]
+        .as_sequence()
+        .unwrap()
+        .iter()
+        .find(|fact| fact["property"].as_str() == Some("duration"))
+        .unwrap();
+    assert_eq!(
+        duration["value"].as_str(),
+        Some("12.5 minutes"),
+        "generated Markdown escaping must not become literal fact wording"
+    );
+    assert_eq!(
+        duration["manual_correction"]["value"].as_str(),
+        Some("12.5 minutes")
+    );
+    assert!(current.markdown.contains(r"- **duration:** 12\.5 minutes"));
+    assert!(!current
+        .markdown
+        .contains(r"- **duration:** 12\\\.5 minutes"));
+    fs::write(&source, replacement_text).unwrap();
+    app.import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let refreshed = app.open_knowledge_page(&event.page_id).unwrap();
+    assert!(refreshed
+        .markdown
+        .contains(r"- **duration:** 12\.5 minutes"));
+    assert!(refreshed.markdown.contains("- **visit count:** 15 visits"));
+    drop(app);
+    fs::remove_dir_all(collection.join(".derived")).unwrap();
+    let mut reopened = Application::open(&collection).unwrap();
+    let restored = reopened.open_knowledge_page(&event.page_id).unwrap();
+    assert!(restored.markdown.contains(r"- **duration:** 12\.5 minutes"));
+    assert!(!restored
+        .markdown
+        .contains(r"- **duration:** 12\\\.5 minutes"));
+    assert!(reopened
+        .search_pages(PageSearchRequest {
+            query: "12.5 minutes".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap()
+        .pages
+        .iter()
+        .any(|page| page.page_id == event.page_id));
+}
+
+#[test]
+fn external_qualifier_edits_remain_uncertain_without_promoting_manual_authority() {
+    for (edit_label, owner_value) in [("removed", "12 minutes"), ("changed", "12 minutes (exact)")]
+    {
+        for prior_manual in [false, true] {
+            let workspace = tempdir().unwrap();
+            let source = workspace.path().join("V17.txt");
+            let first_text = "Complete report, revision 1 dated May 18, 2024.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 12. Duration: 10 minutes. All duration measurements are approximate.\n";
+            let replacement_text = "Complete report, revision 2 dated May 20, 2024. This report completely replaces revision 1 of this same observation record.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 15. Duration: 13 minutes. All duration measurements are approximate.\n";
+            fs::write(&source, first_text).unwrap();
+            let qualified_recording = |text: &str, count, duration| {
+                let mut draft = replacement_recording_with_duration(text, count, true, duration);
+                draft
+                    .facts
+                    .iter_mut()
+                    .find(|fact| fact.property == "duration")
+                    .unwrap()
+                    .evidence
+                    .qualifier = Some("approximate".into());
+                draft
+            };
+            let collection = workspace.path().join("collection");
+            let mut app = Application::open_with_semantic_provider(
+                &collection,
+                Arc::new(RecordedProvider::sequence(vec![
+                    Ok(qualified_recording(first_text, 12, "10 minutes")),
+                    Ok(qualified_recording(replacement_text, 15, "13 minutes")),
+                ])),
+            )
+            .unwrap();
+            let imported = app
+                .import_source(&source, AcquisitionMethod::Picker)
+                .unwrap();
+            app.resume_due_semantic_jobs().unwrap();
+            let event = app
+                .open_source(&imported.info.source_id)
+                .unwrap()
+                .knowledge_pages
+                .into_iter()
+                .find(|page| page.title == "Observation V17")
+                .unwrap();
+            let page_path = collection
+                .join("pages")
+                .join(format!("{}.md", event.page_id));
+            if prior_manual {
+                let generated = fs::read_to_string(&page_path).unwrap();
+                assert!(generated.contains("- **duration:** 10 minutes (approximate)"));
+                fs::write(
+                    &page_path,
+                    generated.replace(
+                        "- **duration:** 10 minutes (approximate)",
+                        "- **duration:** 11 minutes (approximate)",
+                    ),
+                )
+                .unwrap();
+                app.rebuild_index().unwrap();
+            }
+            let generated = fs::read_to_string(&page_path).unwrap();
+            let expected_row = if prior_manual {
+                "- **duration:** 11 minutes (approximate)"
+            } else {
+                "- **duration:** 10 minutes (approximate)"
+            };
+            assert!(generated.contains(expected_row));
+            let edited = generated.replace(expected_row, &format!("- **duration:** {owner_value}"));
+            assert_ne!(generated, edited);
+            let temporary = page_path.with_extension("md.tmp");
+            fs::write(&temporary, &edited).unwrap();
+            fs::rename(&temporary, &page_path).unwrap();
+            app.rebuild_index().unwrap();
+            let uncertain = app.open_knowledge_page(&event.page_id).unwrap();
+            assert_eq!(uncertain.external_edit_status.as_deref(), Some("uncertain"));
+            let header: serde_yaml_ng::Value = serde_yaml_ng::from_str(
+                uncertain
+                    .markdown
+                    .split_once("\n---\n")
+                    .unwrap()
+                    .0
+                    .trim_start_matches("---\n"),
+            )
+            .unwrap();
+            let duration = header["facts"]
+                .as_sequence()
+                .unwrap()
+                .iter()
+                .find(|fact| fact["property"].as_str() == Some("duration"))
+                .unwrap();
+            if prior_manual {
+                assert_eq!(
+                    duration["manual_correction"]["value"].as_str(),
+                    Some("11 minutes"),
+                    "{edit_label} qualifier must not replace existing owner authority"
+                );
+            } else {
+                assert!(
+                    duration["manual_correction"].is_null(),
+                    "{edit_label} qualifier must not promote an unsupported edit: {duration:?}"
+                );
+            }
+            assert_eq!(duration["qualifier"].as_str(), Some("approximate"));
+            let retained = header["uninterpreted_owner_edits"].as_sequence().unwrap();
+            assert!(
+                retained.iter().any(|path| fs::read_to_string(
+                    collection.join(path.as_str().unwrap())
+                )
+                .unwrap()
+                    == edited),
+                "the exact ambiguous owner save must survive"
+            );
+            fs::write(&source, replacement_text).unwrap();
+            app.import_source(&source, AcquisitionMethod::Picker)
+                .unwrap();
+            app.resume_due_semantic_jobs().unwrap();
+            let refreshed = app.open_knowledge_page(&event.page_id).unwrap();
+            assert!(refreshed.markdown.contains("- **visit count:** 15 visits"));
+            let expected_duration = if prior_manual {
+                "- **duration:** 11 minutes (approximate)"
+            } else {
+                "- **duration:** 13 minutes (approximate)"
+            };
+            assert!(
+                refreshed.markdown.contains(expected_duration),
+                "source refresh must respect only understood owner authority: {}",
+                refreshed.markdown
+            );
+            drop(app);
+            fs::remove_dir_all(collection.join(".derived")).unwrap();
+            let reopened = Application::open(&collection).unwrap();
+            let restored = reopened.open_knowledge_page(&event.page_id).unwrap();
+            assert_eq!(restored.external_edit_status.as_deref(), Some("uncertain"));
+            assert!(restored.markdown.contains(expected_duration));
+            assert!(restored.markdown.contains("- **visit count:** 15 visits"));
+        }
+    }
+}
