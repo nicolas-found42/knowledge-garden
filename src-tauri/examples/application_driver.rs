@@ -114,7 +114,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let recorded_office = operation == "office-recorded-import";
     let recorded_conversation = operation == "conversation-recorded-import";
-    let mut app = if operation == "audio-live-import" {
+    let mut app = if matches!(
+        operation,
+        "audio-live-import" | "audio-local-import" | "audio-local-resume"
+    ) {
         let audio_assets = args.get(4).ok_or("missing pinned audio asset directory")?;
         Application::open_with_all_providers(
             args.get(1).ok_or("missing test collection")?,
@@ -151,6 +154,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
             app.resume_due_semantic_jobs()?;
             output(app.open_source(&page.info.source_id)?);
+        }
+        "audio-local-import" => {
+            let page = app.import_source(
+                args.get(3).ok_or("missing fixture path")?,
+                AcquisitionMethod::Picker,
+            )?;
+            output(app.open_source(&page.info.source_id)?);
+        }
+        "audio-local-resume" => {
+            app.resume_due_audio_jobs()?;
+            output(app.open_source(args.get(3).ok_or("missing source identity")?)?);
         }
         "audio-live-import" => {
             let page = app.import_source(

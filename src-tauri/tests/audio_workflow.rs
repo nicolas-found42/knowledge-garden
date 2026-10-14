@@ -1370,6 +1370,8 @@ fn pinned_local_whisper_import_retrieval_evidence_restart_and_seek_fallback() {
     assert!(segments[0].text.contains("10 minutes"));
     assert!(segments[1].text.contains("may have said 12"));
     assert!(segments[1].text.contains("count could be 15"));
+    assert!(segments[0].start_ms <= 250);
+    assert!(segments[0].end_ms.abs_diff(4_300) <= 250);
     assert!(segments[1].start_ms.abs_diff(5_440) <= 250);
     assert!(segments[1].end_ms.abs_diff(11_393) <= 250);
     assert!(segments[0].end_ms < segments[1].start_ms);
@@ -2122,4 +2124,232 @@ fn application_drop_releases_collection_for_restart_while_command_is_pre_exec_pa
         reopened.as_ref().err()
     );
     assert_eq!(retained_bytes.unwrap(), original);
+}
+
+struct InvalidAudioEnvelope {
+    defect: &'static str,
+}
+impl AudioProcessor for InvalidAudioEnvelope {
+    fn inspect(&self, path: &Path) -> Result<AudioInfo, String> {
+        FixedAudio.inspect(path)
+    }
+    fn install_assets(&self) -> Result<(), String> {
+        Ok(())
+    }
+    fn transcribe_segment(
+        &self,
+        path: &Path,
+        start_ms: u64,
+        duration_ms: u64,
+    ) -> Result<TranscriptionBatch, String> {
+        let mut batch = FixedAudio.transcribe_segment(path, start_ms, duration_ms)?;
+        match self.defect {
+            "unknown_schema" => batch.schema = 999,
+            "failed_with_text" => batch.state = "failed".into(),
+            "empty_claim_with_text" => batch.state = "no_recognized_speech".into(),
+            _ => unreachable!(),
+        }
+        Ok(batch)
+    }
+}
+
+#[test]
+fn invalid_transcriber_envelopes_do_not_advance_or_publish_partial_guesswork_after_restart() {
+    for defect in [
+        "unknown_schema",
+        "failed_with_text",
+        "empty_claim_with_text",
+    ] {
+        let workspace = tempdir().unwrap();
+        let source = workspace.path().join("recording.m4a");
+        let original = b"retained invalid supporting-provider envelope fixture";
+        fs::write(&source, original).unwrap();
+        let collection = workspace.path().join("collection");
+        let mut app = Application::open_with_all_providers(
+            &collection,
+            Arc::new(EmptyProvider),
+            Arc::new(LocalExtractor),
+            Arc::new(InvalidAudioEnvelope { defect }),
+        )
+        .unwrap();
+        let imported = app
+            .import_source(&source, AcquisitionMethod::Picker)
+            .unwrap();
+        app.resume_due_audio_jobs().unwrap();
+        let observed = app.open_source(&imported.info.source_id).unwrap();
+        let audio = observed.info.audio_processing.as_ref().unwrap();
+        assert_eq!(
+            audio.next_start_ms, 0,
+            "{defect}: invalid result advanced coverage"
+        );
+        assert_eq!(audio.failed_attempts, 1, "{defect}");
+        assert!(audio.segments.is_empty(), "{defect}");
+        assert!(
+            app.claim_due_semantic_jobs(1).unwrap().is_empty(),
+            "{defect}"
+        );
+        drop(app);
+        let reopened = Application::open(&collection).unwrap();
+        let observed = reopened.open_source(&imported.info.source_id).unwrap();
+        let audio = observed.info.audio_processing.as_ref().unwrap();
+        assert_eq!(audio.next_start_ms, 0);
+        assert_eq!(audio.state, "pending");
+        assert!(audio.segments.is_empty());
+        assert_eq!(
+            fs::read(reopened.original_path(&imported.info.source_id).unwrap()).unwrap(),
+            original
+        );
+    }
+}
+
+#[test]
+fn real_local_acoustic_challenges_remain_qualified_searchable_and_retained_after_restart() {
+    let _asr_lock = LOCAL_ASR_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let assets = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/audio");
+    // Source-only labels and mechanical composition were frozen before ASR on October 7.
+    // These checks deliberately preserve the overlapping voice omission as a quality limit.
+    for (name, query) in [
+        ("accent-en-in.wav", "library"),
+        ("low-noise.wav", "binder"),
+        ("overlap-two-voices.wav", "delivery"),
+        ("partial-final-sentence.wav", "inspection"),
+    ] {
+        let workspace = tempdir().unwrap();
+        let collection = workspace.path().join("collection");
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/audio-challenges")
+            .join(name);
+        let original = fs::read(&fixture).unwrap();
+        let mut app = Application::open_with_all_providers(
+            &collection,
+            Arc::new(EmptyProvider),
+            Arc::new(LocalExtractor),
+            Arc::new(WhisperAudioProcessor::new(&assets)),
+        )
+        .unwrap();
+        let imported = app
+            .import_source(&fixture, AcquisitionMethod::Picker)
+            .unwrap();
+        app.resume_due_audio_jobs().unwrap();
+        let page = app.open_source(&imported.info.source_id).unwrap();
+        let audio = page.info.audio_processing.as_ref().unwrap();
+        assert_eq!(audio.state, "complete", "{name}: {}", audio.detail);
+        assert_eq!(audio.next_start_ms, audio.duration_ms);
+        assert!(!audio.segments.is_empty(), "{name}");
+        assert!(audio
+            .segments
+            .iter()
+            .all(|segment| segment.speaker.is_none()
+                && segment.confidence.is_none()
+                && segment.end_ms <= audio.duration_ms
+                && !segment.segment_id.is_empty()));
+        for qualification in [
+            "best-guess transcript",
+            "Silence, overlap",
+            "timestamps are estimates",
+            "speakers remain unidentified",
+        ] {
+            assert!(page.body.contains(qualification), "{name}: {qualification}");
+        }
+        assert!(page.body.contains("Play retained original"));
+        let coverage = page.info.extraction_coverage.as_ref().unwrap();
+        assert!(coverage
+            .iter()
+            .all(|part| part.status != knowledge_garden::office::CoverageStatus::Complete));
+        let results = app
+            .search_pages(PageSearchRequest {
+                query: query.into(),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(
+            results
+                .pages
+                .iter()
+                .any(|result| result.source_id == imported.info.source_id),
+            "{name}"
+        );
+        let ids: Vec<_> = audio
+            .segments
+            .iter()
+            .map(|segment| segment.segment_id.clone())
+            .collect();
+        println!("{name}: duration={} ms; transcript={:?}; coverage remains partial; speakers/confidence unknown", audio.duration_ms,
+            audio.segments.iter().map(|segment| (&segment.text, segment.start_ms, segment.end_ms)).collect::<Vec<_>>());
+        drop(app);
+        let mut restarted = Application::open_with_all_providers(
+            &collection,
+            Arc::new(EmptyProvider),
+            Arc::new(LocalExtractor),
+            Arc::new(WhisperAudioProcessor::new(&assets)),
+        )
+        .unwrap();
+        restarted.resume_due_audio_jobs().unwrap();
+        let after = restarted.open_source(&imported.info.source_id).unwrap();
+        assert_eq!(
+            after
+                .info
+                .audio_processing
+                .as_ref()
+                .unwrap()
+                .segments
+                .iter()
+                .map(|segment| segment.segment_id.clone())
+                .collect::<Vec<_>>(),
+            ids
+        );
+        assert_eq!(
+            fs::read(restarted.original_path(&imported.info.source_id).unwrap()).unwrap(),
+            original
+        );
+    }
+}
+
+#[test]
+fn native_undecodable_recording_keeps_exact_original_and_explicit_failed_coverage() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("damaged-recording.m4a");
+    let original = b"\x00\x00\x00\x18ftypM4A \x00\x00\x00\x00M4A ";
+    fs::write(&source, original).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = whisper_app(
+        &collection,
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/audio"),
+    );
+    let page = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    assert_eq!(
+        page.info.extraction,
+        knowledge_garden::application::ExtractionState::Unsupported
+    );
+    assert!(page.info.audio_processing.is_none());
+    assert!(page
+        .info
+        .extraction_detail
+        .contains("could not be inspected"));
+    assert!(page
+        .info
+        .extraction_coverage
+        .as_ref()
+        .unwrap()
+        .iter()
+        .any(|part| part.status == knowledge_garden::office::CoverageStatus::Failed));
+    assert!(page.body.contains("Open original"));
+    assert!(app.claim_due_semantic_jobs(1).unwrap().is_empty());
+    let source_id = page.info.source_id;
+    drop(app);
+    let reopened = Application::open(&collection).unwrap();
+    assert_eq!(
+        fs::read(reopened.original_path(&source_id).unwrap()).unwrap(),
+        original
+    );
+    assert!(reopened
+        .open_source(&source_id)
+        .unwrap()
+        .info
+        .knowledge_pages
+        .is_empty());
 }
