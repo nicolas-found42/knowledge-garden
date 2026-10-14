@@ -4,6 +4,7 @@ use crate::semantic::{
     EntityDraft, EvidenceDraft, KnowledgeDraft, KnowledgePage, KnowledgePageSummary, ProviderError,
     SemanticDecision, SemanticJob, SemanticProvider, SourceUpdateRole,
 };
+use crate::photo::PhotoAnalysisProvider;
 use fs2::FileExt;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -241,6 +242,7 @@ pub struct Application {
     // The lock survives for this application's lifetime, including across commands.
     _lock: File,
     semantic_provider: Arc<dyn SemanticProvider>,
+    photo_provider: Option<Arc<dyn PhotoAnalysisProvider>>,
     staged_publication: Vec<(PathBuf, Vec<u8>)>,
     fail_after_publication_files: Option<usize>,
 }
@@ -258,19 +260,28 @@ impl Application {
     }
 
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
-        Self::open_inner(root, Arc::new(UnavailableProvider))
+        Self::open_inner(root, Arc::new(UnavailableProvider), None)
     }
 
     pub fn open_with_semantic_provider(
         root: impl AsRef<Path>,
         semantic_provider: Arc<dyn SemanticProvider>,
     ) -> Result<Self> {
-        Self::open_inner(root, semantic_provider)
+        Self::open_inner(root, semantic_provider, None)
+    }
+
+    pub fn open_with_providers(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        photo_provider: Arc<dyn PhotoAnalysisProvider>,
+    ) -> Result<Self> {
+        Self::open_inner(root, semantic_provider, Some(photo_provider))
     }
 
     fn open_inner(
         root: impl AsRef<Path>,
         semantic_provider: Arc<dyn SemanticProvider>,
+        photo_provider: Option<Arc<dyn PhotoAnalysisProvider>>,
     ) -> Result<Self> {
         fs::create_dir_all(root.as_ref())?;
         let root = fs::canonicalize(root)?;
@@ -332,6 +343,7 @@ impl Application {
             index,
             _lock: lock,
             semantic_provider,
+            photo_provider,
             staged_publication: Vec::new(),
             fail_after_publication_files: None,
         };
@@ -588,9 +600,22 @@ impl Application {
                         return self.open_source(&source_id);
                     }
                 }
+            } else if crate::photo::is_supported_format(&format) {
+                match crate::photo::inspect(&staging.path().join(&asset)) {
+                    Ok(photo) => (
+                        ExtractionState::StructuredText,
+                        "ImageIO decoded the retained photo; EXIF/IPTC and Vision OCR remain explicitly labeled projections. The original is unchanged.".into(),
+                        Some(Vec::new()),
+                    ),
+                    Err(error) => (
+                        ExtractionState::Unsupported,
+                        format!("Photo extraction is unavailable; the exact original is retained. {error}"),
+                        None,
+                    ),
+                }
             } else {
                 let (extraction, detail, _) = classify_source(&format, count, text_bytes);
-                (extraction, detail.to_owned(), None)
+                (extraction, detail.to_owned(), None, None)
             };
             if !matches!(
                 extraction,
@@ -719,6 +744,26 @@ impl Application {
                             }]),
                         )
                     }
+                }
+            } else if crate::photo::is_supported_format(&format) {
+                match crate::photo::inspect(&staging.path().join(&asset)) {
+                    Ok(photo) => {
+                        let projection = photo.semantic_text();
+                        (
+                            ExtractionState::StructuredText,
+                            "ImageIO decoded the retained photo; EXIF/IPTC and Vision OCR remain explicitly labeled projections. The original is unchanged.".into(),
+                            projection,
+                            None,
+                            Some(Vec::new()),
+                        )
+                    }
+                    Err(error) => (
+                        ExtractionState::Unsupported,
+                        format!("Photo extraction is unavailable; the exact original is retained. {error}"),
+                        String::new(),
+                        None,
+                        Some(Vec::new()),
+                    ),
                 }
             } else if !matches!(format.as_str(), "" | "txt" | "text" | "md" | "markdown") {
                 (
@@ -1001,6 +1046,10 @@ impl Application {
                 crate::web::project(&prefix, final_url)
                     .map_err(GardenError::Invalid)?
                     .semantic_text
+            } else if crate::photo::is_supported_format(&page.info.format) {
+                crate::photo::inspect(&candidate_path)
+                    .map_err(|error| GardenError::Invalid(error.message))?
+                    .semantic_text()
             } else if matches!(
                 page.info.extraction,
                 ExtractionState::StructuredText | ExtractionState::PartialText
@@ -1032,6 +1081,11 @@ impl Application {
                 source_version_id,
                 attempt,
                 source_text: text,
+                photo_bytes: crate::photo::is_supported_format(&page.info.format)
+                    .then(|| fs::read(&candidate_path))
+                    .transpose()?,
+                photo_mime_type: crate::photo::is_supported_format(&page.info.format)
+                    .then(|| crate::photo::mime_type(&page.info.format).to_owned()),
             });
         }
         Ok(jobs)
@@ -4082,6 +4136,16 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
         .replace(['[', ']', '<', '>'], "");
     if let Some(projection) = office {
         return projection.markdown.replace("ORIGINAL_ASSET", &info.asset);
+    }
+    if crate::photo::is_supported_format(&info.format)
+        && matches!(info.extraction, ExtractionState::StructuredText | ExtractionState::PartialText)
+    {
+        let longest_run = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+        let fence = "`".repeat(3.max(longest_run + 1));
+        return format!(
+            "# {title}\n\n[Open original]({})\n\n## Photo evidence projection\n\nMetadata values are file claims, captions are supplied text, and OCR is a text-recognition projection. They do not authenticate the photo date or visual identity.\n\n{fence}text\n{text}\n{fence}\n\nPreview is generated from the retained original on request.\n",
+            info.asset
+        );
     }
     if info.extraction != ExtractionState::TextPreserved {
         return format!(

@@ -63,6 +63,9 @@ pub struct SemanticJob {
     pub source_version_id: String,
     pub attempt: u32,
     pub source_text: String,
+    /// Exact retained image bytes for the explicitly selected photo analyzer.
+    pub photo_bytes: Option<Vec<u8>>,
+    pub photo_mime_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

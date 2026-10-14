@@ -1,0 +1,11 @@
+{
+  "expected_labels_sha256": "7734ba8afee7299b4b20aa3f28f166e0cb832e6464bdbaa8bc318efaeb1129bf",
+  "generator": "create-photo-fixtures.swift; deterministic synthetic CoreGraphics drawings and metadata; macOS ImageIO encoders",
+  "fixtures": {
+    "tabletop-apple.jpg": "b44108a67587871526bbe4bf0958500a8e4cae76e3fae068a02c442af3384439",
+    "river-gauge.png": "88e1a03c8432cdc0e0ea954554581e3b5858584d89d5b3b818af07f6ae70a9d2",
+    "garden-pot.heic": "4cdde0d6f591bc7c4dec0ac94a4ef9fab996d0a4bafd27c2957a2ccada4bcfdd",
+    "damaged-photo.jpg": "26f506819bc6c976435ea1abdc3525dbb094d20a566c3e4e89bd64a8f61d5839"
+  },
+  "limits": ["Synthetic simple graphics only; not representative natural photography", "The HEIC is ImageIO-encoded and decodes on this host; consumer codec/device breadth is not established", "No model request has been made against these assets yet"]
+}
