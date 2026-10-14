@@ -22,6 +22,51 @@ pub fn is_conversation(format: &str) -> bool {
     matches!(format, "json" | "jsonl")
 }
 
+/// Recognize only the supported, explicit export schemas. A JSON extension
+/// alone does not establish that ordinary repository code is a conversation.
+pub fn is_supported_export(path: &Path, format: &str) -> bool {
+    if !is_conversation(format) {
+        return false;
+    }
+    let Ok(file) = File::open(path) else {
+        return false;
+    };
+    let mut bytes = Vec::new();
+    if file
+        .take(MAX_EXPORT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .is_err()
+        || bytes.len() as u64 > MAX_EXPORT_BYTES
+    {
+        return false;
+    }
+    if format == "json" {
+        return serde_json::from_slice::<Value>(&bytes)
+            .is_ok_and(|export| export["format"] == "knowledge-garden-conversation-v1");
+    }
+
+    let mut has_session = false;
+    let mut has_message = false;
+    for line in bytes
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+    {
+        let Ok(record) = serde_json::from_slice::<Value>(line) else {
+            continue;
+        };
+        has_session |= record["type"] == "session_meta"
+            && record["payload"]["id"]
+                .as_str()
+                .is_some_and(|id| !id.trim().is_empty());
+        has_message |= record["type"] == "response_item"
+            && matches!(
+                record["payload"]["type"].as_str(),
+                Some("message" | "function_call")
+            );
+    }
+    has_session && has_message
+}
+
 fn field(value: &str) -> String {
     utf8_percent_encode(value, LOCATOR_FIELD).to_string()
 }
@@ -133,10 +178,10 @@ pub(crate) fn passages(text: &str) -> Result<Vec<Passage>, String> {
 /// provider's semantic confidence about the recorded assertion.
 pub(crate) fn validate_draft(
     text: &str,
-    format: &str,
+    acquired_conversation: bool,
     draft: &KnowledgeDraft,
 ) -> Result<(), String> {
-    if !is_conversation(format) {
+    if !acquired_conversation {
         let forged_context = draft
             .entities
             .iter()

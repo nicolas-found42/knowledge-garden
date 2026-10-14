@@ -288,7 +288,10 @@ impl SemanticProvider for JevSemanticProvider {
         let mut candidates = if photo_mode {
             Vec::new()
         } else {
-            candidates(source_text)
+            let mut candidates = candidates(source_text);
+            candidates.extend(adr_decision_candidates(source_text));
+            candidates.extend(repository_question_candidates(source_text));
+            candidates
         };
         let correction_candidates = correction_candidates(source_text, &candidates);
         let office_candidates = office_statement_candidates(source_text);
@@ -334,6 +337,9 @@ impl SemanticProvider for JevSemanticProvider {
                 continue;
             }
             let judgment = match candidate.kind {
+                CandidateKind::CodeConcept => "Does this exact Rust documentation comment describe the adjacent named code construct as a meaningful concept worth navigating? Accept only when the symbol and comment are adjacent in the acquired source and the description is grounded in the quoted comment. Do not infer behavior beyond those words.",
+                CandidateKind::AdrDecision => "This exact paragraph appears immediately under the source's explicit `## Decision` heading, so judge whether it is a decision stated by this document. Accept only the decision span, not context, status, or consequences. Preserve the wording as an attributed document decision; do not infer that it is accepted, current, implemented, or true beyond the span.",
+                CandidateKind::RepositoryQuestion => "Is this exact bullet under an explicit `## Questions` or `## Open Questions` heading a source-stated question worth navigating? Accept only the literal question and do not infer an answer or turn surrounding prose into a question.",
                 CandidateKind::Event => "Does this source span explicitly identify the named event/entity ID shown in the candidate? The event ID is a source label, not a claim about its truth.",
                 CandidateKind::Place => "Does this exact source span place the described event at the named place? Phrases such as 'at Riverside' or 'Location: Riverside' explicitly attach the place to the event; keep any uncertainty in the qualification.",
                 CandidateKind::Count if candidate.origin == "quoted" => "Does the source explicitly quote or report the qualified count described by this candidate? Judge whether the source contains that quoted assertion, not whether the count was independently observed.",
@@ -690,9 +696,16 @@ impl SemanticProvider for JevSemanticProvider {
             .find(|candidate| candidate.kind == CandidateKind::Event)
             .copied();
         if event.is_none()
-            && !accepted
-                .iter()
-                .any(|candidate| candidate.kind == CandidateKind::Reference)
+            && !accepted.iter().any(|candidate| {
+                matches!(
+                    candidate.kind,
+                    CandidateKind::Reference
+                        | CandidateKind::CodeConcept
+                        | CandidateKind::AdrDecision
+                        | CandidateKind::RepositoryQuestion
+                        | CandidateKind::OfficeStatement
+                )
+            })
             && !office_mode
             && !audio_mode
         {
@@ -886,6 +899,36 @@ impl SemanticProvider for JevSemanticProvider {
                             evidence: candidate.evidence(),
                         });
                 }
+                CandidateKind::CodeConcept => {
+                    let label = candidate.value.clone();
+                    entity_labels
+                        .entry(label.clone())
+                        .or_insert_with(|| EntityDraft {
+                            kind: "concept".into(),
+                            label,
+                            evidence: candidate.evidence(),
+                        });
+                }
+                CandidateKind::AdrDecision => {
+                    let label = candidate.value.clone();
+                    entity_labels
+                        .entry(label.clone())
+                        .or_insert_with(|| EntityDraft {
+                            kind: "decision".into(),
+                            label,
+                            evidence: candidate.evidence(),
+                        });
+                }
+                CandidateKind::RepositoryQuestion => {
+                    let label = candidate.value.clone();
+                    entity_labels
+                        .entry(label.clone())
+                        .or_insert_with(|| EntityDraft {
+                            kind: "question".into(),
+                            label,
+                            evidence: candidate.evidence(),
+                        });
+                }
                 _ => {}
             }
         }
@@ -1068,6 +1111,47 @@ impl SemanticProvider for JevSemanticProvider {
                         &candidate.value,
                     )
                 },
+            });
+        }
+        for candidate in accepted
+            .iter()
+            .filter(|candidate| candidate.kind == CandidateKind::CodeConcept)
+        {
+            draft.facts.push(FactDraft {
+                subject: candidate.value.clone(),
+                property: "description".into(),
+                value: candidate
+                    .quote
+                    .trim_start()
+                    .trim_start_matches("///")
+                    .trim()
+                    .to_owned(),
+                evidence: candidate.evidence(),
+                record_key: None,
+            });
+        }
+        for candidate in accepted
+            .iter()
+            .filter(|candidate| candidate.kind == CandidateKind::AdrDecision)
+        {
+            draft.facts.push(FactDraft {
+                subject: candidate.value.clone(),
+                property: "decision".into(),
+                value: candidate.quote.trim().to_owned(),
+                evidence: candidate.evidence(),
+                record_key: None,
+            });
+        }
+        for candidate in accepted
+            .iter()
+            .filter(|candidate| candidate.kind == CandidateKind::RepositoryQuestion)
+        {
+            draft.facts.push(FactDraft {
+                subject: candidate.value.clone(),
+                property: "question".into(),
+                value: candidate.value.clone(),
+                evidence: candidate.evidence(),
+                record_key: None,
             });
         }
         for candidate in accepted
@@ -1263,6 +1347,9 @@ fn push_audio_sentence(
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CandidateKind {
+    CodeConcept,
+    AdrDecision,
+    RepositoryQuestion,
     Event,
     Person,
     Place,
@@ -1986,8 +2073,96 @@ fn office_qualification(text: &str) -> Option<String> {
     (!matches.is_empty()).then(|| matches.join("; "))
 }
 
+fn adr_decision_candidates(text: &str) -> Vec<Candidate> {
+    let adr_title_re = regex(r"(?im)^#[ \t]+ADR-[0-9A-Za-z_-]+\s*:\s*(.+?)\s*$");
+    let Some(title) = adr_title_re
+        .captures(text)
+        .and_then(|captures| captures.get(1))
+        .map(|title| title.as_str().trim())
+        .filter(|title| !title.is_empty())
+    else {
+        return Vec::new();
+    };
+    let decision_re = regex(r"(?im)^##[ \t]+Decision[ \t]*\r?\n(?:[ \t]*\r?\n)*([^#\n][^\n]*)");
+    decision_re
+        .captures_iter(text)
+        .filter_map(|captures| {
+            let span = captures.get(1)?;
+            let quote = span.as_str().trim();
+            (!quote.is_empty()).then(|| Candidate {
+                kind: CandidateKind::AdrDecision,
+                value: title.to_owned(),
+                quote: quote.to_owned(),
+                start: span.start(),
+                end: span.end(),
+                qualifier: None,
+                origin: origin_for(text, span.start(), span.end()),
+            })
+        })
+        .collect()
+}
+
+fn repository_question_candidates(text: &str) -> Vec<Candidate> {
+    let question_heading = regex(r"(?i)^##[ \t]+(?:open[ \t]+)?questions[ \t]*$");
+    let mut in_question_section = false;
+    let mut line_start = 0usize;
+    let mut candidates = Vec::new();
+    for raw_line in text.split_inclusive('\n') {
+        let line = raw_line.trim_end_matches(['\r', '\n']);
+        if question_heading.is_match(line) {
+            in_question_section = true;
+        } else if line.starts_with('#') {
+            in_question_section = false;
+        } else if in_question_section {
+            let leading = line.len() - line.trim_start().len();
+            let content = line.trim_start();
+            let bullet = ["- ", "* ", "+ "]
+                .iter()
+                .find(|prefix| content.starts_with(*prefix));
+            if let Some(prefix) = bullet {
+                let question = content[prefix.len()..].trim();
+                if question.ends_with('?') && !question.is_empty() {
+                    let within_line = leading + prefix.len();
+                    let start = line_start + within_line;
+                    candidates.push(Candidate {
+                        kind: CandidateKind::RepositoryQuestion,
+                        value: question.to_owned(),
+                        quote: question.to_owned(),
+                        start,
+                        end: start + question.len(),
+                        qualifier: None,
+                        origin: origin_for(text, start, start + question.len()),
+                    });
+                }
+            }
+        }
+        line_start += raw_line.len();
+    }
+    candidates
+}
+
 fn candidates(text: &str) -> Vec<Candidate> {
     let mut result = Vec::new();
+    let code_doc_re = regex(
+        r"(?m)^([ \t]*///[ \t]*[^\n]+)\n[ \t]*(?:pub[ \t]+)?(?:struct|enum|trait)[ \t]+([A-Z][A-Za-z0-9_]*)\b",
+    );
+    for captures in code_doc_re.captures_iter(text) {
+        let Some(comment) = captures.get(1) else {
+            continue;
+        };
+        let Some(symbol) = captures.get(2) else {
+            continue;
+        };
+        result.push(Candidate {
+            kind: CandidateKind::CodeConcept,
+            value: symbol.as_str().to_owned(),
+            quote: comment.as_str().to_owned(),
+            start: comment.start(),
+            end: comment.end(),
+            qualifier: None,
+            origin: origin_for(text, comment.start(), comment.end()),
+        });
+    }
     let event_re = regex(r"\b(?:V[0-9]+|(?i:observation|survey|event)\s+(?-i:[A-Z][A-Z0-9_-]*))\b");
     for m in event_re.find_iter(text) {
         let id = m.as_str().to_owned();

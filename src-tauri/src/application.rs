@@ -68,6 +68,33 @@ pub enum AcquisitionMethod {
     Picker,
     Drop,
     Url,
+    Repository,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RepositorySourceContext {
+    pub repository_id: String,
+    pub repository_path: String,
+    pub relative_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepositorySourceSummary {
+    pub source_id: String,
+    pub relative_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RepositoryExclusion {
+    pub relative_path: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepositoryImportResult {
+    pub repository_id: String,
+    pub sources: Vec<RepositorySourceSummary>,
+    pub exclusions: Vec<RepositoryExclusion>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -162,6 +189,8 @@ pub struct SourceInfo {
     pub sha256: String,
     pub bytes: u64,
     pub format: String,
+    #[serde(default)]
+    pub repository: Option<RepositorySourceContext>,
     pub extraction: ExtractionState,
     pub extraction_detail: String,
     #[serde(default)]
@@ -776,6 +805,141 @@ impl Application {
         self.import_source_with_acquisition(path, method, None, None)
     }
 
+    /// Imports files from an owner-supplied directory through the ordinary source pipeline.
+    /// Repository members are read as bytes and are never executed.
+    pub fn import_repository(
+        &mut self,
+        supplied_path: impl AsRef<Path>,
+    ) -> Result<RepositoryImportResult> {
+        let root = fs::canonicalize(supplied_path)?;
+        if !root.is_dir() {
+            return Err(GardenError::Invalid("Choose a repository folder.".into()));
+        }
+        let repository_id = format!(
+            "repository-{:x}",
+            Sha256::digest(root.to_string_lossy().as_bytes())
+        );
+        let mut paths = Vec::new();
+        let mut exclusions = Vec::new();
+        fn collect(
+            root: &Path,
+            directory: &Path,
+            paths: &mut Vec<PathBuf>,
+            exclusions: &mut Vec<RepositoryExclusion>,
+        ) -> Result<()> {
+            let entries = match fs::read_dir(directory) {
+                Ok(entries) => entries,
+                Err(error)
+                    if directory != root
+                        && error.kind() == std::io::ErrorKind::PermissionDenied =>
+                {
+                    let relative_path = directory
+                        .strip_prefix(root)
+                        .map_err(|error| GardenError::Invalid(error.to_string()))?
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    exclusions.push(RepositoryExclusion {
+                        relative_path,
+                        reason: "unreadable_member".into(),
+                    });
+                    return Ok(());
+                }
+                Err(error) => return Err(error.into()),
+            };
+            for entry in entries {
+                let entry = entry?;
+                let path = entry.path();
+                let kind = fs::symlink_metadata(&path)?.file_type();
+                if kind.is_symlink() {
+                    let relative_path = path
+                        .strip_prefix(root)
+                        .map_err(|error| GardenError::Invalid(error.to_string()))?
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    exclusions.push(RepositoryExclusion {
+                        relative_path,
+                        reason: "symbolic_link_not_followed".into(),
+                    });
+                    continue;
+                }
+                if kind.is_dir() {
+                    if entry.file_name() == ".git" {
+                        let relative_path = path
+                            .strip_prefix(root)
+                            .map_err(|error| GardenError::Invalid(error.to_string()))?
+                            .to_string_lossy()
+                            .replace('\\', "/");
+                        exclusions.push(RepositoryExclusion {
+                            relative_path,
+                            reason: "repository_metadata_not_imported".into(),
+                        });
+                    } else {
+                        collect(root, &path, paths, exclusions)?;
+                    }
+                } else if kind.is_file() {
+                    paths.push(path);
+                } else {
+                    let relative_path = path
+                        .strip_prefix(root)
+                        .map_err(|error| GardenError::Invalid(error.to_string()))?
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    exclusions.push(RepositoryExclusion {
+                        relative_path,
+                        reason: "special_files_not_imported".into(),
+                    });
+                }
+            }
+            Ok(())
+        }
+        collect(&root, &root, &mut paths, &mut exclusions)?;
+        paths.sort();
+        exclusions.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+        let mut sources = Vec::with_capacity(paths.len());
+        for path in paths {
+            let relative_path = path
+                .strip_prefix(&root)
+                .map_err(|error| GardenError::Invalid(error.to_string()))?
+                .to_string_lossy()
+                .replace('\\', "/");
+            match File::open(&path) {
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                    exclusions.push(RepositoryExclusion {
+                        relative_path,
+                        reason: "unreadable_member".into(),
+                    });
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            }
+            let mut page = self.import_source_with_identity(
+                &path,
+                AcquisitionMethod::Repository,
+                None,
+                None,
+                Some(format!("repository-file:{repository_id}:{relative_path}")),
+            )?;
+            page.info.repository = Some(RepositorySourceContext {
+                repository_id: repository_id.clone(),
+                repository_path: root.to_string_lossy().into_owned(),
+                relative_path: relative_path.clone(),
+            });
+            self.write_source_page(&page)?;
+            self.index_page(&page.info)?;
+            sources.push(RepositorySourceSummary {
+                source_id: page.info.source_id,
+                relative_path,
+            });
+        }
+        exclusions.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+        Ok(RepositoryImportResult {
+            repository_id,
+            sources,
+            exclusions,
+        })
+    }
+
     pub fn import_url(&mut self, input: &str) -> Result<SourcePage> {
         let url = reqwest::Url::parse(input)
             .map_err(|_| GardenError::Invalid("Enter a valid HTTP or HTTPS URL.".into()))?
@@ -1042,6 +1206,17 @@ impl Application {
         acquisition_override: Option<Acquisition>,
         format_override: Option<String>,
     ) -> Result<SourcePage> {
+        self.import_source_with_identity(path, method, acquisition_override, format_override, None)
+    }
+
+    fn import_source_with_identity(
+        &mut self,
+        path: impl AsRef<Path>,
+        method: AcquisitionMethod,
+        acquisition_override: Option<Acquisition>,
+        format_override: Option<String>,
+        source_identity_scope: Option<String>,
+    ) -> Result<SourcePage> {
         let supplied_path = if path.as_ref().is_absolute() {
             path.as_ref().to_path_buf()
         } else {
@@ -1118,6 +1293,9 @@ impl Application {
                 let identity = format!("url-origin:{path_key}");
                 format!("source-{:x}", Sha256::digest(identity.as_bytes()))
             })
+        } else if let Some(scope) = source_identity_scope {
+            let identity = format!("repository-source:{format}:{scope}");
+            format!("source-{:x}", Sha256::digest(identity.as_bytes()))
         } else {
             existing_origin
                 .or(self.source_for_version(&digest, &format)?)
@@ -1160,18 +1338,16 @@ impl Application {
                 &acquisition.received_at,
                 "pending",
             );
-            if existing.info.current_version_id.is_none() {
-                let previous_original = destination.join(&existing.info.asset);
-                if let Some(previous) = existing
-                    .info
-                    .versions_seen
-                    .iter()
-                    .find(|previous| previous.source_version_id == existing.info.sha256)
-                {
-                    let previous_path = self.version_original_path(&source_id, previous)?;
-                    if previous_original.exists() && !previous_path.exists() {
-                        write_atomic_from_file(&previous_path, &previous_original)?;
-                    }
+            let previous_original = destination.join(&existing.info.asset);
+            if let Some(previous) = existing
+                .info
+                .versions_seen
+                .iter()
+                .find(|previous| previous.source_version_id == existing.info.sha256)
+            {
+                let previous_path = self.version_original_path(&source_id, previous)?;
+                if previous_original.exists() && !previous_path.exists() {
+                    write_atomic_from_file(&previous_path, &previous_original)?;
                 }
             }
             let version_path = self.version_original_path(&source_id, &version)?;
@@ -1221,7 +1397,8 @@ impl Application {
                     Ok(web) => (ExtractionState::StructuredText, web.detail, None),
                     Err(detail) => (ExtractionState::InvalidUtf8, detail, None),
                 }
-            } else if crate::extraction::is_structured_format(&format) {
+            } else if crate::extraction::is_structured_source(&staging.path().join(&asset), &format)
+            {
                 match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
@@ -1250,7 +1427,12 @@ impl Application {
                     }
                 }
             } else {
-                let (extraction, detail, _) = classify_source(&format, count, text_bytes);
+                let (extraction, detail, _) = classify_source(
+                    &format,
+                    count,
+                    text_bytes,
+                    method == AcquisitionMethod::Repository,
+                );
                 (extraction, detail.to_owned(), None)
             };
             if !matches!(
@@ -1356,7 +1538,8 @@ impl Application {
                 Err(_) => (ExtractionState::InvalidUtf8, "The source is not valid UTF-8. The original is retained without lossy decoding.".into(), String::new(), None, None),
                 Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 response text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
             }
-            } else if crate::extraction::is_structured_format(&format) {
+            } else if crate::extraction::is_structured_source(&staging.path().join(&asset), &format)
+            {
                 match self.extractor.extract(
                     &staging.path().join(&asset),
                     &format,
@@ -1403,7 +1586,7 @@ impl Application {
                         )
                     }
                 }
-            } else if !matches!(format.as_str(), "" | "txt" | "text" | "md" | "markdown") {
+            } else if !is_text_format(&format, method == AcquisitionMethod::Repository) {
                 (
                     ExtractionState::Unsupported,
                     "This format is not supported by the text importer. The original is retained."
@@ -1458,6 +1641,7 @@ impl Application {
             sha256: digest.clone(),
             bytes: count,
             format: format.clone(),
+            repository: None,
             extraction,
             extraction_detail,
             extraction_coverage,
@@ -2349,7 +2533,7 @@ impl Application {
                         } else {
                             version_path
                         };
-                        if crate::extraction::is_structured_format(&version.format) {
+                        if crate::extraction::is_structured_source(&path, &version.format) {
                             self.extractor
                                 .extract(&path, &version.format, &page.info.title)
                                 .ok()
@@ -2870,9 +3054,17 @@ impl Application {
                 .acquisitions
                 .iter()
                 .any(|acquisition| acquisition.method == AcquisitionMethod::Url);
+        let repository_location = page
+            .info
+            .repository
+            .as_ref()
+            .map(|repository| repository.relative_path.clone());
         let result = result.map(|mut draft| {
             if web_projection {
                 mark_web_projection_evidence(&mut draft);
+            }
+            if let Some(relative_path) = repository_location.as_deref() {
+                mark_repository_evidence(&mut draft, relative_path);
             }
             draft
         });
@@ -2960,13 +3152,26 @@ impl Application {
                     } else {
                         let prior_page = page.clone();
                         let update = draft.source_update.clone();
+                        let acquired_conversation = page
+                            .info
+                            .extraction_coverage
+                            .as_ref()
+                            .is_some_and(|coverage| {
+                                coverage.iter().any(|part| {
+                                    part.scope == CoverageScope::ConversationMessages
+                                        && matches!(
+                                            part.status,
+                                            CoverageStatus::Complete | CoverageStatus::Partial
+                                        )
+                                })
+                            });
                         let result =
                             crate::photo::validate_draft(&job.source_text, &source_format, &draft)
                                 .map_err(GardenError::Invalid)
                                 .and_then(|()| {
                                     crate::conversation::validate_draft(
                                         &job.source_text,
-                                        &source_format,
+                                        acquired_conversation,
                                         &draft,
                                     )
                                     .map_err(GardenError::Invalid)
@@ -4303,23 +4508,24 @@ impl Application {
             .join("versions")
             .join(source_version_id)
             .join(&candidate.asset);
-        let office_projection = if crate::extraction::is_structured_format(&candidate.format) {
-            Some(
-                self.extractor
-                    .extract(
-                        &candidate_path,
-                        &candidate.format,
-                        Path::new(&candidate.original_name)
-                            .file_stem()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .as_ref(),
-                    )
-                    .map_err(GardenError::Invalid)?,
-            )
-        } else {
-            None
-        };
+        let office_projection =
+            if crate::extraction::is_structured_source(&candidate_path, &candidate.format) {
+                Some(
+                    self.extractor
+                        .extract(
+                            &candidate_path,
+                            &candidate.format,
+                            Path::new(&candidate.original_name)
+                                .file_stem()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .as_ref(),
+                        )
+                        .map_err(GardenError::Invalid)?,
+                )
+            } else {
+                None
+            };
         let candidate_bytes = fs::read(candidate_path)?;
         let destination_original = self
             .source_dir(&source.info.source_id)?
@@ -6122,8 +6328,9 @@ fn classify_source(
     format: &str,
     count: u64,
     text_bytes: Vec<u8>,
+    repository: bool,
 ) -> (ExtractionState, &'static str, String) {
-    if !matches!(format, "" | "txt" | "text" | "md" | "markdown") {
+    if !is_text_format(format, repository) {
         return (
             ExtractionState::Unsupported,
             "This format is not supported by the text importer. The original is retained.",
@@ -6160,6 +6367,47 @@ fn classify_source(
             text.trim_start_matches('\u{feff}').to_owned(),
         ),
     }
+}
+
+fn is_text_format(format: &str, repository: bool) -> bool {
+    matches!(format, "" | "txt" | "text" | "md" | "markdown")
+        || (repository
+            && matches!(
+                format,
+                "rs" | "toml"
+                    | "json"
+                    | "yaml"
+                    | "yml"
+                    | "html"
+                    | "css"
+                    | "js"
+                    | "mjs"
+                    | "cjs"
+                    | "ts"
+                    | "tsx"
+                    | "jsx"
+                    | "py"
+                    | "sh"
+                    | "sql"
+                    | "xml"
+                    | "csv"
+                    | "ini"
+                    | "cfg"
+                    | "go"
+                    | "java"
+                    | "kt"
+                    | "swift"
+                    | "c"
+                    | "h"
+                    | "cpp"
+                    | "hpp"
+                    | "cs"
+                    | "rb"
+                    | "php"
+                    | "vue"
+                    | "svelte"
+                    | "mdx"
+            ))
 }
 
 fn check_omission_evidence(
@@ -6870,6 +7118,42 @@ fn mark_web_projection_evidence(draft: &mut KnowledgeDraft) {
     }
 }
 
+fn mark_repository_evidence(draft: &mut KnowledgeDraft, relative_path: &str) {
+    fn mark(evidence: &mut EvidenceDraft, relative_path: &str) {
+        evidence
+            .source_location
+            .get_or_insert_with(|| relative_path.to_owned());
+    }
+
+    if let Some(update) = &mut draft.source_update {
+        mark(&mut update.evidence, relative_path);
+        if let Some(evidence) = &mut update.source_date_evidence {
+            mark(evidence, relative_path);
+        }
+        if let Some(evidence) = &mut update.source_revision_evidence {
+            mark(evidence, relative_path);
+        }
+    }
+    for entity in &mut draft.entities {
+        mark(&mut entity.evidence, relative_path);
+    }
+    for fact in &mut draft.facts {
+        mark(&mut fact.evidence, relative_path);
+    }
+    for relationship in &mut draft.relationships {
+        mark(&mut relationship.evidence, relative_path);
+    }
+    for tag in &mut draft.tags {
+        mark(&mut tag.evidence, relative_path);
+    }
+    for correction in &mut draft.correction_candidates {
+        mark(&mut correction.evidence, relative_path);
+    }
+    for alignment in &mut draft.correction_alignments {
+        mark(&mut alignment.candidate.evidence, relative_path);
+    }
+}
+
 fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceLocation> {
     if evidence.quote.trim().is_empty()
         || evidence.byte_start >= evidence.byte_end
@@ -6987,8 +7271,15 @@ fn stable_page_id(entity: &EntityDraft, source_id: &str, source_text: Option<&st
         digest.update(entity.label.to_lowercase().as_bytes());
     }
     if matches!(
-        kind.as_str(),
-        "person" | "event" | "document" | "presentation" | "conversation" | "conversation_message"
+        entity.kind.to_ascii_lowercase().as_str(),
+        "person"
+            | "event"
+            | "document"
+            | "presentation"
+            | "conversation"
+            | "conversation_message"
+            | "concept"
+            | "decision"
     ) {
         digest.update([0]);
         digest.update(source_id.as_bytes());

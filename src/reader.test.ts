@@ -46,7 +46,13 @@ const riverside: SourcePage = {
 function testApi(): GardenApi {
   return {
     chooseFile: vi.fn().mockResolvedValue("/tmp/Riverside notes.md"),
+    chooseRepositoryDirectory: vi.fn().mockResolvedValue(null),
     importSource: vi.fn().mockResolvedValue(riverside),
+    importRepository: vi.fn().mockResolvedValue({
+      repository_id: "repository-sample",
+      sources: [],
+      exclusions: [],
+    }),
     importUrl: vi.fn().mockResolvedValue(riverside),
     listUrlAcquisitions: vi.fn().mockResolvedValue([]),
     listSources: vi.fn().mockResolvedValue({ sources: [], next_offset: null }),
@@ -84,6 +90,33 @@ function testApi(): GardenApi {
     onDrop: vi.fn().mockResolvedValue(() => {}),
   };
 }
+
+it("imports a chosen repository, opens its source, and reports excluded paths", async () => {
+  const api = testApi();
+  api.chooseRepositoryDirectory = vi.fn().mockResolvedValue("/tmp/sample-repo");
+  api.importRepository = vi.fn().mockResolvedValue({
+    repository_id: "repository-sample",
+    sources: [{ source_id: "source-riverside", relative_path: "README.md" }],
+    exclusions: [
+      { relative_path: "linked.md", reason: "symbolic_link_not_followed" },
+    ],
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+
+  await user.click(screen.getByRole("button", { name: "Add repository" }));
+  expect(api.chooseRepositoryDirectory).toHaveBeenCalledOnce();
+  expect(api.importRepository).toHaveBeenCalledWith("/tmp/sample-repo");
+  expect(
+    await screen.findByRole("heading", { name: "Riverside notes" }),
+  ).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toContain(
+    "linked.md (symbolic_link_not_followed)",
+  );
+  expect(api.openSource).toHaveBeenCalledWith("source-riverside");
+});
 
 it("loads a photo preview only on request and keeps its region guidance beside the image", async () => {
   const api = testApi();
@@ -138,6 +171,52 @@ it("keeps prior content readable and shows an incomplete update prominently", as
   ).toBeTruthy();
   expect(screen.getByRole("article").textContent).toContain("Observation V17");
   expect(screen.getByRole("link", { name: "Open original" })).toBeTruthy();
+});
+
+it("opens a retained uncertain source version even when it is not pending", async () => {
+  const api = testApi();
+  const currentVersion = "a".repeat(64);
+  const retainedVersion = "b".repeat(64);
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: {
+      ...riverside.info,
+      current_version_id: currentVersion,
+      pending_version_id: null,
+      update_status: "uncertain",
+      versions_seen: [
+        {
+          source_version_id: currentVersion,
+          state: "current",
+          asset: "original.md",
+        },
+        {
+          source_version_id: retainedVersion,
+          state: "retained_without_current_change",
+          asset: "original.md",
+        },
+      ],
+    },
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await screen.findByRole("article", { name: "Riverside notes" });
+  await user.click(screen.getByText("Source information"));
+  await user.click(
+    screen.getByRole("button", {
+      name: `Open retained original · ${retainedVersion.slice(0, 12)}`,
+    }),
+  );
+
+  expect(api.openOriginalVersion).toHaveBeenCalledWith(
+    "source-riverside",
+    retainedVersion,
+    "original.md",
+  );
 });
 
 it("retrieves only the supplied URL, displays its origin, and keeps a failed address available for explicit retry", async () => {
