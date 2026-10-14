@@ -1,7 +1,8 @@
 //! Rust-only semantic provider transports. Request bodies and credentials never enter logs.
 use crate::semantic::{
     EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, RelationshipDraft,
-    SemanticDecision, SemanticProvider, SourceUpdateDraft, SourceUpdateRole, TagDraft,
+    SemanticDecision, SemanticProvider, SourceUpdateContext, SourceUpdateDraft, SourceUpdateRole,
+    TagDraft,
 };
 use regex::Regex;
 use reqwest::blocking::Client;
@@ -111,7 +112,12 @@ impl JevSemanticProvider {
         }
     }
 
-    fn evaluate(&self, text: &str, questions: Value) -> std::result::Result<Value, ProviderError> {
+    fn evaluate(
+        &self,
+        text: &str,
+        questions: Value,
+        source_update_context: Option<Value>,
+    ) -> std::result::Result<Value, ProviderError> {
         if text.len() > 64 * 1024 {
             return Err(ProviderError::recoverable(
                 "This text is larger than the current Jev request limit; semantic work will retry automatically.".into(),
@@ -129,8 +135,12 @@ impl JevSemanticProvider {
                 keychain_credential(account)?
             }
         };
-        let request =
-            json!({"model": JEV_MODEL, "state": {"source_text": text}, "questions": questions});
+        let mut state = serde_json::Map::new();
+        state.insert("source_text".into(), json!(text));
+        if let Some(context) = source_update_context {
+            state.insert("source_update_context".into(), context);
+        }
+        let request = json!({"model": JEV_MODEL, "state": state, "questions": questions});
         self.transport.complete(&key, &request)
     }
 }
@@ -139,6 +149,14 @@ impl SemanticProvider for JevSemanticProvider {
     fn form_knowledge(
         &self,
         source_text: &str,
+    ) -> std::result::Result<KnowledgeDraft, ProviderError> {
+        self.form_knowledge_with_context(source_text, None)
+    }
+
+    fn form_knowledge_with_context(
+        &self,
+        source_text: &str,
+        source_update_context: Option<&SourceUpdateContext>,
     ) -> std::result::Result<KnowledgeDraft, ProviderError> {
         let mut candidates = candidates(source_text);
         let office_candidates = office_statement_candidates(source_text);
@@ -209,12 +227,12 @@ impl SemanticProvider for JevSemanticProvider {
             .collect::<serde_json::Map<String, Value>>();
         questions.insert("source_update_role".into(), json!({
             "type":"choice",
-            "instructions":"Classify the author’s active intent for how this source relates to an existing source about the same record. Use the whole source. `complete_replacement` means this entire source version is explicitly intended to replace the earlier complete source for the same record. `supplement` adds independent information without replacing the earlier source. `conditional` is a proposal, uncertainty, or update that is not yet authorized as current. `targeted_correction` changes only specified fields and does not authorize withdrawing omitted fields. `unknown` means the relationship is not established. Do not treat quoted/rejected proposals, negation, or a conditional clause as the author’s active replacement intent. Do not infer replacement from a count/date change alone.",
-            "criteria":{"complete_replacement":"The whole source is explicitly an authoritative replacement for the earlier complete source", "supplement":"This adds independent support/context and retains earlier source content", "conditional":"This is tentative, rejected, quoted, or awaiting verification", "targeted_correction":"Only named facts are corrected; omitted facts remain active", "unknown":"The relationship or scope cannot be established from source evidence"}
+            "instructions":"Classify the document-level relationship of this source version to the logical source it was acquired for, using the whole source. When state.source_update_context is present it describes the retained earlier versions of this same logical source, what the previous current version supports (records with their own qualifiers), how completely the earlier and incoming versions were read, and the incoming records. Judge the scope and authority of the SOURCE VERSION separately from the truth qualifier of any single fact: a provisional, estimated, uncertain or pending qualifier attached to one record is a property of that record and says nothing about whether the whole version is a current snapshot. Compare the incoming records and coverage with the previous current records; a same-path or same-content overwrite is context, not authorization by itself. `complete_replacement` is a complete, current snapshot of the same record set whose changed values and omissions apply to that version; record-level qualifiers stay on their records. `conditional` is only for a source that presents the update/revision itself as rejected, quoted, or awaiting verification or approval. `targeted_correction` applies only to explicitly named fact keys and never withdraws omitted records. `supplement` adds independent information without replacing earlier content. `unknown` means the document-level relationship or scope is not established by the source and its context, including when the earlier or incoming coverage is incomplete. Do not treat quoted/rejected proposals, negation, or a conditional clause as the author’s active replacement intent. Do not infer replacement from a count/date change alone.",
+            "criteria":{"complete_replacement":"The whole source version is a complete, current snapshot or explicitly authoritative replacement for the earlier complete version of the same source", "supplement":"This adds independent support/context and retains earlier source content", "conditional":"The source itself presents this update as tentative, rejected, quoted, or awaiting verification or approval", "targeted_correction":"Only named facts are corrected; omitted facts remain active", "unknown":"The document-level relationship or scope cannot be established from the source and its version context"}
         }));
         questions.insert("source_update_evidence".into(), json!({
             "type":"choice",
-            "instructions":"Choose the exact source span that supports your source_update_role judgment, including the words that establish negation, quotation, condition, supplement, or full replacement scope. If no sentence is decisive, choose the span that best shows why the relationship remains unknown. The span text and offsets are supplied in the criteria.",
+            "instructions":"Choose the exact source span that supports your source_update_role judgment about the document as a whole, including the words that establish negation, quotation, condition, supplement, or full replacement scope. Prefer a span that shows the version’s document-level scope or snapshot over a span that only qualifies one record. If no span is decisive, choose the span that best shows why the relationship remains unknown. The span text and offsets are supplied in the criteria.",
             "criteria":update_criteria
         }));
         let report_dates = report_date_candidates(source_text);
@@ -312,7 +330,35 @@ impl SemanticProvider for JevSemanticProvider {
                 }
             }));
         }
-        let result = self.evaluate(source_text, Value::Object(questions.into_iter().collect()))?;
+        let update_context = source_update_context.map(|context| {
+            let mut value = serde_json::to_value(context).unwrap_or(Value::Null);
+            if let Some(object) = value.as_object_mut() {
+                // The incoming extraction's own records, each keeping its own qualifier, so the
+                // role judgment can compare snapshots instead of reading one row's qualifier as
+                // the whole source's status.
+                let incoming_records = candidates
+                    .iter()
+                    .filter(|candidate| candidate.kind == CandidateKind::OfficeStatement)
+                    .take(64)
+                    .map(|candidate| {
+                        let channel = office_channel_at(source_text, candidate.start);
+                        json!({
+                            "record_key": channel.as_deref().and_then(|channel| office_record_key(source_text, candidate.start, channel, &candidate.value)),
+                            "value": candidate.value.chars().take(300).collect::<String>(),
+                            "qualifier": candidate.qualifier,
+                            "origin": candidate.origin,
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                object.insert("incoming_records".into(), Value::Array(incoming_records));
+            }
+            value
+        });
+        let result = self.evaluate(
+            source_text,
+            Value::Object(questions.into_iter().collect()),
+            update_context,
+        )?;
         let answers = result
             .get("answers")
             .and_then(Value::as_object)

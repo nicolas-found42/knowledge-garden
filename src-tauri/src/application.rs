@@ -1,8 +1,9 @@
 //! Public, disk-backed collection operations. Markdown and originals are authoritative.
 use crate::office::{CoveragePart, CoverageScope, CoverageStatus, OfficeProjection};
 use crate::semantic::{
-    EntityDraft, EvidenceDraft, KnowledgeDraft, KnowledgePage, KnowledgePageSummary, ProviderError,
-    SemanticDecision, SemanticJob, SemanticProvider, SourceUpdateRole,
+    CurrentRecordContext, EntityDraft, EvidenceDraft, KnowledgeDraft, KnowledgePage,
+    KnowledgePageSummary, PriorSourceVersionContext, ProviderError, SemanticDecision, SemanticJob,
+    SemanticProvider, SourceUpdateContext, SourceUpdateRole, SourceVersionContext,
 };
 use fs2::FileExt;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
@@ -972,6 +973,7 @@ impl Application {
                     .join(&source_version_id)
                     .join(&version.asset)
             };
+            let mut incoming_projection_coverage: Option<Vec<CoveragePart>> = None;
             let text = if page.info.format == "html"
                 && page
                     .info
@@ -999,9 +1001,11 @@ impl Application {
                 page.info.extraction,
                 ExtractionState::StructuredText | ExtractionState::PartialText
             ) {
-                crate::office::extract(&candidate_path, &page.info.format, &page.info.title)
-                    .map_err(GardenError::Invalid)?
-                    .semantic_text
+                let projection =
+                    crate::office::extract(&candidate_path, &page.info.format, &page.info.title)
+                        .map_err(GardenError::Invalid)?;
+                incoming_projection_coverage = Some(projection.coverage.clone());
+                projection.semantic_text
             } else {
                 let bytes = fs::read(candidate_path)?;
                 String::from_utf8(bytes).map_err(|_| {
@@ -1019,6 +1023,15 @@ impl Application {
             page.info.semantic_retry_at = None;
             let attempt = page.info.semantic_attempts;
             version.state = "processing".into();
+            let source_update_context = if initial {
+                None
+            } else {
+                Some(self.source_update_context(
+                    &page,
+                    &source_version_id,
+                    incoming_projection_coverage.as_deref(),
+                )?)
+            };
             self.write_source_page(&page)?;
             self.index_page(&page.info)?;
             jobs.push(SemanticJob {
@@ -1026,9 +1039,124 @@ impl Application {
                 source_version_id,
                 attempt,
                 source_text: text,
+                source_update_context,
             });
         }
         Ok(jobs)
+    }
+
+    /// Assemble the typed whole-source context for a changed source: the logical source's
+    /// retained version history, what its previous current version supports, and how completely
+    /// the incoming version was read. Facts keep their own qualifiers; none of this is derived
+    /// from wording in the incoming text.
+    fn source_update_context(
+        &self,
+        page: &SourcePage,
+        incoming_version_id: &str,
+        incoming_coverage_parts: Option<&[CoveragePart]>,
+    ) -> Result<SourceUpdateContext> {
+        const MAX_HISTORY: usize = 16;
+        const MAX_RECORDS: usize = 64;
+        const MAX_VALUE_CHARS: usize = 300;
+        let bounded = |value: &str| value.chars().take(MAX_VALUE_CHARS).collect::<String>();
+        let version_history = page
+            .info
+            .versions_seen
+            .iter()
+            .filter(|version| version.source_version_id != incoming_version_id)
+            .map(|version| SourceVersionContext {
+                source_version_id: version.source_version_id.clone(),
+                state: version.state.clone(),
+                update_role: version.update_role.clone(),
+                coverage: version.coverage.clone(),
+                source_date: version.source_date.clone(),
+                source_revision: version.source_revision,
+            })
+            .collect::<Vec<_>>();
+        let version_history = version_history
+            .into_iter()
+            .rev()
+            .take(MAX_HISTORY)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>();
+        let previous_current_version = match page.info.current_version_id.as_deref() {
+            Some(current_id) => {
+                let version = page
+                    .info
+                    .versions_seen
+                    .iter()
+                    .find(|version| version.source_version_id == current_id);
+                let mut records = Vec::new();
+                for summary in &page.info.knowledge_pages {
+                    let path = self
+                        .root
+                        .join("pages")
+                        .join(format!("{}.md", summary.page_id));
+                    if !path.exists() {
+                        continue;
+                    }
+                    let header = read_knowledge_header(&path)?;
+                    for fact in &header.facts {
+                        for support in fact.supports.iter().filter(|support| {
+                            support.source_id == page.info.source_id
+                                && support.source_version_id == current_id
+                        }) {
+                            if records.len() < MAX_RECORDS {
+                                records.push(CurrentRecordContext {
+                                    subject: bounded(&header.title),
+                                    property: fact.property.clone(),
+                                    record_key: fact.record_key.clone(),
+                                    value: bounded(&support.value),
+                                    qualifier: support.qualifier.as_deref().map(bounded),
+                                });
+                            }
+                        }
+                    }
+                }
+                version.map(|version| PriorSourceVersionContext {
+                    source_version_id: version.source_version_id.clone(),
+                    source_date: version.source_date.clone(),
+                    source_revision: version.source_revision,
+                    update_role: version.update_role.clone(),
+                    coverage: version.coverage.clone(),
+                    records,
+                })
+            }
+            None => None,
+        };
+        let parts = incoming_coverage_parts.unwrap_or(&[]);
+        let incoming_coverage = if parts
+            .iter()
+            .all(|part| part.status == CoverageStatus::Complete)
+        {
+            "complete"
+        } else {
+            "partial"
+        };
+        Ok(SourceUpdateContext {
+            logical_source_id: page.info.source_id.clone(),
+            version_history,
+            previous_current_version,
+            incoming_coverage: incoming_coverage.into(),
+            incoming_coverage_parts: parts
+                .iter()
+                .map(|part| {
+                    format!(
+                        "{}: {}",
+                        serde_json::to_value(part.scope)
+                            .ok()
+                            .and_then(|value| value.as_str().map(str::to_owned))
+                            .unwrap_or_default(),
+                        serde_json::to_value(part.status)
+                            .ok()
+                            .and_then(|value| value.as_str().map(str::to_owned))
+                            .unwrap_or_default()
+                    )
+                })
+                .collect(),
+        })
     }
 
     pub fn finish_semantic_job(
@@ -1239,16 +1367,16 @@ impl Application {
                 ));
             }
         }
-        validate_evidence(source_text, &decision.evidence)?;
+        let located_update_evidence = located_evidence(source_text, &decision.evidence)?;
         let judged_source_date_evidence = decision
             .source_date_evidence
             .as_ref()
-            .map(|evidence| validate_evidence(source_text, evidence))
+            .map(|evidence| located_evidence(source_text, evidence))
             .transpose()?;
         let judged_source_revision_evidence = decision
             .source_revision_evidence
             .as_ref()
-            .map(|evidence| validate_evidence(source_text, evidence))
+            .map(|evidence| located_evidence(source_text, evidence))
             .transpose()?;
         let judged_source_date = decision
             .source_date
@@ -1266,14 +1394,14 @@ impl Application {
         let accept_source_date = decision.source_date_certainty >= 0.8;
         let accept_source_revision = decision.source_revision_certainty >= 0.8;
         version.update_role = decision.role.as_str().into();
-        version.update_evidence = Some(decision.evidence.clone());
+        version.update_evidence = Some(located_update_evidence);
         version.update_confidence = Some(decision.certainty);
         version.source_date = accept_source_date.then_some(judged_source_date).flatten();
         version.source_revision = accept_source_revision
             .then_some(decision.source_revision)
             .flatten();
         version.source_date_evidence = if version.source_date.is_some() {
-            decision.source_date_evidence.clone()
+            judged_source_date_evidence
         } else {
             None
         };
@@ -1282,7 +1410,7 @@ impl Application {
             .is_some()
             .then_some(decision.source_date_certainty);
         version.source_revision_evidence = if version.source_revision.is_some() {
-            decision.source_revision_evidence.clone()
+            judged_source_revision_evidence
         } else {
             None
         };
@@ -1328,7 +1456,9 @@ impl Application {
     pub fn resume_due_semantic_jobs(&mut self) -> Result<()> {
         let jobs = self.claim_due_semantic_jobs(4)?;
         for job in jobs {
-            let result = self.semantic_provider.form_knowledge(&job.source_text);
+            let result = self
+                .semantic_provider
+                .form_knowledge_with_context(&job.source_text, job.source_update_context.as_ref());
             self.finish_semantic_job(job, result)?;
         }
         Ok(())
@@ -3698,6 +3828,24 @@ fn mark_web_projection_evidence(draft: &mut KnowledgeDraft) {
     for tag in &mut draft.tags {
         mark(&mut tag.evidence);
     }
+}
+
+/// Validate evidence against the exact semantic text and return it with the offset basis and
+/// original locator that validation established, so persisted source-update evidence says what
+/// its offsets measure (for Office, the extracted projection, never original package bytes).
+fn located_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceDraft> {
+    let location = validate_evidence(source, evidence)?;
+    let mut located = evidence.clone();
+    located.offset_basis = Some(
+        match location.offset_basis {
+            EvidenceOffsetBasis::PreservedText => "preserved_text",
+            EvidenceOffsetBasis::ExtractedOfficeProjection => "extracted_office_projection",
+            EvidenceOffsetBasis::WebVisibleText => "web_visible_text",
+        }
+        .into(),
+    );
+    located.source_location = location.source_location;
+    Ok(located)
 }
 
 fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceLocation> {

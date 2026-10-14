@@ -63,6 +63,51 @@ pub struct SemanticJob {
     pub source_version_id: String,
     pub attempt: u32,
     pub source_text: String,
+    pub source_update_context: Option<SourceUpdateContext>,
+}
+
+/// Grounded, typed whole-source context for judging how an incoming source version relates
+/// to the logical source it was acquired for. Application derives every field from retained
+/// source history and current knowledge; no field is inferred from wording in the source.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceUpdateContext {
+    pub logical_source_id: String,
+    /// Other retained versions of the same logical source, oldest first.
+    pub version_history: Vec<SourceVersionContext>,
+    pub previous_current_version: Option<PriorSourceVersionContext>,
+    pub incoming_coverage: String,
+    pub incoming_coverage_parts: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceVersionContext {
+    pub source_version_id: String,
+    pub state: String,
+    pub update_role: String,
+    pub coverage: String,
+    pub source_date: Option<String>,
+    pub source_revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PriorSourceVersionContext {
+    pub source_version_id: String,
+    pub source_date: Option<String>,
+    pub source_revision: Option<u64>,
+    pub update_role: String,
+    pub coverage: String,
+    /// What the previous current version currently supports, with each record's own
+    /// qualifier kept on that record.
+    pub records: Vec<CurrentRecordContext>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CurrentRecordContext {
+    pub subject: String,
+    pub property: String,
+    pub record_key: Option<String>,
+    pub value: String,
+    pub qualifier: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,6 +169,14 @@ pub trait SemanticProvider: Send + Sync {
         &self,
         source_text: &str,
     ) -> std::result::Result<KnowledgeDraft, ProviderError>;
+
+    fn form_knowledge_with_context(
+        &self,
+        source_text: &str,
+        _source_update_context: Option<&SourceUpdateContext>,
+    ) -> std::result::Result<KnowledgeDraft, ProviderError> {
+        self.form_knowledge(source_text)
+    }
 }
 
 #[derive(Debug, Clone)]

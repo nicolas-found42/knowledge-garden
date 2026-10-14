@@ -109,6 +109,29 @@ impl SystemOneTransport for ConfiguredSystemOneTransport {
         request: &Value,
     ) -> std::result::Result<Value, ProviderError> {
         let role = self.roles.lock().unwrap().pop_front().unwrap();
+        let role = if role == "contextual_complete" {
+            let context = &request["state"]["source_update_context"];
+            let previous = &context["previous_current_version"];
+            let has_records = |records: &Value| {
+                records
+                    .as_array()
+                    .is_some_and(|records| !records.is_empty())
+            };
+            if previous["coverage"] == "complete"
+                && context["incoming_coverage"] == "complete"
+                && has_records(&previous["records"])
+                && has_records(&context["incoming_records"])
+                && context["version_history"]
+                    .as_array()
+                    .is_some_and(|history| !history.is_empty())
+            {
+                "complete_replacement"
+            } else {
+                "conditional"
+            }
+        } else {
+            role.as_str()
+        };
         let questions = request["questions"].as_object().unwrap();
         let mut answers = serde_json::Map::new();
         for (key, question) in questions {
@@ -119,7 +142,7 @@ impl SystemOneTransport for ConfiguredSystemOneTransport {
                 "choice" => {
                     let criteria = question["criteria"].as_object().unwrap();
                     let choice = match key.as_str() {
-                        "source_update_role" => role.as_str(),
+                        "source_update_role" => role,
                         "source_update_evidence" => criteria
                             .keys()
                             .find(|option| option.starts_with("span_"))
@@ -2051,10 +2074,10 @@ fn office_record_keys_preserve_multiple_fields_and_source_scope_across_revision(
     let slide_source = fixtures.join("source/multi-field.pptx");
     let transport = Arc::new(ConfiguredSystemOneTransport {
         roles: Mutex::new(VecDeque::from([
-            "complete_replacement".into(),
-            "complete_replacement".into(),
-            "complete_replacement".into(),
-            "complete_replacement".into(),
+            "unknown".into(),
+            "unknown".into(),
+            "unknown".into(),
+            "contextual_complete".into(),
         ])),
     });
     let provider =
@@ -2188,6 +2211,44 @@ fn office_record_keys_preserve_multiple_fields_and_source_scope_across_revision(
     app.resume_due_semantic_jobs().unwrap();
     let updated = app.open_source(&first.info.source_id).unwrap();
     assert_eq!(updated.info.semantic_state, "complete");
+    assert_eq!(updated.info.update_status, None);
+    assert_eq!(
+        updated
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| {
+                updated.info.current_version_id.as_deref()
+                    == Some(version.source_version_id.as_str())
+            })
+            .unwrap()
+            .update_role,
+        "complete_replacement"
+    );
+    let updated_version = updated
+        .info
+        .versions_seen
+        .iter()
+        .find(|version| {
+            updated.info.current_version_id.as_deref() == Some(version.source_version_id.as_str())
+        })
+        .unwrap();
+    let update_evidence = updated_version
+        .update_evidence
+        .as_ref()
+        .expect("the accepted source update keeps its decisive evidence");
+    assert_eq!(
+        update_evidence.offset_basis.as_deref(),
+        Some("extracted_office_projection"),
+        "source-update evidence offsets belong to the extracted Office projection, not the DOCX bytes"
+    );
+    assert!(
+        update_evidence
+            .source_location
+            .as_deref()
+            .is_some_and(|location| location.starts_with("DOCX ")),
+        "source-update evidence keeps its OOXML locator: {update_evidence:?}"
+    );
     let updated_page = app
         .open_knowledge_page(&updated.info.knowledge_pages[0].page_id)
         .unwrap();
@@ -2220,6 +2281,10 @@ fn office_record_keys_preserve_multiple_fields_and_source_scope_across_revision(
     assert!(
         updated_water["value"].as_str().unwrap().contains("15 °C"),
         "updated fact must retain its stable field identity and new value: {updated_water}"
+    );
+    assert_eq!(
+        updated_water["qualifier"], "Provisional pending instrument calibration",
+        "the provisional status qualifies the Water fact, not the whole source update"
     );
     assert_eq!(
         fs::read(app.original_path(&first.info.source_id).unwrap()).unwrap(),
@@ -2428,4 +2493,121 @@ fn a_second_process_cannot_write_the_same_collection_and_directories_are_rejecte
     assert!(app.open_source("../../outside").is_err());
     drop(app);
     assert!(Application::open(&collection).is_ok());
+}
+
+struct ContextRecordingTransport {
+    inner: ConfiguredSystemOneTransport,
+    contexts: Arc<Mutex<Vec<Value>>>,
+}
+
+impl SystemOneTransport for ContextRecordingTransport {
+    fn complete(
+        &self,
+        api_key: &str,
+        request: &Value,
+    ) -> std::result::Result<Value, ProviderError> {
+        self.contexts
+            .lock()
+            .unwrap()
+            .push(request["state"]["source_update_context"].clone());
+        self.inner.complete(api_key, request)
+    }
+}
+
+#[test]
+fn frozen_same_path_scope_controls_keep_baseline_support_with_grounded_source_context() {
+    let fixtures =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reconciliation");
+    for (control, recorded_role) in [
+        ("negated-replacement.txt", "supplement"),
+        ("quoted-replacement.txt", "unknown"),
+        ("conditional-replacement.txt", "conditional"),
+        ("fact-only-correction.txt", "targeted_correction"),
+    ] {
+        let workspace = tempdir().unwrap();
+        let working_path = workspace.path().join("V17.txt");
+        fs::copy(fixtures.join("baseline-revision-1.txt"), &working_path).unwrap();
+        let contexts = Arc::new(Mutex::new(Vec::new()));
+        let transport = ContextRecordingTransport {
+            inner: ConfiguredSystemOneTransport {
+                roles: Mutex::new(VecDeque::from([
+                    "complete_replacement".into(),
+                    recorded_role.into(),
+                ])),
+            },
+            contexts: Arc::clone(&contexts),
+        };
+        let provider =
+            JevSemanticProvider::with_transport("recorded-test-key".into(), Arc::new(transport));
+        let mut app = Application::open_with_semantic_provider(
+            workspace.path().join("collection"),
+            Arc::new(provider),
+        )
+        .unwrap();
+        let imported = app
+            .import_source(&working_path, AcquisitionMethod::Picker)
+            .unwrap();
+        app.resume_due_semantic_jobs().unwrap();
+        let baseline = app.open_source(&imported.info.source_id).unwrap();
+        assert_eq!(baseline.info.semantic_state, "complete", "{control}");
+
+        fs::copy(fixtures.join(control), &working_path).unwrap();
+        app.import_source(&working_path, AcquisitionMethod::Picker)
+            .unwrap();
+        app.resume_due_semantic_jobs().unwrap();
+        let current = app.open_source(&imported.info.source_id).unwrap();
+        let incoming = current
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| {
+                version.source_version_id != baseline.info.current_version_id.clone().unwrap()
+            })
+            .unwrap();
+        assert_ne!(incoming.update_role, "complete_replacement", "{control}");
+        assert_eq!(incoming.update_role, recorded_role, "{control}");
+        assert_eq!(current.info.update_status.as_deref(), Some("uncertain"));
+        assert_eq!(
+            current.info.current_version_id, baseline.info.current_version_id,
+            "{control}: a non-replacement must not become the current version"
+        );
+        let event = current
+            .knowledge_pages
+            .iter()
+            .find(|page| page.kind == "event")
+            .unwrap();
+        let markdown = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+        for retained in ["12 visits", "10 minutes", "Riverside", "Maya"] {
+            let present = markdown.contains(retained)
+                || current.knowledge_pages.iter().any(|page| {
+                    app.open_knowledge_page(&page.page_id)
+                        .unwrap()
+                        .markdown
+                        .contains(retained)
+                });
+            assert!(
+                present,
+                "{control}: baseline support `{retained}` must remain"
+            );
+        }
+
+        // The role judgment was given grounded history and the previous current records,
+        // not only the incoming text.
+        let contexts = contexts.lock().unwrap();
+        let update_context = contexts
+            .iter()
+            .find(|context| !context.is_null())
+            .unwrap_or_else(|| panic!("{control}: no source-update context reached Jev"));
+        assert_eq!(update_context["logical_source_id"], imported.info.source_id);
+        assert_eq!(
+            update_context["previous_current_version"]["source_version_id"],
+            baseline.info.current_version_id.clone().unwrap()
+        );
+        assert!(update_context["previous_current_version"]["records"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|record| record["value"].as_str().unwrap().contains("12 visits")));
+        assert_eq!(update_context["incoming_coverage"], "complete");
+    }
 }

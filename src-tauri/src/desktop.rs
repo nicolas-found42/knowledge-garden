@@ -161,7 +161,8 @@ pub fn run() {
                         }
                     };
                     for job in jobs {
-                        let result = worker_provider.form_knowledge(&job.source_text);
+                        let result = worker_provider
+                            .form_knowledge_with_context(&job.source_text, job.source_update_context.as_ref());
                         match worker_app.lock() {
                             Ok(mut app) => {
                                 if let Err(error) = app.finish_semantic_job(job, result) {
