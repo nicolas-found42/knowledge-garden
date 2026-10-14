@@ -1,3 +1,4 @@
+use crate::application::boolean::{BooleanQueryRequest, BooleanQueryResponse};
 use crate::{
     application::{
         AcquisitionMethod, Application, PageSearchRequest, PageSearchResults, PathDetailsRequest,
@@ -87,6 +88,18 @@ async fn search_pages(
     request: PageSearchRequest,
 ) -> Result<PageSearchResults, String> {
     with_engine(&engine, move |app| app.search_pages(request)).await
+}
+
+#[tauri::command]
+async fn query_pages(
+    engine: State<'_, Engine>,
+    request: BooleanQueryRequest,
+) -> Result<BooleanQueryResponse, String> {
+    with_engine(&engine, move |app| app.query_pages(request)).await
+}
+#[tauri::command]
+async fn cancel_query(engine: State<'_, Engine>, continuation: String) -> Result<(), String> {
+    with_engine(&engine, move |app| app.cancel_query(&continuation)).await
 }
 
 #[tauri::command]
@@ -249,6 +262,8 @@ pub fn run() {
             open_knowledge_page,
             list_sources,
             search_pages,
+            query_pages,
+            cancel_query,
             path_graph_revision,
             explore_paths,
             explore_path_details,

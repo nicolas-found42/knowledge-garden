@@ -12,6 +12,9 @@ use knowledge_garden::semantic::{
 use serde::Serialize;
 use serde_json::{json, Value};
 
+#[path = "../tests/fixtures/queries/provider.rs"]
+mod labeled_query;
+
 struct RecordedPathProvider;
 impl SemanticProvider for RecordedPathProvider {
     fn form_knowledge(&self, text: &str) -> Result<KnowledgeDraft, ProviderError> {
@@ -193,6 +196,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             args.get(1).ok_or("missing test collection")?,
             std::sync::Arc::new(JevSemanticProvider::from_environment_and_keychain()),
         )?
+    } else if operation == "boolean-recorded-import" {
+        Application::open_with_semantic_provider(
+            args.get(1).ok_or("missing test collection")?,
+            std::sync::Arc::new(labeled_query::LabeledGraph),
+        )?
     } else if operation == "path-recorded-import" {
         Application::open_with_semantic_provider(
             args.get(1).ok_or("missing test collection")?,
@@ -259,7 +267,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             app.resume_due_semantic_jobs()?;
             output(app.open_source(&page.info.source_id)?);
         }
-        "office-recorded-import" | "conversation-recorded-import" | "path-recorded-import" => {
+        "office-recorded-import"
+        | "conversation-recorded-import"
+        | "path-recorded-import"
+        | "boolean-recorded-import" => {
             let page = app.import_source(
                 args.get(3).ok_or("missing fixture path")?,
                 AcquisitionMethod::Picker,
@@ -296,6 +307,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "recover-open" => {
             let _ = app.claim_due_semantic_jobs(8)?;
             output(app.open_source(args.get(3).ok_or("missing source identity")?)?);
+        }
+        "query-pages" => output(app.query_pages(serde_json::from_str(
+            args.get(3).ok_or("missing Boolean request")?,
+        )?)?),
+        "cancel-query" => {
+            app.cancel_query(args.get(3).ok_or("missing Boolean cursor")?)?;
+            output(serde_json::json!({"canceled":true}));
         }
         "path-revision" => output(app.path_graph_revision()?),
         "paths" => output(app.explore_paths(serde_json::from_str(

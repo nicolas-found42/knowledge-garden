@@ -82,6 +82,15 @@ it("imports a real temporary source through the reader and preserves visible con
       available_formats: [],
       available_statuses: [],
     }),
+    queryPages: async () => ({
+      results: [],
+      graph_revision: "revision-1",
+      next_cursor: null,
+      complete: true,
+      work_units: 0,
+      diagnostics: [],
+    }),
+    cancelQuery: async () => {},
     pathGraphRevision: async () => call("path-revision"),
     explorePaths: async (request) => call("paths", JSON.stringify(request)),
     explorePathDetails: async (request) =>
@@ -197,6 +206,15 @@ it("preserves literal tool names and linked-only URL occurrences when reading ac
       available_formats: [],
       available_statuses: [],
     }),
+    queryPages: async () => ({
+      results: [],
+      graph_revision: "revision-1",
+      next_cursor: null,
+      complete: true,
+      work_units: 0,
+      diagnostics: [],
+    }),
+    cancelQuery: async () => {},
     pathGraphRevision: async () => call("path-revision"),
     explorePaths: async (request) => call("paths", JSON.stringify(request)),
     explorePathDetails: async (request) =>
@@ -464,6 +482,15 @@ it("explores imported typed paths with keyboard and pointer and returns from int
     listUrlAcquisitions: async () => [],
     listSources: async (offset) => call("list", String(offset)),
     searchPages: async (request) => call("search", JSON.stringify(request)),
+    queryPages: async () => ({
+      results: [],
+      graph_revision: "revision-1",
+      next_cursor: null,
+      complete: true,
+      work_units: 0,
+      diagnostics: [],
+    }),
+    cancelQuery: async () => {},
     pathGraphRevision: async () => call("path-revision"),
     explorePaths: async (request) => call("paths", JSON.stringify(request)),
     explorePathDetails: async (request) =>
@@ -566,4 +593,119 @@ it("explores imported typed paths with keyboard and pointer and returns from int
     screen.getByRole("button", { name: "Search" }),
   );
   expect(imported?.info.semantic_state).toBe("complete");
+});
+
+it("uses the mounted Boolean builder with the real native collection and retains connecting uncertainty, originals and Back scope", async () => {
+  workspace = mkdtempSync(join(tmpdir(), "knowledge-garden-boolean-test-"));
+  const collection = join(workspace, "collection");
+  const source = join(workspace, "field-notes.txt");
+  writeFileSync(
+    source,
+    readFileSync(
+      join(process.cwd(), "src-tauri/tests/fixtures/queries/field-notes.txt"),
+    ),
+  );
+  const call = <T>(operation: string, ...args: string[]): T =>
+    JSON.parse(
+      execFileSync(driver, [collection, operation, ...args], {
+        encoding: "utf8",
+        timeout: 10_000,
+      }),
+    );
+  const imported = call<SourcePage>("boolean-recorded-import", source);
+  let openedOriginal: string | null = null;
+  const api: GardenApi = {
+    chooseFile: async () => source,
+    importSource: async () => imported,
+    importUrl: async () => {
+      throw new Error("Fixture supplies a local source");
+    },
+    listUrlAcquisitions: async () => [],
+    listSources: async (offset) => call("list", String(offset)),
+    searchPages: async (request) => call("search", JSON.stringify(request)),
+    queryPages: async (request) => call("query-pages", JSON.stringify(request)),
+    cancelQuery: async (cursor) => {
+      call("cancel-query", cursor);
+    },
+    pathGraphRevision: async () => call("path-revision"),
+    explorePaths: async (request) => call("paths", JSON.stringify(request)),
+    explorePathDetails: async (request) =>
+      call("path-details", JSON.stringify(request)),
+    openSource: async (id) => call("open", id),
+    openKnowledgePage: async (id) => call("knowledge", id),
+    openOriginal: async (id) => {
+      openedOriginal = call("original", id);
+    },
+    openOriginalVersion: async (id, version, asset) => {
+      openedOriginal = call("original-version", id, version, asset);
+    },
+    openOriginalAsset: async (id, asset) => {
+      openedOriginal = call("original-asset", id, asset);
+    },
+    onDrop: async () => () => {},
+  };
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(await screen.findByRole("link", { name: "Maya" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Build Boolean query" }),
+  );
+  await user.type(screen.getByLabelText("Relationship type"), "observed_by");
+  await user.selectOptions(
+    screen.getByLabelText("Hop direction"),
+    "against_arrow",
+  );
+  await user.click(screen.getByRole("button", { name: "Add hop" }));
+  await user.type(
+    screen.getAllByLabelText("Relationship type")[1],
+    "occurred_at",
+  );
+  await user.selectOptions(
+    screen.getByLabelText("Constraint scope"),
+    "intermediate",
+  );
+  await user.type(screen.getAllByLabelText("Event date from")[0], "2024-05-17");
+  await user.type(screen.getAllByLabelText("Event date to")[0], "2024-05-17");
+  await user.click(screen.getByRole("button", { name: "Run query" }));
+  expect(
+    await screen.findByRole("button", { name: "Open query result Riverside" }),
+  ).toBeTruthy();
+  expect(
+    screen.queryByRole("button", { name: "Open query result Paris" }),
+  ).toBeNull();
+  expect(screen.getByText("1 matching pages · complete.")).toBeTruthy();
+  await user.click(
+    screen.getByRole("button", {
+      name: "Inspect supporting path 1 for Riverside",
+    }),
+  );
+  expect(
+    await screen.findByText(
+      "V17 occurred at Riverside with location uncertainty",
+    ),
+  ).toBeTruthy();
+  expect(
+    screen.getByText(/V17 → occurred_at → Riverside.*location uncertainty/),
+  ).toBeTruthy();
+  await user.click(
+    screen.getAllByRole("button", { name: "Open supporting original" })[0],
+  );
+  expect(openedOriginal).not.toBeNull();
+  expect(readFileSync(openedOriginal!, "utf8")).toContain(
+    "Maya observed V17 on 2024-05-17",
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Open query result Riverside" }),
+  );
+  await screen.findByRole("heading", { name: "Riverside" });
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(
+    await screen.findByRole("button", { name: "Open query result Riverside" }),
+  ).toBe(document.activeElement);
+  expect(screen.getByLabelText("Visible Boolean query").textContent).toContain(
+    "2024-05-17",
+  );
 });

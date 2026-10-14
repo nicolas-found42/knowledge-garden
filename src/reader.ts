@@ -1,3 +1,4 @@
+import { newQuery, renderBooleanQuery, type QueryView } from "./boolean-query";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import type {
@@ -103,8 +104,8 @@ export async function mountReader(
   let page: SourcePage | null = null;
   let currentKnowledgePageId: string | null = null;
   let currentSourceId: string | null = null;
-  let currentView: "empty" | "source" | "knowledge" | "search" | "paths" =
-    "empty";
+  let currentView:
+    "empty" | "source" | "knowledge" | "search" | "paths" | "query" = "empty";
   type PathExploreUiState = {
     startPageId: string;
     startTitle: string;
@@ -128,6 +129,8 @@ export async function mountReader(
     scrollTop: number;
     staleCursor: boolean;
   };
+  let queryView: QueryView | null = null;
+  let queryController: ReturnType<typeof renderBooleanQuery> | null = null;
   let currentPathExplore: PathExploreUiState | null = null;
   let pathRequestGeneration = 0;
   const pendingPathDetails = new Set<string>();
@@ -135,6 +138,7 @@ export async function mountReader(
   let currentSelectedPageId: string | null = null;
   let searchResults: PageSearchResults | null = null;
   type NavigationState =
+    | { kind: "query"; state: QueryView; windowScroll: number }
     | {
         kind: "search";
         request: PageSearchRequest;
@@ -206,7 +210,14 @@ export async function mountReader(
 
   function pushCurrentState() {
     const mainArticle = main.querySelector("article");
-    if (currentView === "paths" && currentPathExplore) {
+    if (currentView === "query" && queryView) {
+      queryView.scrollTop = main.scrollTop;
+      navigationHistory.push({
+        kind: "query",
+        state: structuredClone(queryView),
+        windowScroll: window.scrollY,
+      });
+    } else if (currentView === "paths" && currentPathExplore) {
       currentPathExplore.scrollTop = main.scrollTop;
       navigationHistory.push({
         kind: "paths",
@@ -617,7 +628,14 @@ export async function mountReader(
         null,
       ).catch(report);
     });
-    article.prepend(explore, returnLink);
+    const query = element("button", "Build Boolean query");
+    query.type = "button";
+    query.dataset.focusId = "build-boolean-query";
+    query.addEventListener("click", () => {
+      pushCurrentState();
+      showBooleanQuery(newQuery(next.page_id));
+    });
+    article.prepend(query, explore, returnLink);
     if (next.external_edit_status === "uncertain") {
       const editNotice = element(
         "p",
@@ -627,6 +645,31 @@ export async function mountReader(
       editNotice.setAttribute("role", "status");
       article.prepend(editNotice);
     }
+  }
+
+  function showBooleanQuery(state: QueryView) {
+    queryController?.stop();
+    queryView = state;
+    currentView = "query";
+    page = null;
+    currentKnowledgePageId = null;
+    currentSourceId = null;
+    sources.hidden = true;
+    queryController = renderBooleanQuery(main, api, state, {
+      active: () => !disposed && currentView === "query" && queryView === state,
+      error: report,
+      navigate: (result) => {
+        pushCurrentState();
+        if (result.page_type === "source")
+          void api.openSource(result.source_id).then(showPage).catch(report);
+        else
+          void api
+            .openKnowledgePage(result.page_id)
+            .then(showKnowledgePage)
+            .catch(report);
+      },
+    });
+    syncBackButton();
   }
 
   function renderPathExplorer(
@@ -1449,7 +1492,20 @@ export async function mountReader(
   }
 
   async function restoreNavigation(state: NavigationState) {
-    if (state.kind === "search") {
+    if (state.kind === "query") {
+      if (
+        state.state.revision &&
+        (await api.pathGraphRevision()) !== state.state.revision
+      ) {
+        state.state.results = [];
+        state.state.diagnostics = [];
+        state.state.cursor = null;
+        state.state.revision = null;
+        state.state.stale = true;
+      }
+      showBooleanQuery(state.state);
+      window.scrollTo(0, state.windowScroll);
+    } else if (state.kind === "search") {
       await runSearch(state.request, false);
       currentSelectedPageId = state.selectedPageId;
       const selected = currentSelectedPageId
@@ -1718,6 +1774,23 @@ export async function mountReader(
   }
   const refreshTimer = window.setInterval(() => {
     if (!urlForm.hidden) void refreshUrlQueue();
+    const query = queryView;
+    if (currentView === "query" && query?.revision && !query.stale) {
+      const revision = query.revision;
+      void api
+        .pathGraphRevision()
+        .then((next) => {
+          if (
+            !disposed &&
+            currentView === "query" &&
+            queryView === query &&
+            query.revision === revision &&
+            next !== revision
+          )
+            queryController?.invalidate();
+        })
+        .catch(report);
+    }
     const paths = currentPathExplore;
     if (currentView === "paths" && paths?.graphRevision && !paths.staleCursor) {
       const revision = paths.graphRevision;
