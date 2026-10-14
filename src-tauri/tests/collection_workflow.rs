@@ -5804,3 +5804,56 @@ fn external_qualifier_edits_remain_uncertain_without_promoting_manual_authority(
         }
     }
 }
+
+#[test]
+fn owner_page_move_preserves_identity_search_and_navigation_after_restart() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("notes.txt");
+    fs::write(
+        &source,
+        "Office source document states a fixed observation.",
+    )
+    .unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app =
+        Application::open_with_semantic_provider(&collection, Arc::new(WholeInputProvider))
+            .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let page = app
+        .open_source(&imported.info.source_id)
+        .unwrap()
+        .knowledge_pages[0]
+        .clone();
+    let target = collection.join("pages/Owner folder/Renamed document.md");
+    fs::create_dir_all(target.parent().unwrap()).unwrap();
+    fs::rename(collection.join(&page.path), &target).unwrap();
+    app.rebuild_index().unwrap();
+    assert_eq!(
+        app.open_knowledge_page(&page.page_id).unwrap().page_id,
+        page.page_id
+    );
+    let matches = app
+        .search_pages(PageSearchRequest {
+            query: "fixed observation".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert!(matches
+        .pages
+        .iter()
+        .any(|result| result.page_id == page.page_id));
+    drop(app);
+    let restarted = Application::open(&collection).unwrap();
+    assert_eq!(
+        restarted
+            .open_knowledge_page(&page.page_id)
+            .unwrap()
+            .page_id,
+        page.page_id
+    );
+    assert!(target.exists());
+    assert!(!collection.join(&page.path).exists());
+}
