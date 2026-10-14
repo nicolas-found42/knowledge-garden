@@ -1,4 +1,5 @@
 //! Public, disk-backed collection operations. Markdown and originals are authoritative.
+pub mod boolean;
 use crate::extraction::{LocalExtractor, SourceExtractor};
 use crate::meaning::{MeaningFilters, MeaningSearch};
 use crate::media::{
@@ -430,6 +431,7 @@ fn prune_expired_path_state(index: &Connection, cutoff: i64) -> Result<()> {
                AND NOT EXISTS (SELECT 1 FROM path_query_nodes n WHERE n.query_id=q.query_id)
                AND NOT EXISTS (SELECT 1 FROM path_query_visited v WHERE v.query_id=q.query_id)
                AND NOT EXISTS (SELECT 1 FROM path_query_frontier f WHERE f.query_id=q.query_id)
+               AND NOT EXISTS (SELECT 1 FROM boolean_queries b WHERE b.query_id=q.query_id)
              ORDER BY q.updated_at, q.query_id LIMIT ?2
          )",
         params![cutoff, batch],
@@ -739,6 +741,7 @@ impl Application {
                  tokenize = 'unicode61 remove_diacritics 2'
              );",
         )?;
+        index.execute_batch(boolean::SCHEMA)?;
         let meaning_index_path = root.join(".derived").join("meaning.usearch");
         let (meaning_search, meaning_search_status) = match meaning_assets {
             Some(path) => match MeaningSearch::open(path, &meaning_index_path) {
@@ -5726,6 +5729,7 @@ impl Application {
         let transaction = self.index.unchecked_transaction()?;
         transaction.execute("DELETE FROM sources", [])?;
         transaction.execute("DELETE FROM page_search", [])?;
+        transaction.execute("DELETE FROM query_page_metadata", [])?;
         transaction.execute("DELETE FROM page_tags", [])?;
         transaction.execute("DELETE FROM source_origins", [])?;
         transaction.execute("DELETE FROM source_versions", [])?;
@@ -5822,6 +5826,25 @@ impl Application {
                     for value in [&id, &title, &kind] {
                         digest.update((value.len() as u64).to_be_bytes());
                         digest.update(value.as_bytes());
+                    }
+                }
+            }
+            {
+                let mut metadata = transaction.prepare("SELECT page_id,source_id,page_type,title,kind,event_date,format,processing_status FROM query_page_metadata ORDER BY page_id")?;
+                let rows = metadata.query_map([], |row| {
+                    (0..8)
+                        .map(|column| row.get::<_, Option<String>>(column))
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                })?;
+                for row in rows {
+                    for value in row? {
+                        if let Some(value) = value {
+                            digest.update([1]);
+                            digest.update((value.len() as u64).to_be_bytes());
+                            digest.update(value.as_bytes());
+                        } else {
+                            digest.update([0]);
+                        }
                     }
                 }
             }
@@ -6253,6 +6276,10 @@ fn write_search_documents(
     documents: &[SearchDocument],
 ) -> Result<()> {
     for document in documents {
+        transaction.execute(
+            "INSERT OR REPLACE INTO query_page_metadata(page_id,source_id,page_type,title,kind,event_date,format,processing_status) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+            params![document.page_id,document.source_id,document.page_type,document.title,document.kind,document.event_date,document.format,document.processing_status],
+        )?;
         let tags_for_fts = document
             .tags
             .iter()

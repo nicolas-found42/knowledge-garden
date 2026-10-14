@@ -1,0 +1,3 @@
+Maya observed V17 on 2024-05-17. V17 occurred at Riverside with location uncertainty.
+Maya observed V18 on 2024-06-18. V18 occurred at Paris.
+Riverside links to Maya. Riverside Park is separate. Theo is an observer with no acquired visit relation.

@@ -57,6 +57,17 @@ function testApi(): GardenApi {
       available_formats: [],
       available_statuses: [],
     } satisfies PageSearchResults),
+    queryPages: vi
+      .fn()
+      .mockResolvedValue({
+        results: [],
+        graph_revision: "revision-1",
+        next_cursor: null,
+        complete: true,
+        work_units: 0,
+        diagnostics: [],
+      }),
+    cancelQuery: vi.fn().mockResolvedValue(undefined),
     pathGraphRevision: vi.fn().mockResolvedValue("revision-1"),
     explorePaths: vi.fn().mockResolvedValue({
       start_page_id: "page-maya",
@@ -1409,4 +1420,174 @@ it("retires displayed paths after a source update without loading another neighb
   } finally {
     interval.mockRestore();
   }
+});
+
+it("constructs a grouped typed Boolean query through keyboard controls with explicit constraint scope", async () => {
+  const api = testApi();
+  api.importSource = vi
+    .fn()
+    .mockResolvedValue({
+      ...riverside,
+      body: "# Notes\n\n[Maya](pages/page-maya.md)",
+    });
+  api.openKnowledgePage = vi
+    .fn()
+    .mockResolvedValue({
+      page_id: "page-maya",
+      source_id: "source-riverside",
+      title: "Maya",
+      kind: "person",
+      markdown: "# Maya",
+    });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(await screen.findByRole("link", { name: "Maya" }));
+  const builder = await screen.findByRole("button", {
+    name: "Build Boolean query",
+  });
+  builder.focus();
+  await user.keyboard("{Enter}");
+  expect(
+    await screen.findByRole("group", { name: "Boolean query expression" }),
+  ).toBeTruthy();
+  await user.selectOptions(screen.getByLabelText("Group operator"), "or");
+  await user.click(screen.getByRole("button", { name: "Add path clause" }));
+  await user.type(
+    screen.getAllByLabelText("Relationship type")[0],
+    "observed_by",
+  );
+  await user.selectOptions(
+    screen.getAllByLabelText("Hop direction")[0],
+    "against_arrow",
+  );
+  await user.click(screen.getAllByRole("button", { name: "Add hop" })[0]);
+  await user.type(
+    screen.getAllByLabelText("Relationship type")[1],
+    "occurred_at",
+  );
+  await user.selectOptions(
+    screen.getAllByLabelText("Constraint scope")[0],
+    "intermediate",
+  );
+  await user.type(screen.getAllByLabelText("Event date from")[0], "2024-05-17");
+  expect(screen.getByLabelText("Visible Boolean query").textContent).toContain(
+    "OR",
+  );
+  expect(
+    screen.getByText(/NOT removes pages from the known indexed set/),
+  ).toBeTruthy();
+});
+
+it("runs current Boolean clauses, clears stale results, cancels old work and restores selected query with Back", async () => {
+  const api = testApi();
+  const maya = {
+    page_id: "page-maya",
+    source_id: "source-riverside",
+    title: "Maya",
+    kind: "person",
+    markdown: "# Maya",
+  };
+  api.importSource = vi
+    .fn()
+    .mockResolvedValue({
+      ...riverside,
+      body: "# Notes\n\n[Maya](pages/page-maya.md)",
+    });
+  api.openKnowledgePage = vi
+    .fn()
+    .mockImplementation(async (id) =>
+      id === "page-maya"
+        ? maya
+        : {
+            ...maya,
+            page_id: "page-paris",
+            title: "Paris",
+            markdown: "# Paris",
+          },
+    );
+  const query = vi
+    .fn()
+    .mockResolvedValue({
+      results: [
+        {
+          page_id: "page-paris",
+          source_id: "source-riverside",
+          page_type: "knowledge",
+          title: "Paris",
+          kind: "place",
+          paths: [],
+        },
+      ],
+      graph_revision: "revision-1",
+      next_cursor: null,
+      complete: true,
+      work_units: 8,
+      diagnostics: [],
+    });
+  api.queryPages = query;
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(await screen.findByRole("link", { name: "Maya" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Build Boolean query" }),
+  );
+  await user.type(screen.getByLabelText("Relationship type"), "occurred_at");
+  await user.click(screen.getByRole("button", { name: "Run query" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Open query result Paris" }),
+  );
+  await screen.findByRole("heading", { name: "Paris" });
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(await screen.findByLabelText("Relationship type")).toHaveProperty(
+    "value",
+    "occurred_at",
+  );
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Open query result Paris" }),
+  );
+  await user.clear(screen.getByLabelText("Relationship type"));
+  await user.type(screen.getByLabelText("Relationship type"), "links_to");
+  expect(
+    screen.queryByRole("button", { name: "Open query result Paris" }),
+  ).toBeNull();
+  expect(screen.getByText("0 matching pages · partial.")).toBeTruthy();
+  let resolve: (response: unknown) => void = () => {};
+  query.mockImplementationOnce(() => new Promise((r) => (resolve = r)));
+  await user.click(screen.getByRole("button", { name: "Run query" }));
+  await user.click(screen.getByRole("button", { name: "Clear query" }));
+  resolve({
+    results: [{ page_id: "page-old", title: "Old match", paths: [] }],
+    graph_revision: "revision-1",
+    next_cursor: "old-cursor",
+    complete: false,
+    work_units: 1,
+    diagnostics: [],
+  });
+  await waitFor(() =>
+    expect(api.cancelQuery).toHaveBeenCalledWith("old-cursor"),
+  );
+  expect(
+    screen.queryByRole("button", { name: "Open query result Old match" }),
+  ).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Run query" }));
+  await waitFor(() =>
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        expression: { op: "and", children: [] },
+        returned: {
+          date_from: null,
+          date_to: null,
+          format: null,
+          processing_status: null,
+        },
+        continuation: null,
+      }),
+    ),
+  );
 });

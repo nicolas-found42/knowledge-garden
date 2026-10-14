@@ -268,6 +268,52 @@ export interface PathExploreResponse {
   diagnostics: PathExploreDiagnostic[];
 }
 
+export interface QueryConstraint {
+  date_from: string | null;
+  date_to: string | null;
+  format: string | null;
+  processing_status: string | null;
+}
+export interface QueryHop {
+  kind: string;
+  direction: "with_arrow" | "against_arrow";
+}
+export type BooleanExpression =
+  | {
+      op: "path";
+      start_page_id: string;
+      hops: QueryHop[];
+      endpoint: QueryConstraint;
+      intermediate: QueryConstraint;
+    }
+  | { op: "constraint"; constraint: QueryConstraint }
+  | { op: "and"; children: BooleanExpression[] }
+  | { op: "or"; children: BooleanExpression[] }
+  | { op: "not"; child: BooleanExpression };
+export interface BooleanQueryRequest {
+  expression: BooleanExpression;
+  returned: QueryConstraint;
+  continuation: string | null;
+  work_budget: number;
+  page_size: number;
+}
+export interface BooleanQueryResult {
+  page_id: string;
+  source_id: string;
+  page_type: string;
+  title: string;
+  kind: string;
+  paths: ExploredPath[];
+}
+export interface BooleanQueryResponse {
+  results: BooleanQueryResult[];
+  graph_revision: string;
+  next_cursor: string | null;
+  complete: boolean;
+  work_units: number;
+  diagnostics: PathExploreDiagnostic[];
+}
+
 /** The reader's application boundary. Desktop paths never come from page HTML. */
 export interface GardenApi {
   chooseFile(): Promise<string | null>;
@@ -276,6 +322,8 @@ export interface GardenApi {
   listUrlAcquisitions(): Promise<UrlAcquisitionStatus[]>;
   listSources(offset: number): Promise<SourceList>;
   searchPages(request: PageSearchRequest): Promise<PageSearchResults>;
+  queryPages(request: BooleanQueryRequest): Promise<BooleanQueryResponse>;
+  cancelQuery(continuation: string): Promise<void>;
   pathGraphRevision(): Promise<string>;
   explorePaths(request: PathExploreRequest): Promise<PathExploreResponse>;
   explorePathDetails(request: PathDetailsRequest): Promise<PathDetailsResponse>;
@@ -315,6 +363,8 @@ export const desktopApi: GardenApi = {
   listUrlAcquisitions: () => invoke("list_url_acquisitions"),
   listSources: (offset) => invoke("list_sources", { offset }),
   searchPages: (request) => invoke("search_pages", { request }),
+  queryPages: (request) => invoke("query_pages", { request }),
+  cancelQuery: (continuation) => invoke("cancel_query", { continuation }),
   pathGraphRevision: () => invoke("path_graph_revision"),
   explorePaths: (request) => invoke("explore_paths", { request }),
   explorePathDetails: (request) => invoke("explore_path_details", { request }),
