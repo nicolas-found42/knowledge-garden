@@ -489,6 +489,25 @@ export async function mountReader(
     }
     if (next.info.semantic_error)
       rows.push(["Semantic status", next.info.semantic_error]);
+    const availabilityLabels = {
+      network: "Waiting for network access",
+      quota: "Waiting for provider quota",
+      authentication: "Waiting for provider credentials",
+      model_unavailable: "Waiting for the selected model",
+      capability_unavailable: "Waiting for provider capability",
+    };
+    if (next.info.provider_availability) {
+      rows.push([
+        "Remote processing",
+        availabilityLabels[next.info.provider_availability],
+      ]);
+      if (next.info.semantic_retry_at) {
+        rows.push([
+          "Recovery",
+          `Automatic retry scheduled: ${new Date(Number(next.info.semantic_retry_at)).toLocaleString()}. Local content and retained originals remain available.`,
+        ]);
+      }
+    }
     for (const acquisition of next.info.acquisitions) {
       rows.push([
         "Acquired from",

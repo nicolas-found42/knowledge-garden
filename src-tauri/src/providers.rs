@@ -30,8 +30,9 @@ pub trait SystemOneTransport: Send + Sync {
         -> std::result::Result<Value, ProviderError>;
 }
 
-struct OpenRouterSystemOneTransport {
+pub struct OpenRouterSystemOneTransport {
     client: Client,
+    endpoint: String,
 }
 
 impl Default for OpenRouterSystemOneTransport {
@@ -41,7 +42,16 @@ impl Default for OpenRouterSystemOneTransport {
                 .timeout(Duration::from_secs(45))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
+            endpoint: OPENROUTER_SYSTEM_ONE.into(),
         }
+    }
+}
+
+impl OpenRouterSystemOneTransport {
+    /// Inject the external HTTP boundary for deterministic adapter qualification.
+    /// The application continues to use the pinned OpenRouter endpoint by default.
+    pub fn with_endpoint(endpoint: String) -> Self {
+        Self { endpoint, ..Self::default() }
     }
 }
 
@@ -53,7 +63,7 @@ impl SystemOneTransport for OpenRouterSystemOneTransport {
     ) -> std::result::Result<Value, ProviderError> {
         let response = self
             .client
-            .post(OPENROUTER_SYSTEM_ONE)
+            .post(&self.endpoint)
             .bearer_auth(api_key)
             .header("Accept", "application/json")
             .header("HTTP-Referer", "https://knowledge-garden.local")
@@ -64,6 +74,12 @@ impl SystemOneTransport for OpenRouterSystemOneTransport {
             Ok(response) if response.status().is_success() => response,
             Ok(response) => {
                 let status = response.status();
+                if status.as_u16() == 429 {
+                    return Err(ProviderError::unavailable(
+                        "Jev provider quota is temporarily unavailable; semantic work will retry automatically.".into(),
+                        crate::semantic::ProviderAvailability::Quota,
+                    ));
+                }
                 let retryable = status.as_u16() == 401
                     || status.as_u16() == 403
                     || status.as_u16() == 408
@@ -77,11 +93,18 @@ impl SystemOneTransport for OpenRouterSystemOneTransport {
                 return Err(ProviderError {
                     message: format!("Jev provider returned HTTP {status}; {resolution}."),
                     retryable,
+                    availability: None,
                 });
+            }
+            Err(error) if error.is_connect() || error.is_timeout() => {
+                return Err(ProviderError::unavailable(
+                    "Jev could not be reached; semantic work will retry automatically.".into(),
+                    crate::semantic::ProviderAvailability::Network,
+                ))
             }
             Err(_) => {
                 return Err(ProviderError::recoverable(
-                    "Jev could not be reached; semantic work will retry automatically.".into(),
+                    "Jev transport failed without a recognized connectivity cause; semantic work will retry within its finite failure budget.".into(),
                 ))
             }
         };

@@ -174,6 +174,11 @@ pub struct SourceVersion {
     pub semantic_integrity_failures: u32,
     #[serde(default)]
     pub retryable_provider_failures: u32,
+    /// Known service outages do not consume the malformed/integrity failure budget.
+    #[serde(default)]
+    pub availability_attempts: u32,
+    #[serde(default)]
+    pub provider_availability: Option<crate::semantic::ProviderAvailability>,
     #[serde(default)]
     pub processing_interruptions: u32,
 }
@@ -215,6 +220,8 @@ pub struct SourceInfo {
     pub semantic_attempts: u32,
     #[serde(default)]
     pub semantic_retry_at: Option<String>,
+    #[serde(default)]
+    pub provider_availability: Option<crate::semantic::ProviderAvailability>,
     #[serde(default)]
     pub knowledge_pages: Vec<KnowledgePageSummary>,
     #[serde(default)]
@@ -1470,6 +1477,7 @@ impl Application {
             }
             existing.info.semantic_error = None;
             existing.info.semantic_retry_at = None;
+            existing.info.provider_availability = None;
             self.write_source_page(&existing)?;
             self.index_page(&existing.info)?;
             return self.open_source(&source_id);
@@ -1694,6 +1702,7 @@ impl Application {
             semantic_error: None,
             semantic_attempts: 0,
             semantic_retry_at: None,
+            provider_availability: None,
             knowledge_pages: Vec::new(),
             semantic_decisions: Vec::new(),
             audio_processing: inspected_audio.map(|audio| audio_processing_info(audio, &digest)),
@@ -3230,6 +3239,14 @@ impl Application {
                                 page.info.semantic_state = "complete".into();
                                 page.info.semantic_error = None;
                                 page.info.semantic_retry_at = None;
+                                page.info.provider_availability = None;
+                                if let Some(version) =
+                                    page.info.versions_seen.iter_mut().find(|version| {
+                                        version.source_version_id == job.source_version_id
+                                    })
+                                {
+                                    version.provider_availability = None;
+                                }
                             }
                             Err(error) => {
                                 self.staged_publication.clear();
@@ -3246,7 +3263,7 @@ impl Application {
                 }
             }
             Err(error) => {
-                self.record_provider_failure(&mut page, error.message, error.retryable)?;
+                self.record_provider_failure(&mut page, error)?;
             }
         }
         if self.staged_publication.is_empty() {
@@ -5329,10 +5346,12 @@ impl Application {
         retryable: bool,
         invalid_draft: bool,
     ) -> Result<()> {
+        page.info.provider_availability = None;
         let mut retryable = retryable;
         if let Some(version) = page.info.versions_seen.iter_mut().find(|version| {
             Some(version.source_version_id.as_str()) == page.info.pending_version_id.as_deref()
         }) {
+            version.provider_availability = None;
             if invalid_draft {
                 version.semantic_integrity_failures =
                     version.semantic_integrity_failures.saturating_add(1);
@@ -5366,12 +5385,38 @@ impl Application {
         Ok(())
     }
 
-    fn record_provider_failure(
-        &self,
-        page: &mut SourcePage,
-        message: String,
-        retryable: bool,
-    ) -> Result<()> {
+    fn record_provider_failure(&self, page: &mut SourcePage, error: ProviderError) -> Result<()> {
+        if let Some(cause) = error.availability.filter(|_| error.retryable) {
+            let version = page
+                .info
+                .versions_seen
+                .iter_mut()
+                .find(|version| {
+                    Some(version.source_version_id.as_str())
+                        == page.info.pending_version_id.as_deref()
+                })
+                .ok_or_else(|| {
+                    GardenError::Invalid(
+                        "The unavailable provider result has no pending source version.".into(),
+                    )
+                })?;
+            version.availability_attempts = version.availability_attempts.saturating_add(1);
+            version.provider_availability = Some(cause);
+            version.state = "pending".into();
+            let delay_seconds = (1_u64 << version.availability_attempts.min(12)).min(3600);
+            page.info.provider_availability = Some(cause);
+            if page.info.current_version_id.is_some() {
+                page.info.update_status = Some("pending".into());
+            } else {
+                page.info.semantic_state = "pending".into();
+            }
+            page.info.semantic_error = Some(error.message.chars().take(300).collect());
+            page.info.semantic_retry_at =
+                Some((now_millis().unwrap_or(0) + u128::from(delay_seconds * 1000)).to_string());
+            page.markdown = serialize_page(&page.info, &page.body)?;
+            return Ok(());
+        }
+        let retryable = error.retryable;
         let retryable = if retryable {
             let version = page
                 .info
@@ -5392,7 +5437,7 @@ impl Application {
         } else {
             false
         };
-        self.record_semantic_failure(page, message, retryable, false)
+        self.record_semantic_failure(page, error.message, retryable, false)
     }
 
     fn write_source_page(&self, page: &SourcePage) -> Result<()> {
@@ -6466,6 +6511,8 @@ fn source_version(
         extraction_attempts: 1,
         semantic_integrity_failures: 0,
         retryable_provider_failures: 0,
+        availability_attempts: 0,
+        provider_availability: None,
         processing_interruptions: 0,
         coverage: if state == "complete" {
             "complete"
