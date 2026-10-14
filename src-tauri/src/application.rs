@@ -2889,12 +2889,31 @@ impl Application {
                             "The active source version is missing its retained format.".into(),
                         )
                     })?;
-                let version_audio = is_audio_format(&source_format)
-                    && candidate_audio_processing(&page.info, &job.source_version_id).is_some();
+                let candidate_audio =
+                    candidate_audio_processing(&page.info, &job.source_version_id);
+                let version_audio = is_audio_format(&source_format) && candidate_audio.is_some();
                 if draft_has_audio_provenance(&draft) && !version_audio {
                     self.record_semantic_failure(
                         &mut page,
                         "Audio transcript evidence is not bound to retained audio processing for this source version; semantic coverage remains incomplete and will retry automatically.".into(),
+                        true,
+                        true,
+                    )?;
+                } else if version_audio
+                    && !candidate_audio.is_some_and(|audio| {
+                        draft_audio_evidence_is_segment_grounded(&draft, &job.source_text, audio)
+                    })
+                {
+                    self.record_semantic_failure(
+                        &mut page,
+                        "Audio evidence does not point to an accepted transcript segment for this source version; semantic coverage remains incomplete and will retry automatically.".into(),
+                        true,
+                        true,
+                    )?;
+                } else if version_audio && draft_claims_audio_speaker_identity(&draft) {
+                    self.record_semantic_failure(
+                        &mut page,
+                        "Speaker identity is unavailable for this audio version; semantic coverage remains incomplete and the original recording is retained.".into(),
                         true,
                         true,
                     )?;
@@ -7405,7 +7424,11 @@ fn draft_has_audio_provenance(draft: &KnowledgeDraft) -> bool {
     }) || draft.facts.iter().any(|fact| {
         matches!(
             fact.property.as_str(),
-            "spoken_question" | "spoken_decision" | "spoken_reasoning" | "audio_speaker"
+            "spoken_message"
+                | "spoken_question"
+                | "spoken_decision"
+                | "spoken_reasoning"
+                | "audio_speaker"
         ) || audio_evidence(&fact.evidence)
     }) || draft.relationships.iter().any(|relationship| {
         matches!(relationship.kind.as_str(), "audio_speaker" | "speaker")
@@ -7434,6 +7457,159 @@ fn draft_has_audio_provenance(draft: &KnowledgeDraft) -> bool {
             .decisions
             .iter()
             .any(|decision| decision.question.starts_with("audio_speech_act:"))
+}
+
+fn draft_claims_audio_speaker_identity(draft: &KnowledgeDraft) -> bool {
+    draft.entities.iter().any(|entity| {
+        matches!(
+            entity.kind.to_ascii_lowercase().as_str(),
+            "audio_speaker" | "speaker"
+        )
+    }) || draft.facts.iter().any(|fact| {
+        matches!(
+            fact.property.to_ascii_lowercase().as_str(),
+            "audio_speaker" | "speaker"
+        )
+    }) || draft.relationships.iter().any(|relationship| {
+        matches!(
+            relationship.kind.to_ascii_lowercase().as_str(),
+            "audio_speaker" | "speaker"
+        )
+    })
+}
+
+fn draft_audio_evidence_is_segment_grounded(
+    draft: &KnowledgeDraft,
+    source_text: &str,
+    audio: &AudioProcessingInfo,
+) -> bool {
+    fn evidence_is_segment_grounded(
+        evidence: &EvidenceDraft,
+        source_text: &str,
+        audio: &AudioProcessingInfo,
+    ) -> bool {
+        if evidence.byte_start > evidence.byte_end
+            || evidence.byte_end > source_text.len()
+            || !source_text.is_char_boundary(evidence.byte_start)
+            || !source_text.is_char_boundary(evidence.byte_end)
+        {
+            return false;
+        }
+        let Some(prefix) = source_text.get(..evidence.byte_start) else {
+            return false;
+        };
+        let line_start = prefix.rfind('\n').map_or(0, |index| index + 1);
+        let line_end = source_text[evidence.byte_start..]
+            .find('\n')
+            .map_or(source_text.len(), |index| evidence.byte_start + index);
+        let Some(line) = source_text.get(line_start..line_end) else {
+            return false;
+        };
+        let Some(locator_end) = line.find(']') else {
+            return false;
+        };
+        let Some(locator) = line
+            .strip_prefix('[')
+            .map(|value| &value[..locator_end - 1])
+        else {
+            return false;
+        };
+        let Some((start_ms, end_ms)) = audio_locator_range(locator) else {
+            return false;
+        };
+        let content_start = line_start + locator_end + 2;
+        let quotes_segment_text =
+            evidence.byte_start >= content_start && evidence.byte_end <= line_end;
+        let quotes_segment_prefix = evidence.byte_start == line_start
+            && evidence.byte_end > content_start
+            && evidence.byte_end <= line_end;
+        if !quotes_segment_text && !quotes_segment_prefix {
+            return false;
+        }
+        let Some(segment) = audio.segments.iter().find(|segment| {
+            segment.start_ms == start_ms && segment.end_ms == end_ms && end_ms <= audio.duration_ms
+        }) else {
+            return false;
+        };
+        if let Some(source_location) = evidence.source_location.as_deref() {
+            let range = format!("AUDIO {start_ms}–{end_ms} ms");
+            let ascii_range = format!("AUDIO {start_ms}-{end_ms} ms");
+            let confidence = segment
+                .confidence
+                .map(|value| format!("{value:.2}"))
+                .unwrap_or_else(|| "unavailable".into());
+            let generated_locator = format!("{range} confidence={confidence} speaker=unidentified");
+            let bracketed_generated_locator = format!("[{generated_locator}]");
+            if source_location != range
+                && source_location != ascii_range
+                && source_location != generated_locator
+                && source_location != bracketed_generated_locator
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    let mut evidence = draft
+        .entities
+        .iter()
+        .map(|item| &item.evidence)
+        .chain(draft.facts.iter().map(|item| &item.evidence))
+        .chain(draft.relationships.iter().map(|item| &item.evidence))
+        .chain(draft.tags.iter().map(|item| &item.evidence))
+        .chain(
+            draft
+                .correction_candidates
+                .iter()
+                .map(|item| &item.evidence),
+        )
+        .chain(
+            draft
+                .correction_alignments
+                .iter()
+                .map(|item| &item.candidate.evidence),
+        )
+        .collect::<Vec<_>>();
+    if let Some(update) = draft.source_update.as_ref() {
+        let is_nonclaim_unknown_metadata = update.role == SourceUpdateRole::Unknown
+            && update.source_date.is_none()
+            && update.source_revision.is_none()
+            && is_generated_audio_header_evidence(&update.evidence, source_text);
+        if !is_nonclaim_unknown_metadata {
+            evidence.push(&update.evidence);
+        }
+        evidence.extend(update.source_date_evidence.iter());
+        evidence.extend(update.source_revision_evidence.iter());
+    }
+    evidence
+        .into_iter()
+        .all(|item| evidence_is_segment_grounded(item, source_text, audio))
+}
+
+fn is_generated_audio_header_evidence(evidence: &EvidenceDraft, source_text: &str) -> bool {
+    const HEADER: &str = "Machine-generated transcript from retained audio.";
+    const PREAMBLE: &str = "Machine-generated transcript from retained audio. Wording and timestamps are unverified estimates; this local recognizer emits no calibrated confidence or alternatives, and speaker identity is unavailable.";
+    evidence.quote == HEADER
+        && evidence.byte_start == 0
+        && evidence.byte_end == HEADER.len()
+        && source_text.starts_with(&format!("{PREAMBLE}\n"))
+        && evidence.source_location.is_none()
+        && evidence
+            .offset_basis
+            .as_deref()
+            .is_none_or(|basis| basis == "preserved_text")
+}
+
+fn audio_locator_range(locator: &str) -> Option<(u64, u64)> {
+    let locator = locator.strip_prefix("AUDIO ")?;
+    let timestamp = locator.split_once(" ms")?.0;
+    let (start, end) = timestamp
+        .split_once('–')
+        .or_else(|| timestamp.split_once('-'))?;
+    let start = start.parse().ok()?;
+    let end = end.parse().ok()?;
+    (start < end).then_some((start, end))
 }
 
 fn qualify_audio_evidence(draft: &mut KnowledgeDraft) {

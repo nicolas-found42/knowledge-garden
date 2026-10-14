@@ -2,6 +2,8 @@
 use knowledge_garden::application::{
     AcquisitionMethod, Application, GardenError, PageSearchRequest,
 };
+use knowledge_garden::extraction::LocalExtractor;
+use knowledge_garden::media::WhisperAudioProcessor;
 use knowledge_garden::providers::{JevSemanticProvider, SystemOneTransport};
 use knowledge_garden::semantic::{
     EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft, ProviderError, RelationshipDraft,
@@ -162,15 +164,31 @@ fn output(value: impl Serialize) {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Opt-in held-out audio path: <collection> audio-live-import <fixture> <pinned-audio-assets>.
+    // It exercises public import, one bounded audio resume, then semantic resume.
     let args: Vec<String> = std::env::args().collect();
     let operation = args.get(2).map(String::as_str).ok_or("missing operation")?;
-    let live = matches!(operation, "live-import" | "url-live-import");
+    let live = matches!(
+        operation,
+        "live-import" | "url-live-import" | "audio-live-import"
+    );
     if live && std::env::var("KNOWLEDGE_GARDEN_LIVE_SEMANTICS").as_deref() != Ok("1") {
         return Err("live semantic evaluation requires KNOWLEDGE_GARDEN_LIVE_SEMANTICS=1".into());
     }
     let recorded_office = operation == "office-recorded-import";
     let recorded_conversation = operation == "conversation-recorded-import";
-    let mut app = if live {
+    let mut app = if matches!(
+        operation,
+        "audio-live-import" | "audio-local-import" | "audio-local-resume"
+    ) {
+        let audio_assets = args.get(4).ok_or("missing pinned audio asset directory")?;
+        Application::open_with_all_providers(
+            args.get(1).ok_or("missing test collection")?,
+            std::sync::Arc::new(JevSemanticProvider::from_environment_and_keychain()),
+            std::sync::Arc::new(LocalExtractor),
+            std::sync::Arc::new(WhisperAudioProcessor::new(audio_assets)),
+        )?
+    } else if live {
         Application::open_with_semantic_provider(
             args.get(1).ok_or("missing test collection")?,
             std::sync::Arc::new(JevSemanticProvider::from_environment_and_keychain()),
@@ -202,6 +220,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 args.get(3).ok_or("missing fixture path")?,
                 AcquisitionMethod::Picker,
             )?;
+            app.resume_due_semantic_jobs()?;
+            output(app.open_source(&page.info.source_id)?);
+        }
+        "audio-local-import" => {
+            let page = app.import_source(
+                args.get(3).ok_or("missing fixture path")?,
+                AcquisitionMethod::Picker,
+            )?;
+            output(app.open_source(&page.info.source_id)?);
+        }
+        "audio-local-resume" => {
+            app.resume_due_audio_jobs()?;
+            output(app.open_source(args.get(3).ok_or("missing source identity")?)?);
+        }
+        "audio-live-import" => {
+            let page = app.import_source(
+                args.get(3).ok_or("missing fixture path")?,
+                AcquisitionMethod::Picker,
+            )?;
+            app.resume_due_audio_jobs()?;
             app.resume_due_semantic_jobs()?;
             output(app.open_source(&page.info.source_id)?);
         }

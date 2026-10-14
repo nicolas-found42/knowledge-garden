@@ -30,6 +30,197 @@ const SPEECH_ACT_NO_EVENT_TRANSCRIPT: &str = "Question: should we inspect the br
 struct SpeechActAudio {
     transcript: &'static str,
 }
+
+struct HeldoutFixtureAudio;
+impl AudioProcessor for HeldoutFixtureAudio {
+    fn inspect(&self, _path: &Path) -> Result<AudioInfo, String> {
+        Ok(AudioInfo {
+            format: "wav".into(),
+            duration_ms: 19_497,
+            sample_rate: 22_050.0,
+            channels: 1,
+            codec: "PCM signed 16-bit".into(),
+        })
+    }
+
+    fn install_assets(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn transcribe_segment(
+        &self,
+        _path: &Path,
+        start_ms: u64,
+        duration_ms: u64,
+    ) -> Result<TranscriptionBatch, String> {
+        assert_eq!(start_ms, 0);
+        Ok(TranscriptionBatch {
+            schema: 1,
+            requested_start_ms: start_ms,
+            requested_duration_ms: duration_ms,
+            processed_duration_ms: 19_497,
+            media_duration_ms: 19_497,
+            state: "complete".into(),
+            coverage: "frozen fixture labels".into(),
+            detail: "Deterministic transcript fixture aligned to the retained WAV labels.".into(),
+            segments: vec![
+                TranscriptSegment {
+                    segment_id: String::new(),
+                    start_ms: 0,
+                    end_ms: 2_923,
+                    text: "Question: should we close the north gate before noon?".into(),
+                    confidence: None,
+                    alternatives: Vec::new(),
+                    speaker: None,
+                    speaker_state: "unidentified".into(),
+                    final_result: true,
+                },
+                TranscriptSegment {
+                    segment_id: String::new(),
+                    start_ms: 2_923,
+                    end_ms: 6_318,
+                    text: "I think we should leave it open until the inspection is complete.".into(),
+                    confidence: None,
+                    alternatives: Vec::new(),
+                    speaker: None,
+                    speaker_state: "unidentified".into(),
+                    final_result: true,
+                },
+                TranscriptSegment {
+                    segment_id: String::new(),
+                    start_ms: 7_918,
+                    end_ms: 11_964,
+                    text: "Decision: postpone closing the north gate until after the inspection.".into(),
+                    confidence: None,
+                    alternatives: Vec::new(),
+                    speaker: None,
+                    speaker_state: "unidentified".into(),
+                    final_result: true,
+                },
+                TranscriptSegment {
+                    segment_id: String::new(),
+                    start_ms: 11_964,
+                    end_ms: 14_811,
+                    text: "Reasoning: the west approach may still be icy.".into(),
+                    confidence: None,
+                    alternatives: Vec::new(),
+                    speaker: None,
+                    speaker_state: "unidentified".into(),
+                    final_result: true,
+                },
+                TranscriptSegment {
+                    segment_id: String::new(),
+                    start_ms: 14_811,
+                    end_ms: 19_497,
+                    text: "I might have said the west approach was clear, but I'm not sure; it could still be icy.".into(),
+                    confidence: None,
+                    alternatives: Vec::new(),
+                    speaker: None,
+                    speaker_state: "unidentified".into(),
+                    final_result: true,
+                },
+            ],
+        })
+    }
+}
+
+struct ForgedAudioSpeaker;
+impl SemanticProvider for ForgedAudioSpeaker {
+    fn form_knowledge(&self, source_text: &str) -> Result<KnowledgeDraft, ProviderError> {
+        let quote = "Question: should we close the north gate before noon?";
+        let byte_start = source_text.find(quote).ok_or_else(|| {
+            ProviderError::recoverable("fixture transcript quote is missing".into())
+        })?;
+        let evidence = |source_location: Option<&str>| EvidenceDraft {
+            quote: quote.into(),
+            byte_start,
+            byte_end: byte_start + quote.len(),
+            origin: "transcribed speech".into(),
+            qualifier: None,
+            offset_basis: Some("audio_transcript".into()),
+            source_location: source_location.map(str::to_owned),
+        };
+        Ok(KnowledgeDraft {
+            entities: vec![EntityDraft {
+                kind: "audio_speaker".into(),
+                label: "Mara Chen".into(),
+                evidence: evidence(Some("AUDIO 0–2923 ms")),
+            }],
+            ..KnowledgeDraft::default()
+        })
+    }
+}
+
+struct OutOfRangeAudioLocator;
+impl SemanticProvider for OutOfRangeAudioLocator {
+    fn form_knowledge(&self, source_text: &str) -> Result<KnowledgeDraft, ProviderError> {
+        let quote = "Question: should we close the north gate before noon?";
+        let byte_start = source_text.find(quote).ok_or_else(|| {
+            ProviderError::recoverable("fixture transcript quote is missing".into())
+        })?;
+        let evidence = || EvidenceDraft {
+            quote: quote.into(),
+            byte_start,
+            byte_end: byte_start + quote.len(),
+            origin: "transcribed speech".into(),
+            qualifier: None,
+            offset_basis: Some("audio_transcript".into()),
+            source_location: Some("AUDIO 999999–1000000 ms".into()),
+        };
+        Ok(KnowledgeDraft {
+            entities: vec![EntityDraft {
+                kind: "topic".into(),
+                label: "North gate".into(),
+                evidence: evidence(),
+            }],
+            facts: vec![FactDraft {
+                subject: "North gate".into(),
+                property: "spoken_question".into(),
+                value: "Should the north gate close before noon?".into(),
+                evidence: evidence(),
+                record_key: None,
+            }],
+            ..KnowledgeDraft::default()
+        })
+    }
+}
+
+struct AudioLocatorMetadataProvider {
+    source_location: &'static str,
+}
+impl SemanticProvider for AudioLocatorMetadataProvider {
+    fn form_knowledge(&self, source_text: &str) -> Result<KnowledgeDraft, ProviderError> {
+        let quote = "Question: should we close the north gate before noon?";
+        let byte_start = source_text.find(quote).ok_or_else(|| {
+            ProviderError::recoverable("fixture transcript quote is missing".into())
+        })?;
+        let evidence = EvidenceDraft {
+            quote: quote.into(),
+            byte_start,
+            byte_end: byte_start + quote.len(),
+            origin: "transcribed speech".into(),
+            qualifier: None,
+            offset_basis: Some("audio_transcript".into()),
+            source_location: Some(self.source_location.into()),
+        };
+        Ok(KnowledgeDraft {
+            entities: vec![EntityDraft {
+                kind: "topic".into(),
+                label: "North gate".into(),
+                evidence: evidence.clone(),
+            }],
+            facts: vec![FactDraft {
+                subject: "North gate".into(),
+                property: "spoken_question".into(),
+                value: "Should the north gate close before noon?".into(),
+                evidence,
+                record_key: None,
+            }],
+            ..KnowledgeDraft::default()
+        })
+    }
+}
+
 impl AudioProcessor for SpeechActAudio {
     fn inspect(&self, _path: &Path) -> Result<AudioInfo, String> {
         Ok(AudioInfo {
@@ -131,6 +322,62 @@ impl SystemOneTransport for SpeechActTransport {
             answers.insert(key.clone(), answer);
         }
         Ok(json!({"model":"typesafe/jev-1.13-frozen-speech-fixture","answers":answers}))
+    }
+}
+
+struct OneUncertainSpeechActTransport;
+impl SystemOneTransport for OneUncertainSpeechActTransport {
+    fn complete(&self, api_key: &str, request: &Value) -> Result<Value, ProviderError> {
+        let mut response = <SpeechActTransport as SystemOneTransport>::complete(
+            &SpeechActTransport,
+            api_key,
+            request,
+        )?;
+        if let Some(answer) = response
+            .get_mut("answers")
+            .and_then(Value::as_object_mut)
+            .and_then(|answers| answers.get_mut("audio_speech_act_0"))
+        {
+            answer["probabilities"] = json!({
+                "question": 0.55,
+                "decision": 0.25,
+                "reasoning": 0.10,
+                "not_speech_act": 0.10
+            });
+        }
+        Ok(response)
+    }
+}
+
+struct InvalidSpeechActAnswerTransport {
+    defect: &'static str,
+}
+impl SystemOneTransport for InvalidSpeechActAnswerTransport {
+    fn complete(&self, api_key: &str, request: &Value) -> Result<Value, ProviderError> {
+        let mut response = <SpeechActTransport as SystemOneTransport>::complete(
+            &SpeechActTransport,
+            api_key,
+            request,
+        )?;
+        if let Some(answers) = response.get_mut("answers").and_then(Value::as_object_mut) {
+            match self.defect {
+                "missing_answer" => {
+                    answers.remove("audio_speech_act_0");
+                }
+                "invalid_probability" => {
+                    if let Some(answer) = answers.get_mut("audio_speech_act_0") {
+                        answer["probabilities"]["question"] = json!("not a probability");
+                    }
+                }
+                "unsupported_choice" => {
+                    if let Some(answer) = answers.get_mut("audio_speech_act_0") {
+                        answer["choice"] = json!("event_occurred");
+                    }
+                }
+                _ => unreachable!("the test supplies a fixed malformed-response variant"),
+            }
+        }
+        Ok(response)
     }
 }
 
@@ -519,9 +766,9 @@ fn imports_original_then_processes_bounded_resumable_audio_with_stable_passages(
             kind: "document".into(),
             label: "Fixture recording".into(),
             evidence: EvidenceDraft {
-                quote: job.source_text.clone(),
-                byte_start: 0,
-                byte_end: job.source_text.len(),
+                quote: quote.into(),
+                byte_start: offset,
+                byte_end: offset + quote.len(),
                 origin: "observed".into(),
                 qualifier: None,
                 offset_basis: None,
@@ -1123,6 +1370,8 @@ fn pinned_local_whisper_import_retrieval_evidence_restart_and_seek_fallback() {
     assert!(segments[0].text.contains("10 minutes"));
     assert!(segments[1].text.contains("may have said 12"));
     assert!(segments[1].text.contains("count could be 15"));
+    assert!(segments[0].start_ms <= 250);
+    assert!(segments[0].end_ms.abs_diff(4_300) <= 250);
     assert!(segments[1].start_ms.abs_diff(5_440) <= 250);
     assert!(segments[1].end_ms.abs_diff(11_393) <= 250);
     assert!(segments[0].end_ms < segments[1].start_ms);
@@ -1401,6 +1650,305 @@ fn speech_acts_without_event_identity_link_to_a_recording_anchor_not_an_invented
 }
 
 #[test]
+fn valid_low_confidence_speech_intent_stays_a_qualified_message_while_confident_neighbors_publish()
+{
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("uncertain-spoken-observation.wav");
+    let original = b"frozen synthetic recording bytes with one uncertain Jev intent";
+    fs::write(&source, original).unwrap();
+    let semantic = Arc::new(JevSemanticProvider::with_transport(
+        "recorded-test-key".into(),
+        Arc::new(OneUncertainSpeechActTransport),
+    ));
+    let mut app = Application::open_with_all_providers(
+        workspace.path().join("collection"),
+        semantic,
+        Arc::new(LocalExtractor),
+        Arc::new(SpeechActAudio {
+            transcript: SPEECH_ACT_NO_EVENT_TRANSCRIPT,
+        }),
+    )
+    .unwrap();
+
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_audio_jobs().unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let published = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(
+        published.info.semantic_state, "complete",
+        "one valid but uncertain intent should not erase its confident neighbors: {:?}",
+        published.info.semantic_error
+    );
+    assert!(published.info.semantic_error.is_none());
+    assert_eq!(
+        fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        original
+    );
+    assert!(published.body.contains("speakers are left unidentified"));
+
+    let uncertain = published
+        .info
+        .semantic_decisions
+        .iter()
+        .find(|decision| {
+            decision
+                .question
+                .contains("should we inspect the bridge today?")
+        })
+        .expect("the low-confidence candidate and probability remain diagnosable");
+    assert_eq!(uncertain.outcome, "question");
+    assert_eq!(uncertain.probability, Some(0.55));
+    assert!(uncertain.model.contains("frozen-speech-fixture"));
+
+    let recording = published
+        .info
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "audio_recording" && page.title == "Recorded speech")
+        .expect("speech without an event identifier stays on its recording anchor");
+    let markdown = app
+        .open_knowledge_page(&recording.page_id)
+        .unwrap()
+        .markdown;
+    assert!(markdown.contains("**spoken message:**"), "{markdown}");
+    assert!(
+        markdown.contains("should we inspect the bridge today?"),
+        "{markdown}"
+    );
+    assert!(markdown.contains("intent is uncertain"), "{markdown}");
+    assert!(markdown.contains("0.55"), "{markdown}");
+    assert!(!markdown.contains("**spoken question:**"), "{markdown}");
+    assert!(markdown.contains("**spoken decision:**"), "{markdown}");
+    assert!(markdown.contains("**spoken reasoning:**"), "{markdown}");
+}
+
+#[test]
+fn malformed_speech_intent_responses_remain_pending_and_keep_the_original_after_reopen() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("malformed-spoken-observation.wav");
+    let original = b"frozen synthetic recording bytes with malformed Jev answer cases";
+    fs::write(&source, original).unwrap();
+
+    for defect in [
+        "missing_answer",
+        "invalid_probability",
+        "unsupported_choice",
+    ] {
+        let collection = workspace.path().join(defect);
+        let semantic = Arc::new(JevSemanticProvider::with_transport(
+            "recorded-test-key".into(),
+            Arc::new(InvalidSpeechActAnswerTransport { defect }),
+        ));
+        let mut app = Application::open_with_all_providers(
+            &collection,
+            semantic.clone(),
+            Arc::new(LocalExtractor),
+            Arc::new(SpeechActAudio {
+                transcript: SPEECH_ACT_NO_EVENT_TRANSCRIPT,
+            }),
+        )
+        .unwrap();
+        let imported = app
+            .import_source(&source, AcquisitionMethod::Picker)
+            .unwrap();
+        app.resume_due_audio_jobs().unwrap();
+        app.resume_due_semantic_jobs().unwrap();
+
+        let pending = app.open_source(&imported.info.source_id).unwrap();
+        assert_eq!(pending.info.semantic_state, "pending", "{defect}");
+        assert!(pending.info.semantic_error.is_some(), "{defect}");
+        assert!(pending.info.knowledge_pages.is_empty(), "{defect}");
+        assert_eq!(
+            fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
+            original,
+            "{defect}"
+        );
+
+        drop(app);
+        let reopened = Application::open_with_all_providers(
+            &collection,
+            semantic,
+            Arc::new(LocalExtractor),
+            Arc::new(SpeechActAudio {
+                transcript: SPEECH_ACT_NO_EVENT_TRANSCRIPT,
+            }),
+        )
+        .unwrap();
+        let persisted = reopened.open_source(&imported.info.source_id).unwrap();
+        assert_eq!(persisted.info.semantic_state, "pending", "{defect}");
+        assert!(persisted.info.semantic_error.is_some(), "{defect}");
+        assert!(persisted.info.knowledge_pages.is_empty(), "{defect}");
+        assert_eq!(
+            fs::read(reopened.original_path(&imported.info.source_id).unwrap()).unwrap(),
+            original,
+            "{defect}"
+        );
+    }
+}
+
+#[test]
+fn acquired_wav_cannot_authenticate_a_named_speaker_from_transcribed_words() {
+    let workspace = tempdir().unwrap();
+    let source =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/heldout-spoken-acts.wav");
+    let original = fs::read(&source).unwrap();
+    let mut app = Application::open_with_all_providers(
+        workspace.path().join("collection"),
+        Arc::new(ForgedAudioSpeaker),
+        Arc::new(LocalExtractor),
+        Arc::new(HeldoutFixtureAudio),
+    )
+    .unwrap();
+
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    assert_eq!(imported.info.format, "wav");
+    app.resume_due_audio_jobs().unwrap();
+    let transcribed = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(
+        transcribed.info.audio_processing.as_ref().unwrap().state,
+        "complete"
+    );
+    assert!(transcribed.body.contains("speaker unidentified"));
+    assert_eq!(
+        fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        original
+    );
+
+    app.resume_due_semantic_jobs().unwrap();
+    let published = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(published.info.semantic_state, "pending");
+    assert!(published.info.semantic_error.is_some());
+    assert!(published.info.knowledge_pages.is_empty());
+    assert!(published.body.contains("speaker unidentified"));
+    assert_eq!(
+        fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        original
+    );
+}
+
+#[test]
+fn acquired_wav_rejects_spoken_evidence_locators_beyond_the_retained_duration() {
+    let workspace = tempdir().unwrap();
+    let source =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/heldout-spoken-acts.wav");
+    let original = fs::read(&source).unwrap();
+    let mut app = Application::open_with_all_providers(
+        workspace.path().join("collection"),
+        Arc::new(OutOfRangeAudioLocator),
+        Arc::new(LocalExtractor),
+        Arc::new(HeldoutFixtureAudio),
+    )
+    .unwrap();
+
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_audio_jobs().unwrap();
+    let transcribed = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(
+        transcribed
+            .info
+            .audio_processing
+            .as_ref()
+            .unwrap()
+            .duration_ms,
+        19_497
+    );
+    assert!(transcribed.body.contains("speaker unidentified"));
+
+    app.resume_due_semantic_jobs().unwrap();
+    let published = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(published.info.semantic_state, "pending");
+    assert!(published.info.semantic_error.is_some());
+    assert!(published.info.knowledge_pages.is_empty());
+    assert_eq!(
+        fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        original
+    );
+}
+
+#[test]
+fn audio_segment_evidence_cannot_forge_speaker_or_confidence_in_locator_metadata() {
+    let workspace = tempdir().unwrap();
+    let source =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/heldout-spoken-acts.wav");
+    let original = fs::read(&source).unwrap();
+    let mut app = Application::open_with_all_providers(
+        workspace.path().join("collection"),
+        Arc::new(AudioLocatorMetadataProvider {
+            source_location: "AUDIO 0–2923 ms confidence=0.99 speaker=Mara Chen",
+        }),
+        Arc::new(LocalExtractor),
+        Arc::new(HeldoutFixtureAudio),
+    )
+    .unwrap();
+
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_audio_jobs().unwrap();
+    let transcribed = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(
+        transcribed.info.audio_processing.as_ref().unwrap().state,
+        "complete"
+    );
+    assert!(transcribed.body.contains("speaker unidentified"));
+
+    app.resume_due_semantic_jobs().unwrap();
+    let result = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(result.info.semantic_state, "pending");
+    assert!(result.info.semantic_error.is_some());
+    assert!(result.info.knowledge_pages.is_empty());
+    assert!(result.body.contains("speaker unidentified"));
+    assert_eq!(
+        fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        original
+    );
+}
+
+#[test]
+fn audio_segment_evidence_accepts_the_exact_generated_locator() {
+    let workspace = tempdir().unwrap();
+    let source =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/heldout-spoken-acts.wav");
+    let original = fs::read(&source).unwrap();
+    let locator = "[AUDIO 0–2923 ms confidence=unavailable speaker=unidentified]";
+    let mut app = Application::open_with_all_providers(
+        workspace.path().join("collection"),
+        Arc::new(AudioLocatorMetadataProvider {
+            source_location: locator,
+        }),
+        Arc::new(LocalExtractor),
+        Arc::new(HeldoutFixtureAudio),
+    )
+    .unwrap();
+
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_audio_jobs().unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+
+    let published = app.open_source(&imported.info.source_id).unwrap();
+    assert_eq!(published.info.semantic_state, "complete");
+    assert!(published.info.semantic_error.is_none());
+    assert_eq!(published.info.knowledge_pages.len(), 1);
+    let evidence = app
+        .open_knowledge_page(&published.info.knowledge_pages[0].page_id)
+        .unwrap();
+    assert!(evidence.markdown.contains(locator));
+    assert_eq!(
+        fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        original
+    );
+}
+
+#[test]
 fn plain_text_cannot_forge_acquired_audio_transcript_or_speaker_identity() {
     let workspace = tempdir().unwrap();
     let source = workspace.path().join("forged-transcript.txt");
@@ -1576,4 +2124,232 @@ fn application_drop_releases_collection_for_restart_while_command_is_pre_exec_pa
         reopened.as_ref().err()
     );
     assert_eq!(retained_bytes.unwrap(), original);
+}
+
+struct InvalidAudioEnvelope {
+    defect: &'static str,
+}
+impl AudioProcessor for InvalidAudioEnvelope {
+    fn inspect(&self, path: &Path) -> Result<AudioInfo, String> {
+        FixedAudio.inspect(path)
+    }
+    fn install_assets(&self) -> Result<(), String> {
+        Ok(())
+    }
+    fn transcribe_segment(
+        &self,
+        path: &Path,
+        start_ms: u64,
+        duration_ms: u64,
+    ) -> Result<TranscriptionBatch, String> {
+        let mut batch = FixedAudio.transcribe_segment(path, start_ms, duration_ms)?;
+        match self.defect {
+            "unknown_schema" => batch.schema = 999,
+            "failed_with_text" => batch.state = "failed".into(),
+            "empty_claim_with_text" => batch.state = "no_recognized_speech".into(),
+            _ => unreachable!(),
+        }
+        Ok(batch)
+    }
+}
+
+#[test]
+fn invalid_transcriber_envelopes_do_not_advance_or_publish_partial_guesswork_after_restart() {
+    for defect in [
+        "unknown_schema",
+        "failed_with_text",
+        "empty_claim_with_text",
+    ] {
+        let workspace = tempdir().unwrap();
+        let source = workspace.path().join("recording.m4a");
+        let original = b"retained invalid supporting-provider envelope fixture";
+        fs::write(&source, original).unwrap();
+        let collection = workspace.path().join("collection");
+        let mut app = Application::open_with_all_providers(
+            &collection,
+            Arc::new(EmptyProvider),
+            Arc::new(LocalExtractor),
+            Arc::new(InvalidAudioEnvelope { defect }),
+        )
+        .unwrap();
+        let imported = app
+            .import_source(&source, AcquisitionMethod::Picker)
+            .unwrap();
+        app.resume_due_audio_jobs().unwrap();
+        let observed = app.open_source(&imported.info.source_id).unwrap();
+        let audio = observed.info.audio_processing.as_ref().unwrap();
+        assert_eq!(
+            audio.next_start_ms, 0,
+            "{defect}: invalid result advanced coverage"
+        );
+        assert_eq!(audio.failed_attempts, 1, "{defect}");
+        assert!(audio.segments.is_empty(), "{defect}");
+        assert!(
+            app.claim_due_semantic_jobs(1).unwrap().is_empty(),
+            "{defect}"
+        );
+        drop(app);
+        let reopened = Application::open(&collection).unwrap();
+        let observed = reopened.open_source(&imported.info.source_id).unwrap();
+        let audio = observed.info.audio_processing.as_ref().unwrap();
+        assert_eq!(audio.next_start_ms, 0);
+        assert_eq!(audio.state, "pending");
+        assert!(audio.segments.is_empty());
+        assert_eq!(
+            fs::read(reopened.original_path(&imported.info.source_id).unwrap()).unwrap(),
+            original
+        );
+    }
+}
+
+#[test]
+fn real_local_acoustic_challenges_remain_qualified_searchable_and_retained_after_restart() {
+    let _asr_lock = LOCAL_ASR_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let assets = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/audio");
+    // Source-only labels and mechanical composition were frozen before ASR on October 7.
+    // These checks deliberately preserve the overlapping voice omission as a quality limit.
+    for (name, query) in [
+        ("accent-en-in.wav", "library"),
+        ("low-noise.wav", "binder"),
+        ("overlap-two-voices.wav", "delivery"),
+        ("partial-final-sentence.wav", "inspection"),
+    ] {
+        let workspace = tempdir().unwrap();
+        let collection = workspace.path().join("collection");
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/audio-challenges")
+            .join(name);
+        let original = fs::read(&fixture).unwrap();
+        let mut app = Application::open_with_all_providers(
+            &collection,
+            Arc::new(EmptyProvider),
+            Arc::new(LocalExtractor),
+            Arc::new(WhisperAudioProcessor::new(&assets)),
+        )
+        .unwrap();
+        let imported = app
+            .import_source(&fixture, AcquisitionMethod::Picker)
+            .unwrap();
+        app.resume_due_audio_jobs().unwrap();
+        let page = app.open_source(&imported.info.source_id).unwrap();
+        let audio = page.info.audio_processing.as_ref().unwrap();
+        assert_eq!(audio.state, "complete", "{name}: {}", audio.detail);
+        assert_eq!(audio.next_start_ms, audio.duration_ms);
+        assert!(!audio.segments.is_empty(), "{name}");
+        assert!(audio
+            .segments
+            .iter()
+            .all(|segment| segment.speaker.is_none()
+                && segment.confidence.is_none()
+                && segment.end_ms <= audio.duration_ms
+                && !segment.segment_id.is_empty()));
+        for qualification in [
+            "best-guess transcript",
+            "Silence, overlap",
+            "timestamps are estimates",
+            "speakers remain unidentified",
+        ] {
+            assert!(page.body.contains(qualification), "{name}: {qualification}");
+        }
+        assert!(page.body.contains("Play retained original"));
+        let coverage = page.info.extraction_coverage.as_ref().unwrap();
+        assert!(coverage
+            .iter()
+            .all(|part| part.status != knowledge_garden::office::CoverageStatus::Complete));
+        let results = app
+            .search_pages(PageSearchRequest {
+                query: query.into(),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(
+            results
+                .pages
+                .iter()
+                .any(|result| result.source_id == imported.info.source_id),
+            "{name}"
+        );
+        let ids: Vec<_> = audio
+            .segments
+            .iter()
+            .map(|segment| segment.segment_id.clone())
+            .collect();
+        println!("{name}: duration={} ms; transcript={:?}; coverage remains partial; speakers/confidence unknown", audio.duration_ms,
+            audio.segments.iter().map(|segment| (&segment.text, segment.start_ms, segment.end_ms)).collect::<Vec<_>>());
+        drop(app);
+        let mut restarted = Application::open_with_all_providers(
+            &collection,
+            Arc::new(EmptyProvider),
+            Arc::new(LocalExtractor),
+            Arc::new(WhisperAudioProcessor::new(&assets)),
+        )
+        .unwrap();
+        restarted.resume_due_audio_jobs().unwrap();
+        let after = restarted.open_source(&imported.info.source_id).unwrap();
+        assert_eq!(
+            after
+                .info
+                .audio_processing
+                .as_ref()
+                .unwrap()
+                .segments
+                .iter()
+                .map(|segment| segment.segment_id.clone())
+                .collect::<Vec<_>>(),
+            ids
+        );
+        assert_eq!(
+            fs::read(restarted.original_path(&imported.info.source_id).unwrap()).unwrap(),
+            original
+        );
+    }
+}
+
+#[test]
+fn native_undecodable_recording_keeps_exact_original_and_explicit_failed_coverage() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("damaged-recording.m4a");
+    let original = b"\x00\x00\x00\x18ftypM4A \x00\x00\x00\x00M4A ";
+    fs::write(&source, original).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = whisper_app(
+        &collection,
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/audio"),
+    );
+    let page = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    assert_eq!(
+        page.info.extraction,
+        knowledge_garden::application::ExtractionState::Unsupported
+    );
+    assert!(page.info.audio_processing.is_none());
+    assert!(page
+        .info
+        .extraction_detail
+        .contains("could not be inspected"));
+    assert!(page
+        .info
+        .extraction_coverage
+        .as_ref()
+        .unwrap()
+        .iter()
+        .any(|part| part.status == knowledge_garden::office::CoverageStatus::Failed));
+    assert!(page.body.contains("Open original"));
+    assert!(app.claim_due_semantic_jobs(1).unwrap().is_empty());
+    let source_id = page.info.source_id;
+    drop(app);
+    let reopened = Application::open(&collection).unwrap();
+    assert_eq!(
+        fs::read(reopened.original_path(&source_id).unwrap()).unwrap(),
+        original
+    );
+    assert!(reopened
+        .open_source(&source_id)
+        .unwrap()
+        .info
+        .knowledge_pages
+        .is_empty());
 }

@@ -1158,22 +1158,22 @@ impl JevSemanticProvider {
                 &key,
                 &["question", "decision", "reasoning", "not_speech_act"],
             )?;
-            if probability < SUPPORT_THRESHOLD {
-                return Err(ProviderError::recoverable(format!(
-                    "Jev could not classify transcript speech span {index} with sufficient support; semantic coverage remains incomplete and will retry automatically."
-                )));
-            }
+            let intent_is_uncertain = probability < SUPPORT_THRESHOLD;
             decisions.push(SemanticDecision {
                 question: format!("audio_speech_act:{}", span.quote),
                 model: result_model.clone(),
                 outcome: choice.clone(),
                 probability: Some(probability),
             });
-            let property = match choice.as_str() {
-                "question" => "spoken_question",
-                "decision" => "spoken_decision",
-                "reasoning" => "spoken_reasoning",
-                _ => continue,
+            let property = if intent_is_uncertain {
+                "spoken_message"
+            } else {
+                match choice.as_str() {
+                    "question" => "spoken_question",
+                    "decision" => "spoken_decision",
+                    "reasoning" => "spoken_reasoning",
+                    _ => continue,
+                }
             };
             facts.push(FactDraft {
                 subject: subject.to_owned(),
@@ -1184,7 +1184,11 @@ impl JevSemanticProvider {
                     byte_start: span.start,
                     byte_end: span.end,
                     origin: "transcribed speech".into(),
-                    qualifier: Some("This records the apparent speech act in an unverified machine transcript; it does not verify the underlying claim or establish that a proposed action occurred.".into()),
+                    qualifier: Some(if intent_is_uncertain {
+                        format!("Jev's leading intent candidate was {choice} ({probability:.2}), below the {SUPPORT_THRESHOLD:.2} qualification threshold; intent is uncertain. This exact machine transcript is navigable, but it is not a confident question, decision, or reasoning classification, does not verify the underlying claim, and does not establish that a proposed action occurred.")
+                    } else {
+                        "This records the apparent speech act in an unverified machine transcript; it does not verify the underlying claim or establish that a proposed action occurred.".into()
+                    }),
                     offset_basis: Some("audio_transcript".into()),
                     source_location: None,
                 },
