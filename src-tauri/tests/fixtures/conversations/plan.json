@@ -1,0 +1,12 @@
+{
+  "format": "knowledge-garden-conversation-v1",
+  "conversation_id": "synthetic-plan-a",
+  "title": "Deployment planning",
+  "messages": [
+    {"id":"m1","role":"user","date":"2024-05-17T08:00:00Z","content":"Could we deploy plan Alder? See https://example.invalid/plan."},
+    {"id":"m2","role":"assistant","content":"I suggest plan Birch instead. Quoted proposal: ‘deploy plan Alder’."},
+    {"id":"m3","role":"tool","author":"deploy_check","date":"2024-05-17T08:02:00Z","content":"Check failed: plan Birch has no rollback."},
+    {"id":"m4","role":"user","date":"2024-05-17T08:03:00Z","content":"Decision: use plan Alder; abandon the Birch suggestion."},
+    {"id":"m5","role":"reasoning","content":"The earlier Birch proposal lacked a rollback; the chosen Alder plan retains one."}
+  ]
+}
