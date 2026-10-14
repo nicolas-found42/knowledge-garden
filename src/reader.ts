@@ -9,6 +9,8 @@ import type {
   PageSearchResults,
   SourcePage,
   SourceSummary,
+  TimelineRequest,
+  TimelineResults,
 } from "./api";
 
 const LAST_SOURCE = "knowledge-garden:last-source";
@@ -39,6 +41,8 @@ export async function mountReader(
   const backButton = element("button", "Back");
   backButton.hidden = true;
   const searchButton = element("button", "Search");
+  const timelineButton = element("button", "Timeline");
+  timelineButton.hidden = !api.timeline;
   const sourcesButton = element("button", "Sources");
   sourcesButton.setAttribute("aria-expanded", "false");
   const addButton = element("button", "Add source");
@@ -48,6 +52,7 @@ export async function mountReader(
     brand,
     backButton,
     searchButton,
+    timelineButton,
     sourcesButton,
     addButton,
     addUrlButton,
@@ -92,11 +97,21 @@ export async function mountReader(
   let page: SourcePage | null = null;
   let currentKnowledgePageId: string | null = null;
   let currentSourceId: string | null = null;
-  let currentView: "empty" | "source" | "knowledge" | "search" = "empty";
+  let currentView: "empty" | "source" | "knowledge" | "search" | "timeline" =
+    "empty";
   let currentSearch: PageSearchRequest | null = null;
   let currentSelectedPageId: string | null = null;
   let searchResults: PageSearchResults | null = null;
+  let currentTimeline: TimelineRequest | null = null;
+  let selectedTimelineEntry: string | null = null;
   type NavigationState =
+    | {
+        kind: "timeline";
+        request: TimelineRequest;
+        selectedEntry: string | null;
+        scrollTop: number;
+        windowScroll: number;
+      }
     | {
         kind: "search";
         request: PageSearchRequest;
@@ -124,6 +139,122 @@ export async function mountReader(
   let busy = false;
   let disposed = false;
   let searchGeneration = 0;
+
+  async function runTimeline(request: TimelineRequest) {
+    if (!api.timeline) return;
+    const generation = ++searchGeneration;
+    const results = await api.timeline(request);
+    if (disposed || generation !== searchGeneration) return;
+    renderTimeline(results, request);
+  }
+
+  function renderTimeline(results: TimelineResults, request: TimelineRequest) {
+    currentTimeline = { ...request, tags: [...request.tags] };
+    selectedTimelineEntry = null;
+    currentView = "timeline";
+    currentSourceId = null;
+    currentKnowledgePageId = null;
+    sources.hidden = true;
+    sourcesButton.setAttribute("aria-expanded", "false");
+    const panel = element("section");
+    panel.setAttribute("aria-label", "Timeline");
+    panel.append(element("h1", "Timeline"));
+    const meaningLabel = element("label", "Date meaning");
+    const meaning = element("select");
+    meaning.setAttribute("aria-label", "Date meaning");
+    for (const [value, label] of [
+      ["source_event", "Source-described events"],
+      ["reasoning_event", "Reasoning events"],
+      ["collection_activity", "Collection activity"],
+    ]) {
+      const option = element("option", label);
+      option.value = value;
+      meaning.append(option);
+    }
+    meaning.value = request.date_meaning;
+    meaningLabel.append(meaning);
+    const orderLabel = element("label", "Sort dates");
+    const order = element("select");
+    order.setAttribute("aria-label", "Sort dates");
+    for (const [value, label] of [
+      ["ascending", "Oldest first"],
+      ["descending", "Newest first"],
+    ]) {
+      const option = element("option", label);
+      option.value = value;
+      order.append(option);
+    }
+    order.value = request.order;
+    orderLabel.append(order);
+    panel.append(meaningLabel, orderLabel);
+    const filters = element("form");
+    const queryLabel = element("label", "Timeline words or title");
+    const query = element("input");
+    query.type = "search";
+    query.setAttribute("aria-label", "Timeline words or title");
+    query.value = request.query;
+    queryLabel.append(query);
+    const tagsLabel = element("label", "Timeline tags");
+    const tags = element("input");
+    tags.setAttribute("aria-label", "Timeline tags");
+    tags.value = request.tags.join(", ");
+    tagsLabel.append(tags);
+    const apply = element("button", "Apply timeline filters");
+    apply.type = "submit";
+    filters.append(queryLabel, tagsLabel, apply);
+    panel.append(filters);
+    const refresh = () =>
+      void runTimeline({
+        ...request,
+        date_meaning: meaning.value as TimelineRequest["date_meaning"],
+        order: order.value as TimelineRequest["order"],
+        offset: 0,
+      }).catch(report);
+    meaning.addEventListener("change", refresh);
+    order.addEventListener("change", refresh);
+    filters.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void runTimeline({
+        ...request,
+        query: query.value.trim(),
+        tags: tags.value
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+        offset: 0,
+      }).catch(report);
+    });
+    const list = element("ol");
+    for (const entry of results.entries) {
+      const row = element("li");
+      const openEvent = element("button", entry.title);
+      openEvent.dataset.timelineEntry = entry.entry_id;
+      openEvent.addEventListener("click", () => {
+        selectedTimelineEntry = entry.entry_id;
+        pushCurrentState();
+        const action =
+          entry.kind === "acquired" || entry.kind === "processed"
+            ? api.openSource(entry.source_id).then(showPage)
+            : api.openKnowledgePage(entry.page_id).then(showKnowledgePage);
+        void action.catch(report);
+      });
+      const title = element("h2");
+      title.append(openEvent);
+      row.append(title);
+      row.append(
+        element(
+          "p",
+          `${entry.date_label} · ${entry.precision} · ${entry.date_status}${entry.date_start && entry.date_end ? ` · ${entry.date_start} to ${entry.date_end}` : ""}`,
+        ),
+      );
+      if (entry.qualifier) row.append(element("p", entry.qualifier));
+      list.append(row);
+    }
+    if (!results.entries.length)
+      panel.append(element("p", "No events match this timeline."));
+    panel.append(list);
+    main.replaceChildren(panel);
+  }
 
   function message(text: string) {
     if (!disposed) notice.textContent = text;
@@ -160,7 +291,15 @@ export async function mountReader(
 
   function pushCurrentState() {
     const mainArticle = main.querySelector("article");
-    if (currentView === "search" && currentSearch) {
+    if (currentView === "timeline" && currentTimeline) {
+      navigationHistory.push({
+        kind: "timeline",
+        request: { ...currentTimeline, tags: [...currentTimeline.tags] },
+        selectedEntry: selectedTimelineEntry,
+        scrollTop: main.scrollTop,
+        windowScroll: window.scrollY,
+      });
+    } else if (currentView === "search" && currentSearch) {
       navigationHistory.push({
         kind: "search",
         request: { ...currentSearch, tags: [...currentSearch.tags] },
@@ -820,7 +959,18 @@ export async function mountReader(
   }
 
   async function restoreNavigation(state: NavigationState) {
-    if (state.kind === "search") {
+    if (state.kind === "timeline") {
+      await runTimeline(state.request);
+      selectedTimelineEntry = state.selectedEntry;
+      const selected = selectedTimelineEntry
+        ? main.querySelector<HTMLButtonElement>(
+            `button[data-timeline-entry="${CSS.escape(selectedTimelineEntry)}"]`,
+          )
+        : null;
+      selected?.focus({ preventScroll: true });
+      main.scrollTop = state.scrollTop;
+      window.scrollTo(0, state.windowScroll);
+    } else if (state.kind === "search") {
       await runSearch(state.request, false);
       currentSelectedPageId = state.selectedPageId;
       const selected = currentSelectedPageId
@@ -864,6 +1014,16 @@ export async function mountReader(
     const state = navigationHistory.pop();
     syncBackButton();
     if (state) void restoreNavigation(state).catch(report);
+  });
+  timelineButton.addEventListener("click", () => {
+    pushCurrentState();
+    void runTimeline({
+      date_meaning: "source_event",
+      order: "ascending",
+      query: "",
+      tags: [],
+      offset: 0,
+    }).catch(report);
   });
   searchButton.addEventListener("click", () => {
     void runSearch(

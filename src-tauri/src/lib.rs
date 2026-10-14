@@ -8,4 +8,5 @@ pub mod office;
 pub mod photo;
 pub mod providers;
 pub mod semantic;
+pub mod timeline;
 pub mod web;

@@ -199,8 +199,37 @@ export interface PageSearchResults {
   meaning_search_status?: string;
 }
 
+export interface TimelineRequest {
+  date_meaning: "source_event" | "reasoning_event" | "collection_activity";
+  order: "ascending" | "descending";
+  query: string;
+  tags: string[];
+  offset: number;
+}
+
+export interface TimelineEntry {
+  entry_id: string;
+  page_id: string;
+  source_id: string;
+  title: string;
+  kind: string;
+  date_label: string;
+  date_start: string | null;
+  date_end: string | null;
+  precision: string;
+  date_status: "known" | "approximate" | "unknown" | "conflicting";
+  qualifier: string | null;
+  support: SearchMatchLocation | null;
+}
+
+export interface TimelineResults {
+  entries: TimelineEntry[];
+  next_offset: number | null;
+}
+
 /** The reader's application boundary. Desktop paths never come from page HTML. */
 export interface GardenApi {
+  timeline?(request: TimelineRequest): Promise<TimelineResults>;
   chooseFile(): Promise<string | null>;
   importSource(path: string, method: AcquisitionMethod): Promise<SourcePage>;
   importUrl(url: string): Promise<SourcePage>;

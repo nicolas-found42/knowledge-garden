@@ -66,6 +66,159 @@ function testApi(): GardenApi {
   };
 }
 
+it("restores the selected timeline date meaning, sort, filters and keyboard focus after opening an event", async () => {
+  const api = testApi();
+  api.timeline = vi.fn().mockResolvedValue({
+    entries: [
+      {
+        entry_id: "event-v17",
+        page_id: "page-v17",
+        source_id: "source-riverside",
+        title: "Observation V17",
+        kind: "event",
+        date_label: "2024-05-17",
+        date_start: "2024-05-17",
+        date_end: "2024-05-17",
+        precision: "day",
+        date_status: "known",
+        qualifier: null,
+        support: null,
+      },
+    ],
+    next_offset: null,
+  });
+  api.openKnowledgePage = vi
+    .fn()
+    .mockResolvedValue({
+      page_id: "page-v17",
+      source_id: "source-riverside",
+      title: "Observation V17",
+      kind: "event",
+      markdown:
+        "# Observation V17\n\n[Supporting source](../sources/source-riverside/index.md)\n\nOccurred May 17, 2024.",
+    });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Timeline" }));
+  await user.selectOptions(
+    await screen.findByLabelText("Date meaning"),
+    "reasoning_event",
+  );
+  await user.selectOptions(screen.getByLabelText("Sort dates"), "descending");
+  await user.type(screen.getByLabelText("Timeline words or title"), "V17");
+  await user.type(screen.getByLabelText("Timeline tags"), "river, survey");
+  await user.click(
+    screen.getByRole("button", { name: "Apply timeline filters" }),
+  );
+  await waitFor(() =>
+    expect(api.timeline).toHaveBeenLastCalledWith({
+      date_meaning: "reasoning_event",
+      order: "descending",
+      query: "V17",
+      tags: ["river", "survey"],
+      offset: 0,
+    }),
+  );
+  const event = screen.getByRole("button", { name: "Observation V17" });
+  event.focus();
+  screen.getByRole("main").scrollTop = 137;
+  await user.keyboard("{Enter}");
+  expect(
+    await screen.findByRole("article", { name: "Observation V17" }),
+  ).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Supporting source" })).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(await screen.findByDisplayValue("V17")).toBeTruthy();
+  expect(screen.getByDisplayValue("river, survey")).toBeTruthy();
+  expect(
+    (screen.getByLabelText("Date meaning") as HTMLSelectElement).value,
+  ).toBe("reasoning_event");
+  expect((screen.getByLabelText("Sort dates") as HTMLSelectElement).value).toBe(
+    "descending",
+  );
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Observation V17" }),
+    ),
+  );
+  expect(screen.getByRole("main").scrollTop).toBe(137);
+});
+
+it("offers distinct timeline date meanings and user-controlled sorting", async () => {
+  const api = testApi();
+  api.timeline = vi.fn().mockResolvedValue({
+    entries: [
+      {
+        entry_id: "event-v17",
+        page_id: "page-v17",
+        source_id: "source-riverside",
+        title: "Observation V17",
+        kind: "event",
+        date_label: "May 2024",
+        date_start: "2024-05-01",
+        date_end: "2024-05-31",
+        precision: "month",
+        date_status: "approximate",
+        qualifier: "Source gives the month only.",
+        support: null,
+      },
+    ],
+    next_offset: null,
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Timeline" }));
+  expect(await screen.findByText(/May 2024/)).toBeTruthy();
+  expect(screen.getByText(/Source gives the month only/)).toBeTruthy();
+  expect(api.timeline).toHaveBeenLastCalledWith({
+    date_meaning: "source_event",
+    order: "ascending",
+    query: "",
+    tags: [],
+    offset: 0,
+  });
+  await user.selectOptions(
+    screen.getByLabelText("Date meaning"),
+    "reasoning_event",
+  );
+  await waitFor(() =>
+    expect(api.timeline).toHaveBeenLastCalledWith({
+      date_meaning: "reasoning_event",
+      order: "ascending",
+      query: "",
+      tags: [],
+      offset: 0,
+    }),
+  );
+  await user.selectOptions(screen.getByLabelText("Sort dates"), "descending");
+  await waitFor(() =>
+    expect(api.timeline).toHaveBeenLastCalledWith({
+      date_meaning: "reasoning_event",
+      order: "descending",
+      query: "",
+      tags: [],
+      offset: 0,
+    }),
+  );
+  await user.selectOptions(
+    screen.getByLabelText("Date meaning"),
+    "collection_activity",
+  );
+  await waitFor(() =>
+    expect(api.timeline).toHaveBeenLastCalledWith({
+      date_meaning: "collection_activity",
+      order: "descending",
+      query: "",
+      tags: [],
+      offset: 0,
+    }),
+  );
+});
+
 it("loads a photo preview only on request and keeps its region guidance beside the image", async () => {
   const api = testApi();
   const preview = vi.fn().mockResolvedValue("data:image/jpeg;base64,/9j/");
