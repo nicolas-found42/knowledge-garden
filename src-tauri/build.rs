@@ -3,6 +3,7 @@ use std::{env, path::PathBuf, process::Command};
 fn main() {
     println!("cargo:rerun-if-changed=native/media.swift");
     println!("cargo:rerun-if-changed=native/photo.swift");
+    println!("cargo:rerun-if-changed=native/pdf.swift");
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         assert_eq!(
             env::var("CARGO_CFG_TARGET_ARCH").as_deref(),
@@ -56,6 +57,15 @@ fn main() {
         assert!(
             photo_status.success(),
             "Native photo helper compilation failed."
+        );
+        let pdf_status = Command::new("/usr/bin/swiftc")
+            .args(["-O", "-framework", "PDFKit", "native/pdf.swift", "-o"])
+            .arg(out.join("pdf-helper"))
+            .status()
+            .expect("The native PDF helper requires the macOS Swift compiler at build time.");
+        assert!(
+            pdf_status.success(),
+            "Native PDF helper compilation failed."
         );
     }
     tauri_build::build();
