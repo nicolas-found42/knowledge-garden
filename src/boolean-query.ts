@@ -426,13 +426,14 @@ export function renderBooleanQuery(
       row.append(
         button("Open supporting original", () => {
           state.selected = result.page_id;
-          void api
-            .openOriginalVersion(
-              step.source_id,
-              step.source_version_id,
-              step.original_asset,
-            )
-            .catch(callbacks.error);
+          const operation = step.source_is_current
+            ? api.openOriginalAsset(step.source_id, step.original_asset)
+            : api.openOriginalVersion(
+                step.source_id,
+                step.source_version_id,
+                step.original_asset,
+              );
+          void operation.catch(callbacks.error);
         }),
       );
       target.append(row);

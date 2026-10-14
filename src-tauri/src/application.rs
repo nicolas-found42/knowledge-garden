@@ -3651,7 +3651,10 @@ impl Application {
         });
         match outcome {
             Ok(batch)
-                if batch.requested_start_ms == start
+                if batch.schema == 1
+                    && matches!(batch.state.as_str(), "complete" | "no_recognized_speech")
+                    && (batch.state != "no_recognized_speech" || batch.segments.is_empty())
+                    && batch.requested_start_ms == start
                     && batch.requested_duration_ms == duration
                     && batch.media_duration_ms.abs_diff(snapshot.duration_ms) <= 2
                     && batch.processed_duration_ms > 0
@@ -6406,7 +6409,11 @@ impl Application {
         let source_page = read_page(&self.page_path(&info.source_id)?)?;
         let mut knowledge = Vec::new();
         for summary in &source_page.info.knowledge_pages {
-            let path = self.knowledge_path(&summary.page_id)?;
+            let Ok(path) = self.knowledge_path(&summary.page_id) else {
+                // A damaged or duplicate owner page stays on disk and unavailable
+                // by identity; it must not prevent unrelated sources from indexing.
+                continue;
+            };
             let markdown = match read_bounded_text(&path, MAX_PAGE_BYTES) {
                 Ok(markdown) => markdown,
                 Err(_) => continue,

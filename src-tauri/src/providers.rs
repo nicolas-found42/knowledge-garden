@@ -2109,20 +2109,27 @@ fn adr_decision_candidates(text: &str) -> Vec<Candidate> {
     else {
         return Vec::new();
     };
-    let decision_re = regex(r"(?im)^##[ \t]+Decision[ \t]*\r?\n(?:[ \t]*\r?\n)*([^#\n][^\n]*)");
+    let decision_re = regex(r"(?im)^##[ \t]+Decision[ \t]*\r?\n");
+    let next_heading = regex(r"(?m)^#{1,6}[ \t]+");
     decision_re
-        .captures_iter(text)
-        .filter_map(|captures| {
-            let span = captures.get(1)?;
-            let quote = span.as_str().trim();
+        .find_iter(text)
+        .filter_map(|heading| {
+            let remainder = &text[heading.end()..];
+            let section_end = next_heading
+                .find(remainder)
+                .map_or(remainder.len(), |m| m.start());
+            let section = &remainder[..section_end];
+            let quote = section.trim();
+            let start = heading.end() + section.len() - section.trim_start().len();
+            let end = start + quote.len();
             (!quote.is_empty()).then(|| Candidate {
                 kind: CandidateKind::AdrDecision,
                 value: title.to_owned(),
                 quote: quote.to_owned(),
-                start: span.start(),
-                end: span.end(),
+                start,
+                end,
                 qualifier: None,
-                origin: origin_for(text, span.start(), span.end()),
+                origin: origin_for(text, start, end),
             })
         })
         .collect()
