@@ -1,0 +1,60 @@
+{
+  "task": {
+    "id": "controlled-demo-screenshot-observation-gpt4omini",
+    "file": "/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/01-source-interpretation/experiments/media-lab/controlled-demo-screenshot.png",
+    "mode": "observation",
+    "media": "image",
+    "extra": "Return at most 5 factual observations under 600 tokens. Preserve visible labels. For contact sheet distinguish panel timestamp from bounding box; for screenshot distinguish changed pixel overlays from detected human objects. For book preserve provided-always strength qualification."
+  },
+  "model_requested": "openai/gpt-4o-mini",
+  "prompt": "Return concise JSON with observations:[{claim,anchor,uncertainty}], exact_visible_text, and limitations. Describe only what the supplied image/video directly shows. Separate uncertain interpretations. Anchor image claims by approximate normalized top-left bounding box [x,y,w,h]; video claims by seconds. Never infer author motives, historical links, exact weights, medical facts, identity, or security intent from appearances. Preserve qualifications and negations in book text. Do not normalize familiar phrases into a different sentence.\nReturn at most 5 factual observations under 600 tokens. Preserve visible labels. For contact sheet distinguish panel timestamp from bounding box; for screenshot distinguish changed pixel overlays from detected human objects. For book preserve provided-always strength qualification.",
+  "media_sha256": "f193631beabeb9f6fc0cb5f32b53b192a073784866d712c8e753bc967a0cdd31",
+  "media_bytes": 585275,
+  "response": {
+    "id": "gen-1790725915-Pa2mOjkYxzbtHedOt9bW",
+    "object": "chat.completion",
+    "created": 1790725915,
+    "model": "openai/gpt-4o-mini",
+    "provider": "Azure",
+    "system_fingerprint": "fp_369e662417",
+    "service_tier": "default",
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"There are several individuals walking in the area.\",\n      \"anchor\": {\"x\": 300, \"y\": 200, \"w\": 200, \"h\": 100},\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A yellow object is on the ground.\",\n      \"anchor\": {\"x\": 100, \"y\": 300, \"w\": 50, \"h\": 30},\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"There are traffic cones placed in the area.\",\n      \"anchor\": {\"x\": 250, \"y\": 250, \"w\": 30, \"h\": 30},\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A sign is present near the individuals.\",\n      \"anchor\": {\"x\": 350, \"y\": 150, \"w\": 20, \"h\": 50},\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"There is a vehicle parked in the background.\",\n      \"anchor\": {\"x\": 400, \"y\": 100, \"w\": 100, \"h\": 50},\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"Controlled demo | SOURCE t=2.0s | changed pixels, no intent inference\",\n  \"limitations\": \"The observations are based solely on visible elements in the image and do not infer any context or intent.\"\n}\n```",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 25652,
+      "completion_tokens": 337,
+      "total_tokens": 25989,
+      "cost": 0.0040095,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.00405,
+        "upstream_inference_prompt_cost": 0.0038478,
+        "upstream_inference_completions_cost": 0.0002022
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  "seconds": 6.3451207500183955
+}

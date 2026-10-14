@@ -1,0 +1,1053 @@
+{
+  "ledger": {
+    "jev": {
+      "requests": 31,
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "input_tokens": 17354,
+      "output_tokens": 2221,
+      "reported_cost_usd": 0.000728868,
+      "all_cost_available": true,
+      "median_seconds": 0.2618627499905415,
+      "total_request_seconds": 8.517249746975722
+    },
+    "generative": {
+      "requests": 3,
+      "models": [
+        "openai/gpt-4.1-mini"
+      ],
+      "input_tokens": 3929,
+      "output_tokens": 1686,
+      "reported_cost_usd": 0.004226508,
+      "all_cost_available": true,
+      "median_seconds": 4.271519582980545,
+      "total_request_seconds": 14.9917927919887
+    }
+  },
+  "failures": [],
+  "comparison": {
+    "jev": {
+      "development": {
+        "correct": 22,
+        "total": 25
+      },
+      "holdout": {
+        "correct": 3,
+        "total": 5
+      }
+    },
+    "generative": {
+      "development": {
+        "correct": 25,
+        "total": 25
+      },
+      "holdout": {
+        "correct": 4,
+        "total": 5
+      }
+    },
+    "deterministic_conservative": {
+      "development": {
+        "correct": 8,
+        "total": 25
+      },
+      "holdout": {
+        "correct": 3,
+        "total": 5
+      }
+    }
+  },
+  "checks": [
+    {
+      "id": "identity-alias",
+      "engine": "jev",
+      "split": "development",
+      "family": "identity",
+      "expected": "same",
+      "actual": "uncertain",
+      "correct": false,
+      "expected_useful": true,
+      "useful_probability": 0.46,
+      "useful_at_0_5": false
+    },
+    {
+      "id": "identity-homonym",
+      "engine": "jev",
+      "split": "development",
+      "family": "identity",
+      "expected": "different",
+      "actual": "uncertain",
+      "correct": false,
+      "expected_useful": true,
+      "useful_probability": 0.22,
+      "useful_at_0_5": false
+    },
+    {
+      "id": "identity-fork",
+      "engine": "jev",
+      "split": "development",
+      "family": "identity",
+      "expected": "different",
+      "actual": "different",
+      "correct": true,
+      "expected_useful": true,
+      "useful_probability": 0.71,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "identity-bare",
+      "engine": "jev",
+      "split": "development",
+      "family": "identity",
+      "expected": "uncertain",
+      "actual": "same",
+      "correct": false,
+      "expected_useful": true,
+      "useful_probability": 0.17,
+      "useful_at_0_5": false
+    },
+    {
+      "id": "identity-component",
+      "engine": "jev",
+      "split": "development",
+      "family": "identity",
+      "expected": "different",
+      "actual": "different",
+      "correct": true,
+      "expected_useful": true,
+      "useful_probability": 0.52,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "identity-hold_alias",
+      "engine": "jev",
+      "split": "holdout",
+      "family": "identity",
+      "expected": "same",
+      "actual": "same",
+      "correct": true,
+      "expected_useful": true,
+      "useful_probability": 0.62,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "decision-caused",
+      "engine": "jev",
+      "split": "development",
+      "family": "decision",
+      "expected": "consequence",
+      "actual": "consequence",
+      "correct": true,
+      "expected_useful": true,
+      "useful_probability": 0.73,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "decision-correlation",
+      "engine": "jev",
+      "split": "development",
+      "family": "decision",
+      "expected": "unestablished",
+      "actual": "unestablished",
+      "correct": true,
+      "expected_useful": false,
+      "useful_probability": 0.41,
+      "useful_at_0_5": false
+    },
+    {
+      "id": "decision-negated",
+      "engine": "jev",
+      "split": "development",
+      "family": "decision",
+      "expected": "unestablished",
+      "actual": "unestablished",
+      "correct": true,
+      "expected_useful": false,
+      "useful_probability": 0.5,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "decision-bounded",
+      "engine": "jev",
+      "split": "development",
+      "family": "decision",
+      "expected": "consequence",
+      "actual": "consequence",
+      "correct": true,
+      "expected_useful": true,
+      "useful_probability": 0.66,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "decision-reversed",
+      "engine": "jev",
+      "split": "development",
+      "family": "decision",
+      "expected": "revision",
+      "actual": "revision",
+      "correct": true,
+      "expected_useful": true,
+      "useful_probability": 0.62,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "decision-hold_scope",
+      "engine": "jev",
+      "split": "holdout",
+      "family": "decision",
+      "expected": "unrelated",
+      "actual": "unrelated",
+      "correct": true,
+      "expected_useful": false,
+      "useful_probability": 0.2,
+      "useful_at_0_5": false
+    },
+    {
+      "id": "evidence-support",
+      "engine": "jev",
+      "split": "development",
+      "family": "evidence",
+      "expected": "support",
+      "actual": "support",
+      "correct": true,
+      "expected_useful": true,
+      "useful_probability": 0.61,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "evidence-contradict",
+      "engine": "jev",
+      "split": "development",
+      "family": "evidence",
+      "expected": "contradiction",
+      "actual": "contradiction",
+      "correct": true,
+      "expected_useful": true,
+      "useful_probability": 0.73,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "evidence-exception",
+      "engine": "jev",
+      "split": "development",
+      "family": "evidence",
+      "expected": "compatible",
+      "actual": "compatible",
+      "correct": true,
+      "expected_useful": false,
+      "useful_probability": 0.5,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "evidence-historical",
+      "engine": "jev",
+      "split": "development",
+      "family": "evidence",
+      "expected": "revision",
+      "actual": "revision",
+      "correct": true,
+      "expected_useful": true,
+      "useful_probability": 0.57,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "evidence-quoted",
+      "engine": "jev",
+      "split": "development",
+      "family": "evidence",
+      "expected": "contradiction",
+      "actual": "contradiction",
+      "correct": true,
+      "expected_useful": true,
+      "useful_probability": 0.7,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "evidence-hold_silence",
+      "engine": "jev",
+      "split": "holdout",
+      "family": "evidence",
+      "expected": "silent",
+      "actual": "silent",
+      "correct": true,
+      "expected_useful": false,
+      "useful_probability": 0.74,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "method-same_method",
+      "engine": "jev",
+      "split": "development",
+      "family": "method",
+      "expected": "shared_method",
+      "actual": "shared_method",
+      "correct": true,
+      "expected_useful": true,
+      "useful_probability": 0.6,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "method-lexical",
+      "engine": "jev",
+      "split": "development",
+      "family": "method",
+      "expected": "unrelated",
+      "actual": "unrelated",
+      "correct": true,
+      "expected_useful": false,
+      "useful_probability": 0.16,
+      "useful_at_0_5": false
+    },
+    {
+      "id": "method-exception",
+      "engine": "jev",
+      "split": "development",
+      "family": "method",
+      "expected": "scoped_variant",
+      "actual": "scoped_variant",
+      "correct": true,
+      "expected_useful": true,
+      "useful_probability": 0.55,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "method-failed",
+      "engine": "jev",
+      "split": "development",
+      "family": "method",
+      "expected": "insufficient",
+      "actual": "insufficient",
+      "correct": true,
+      "expected_useful": false,
+      "useful_probability": 0.5,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "method-outcome",
+      "engine": "jev",
+      "split": "development",
+      "family": "method",
+      "expected": "insufficient",
+      "actual": "insufficient",
+      "correct": true,
+      "expected_useful": false,
+      "useful_probability": 0.66,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "method-hold_boundary",
+      "engine": "jev",
+      "split": "holdout",
+      "family": "method",
+      "expected": "shared_method",
+      "actual": "insufficient",
+      "correct": false,
+      "expected_useful": true,
+      "useful_probability": 0.56,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "analogy-analogy",
+      "engine": "jev",
+      "split": "development",
+      "family": "analogy",
+      "expected": "plausible",
+      "actual": "plausible",
+      "correct": true,
+      "expected_useful": true,
+      "useful_probability": 0.52,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "analogy-name_only",
+      "engine": "jev",
+      "split": "development",
+      "family": "analogy",
+      "expected": "wordplay",
+      "actual": "wordplay",
+      "correct": true,
+      "expected_useful": false,
+      "useful_probability": 0.1,
+      "useful_at_0_5": false
+    },
+    {
+      "id": "analogy-specific",
+      "engine": "jev",
+      "split": "development",
+      "family": "analogy",
+      "expected": "plausible",
+      "actual": "plausible",
+      "correct": true,
+      "expected_useful": true,
+      "useful_probability": 0.56,
+      "useful_at_0_5": true
+    },
+    {
+      "id": "analogy-unsafe",
+      "engine": "jev",
+      "split": "development",
+      "family": "analogy",
+      "expected": "misleading",
+      "actual": "misleading",
+      "correct": true,
+      "expected_useful": false,
+      "useful_probability": 0.08,
+      "useful_at_0_5": false
+    },
+    {
+      "id": "analogy-asserted",
+      "engine": "jev",
+      "split": "development",
+      "family": "analogy",
+      "expected": "misleading",
+      "actual": "misleading",
+      "correct": true,
+      "expected_useful": false,
+      "useful_probability": 0.14,
+      "useful_at_0_5": false
+    },
+    {
+      "id": "analogy-hold_value",
+      "engine": "jev",
+      "split": "holdout",
+      "family": "analogy",
+      "expected": "low_value",
+      "actual": "plausible",
+      "correct": false,
+      "expected_useful": false,
+      "useful_probability": 0.15,
+      "useful_at_0_5": false
+    },
+    {
+      "id": "identity-alias",
+      "engine": "generative",
+      "split": "development",
+      "family": "identity",
+      "expected": "same",
+      "actual": "same",
+      "correct": true,
+      "expected_useful": true,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "identity-homonym",
+      "engine": "generative",
+      "split": "development",
+      "family": "identity",
+      "expected": "different",
+      "actual": "different",
+      "correct": true,
+      "expected_useful": true,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "identity-fork",
+      "engine": "generative",
+      "split": "development",
+      "family": "identity",
+      "expected": "different",
+      "actual": "different",
+      "correct": true,
+      "expected_useful": true,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "identity-bare",
+      "engine": "generative",
+      "split": "development",
+      "family": "identity",
+      "expected": "uncertain",
+      "actual": "uncertain",
+      "correct": true,
+      "expected_useful": true,
+      "useful": false,
+      "quote_exact": true
+    },
+    {
+      "id": "identity-component",
+      "engine": "generative",
+      "split": "development",
+      "family": "identity",
+      "expected": "different",
+      "actual": "different",
+      "correct": true,
+      "expected_useful": true,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "decision-caused",
+      "engine": "generative",
+      "split": "development",
+      "family": "decision",
+      "expected": "consequence",
+      "actual": "consequence",
+      "correct": true,
+      "expected_useful": true,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "decision-correlation",
+      "engine": "generative",
+      "split": "development",
+      "family": "decision",
+      "expected": "unestablished",
+      "actual": "unestablished",
+      "correct": true,
+      "expected_useful": false,
+      "useful": false,
+      "quote_exact": true
+    },
+    {
+      "id": "decision-negated",
+      "engine": "generative",
+      "split": "development",
+      "family": "decision",
+      "expected": "unestablished",
+      "actual": "unestablished",
+      "correct": true,
+      "expected_useful": false,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "decision-bounded",
+      "engine": "generative",
+      "split": "development",
+      "family": "decision",
+      "expected": "consequence",
+      "actual": "consequence",
+      "correct": true,
+      "expected_useful": true,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "decision-reversed",
+      "engine": "generative",
+      "split": "development",
+      "family": "decision",
+      "expected": "revision",
+      "actual": "revision",
+      "correct": true,
+      "expected_useful": true,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "evidence-support",
+      "engine": "generative",
+      "split": "development",
+      "family": "evidence",
+      "expected": "support",
+      "actual": "support",
+      "correct": true,
+      "expected_useful": true,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "evidence-contradict",
+      "engine": "generative",
+      "split": "development",
+      "family": "evidence",
+      "expected": "contradiction",
+      "actual": "contradiction",
+      "correct": true,
+      "expected_useful": true,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "evidence-exception",
+      "engine": "generative",
+      "split": "development",
+      "family": "evidence",
+      "expected": "compatible",
+      "actual": "compatible",
+      "correct": true,
+      "expected_useful": false,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "evidence-historical",
+      "engine": "generative",
+      "split": "development",
+      "family": "evidence",
+      "expected": "revision",
+      "actual": "revision",
+      "correct": true,
+      "expected_useful": true,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "evidence-quoted",
+      "engine": "generative",
+      "split": "development",
+      "family": "evidence",
+      "expected": "contradiction",
+      "actual": "contradiction",
+      "correct": true,
+      "expected_useful": true,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "method-same_method",
+      "engine": "generative",
+      "split": "development",
+      "family": "method",
+      "expected": "shared_method",
+      "actual": "shared_method",
+      "correct": true,
+      "expected_useful": true,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "method-lexical",
+      "engine": "generative",
+      "split": "development",
+      "family": "method",
+      "expected": "unrelated",
+      "actual": "unrelated",
+      "correct": true,
+      "expected_useful": false,
+      "useful": false,
+      "quote_exact": true
+    },
+    {
+      "id": "method-exception",
+      "engine": "generative",
+      "split": "development",
+      "family": "method",
+      "expected": "scoped_variant",
+      "actual": "scoped_variant",
+      "correct": true,
+      "expected_useful": true,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "method-failed",
+      "engine": "generative",
+      "split": "development",
+      "family": "method",
+      "expected": "insufficient",
+      "actual": "insufficient",
+      "correct": true,
+      "expected_useful": false,
+      "useful": false,
+      "quote_exact": true
+    },
+    {
+      "id": "method-outcome",
+      "engine": "generative",
+      "split": "development",
+      "family": "method",
+      "expected": "insufficient",
+      "actual": "insufficient",
+      "correct": true,
+      "expected_useful": false,
+      "useful": false,
+      "quote_exact": true
+    },
+    {
+      "id": "analogy-analogy",
+      "engine": "generative",
+      "split": "development",
+      "family": "analogy",
+      "expected": "plausible",
+      "actual": "plausible",
+      "correct": true,
+      "expected_useful": true,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "analogy-name_only",
+      "engine": "generative",
+      "split": "development",
+      "family": "analogy",
+      "expected": "wordplay",
+      "actual": "wordplay",
+      "correct": true,
+      "expected_useful": false,
+      "useful": false,
+      "quote_exact": true
+    },
+    {
+      "id": "analogy-specific",
+      "engine": "generative",
+      "split": "development",
+      "family": "analogy",
+      "expected": "plausible",
+      "actual": "plausible",
+      "correct": true,
+      "expected_useful": true,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "analogy-unsafe",
+      "engine": "generative",
+      "split": "development",
+      "family": "analogy",
+      "expected": "misleading",
+      "actual": "misleading",
+      "correct": true,
+      "expected_useful": false,
+      "useful": false,
+      "quote_exact": true
+    },
+    {
+      "id": "analogy-asserted",
+      "engine": "generative",
+      "split": "development",
+      "family": "analogy",
+      "expected": "misleading",
+      "actual": "misleading",
+      "correct": true,
+      "expected_useful": false,
+      "useful": false,
+      "quote_exact": true
+    },
+    {
+      "id": "identity-hold_alias",
+      "engine": "generative",
+      "split": "holdout",
+      "family": "identity",
+      "expected": "same",
+      "actual": "same",
+      "correct": true,
+      "expected_useful": true,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "decision-hold_scope",
+      "engine": "generative",
+      "split": "holdout",
+      "family": "decision",
+      "expected": "unrelated",
+      "actual": "unrelated",
+      "correct": true,
+      "expected_useful": false,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "evidence-hold_silence",
+      "engine": "generative",
+      "split": "holdout",
+      "family": "evidence",
+      "expected": "silent",
+      "actual": "silent",
+      "correct": true,
+      "expected_useful": false,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "method-hold_boundary",
+      "engine": "generative",
+      "split": "holdout",
+      "family": "method",
+      "expected": "shared_method",
+      "actual": "unrelated",
+      "correct": false,
+      "expected_useful": true,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "analogy-hold_value",
+      "engine": "generative",
+      "split": "holdout",
+      "family": "analogy",
+      "expected": "low_value",
+      "actual": "low_value",
+      "correct": true,
+      "expected_useful": false,
+      "useful": true,
+      "quote_exact": true
+    },
+    {
+      "id": "identity-alias",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "identity",
+      "expected": "same",
+      "actual": "same",
+      "correct": true
+    },
+    {
+      "id": "identity-homonym",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "identity",
+      "expected": "different",
+      "actual": "different",
+      "correct": true
+    },
+    {
+      "id": "identity-fork",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "identity",
+      "expected": "different",
+      "actual": "different",
+      "correct": true
+    },
+    {
+      "id": "identity-bare",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "identity",
+      "expected": "uncertain",
+      "actual": "uncertain",
+      "correct": true
+    },
+    {
+      "id": "identity-component",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "identity",
+      "expected": "different",
+      "actual": "uncertain",
+      "correct": false
+    },
+    {
+      "id": "identity-hold_alias",
+      "engine": "deterministic_conservative",
+      "split": "holdout",
+      "family": "identity",
+      "expected": "same",
+      "actual": "same",
+      "correct": true
+    },
+    {
+      "id": "decision-caused",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "decision",
+      "expected": "consequence",
+      "actual": "unestablished",
+      "correct": false
+    },
+    {
+      "id": "decision-correlation",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "decision",
+      "expected": "unestablished",
+      "actual": "unestablished",
+      "correct": true
+    },
+    {
+      "id": "decision-negated",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "decision",
+      "expected": "unestablished",
+      "actual": "unestablished",
+      "correct": true
+    },
+    {
+      "id": "decision-bounded",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "decision",
+      "expected": "consequence",
+      "actual": "unestablished",
+      "correct": false
+    },
+    {
+      "id": "decision-reversed",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "decision",
+      "expected": "revision",
+      "actual": "unestablished",
+      "correct": false
+    },
+    {
+      "id": "decision-hold_scope",
+      "engine": "deterministic_conservative",
+      "split": "holdout",
+      "family": "decision",
+      "expected": "unrelated",
+      "actual": "unestablished",
+      "correct": false
+    },
+    {
+      "id": "evidence-support",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "evidence",
+      "expected": "support",
+      "actual": "silent",
+      "correct": false
+    },
+    {
+      "id": "evidence-contradict",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "evidence",
+      "expected": "contradiction",
+      "actual": "silent",
+      "correct": false
+    },
+    {
+      "id": "evidence-exception",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "evidence",
+      "expected": "compatible",
+      "actual": "silent",
+      "correct": false
+    },
+    {
+      "id": "evidence-historical",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "evidence",
+      "expected": "revision",
+      "actual": "silent",
+      "correct": false
+    },
+    {
+      "id": "evidence-quoted",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "evidence",
+      "expected": "contradiction",
+      "actual": "silent",
+      "correct": false
+    },
+    {
+      "id": "evidence-hold_silence",
+      "engine": "deterministic_conservative",
+      "split": "holdout",
+      "family": "evidence",
+      "expected": "silent",
+      "actual": "silent",
+      "correct": true
+    },
+    {
+      "id": "method-same_method",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "method",
+      "expected": "shared_method",
+      "actual": "insufficient",
+      "correct": false
+    },
+    {
+      "id": "method-lexical",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "method",
+      "expected": "unrelated",
+      "actual": "insufficient",
+      "correct": false
+    },
+    {
+      "id": "method-exception",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "method",
+      "expected": "scoped_variant",
+      "actual": "insufficient",
+      "correct": false
+    },
+    {
+      "id": "method-failed",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "method",
+      "expected": "insufficient",
+      "actual": "insufficient",
+      "correct": true
+    },
+    {
+      "id": "method-outcome",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "method",
+      "expected": "insufficient",
+      "actual": "insufficient",
+      "correct": true
+    },
+    {
+      "id": "method-hold_boundary",
+      "engine": "deterministic_conservative",
+      "split": "holdout",
+      "family": "method",
+      "expected": "shared_method",
+      "actual": "insufficient",
+      "correct": false
+    },
+    {
+      "id": "analogy-analogy",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "analogy",
+      "expected": "plausible",
+      "actual": "low_value",
+      "correct": false
+    },
+    {
+      "id": "analogy-name_only",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "analogy",
+      "expected": "wordplay",
+      "actual": "low_value",
+      "correct": false
+    },
+    {
+      "id": "analogy-specific",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "analogy",
+      "expected": "plausible",
+      "actual": "low_value",
+      "correct": false
+    },
+    {
+      "id": "analogy-unsafe",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "analogy",
+      "expected": "misleading",
+      "actual": "low_value",
+      "correct": false
+    },
+    {
+      "id": "analogy-asserted",
+      "engine": "deterministic_conservative",
+      "split": "development",
+      "family": "analogy",
+      "expected": "misleading",
+      "actual": "low_value",
+      "correct": false
+    },
+    {
+      "id": "analogy-hold_value",
+      "engine": "deterministic_conservative",
+      "split": "holdout",
+      "family": "analogy",
+      "expected": "low_value",
+      "actual": "low_value",
+      "correct": true
+    }
+  ]
+}

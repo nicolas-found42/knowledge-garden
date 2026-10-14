@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "fruits-extractive-nutrition",
+    "family": "claim",
+    "source": "fruits",
+    "representation": "extractive",
+    "claim": "The image establishes the vitamin C content of every fruit.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "fruits",
+      "evidence_kind": "extractive",
+      "evidence": "",
+      "claim": "The image establishes the vitamin C content of every fruit."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "unknown",
+        "probabilities": {
+          "unknown": 1,
+          "supported": 0,
+          "contradicted": 0
+        },
+        "confidence": 1
+      }
+    },
+    "usage": {
+      "input_tokens": 441,
+      "output_tokens": 41,
+      "cost": 1.8522e-05
+    },
+    "id": "gen-dec-1790725835-NzI82NAlwFlFEvBQDpuo",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.26165862497873604
+}

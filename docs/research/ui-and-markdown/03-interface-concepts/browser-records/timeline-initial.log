@@ -1,0 +1,11 @@
+typesafe: present(len=73) model=~typesafe/jev-latest
+text helper: present(len=6) model=gpt-6-luna base=http://127.0.0.1:10531/v1
+  browser: our own Chrome (pid=33565, port=56446, throwaway profile) — closed on exit
+  tick  1    2480 ms  actions=1  status=ready  last=click
+  tick  2    4080 ms  actions=2  status=ready  last=select
+  tick  3    4480 ms  actions=3  status=ready  last=select
+  tick  4    5462 ms  actions=3  status=done  last=select
+  final_url: http://127.0.0.1:8768/docs/research/ui-and-markdown/03-interface-concepts/index.html?variant=workspace&view=timeline&item=photo-fruit
+  title: 'Knowledge Garden · Interface prototypes'
+  independent check for 'view=timeline': PASS
+{"schema": "hermes.browser_use_jev_run_v1", "goal": "Open the Time view, choose source events as the timeline meaning, and sort descending. Choosing Time and the time-meaning and sort controls counts as progress; stop when source-event chronology is shown descending with unknown dates retained.", "final_url": "http://127.0.0.1:8768/docs/research/ui-and-markdown/03-interface-concepts/index.html?variant=workspace&view=timeline&item=photo-fruit", "title": "Knowledge Garden \u00b7 Interface prototypes", "heading": "Time has more than one meaning.", "steps": 3, "text_calls": 0, "ticks": 4, "left_allowlist": false, "expected": "view=timeline", "verified": true, "browser": "owned"}

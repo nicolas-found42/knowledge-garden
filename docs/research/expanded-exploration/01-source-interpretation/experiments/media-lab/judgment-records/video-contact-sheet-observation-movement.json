@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "video-contact-sheet-observation-movement",
+    "family": "claim",
+    "source": "video-contact-sheet",
+    "representation": "observation",
+    "claim": "People occupy different positions in the supplied timestamped frames.",
+    "source_truth": "supported",
+    "state": {
+      "source": "video-contact-sheet",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"A person walks across the grass.\",\n      \"anchor\": [0.15, 0.13, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.16, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.42, 0.14, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.77, 0.16, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.77, 0.18, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.43, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.33, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.43, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.77, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.77, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.43, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.33, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.77, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.43, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.33, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.77, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.43, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.33, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.77, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.43, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.33, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.77, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.43, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.33, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.77, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.43, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.33, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.77, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.43, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.33, 0.34, 0.18, 0.18],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks on the pavement.\",\n      \"anchor\": [0.77, 0.34, 0.18, 0.18],\n      \"uncertainty",
+      "claim": "People occupy different positions in the supplied timestamped frames."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "supported",
+        "probabilities": {
+          "unknown": 0.03,
+          "supported": 0.97,
+          "contradicted": 0
+        },
+        "confidence": 0.94
+      }
+    },
+    "usage": {
+      "input_tokens": 2151,
+      "output_tokens": 41,
+      "cost": 9.0342e-05
+    },
+    "id": "gen-dec-1790725835-RZq07fGkoUoUTqyPd10G",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.3133375000033993
+}

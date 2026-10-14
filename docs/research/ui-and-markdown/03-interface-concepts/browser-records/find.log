@@ -1,0 +1,10 @@
+typesafe: present(len=73) model=~typesafe/jev-latest
+text helper: present(len=6) model=gpt-6-luna base=http://127.0.0.1:10531/v1
+  browser: our own Chrome (pid=34019, port=56695, throwaway profile) — closed on exit
+  tick  1    2893 ms  actions=1  status=ready  last=fill
+  tick  2    3727 ms  actions=2  status=ready  last=click
+  tick  3    4017 ms  actions=2  status=done  last=click
+  final_url: http://127.0.0.1:8768/docs/research/ui-and-markdown/03-interface-concepts/index.html?variant=reading&view=search&item=photo-fruit
+  title: 'Knowledge Garden · reading · search · keyword · 1 results'
+  independent check for 'keyword · 1 results': PASS
+{"schema": "hermes.browser_use_jev_run_v1", "goal": "Find the field study presentation using the keyword slides. Typing slides and submitting Search is progress. Stop when the results show Field study briefing and one result.", "final_url": "http://127.0.0.1:8768/docs/research/ui-and-markdown/03-interface-concepts/index.html?variant=reading&view=search&item=photo-fruit", "title": "Knowledge Garden \u00b7 reading \u00b7 search \u00b7 keyword \u00b7 1 results", "heading": "Find the thread.", "steps": 2, "text_calls": 1, "ticks": 3, "left_allowlist": false, "expected": "keyword \u00b7 1 results", "verified": true, "browser": "owned"}

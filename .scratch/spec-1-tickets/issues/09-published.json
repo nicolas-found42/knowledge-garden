@@ -1,0 +1,32 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPMmA",
+        "number": 3,
+        "state": "OPEN",
+        "title": "Turn a text source into evidence-grounded facts and linked pages with Jev",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/3"
+      }
+    ],
+    "totalCount": 1
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 5, 6; **Inputs and source access**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nLet the owner explicitly supply a web page or document URL and obtain retained source material, navigable knowledge, and faithful origin information, while links merely encountered inside any source remain searchable references.\n\n## Acceptance criteria\n\n- [ ] An explicitly entered URL is acquired as a source, retains its original downloaded representation/asset and acquisition origin, and enters the normal source-page and evidence path.\n- [ ] Text or supported documents from the acquired response yield source-located knowledge; unsupported responses still expose the retained original and extraction state.\n- [ ] Links embedded in imported text, web content, documents, repositories, or conversations are stored as references without automatic destination acquisition.\n- [ ] An unacquired destination contributes no factual support about its contents. Repeated linked occurrences retain their actual occurrence context.\n- [ ] A previously linked-only URL can later be supplied explicitly and acquired, with a clear distinction between link-occurrence evidence and destination-content evidence.\n- [ ] Unavailable, access-restricted, redirected, or non-document responses produce accurate acquisition states, preserve prior successful material where relevant, and resume eligible work without inventing content.\n- [ ] A controlled HTTP fixture proves explicit acquisition, no embedded-link crawl, faithful final/original origin, retained asset access, repeated import behavior, and recoverable failure.\n\n## Blocked by\n\n- [#3 \u2014 Turn a text source into evidence-grounded facts and linked pages with Jev](https://github.com/nicolas-found42/knowledge-garden/issues/3)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nNo broad crawler, private research asset publication, or implicit expansion of historical research access is authorized. Current remote content and source versions use the common ordering rules as those become available. Avoid claims that a returned URL or generated caption authenticates a source.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nUse a controlled page A linking to page B whose text contains a unique marker. Import A by explicit URL and search for B\u2019s marker: its unseen contents must not appear. Inspect the searchable B link occurrence. Then explicitly import B and verify that its source-grounded content becomes available. Repeat with a downloadable document and a failed response.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Ingest explicitly supplied URLs while preserving uncrawled link references",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/10"
+}

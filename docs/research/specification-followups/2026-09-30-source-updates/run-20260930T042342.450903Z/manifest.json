@@ -1,0 +1,10 @@
+{
+  "frozen_sha256": "d31a4073f335293836850e8d03f50f7cef0feaa288d5802ba8dc9d09f3833e5e",
+  "script_sha256": "bdd78f76e06168ee714b0159d34772bfcec88b5e909432176ba5e0e0d2a5650d",
+  "python": "3.14.7",
+  "platform": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
+  "model_requested": "typesafe/jev-1.13",
+  "authorization": "User explicitly requested live Jev experiments for Q18 in this chat.",
+  "source_boundary": "Synthetic public-safe fixtures only; zero private inputs and zero conversation-destination acquisitions.",
+  "started_utc": "2026-09-30T04:23:42.468599+00:00"
+}

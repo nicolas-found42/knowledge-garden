@@ -1,0 +1,1555 @@
+{
+  "status": "ok",
+  "decision": "answer_from_what_we_have",
+  "evidence_thin": true,
+  "screening": "jev+local",
+  "selected_ids": [
+    "vbcherepanov/total-agent-memory",
+    "libingzheren/Jev-Mem",
+    "bodepudimuneendra-netizen/laya-jev-GraphRAG",
+    "FreedomIntelligence/Tiermem",
+    "kunpengtalk/OmniStudio",
+    "picaye/jev-compaction",
+    "DeepBlueDynamics/typesafe-arena",
+    "zilliztech/memsearch",
+    "hev/reranker",
+    "xerj-org/xerj",
+    "GhalebDweikat/winnow",
+    "MichelKerkmeester/skilled-agent-harness_spec-driven-loops",
+    "EugeneBoondock/jevsql",
+    "compozy/yoshi",
+    "cpaczek/s1s",
+    "Avinash-jetwani/jevmem",
+    "chunxiaoxx/nautilus-compass",
+    "joelhooks/pi-fast-jev-compaction",
+    "bestagentkits/jev-skillful",
+    "tontoko/jev-browser",
+    "standardagents/jevpilot",
+    "vinilana/jev-browser",
+    "0xlau/jev-rps",
+    "JordiParraCrespo/typesafe-ai-trading-showcase",
+    "WiktorB2004/llama-index-jev",
+    "wd041216-bit/zero-api-key-web-search",
+    "BunsDev/clarity-judge",
+    "RenaGao/jev-dataops",
+    "supercorp-ai/supercov",
+    "Pinutss/jev-plugins",
+    "TKY-27/JevSlop",
+    "samdotmak/jev-recall",
+    "suenot/codex-jev-router",
+    "kbhuw/jev-sift",
+    "dzhng/duet-agent",
+    "virajbhartiya/laya-vs-jev"
+  ],
+  "dropped_injection_ids": [
+    "kubet/azdaja",
+    "vercel-labs/fx",
+    "STRML/omp-jevens-classifier",
+    "fornhere/hafiza-os"
+  ],
+  "local_screen_ids": [
+    "kubet/azdaja",
+    "vercel-labs/fx",
+    "STRML/omp-jevens-classifier",
+    "fornhere/hafiza-os"
+  ],
+  "unjudged_ids": [
+    "bestagentkits/jev-skillful",
+    "tontoko/jev-browser",
+    "standardagents/jevpilot",
+    "kubet/azdaja",
+    "vinilana/jev-browser",
+    "0xlau/jev-rps",
+    "JordiParraCrespo/typesafe-ai-trading-showcase",
+    "WiktorB2004/llama-index-jev",
+    "wd041216-bit/zero-api-key-web-search",
+    "BunsDev/clarity-judge",
+    "RenaGao/jev-dataops",
+    "supercorp-ai/supercov",
+    "Pinutss/jev-plugins",
+    "vercel-labs/fx",
+    "TKY-27/JevSlop",
+    "samdotmak/jev-recall",
+    "suenot/codex-jev-router",
+    "kbhuw/jev-sift",
+    "dzhng/duet-agent",
+    "virajbhartiya/laya-vs-jev",
+    "aabolfazl/typesafe-local",
+    "featherless-ai/simple-jev",
+    "razaanstha/ulka",
+    "different-ai/openwork",
+    "STRML/omp-jevens-classifier",
+    "forvela/jev-agent-browser",
+    "fornhere/hafiza-os",
+    "jarrodwatts/jev-trader",
+    "openlayer-ai/jevals"
+  ],
+  "clipped_ids": [
+    "steven-shoemaker/hunch",
+    "Chandler-Sun/chat2jev",
+    "brainstormity/Jev-X-Sentiment-Analysis",
+    "EliaAlberti/jev-rules",
+    "BeatAPI/awesome-jev",
+    "nican2018/shade-arena-jev-monitor",
+    "kylehovance-ai/jev-the-janitor",
+    "MrJev/awesome-jev",
+    "aliaihub/awesome-jev-usecases",
+    "kitze/skillbox",
+    "zilliztech/memsearch",
+    "matrixorigin/Astra",
+    "knowlet/jevlens",
+    "TokenTrim/jev-routing-experiment",
+    "TypeSafeAI/typesafe-playground",
+    "myokoym/misereru-slide-jev",
+    "AnotiaWang/awesome-jev",
+    "socai-io/jev-social",
+    "KamilPostrozny/pi-jev-code",
+    "pedrocivita/tocket",
+    "SeeAPI/awesome-jev-use-cases",
+    "philippdubach/pi-jev-router",
+    "vbcherepanov/total-agent-memory",
+    "narulaskaran/jev-data-questions",
+    "Horace-Maxwell/horosa-skill",
+    "rchovatiya88/cyber-breach-jev",
+    "1612535983/deepreseach-learing",
+    "nozomi-koborinai/jev-spec",
+    "tanxarx/awesome-jev",
+    "ZephyrDeng/pi-review",
+    "zhihz/openjev",
+    "JacobLinCool/jev-paper-judge",
+    "milvus-io/milvus-model",
+    "PanAchy/jevvy",
+    "HyunjunJeon/pi-quiet-ask",
+    "Avinash-jetwani/jevmem",
+    "cobanov/awesome-jev",
+    "kiwi0719/jev-edge",
+    "Jessie-QingYu/jev-in-the-wild",
+    "devagrawal09/stanley-code",
+    "bnsd55/jevmlx",
+    "choxos/jev-reviewer",
+    "punk2898/awesome-jev-verified",
+    "kitfunso/hippo-memory",
+    "reachjalil/jevlogs",
+    "PyModel/jev-judge-mcp",
+    "CorieW/JevTest",
+    "johnhughes3/LegalForecastBench",
+    "utk2103/jev-studio",
+    "Kevthetech143/super-jev",
+    "Nyarlathoteppppp/pi-jev-context",
+    "zsoXi/agent-handoff-gate",
+    "yzbcs/Should-I-Jev",
+    "myc0576/SmartMoney-Cub",
+    "keltokhy/jselect",
+    "anandi1989/awesome-jev-usecases",
+    "iamvatsalpatel/tiershift",
+    "juspay/neurolink",
+    "AkashPriyadarshii/jev-seo",
+    "EthanAlgoX/AIStock",
+    "Shanghua-Gao/RSI-Jev",
+    "AgriciDaniel/jev-seo",
+    "Anil-matcha/awesome-jev-by-typesafe",
+    "cbruyndoncx/AskJev-MCP",
+    "bitnovus/jev-spam-eval",
+    "langchain-ai/langchainjs",
+    "mahlernim/jev-korean-benchmark",
+    "klauswg/jev-suite",
+    "zefir1990/openjev-experiments",
+    "6Mikao9/jev-agent-design-with-topk-logits-choices",
+    "kylemclaren/jevsearch",
+    "chopratejas/invalidate",
+    "anessbelbati/jev-rerank-bench",
+    "GodsBoy/jev-agent-skill-router",
+    "jhd3197/Prompture",
+    "EugeneBoondock/jevsql",
+    "AppitStudio/awesome-jev",
+    "topherchris420/james_library",
+    "moezubair/check-risk",
+    "thiago-ss/jev-review",
+    "Yifan-Lan/awesome-jev-robustness",
+    "ckaraca/awesome-jev",
+    "logicrw/awesome-jev-projects",
+    "grmkris/robo-harness",
+    "joonan-lab/byeori",
+    "JoshuaSP/open-jev",
+    "heyjunpenn/awesome-jev",
+    "Alex314618-create/JevRev",
+    "BunsDev/typesafe-ai-playground",
+    "jkudish/jev-mcp",
+    "FeiLiuEM/tetrajev",
+    "MiaoWuNYA/rikkahub-sillytavern-android",
+    "romeromarcelo/jev-retrieval",
+    "kydlikebtc/awesome-jev",
+    "masonlee39/Multi-Agent",
+    "wustep/jev-playground",
+    "sontakey/awesome-jev",
+    "dnakhoa/jev-deferred-crispification",
+    "Foxtailsss-Andy/Anna-Agent",
+    "devagrawal09/jev-code",
+    "madeye/pi-jev",
+    "parkavenue9639/jevloop",
+    "noperator/siftrank",
+    "shinpr/jev-reranker",
+    "hotchpotch/jev-reranker",
+    "agent-labs-dev/fastbrowse",
+    "patryckalves/jev-no-enem",
+    "rhc98/awesome-jev",
+    "AiPersonacademy/jev-resume-disqualifier",
+    "juancamiloqhz/roverlab",
+    "zadescoxp/Jev-Trades",
+    "leesk212/JEV-CPU",
+    "OmniJev/awesome-jev-gallery",
+    "dtduc-git/jev-packs",
+    "OmniJev/awesome-jev",
+    "ekizito96/Turn",
+    "VeridicalTech/Edward",
+    "shamazharikh/qwen-rlcd",
+    "vinnylarouge/jevlike",
+    "skeptrunedev/jev-recruiter",
+    "Manavarya09/verdict",
+    "Eliot5566/JEV-Paper-Radar",
+    "qkal/Canny",
+    "silverstein/minutes",
+    "jerryjliu/docjev",
+    "michaelswissa/jevry",
+    "FreedomIntelligence/Tiermem",
+    "jesset/pi-verdict",
+    "v-modal/awesome-jev-tools",
+    "can1357/oh-my-pi",
+    "sc2musa/Jev_Star",
+    "kerpopule/hermes-jev-skills",
+    "steven-shoemaker/hunch-js",
+    "Nainish-Rai/jev-frontend-qa",
+    "fatwang2/awesome-jev",
+    "gaborishka/jevtown",
+    "TheoLeeCJ/SemIf",
+    "ipenywis/laya-ultrafast",
+    "hellozenstrategist-lab/eutrya",
+    "Olli0103/openclaw-typesafe-ai",
+    "compozy/yoshi",
+    "caudena/beam_weaver",
+    "unicodeveloper/jevocks",
+    "hardness1020/learn-agent-architecture",
+    "vmendes90/jev-shield",
+    "lykycy123/RoboJEV",
+    "libingzheren/Jev-Mem",
+    "irfndi/prism-liquidity-agent",
+    "zilliztech/deep-searcher",
+    "RINNECODER/jev-behavior-study",
+    "Amal-David/awesome-jev",
+    "danielgshea/jev-as-a-judge",
+    "a-Fig/jev-score",
+    "TauricResearch/TradingAgents",
+    "zhuyansen/jev-search-rerank-eval",
+    "yibie/awesome-jev",
+    "openqa-cn/jev-browser",
+    "frankda/jev-poly-crypto-demo",
+    "reticlehq/reticle",
+    "keeltrace/hermes-nerve",
+    "fabricioctelles/skills",
+    "CompleteDotTech/paper-package",
+    "hamakyo/jev-starter",
+    "sosopop/jev_stock",
+    "usenotra/notra",
+    "memorysaver/jev-atari-lab",
+    "ellistev/typesafe-minecraft-demo",
+    "compozy/compozy",
+    "cequence-io/openai-scala-client",
+    "takeshy/obsidian-llm-hub",
+    "rorshopping/jev-on-a-laptop",
+    "awun8191/jev-resume-analyzer",
+    "klauswg/jev-guard",
+    "valentynkit/awesome-jev-typesafe",
+    "omni-/ask-jev",
+    "bodepudimuneendra-netizen/laya-jev-GraphRAG",
+    "0x963D/last-exit",
+    "notque/vexjoy-agent",
+    "szczyglis-dev/py-gpt",
+    "replynodes/jev-web-analyzer",
+    "DeepBlueDynamics/typesafe-arena",
+    "TheoLeeCJ/SemIf-OpenJev",
+    "genspark-ai/genoffice",
+    "shimo4228/jev-research-pipeline",
+    "erendikmenn/jev-rag-benchmark",
+    "jkudish/jev-browser",
+    "0xPlaygrounds/rig",
+    "altryne/jevify",
+    "kunpengtalk/OmniStudio",
+    "deepanwadhwa/OpenDecision",
+    "xerj-org/xerj",
+    "rsdkrasen/hermes-jev-router",
+    "keeltrace/hermes-jev",
+    "jev-ids/jev-ids",
+    "bastani-inc/atomic",
+    "marcus/frost",
+    "SREGym/SREGym",
+    "lhemerly/mcts-agent",
+    "cpaczek/s1s",
+    "milanboers/jev-plays-pokemon",
+    "MichelKerkmeester/skilled-agent-harness_spec-driven-loops",
+    "odin-labs-ai/odin-rnd",
+    "mode-io/vllm-jev",
+    "cbetz/extremely-specific-council",
+    "JacquesGariepy/ORIGIN-CIVILIZATION",
+    "kitze/unclutter",
+    "lexmount/jev-browser-bridge",
+    "GhalebDweikat/winnow",
+    "ReallyArtificial/jev-by-example",
+    "prasanthj/duckdb-jev",
+    "Friedjof/jev-mobile",
+    "sightmap/jev-turbo",
+    "Heman10x-NGU/Verdict-open-jev",
+    "AlgoVaultLabs/algovault-integrations",
+    "joelhooks/pi-fast-jev-compaction",
+    "AlbionaHoti/refgarden",
+    "zhangcy122/OpenJev",
+    "earlyaidopters/away-together-starter",
+    "MongLong0214/jev-gate",
+    "ShuhanSun/jev-oas-sentinel",
+    "tyler-dot-earth/patdown"
+  ],
+  "scores": {
+    "everyai-com/jev-directory": {
+      "relevance": 0.28,
+      "injection": 0.09
+    },
+    "steven-shoemaker/hunch": {
+      "relevance": 0.53,
+      "injection": 0.04
+    },
+    "AbdelStark/jev-benchmarks": {
+      "relevance": 0.13,
+      "injection": 0.03
+    },
+    "lukstei/slop-grader": {
+      "relevance": 0.31,
+      "injection": 0.03
+    },
+    "picaye/jev-compaction": {
+      "relevance": 0.72,
+      "injection": 0.05
+    },
+    "get-convex/convex-evals": {
+      "relevance": 0.16,
+      "injection": 0.04
+    },
+    "shantanugoel/mario-jev": {
+      "relevance": 0.13,
+      "injection": 0.04
+    },
+    "Chandler-Sun/chat2jev": {
+      "relevance": 0.41,
+      "injection": 0.05
+    },
+    "brainstormity/Jev-X-Sentiment-Analysis": {
+      "relevance": 0.14,
+      "injection": 0.06
+    },
+    "EliaAlberti/jev-rules": {
+      "relevance": 0.44,
+      "injection": 0.05
+    },
+    "dzhng/jevgrep": {
+      "relevance": 0.53,
+      "injection": 0.06
+    },
+    "BeatAPI/awesome-jev": {
+      "relevance": 0.24,
+      "injection": 0.07
+    },
+    "community-ports/typesafeai-sdk-rust-community": {
+      "relevance": 0.24,
+      "injection": 0.03
+    },
+    "nican2018/shade-arena-jev-monitor": {
+      "relevance": 0.17,
+      "injection": 0.05
+    },
+    "kylehovance-ai/jev-the-janitor": {
+      "relevance": 0.49,
+      "injection": 0.07
+    },
+    "MrJev/awesome-jev": {
+      "relevance": 0.24,
+      "injection": 0.05
+    },
+    "trycua/cua": {
+      "relevance": 0.08,
+      "injection": 0.05
+    },
+    "Chuf-H/jev-tree": {
+      "relevance": 0.33,
+      "injection": 0.04
+    },
+    "aliaihub/awesome-jev-usecases": {
+      "relevance": 0.26,
+      "injection": 0.06
+    },
+    "zeredy879/minojev": {
+      "relevance": 0.26,
+      "injection": 0.06
+    },
+    "kitze/skillbox": {
+      "relevance": 0.3,
+      "injection": 0.05
+    },
+    "alexj11324/open-jev-approvals": {
+      "relevance": 0.44,
+      "injection": 0.05
+    },
+    "wuyoscar/jev-skill": {
+      "relevance": 0.24,
+      "injection": 0.08
+    },
+    "zilliztech/memsearch": {
+      "relevance": 0.7,
+      "injection": 0.07
+    },
+    "ilyamk/jev-gmail-ai-spam-filter-and-labeling": {
+      "relevance": 0.27,
+      "injection": 0.12
+    },
+    "thruwire/foreman": {
+      "relevance": 0.44,
+      "injection": 0.05
+    },
+    "zhengxuyu/litjev": {
+      "relevance": 0.36,
+      "injection": 0.03
+    },
+    "matrixorigin/Astra": {
+      "relevance": 0.55,
+      "injection": 0.06
+    },
+    "knowlet/jevlens": {
+      "relevance": 0.22,
+      "injection": 0.05
+    },
+    "innocentdiaz/s1_ruby": {
+      "relevance": 0.2,
+      "injection": 0.04
+    },
+    "TokenTrim/jev-routing-experiment": {
+      "relevance": 0.26,
+      "injection": 0.04
+    },
+    "valentynkit/jev-plays-pokemon-red": {
+      "relevance": 0.09,
+      "injection": 0.04
+    },
+    "TypeSafeAI/typesafe-playground": {
+      "relevance": 0.16,
+      "injection": 0.07
+    },
+    "realZachi/pg-jev": {
+      "relevance": 0.24,
+      "injection": 0.05
+    },
+    "myokoym/misereru-slide-jev": {
+      "relevance": 0.09,
+      "injection": 0.08
+    },
+    "AnotiaWang/awesome-jev": {
+      "relevance": 0.41,
+      "injection": 0.05
+    },
+    "MarissaFamularo/citation-verifier": {
+      "relevance": 0.17,
+      "injection": 0.04
+    },
+    "socai-io/jev-social": {
+      "relevance": 0.22,
+      "injection": 0.09
+    },
+    "Promethe-us/awesome-jev": {
+      "relevance": 0.22,
+      "injection": 0.07
+    },
+    "KamilPostrozny/pi-jev-code": {
+      "relevance": 0.29,
+      "injection": 0.05
+    },
+    "pedrocivita/tocket": {
+      "relevance": 0.51,
+      "injection": 0.07
+    },
+    "AbdelStark/heist-one": {
+      "relevance": 0.12,
+      "injection": 0.05
+    },
+    "FirasSX914/Janus": {
+      "relevance": 0.26,
+      "injection": 0.05
+    },
+    "SeeAPI/awesome-jev-use-cases": {
+      "relevance": 0.2,
+      "injection": 0.06
+    },
+    "philippdubach/pi-jev-router": {
+      "relevance": 0.23,
+      "injection": 0.07
+    },
+    "vbcherepanov/total-agent-memory": {
+      "relevance": 0.77,
+      "injection": 0.05
+    },
+    "keltokhy/jgrep": {
+      "relevance": 0.24,
+      "injection": 0.06
+    },
+    "narulaskaran/jev-data-questions": {
+      "relevance": 0.1,
+      "injection": 0.05
+    },
+    "Horace-Maxwell/horosa-skill": {
+      "relevance": 0.28,
+      "injection": 0.09
+    },
+    "rchovatiya88/cyber-breach-jev": {
+      "relevance": 0.04,
+      "injection": 0.05
+    },
+    "1612535983/deepreseach-learing": {
+      "relevance": 0.47,
+      "injection": 0.05
+    },
+    "nozomi-koborinai/jev-spec": {
+      "relevance": 0.25,
+      "injection": 0.04
+    },
+    "wh000wh000/awesome-jev-live": {
+      "relevance": 0.45,
+      "injection": 0.05
+    },
+    "tanxarx/awesome-jev": {
+      "relevance": 0.19,
+      "injection": 0.03
+    },
+    "ZephyrDeng/pi-review": {
+      "relevance": 0.2,
+      "injection": 0.04
+    },
+    "zhihz/openjev": {
+      "relevance": 0.25,
+      "injection": 0.03
+    },
+    "Dicklesworthstone/skillranker": {
+      "relevance": 0.46,
+      "injection": 0.04
+    },
+    "HiepPP/hiep-paseo-plugin": {
+      "relevance": 0.21,
+      "injection": 0.06
+    },
+    "JacobLinCool/jev-paper-judge": {
+      "relevance": 0.1,
+      "injection": 0.03
+    },
+    "milvus-io/milvus-model": {
+      "relevance": 0.19,
+      "injection": 0.03
+    },
+    "PanAchy/jevvy": {
+      "relevance": 0.34,
+      "injection": 0.15
+    },
+    "HyunjunJeon/pi-quiet-ask": {
+      "relevance": 0.46,
+      "injection": 0.21
+    },
+    "Avinash-jetwani/jevmem": {
+      "relevance": 0.64,
+      "injection": 0.06
+    },
+    "cobanov/awesome-jev": {
+      "relevance": 0.19,
+      "injection": 0.03
+    },
+    "kiwi0719/jev-edge": {
+      "relevance": 0.08,
+      "injection": 0.04
+    },
+    "Jessie-QingYu/jev-in-the-wild": {
+      "relevance": 0.19,
+      "injection": 0.03
+    },
+    "devagrawal09/stanley-code": {
+      "relevance": 0.47,
+      "injection": 0.1
+    },
+    "doeixd/discern": {
+      "relevance": 0.33,
+      "injection": 0.04
+    },
+    "bnsd55/jevmlx": {
+      "relevance": 0.25,
+      "injection": 0.04
+    },
+    "choxos/jev-reviewer": {
+      "relevance": 0.18,
+      "injection": 0.05
+    },
+    "punk2898/awesome-jev-verified": {
+      "relevance": 0.22,
+      "injection": 0.04
+    },
+    "kitfunso/hippo-memory": {
+      "relevance": 0.56,
+      "injection": 0.06
+    },
+    "reachjalil/jevlogs": {
+      "relevance": 0.15,
+      "injection": 0.04
+    },
+    "siddicky/omp-typesafe": {
+      "relevance": 0.42,
+      "injection": 0.06
+    },
+    "PyModel/jev-judge-mcp": {
+      "relevance": 0.55,
+      "injection": 0.05
+    },
+    "CorieW/JevTest": {
+      "relevance": 0.15,
+      "injection": 0.04
+    },
+    "johnhughes3/LegalForecastBench": {
+      "relevance": 0.04,
+      "injection": 0.04
+    },
+    "utk2103/jev-studio": {
+      "relevance": 0.43,
+      "injection": 0.04
+    },
+    "Kevthetech143/super-jev": {
+      "relevance": 0.52,
+      "injection": 0.05
+    },
+    "Nyarlathoteppppp/pi-jev-context": {
+      "relevance": 0.58,
+      "injection": 0.07
+    },
+    "Davidcreador/pi-dcp": {
+      "relevance": 0.53,
+      "injection": 0.05
+    },
+    "mohsen1/llm-debugger-vscode-extension": {
+      "relevance": 0.34,
+      "injection": 0.04
+    },
+    "NullPo-jp/PocketJev": {
+      "relevance": 0.06,
+      "injection": 0.03
+    },
+    "zsoXi/agent-handoff-gate": {
+      "relevance": 0.35,
+      "injection": 0.04
+    },
+    "yzbcs/Should-I-Jev": {
+      "relevance": 0.15,
+      "injection": 0.03
+    },
+    "myc0576/SmartMoney-Cub": {
+      "relevance": 0.2,
+      "injection": 0.04
+    },
+    "keltokhy/jselect": {
+      "relevance": 0.62,
+      "injection": 0.05
+    },
+    "anandi1989/awesome-jev-usecases": {
+      "relevance": 0.16,
+      "injection": 0.03
+    },
+    "iamvatsalpatel/tiershift": {
+      "relevance": 0.11,
+      "injection": 0.05
+    },
+    "karimatayuta/tiny-jev": {
+      "relevance": 0.14,
+      "injection": 0.04
+    },
+    "juspay/neurolink": {
+      "relevance": 0.24,
+      "injection": 0.03
+    },
+    "AkashPriyadarshii/jev-seo": {
+      "relevance": 0.13,
+      "injection": 0.05
+    },
+    "EthanAlgoX/AIStock": {
+      "relevance": 0.05,
+      "injection": 0.03
+    },
+    "Shanghua-Gao/RSI-Jev": {
+      "relevance": 0.49,
+      "injection": 0.06
+    },
+    "mahynotch/newsscore": {
+      "relevance": 0.1,
+      "injection": 0.03
+    },
+    "jmanhype/jev-dspy-lab": {
+      "relevance": 0.14,
+      "injection": 0.04
+    },
+    "AgriciDaniel/jev-seo": {
+      "relevance": 0.1,
+      "injection": 0.05
+    },
+    "sqliteai/blink": {
+      "relevance": 0.19,
+      "injection": 0.03
+    },
+    "Anil-matcha/awesome-jev-by-typesafe": {
+      "relevance": 0.17,
+      "injection": 0.03
+    },
+    "rajivkuriakose/typesafe-jev-examples": {
+      "relevance": 0.17,
+      "injection": 0.04
+    },
+    "cbruyndoncx/AskJev-MCP": {
+      "relevance": 0.23,
+      "injection": 0.06
+    },
+    "christianmat/jev-pokemon": {
+      "relevance": 0.06,
+      "injection": 0.03
+    },
+    "bitnovus/jev-spam-eval": {
+      "relevance": 0.15,
+      "injection": 0.03
+    },
+    "langchain-ai/langchainjs": {
+      "relevance": 0.08,
+      "injection": 0.03
+    },
+    "mahlernim/jev-korean-benchmark": {
+      "relevance": 0.07,
+      "injection": 0.03
+    },
+    "FrancoisChastel/jev-code": {
+      "relevance": 0.23,
+      "injection": 0.04
+    },
+    "klauswg/jev-suite": {
+      "relevance": 0.27,
+      "injection": 0.03
+    },
+    "zefir1990/openjev-experiments": {
+      "relevance": 0.31,
+      "injection": 0.04
+    },
+    "6Mikao9/jev-agent-design-with-topk-logits-choices": {
+      "relevance": 0.57,
+      "injection": 0.1
+    },
+    "kylemclaren/jevsearch": {
+      "relevance": 0.32,
+      "injection": 0.04
+    },
+    "chopratejas/invalidate": {
+      "relevance": 0.55,
+      "injection": 0.12
+    },
+    "chunxiaoxx/nautilus-compass": {
+      "relevance": 0.64,
+      "injection": 0.07
+    },
+    "anessbelbati/jev-rerank-bench": {
+      "relevance": 0.29,
+      "injection": 0.03
+    },
+    "GodsBoy/jev-agent-skill-router": {
+      "relevance": 0.21,
+      "injection": 0.03
+    },
+    "daseinlabs/open-jev": {
+      "relevance": 0.21,
+      "injection": 0.03
+    },
+    "jhd3197/Prompture": {
+      "relevance": 0.29,
+      "injection": 0.04
+    },
+    "EugeneBoondock/jevsql": {
+      "relevance": 0.66,
+      "injection": 0.05
+    },
+    "AppitStudio/awesome-jev": {
+      "relevance": 0.18,
+      "injection": 0.04
+    },
+    "topherchris420/james_library": {
+      "relevance": 0.4,
+      "injection": 0.05
+    },
+    "moezubair/check-risk": {
+      "relevance": 0.24,
+      "injection": 0.03
+    },
+    "thiago-ss/jev-review": {
+      "relevance": 0.2,
+      "injection": 0.04
+    },
+    "Yifan-Lan/awesome-jev-robustness": {
+      "relevance": 0.09,
+      "injection": 0.03
+    },
+    "ckaraca/awesome-jev": {
+      "relevance": 0.16,
+      "injection": 0.03
+    },
+    "logicrw/awesome-jev-projects": {
+      "relevance": 0.12,
+      "injection": 0.04
+    },
+    "Zefan-Cai/Open-Jev": {
+      "relevance": 0.09,
+      "injection": 0.05
+    },
+    "grmkris/robo-harness": {
+      "relevance": 0.08,
+      "injection": 0.04
+    },
+    "yairshy/decido": {
+      "relevance": 0.37,
+      "injection": 0.05
+    },
+    "joonan-lab/byeori": {
+      "relevance": 0.43,
+      "injection": 0.04
+    },
+    "JoshuaSP/open-jev": {
+      "relevance": 0.1,
+      "injection": 0.04
+    },
+    "heyjunpenn/awesome-jev": {
+      "relevance": 0.14,
+      "injection": 0.04
+    },
+    "Alex314618-create/JevRev": {
+      "relevance": 0.23,
+      "injection": 0.05
+    },
+    "BunsDev/typesafe-ai-playground": {
+      "relevance": 0.12,
+      "injection": 0.04
+    },
+    "tryaksh/jev-pick-and-place-study": {
+      "relevance": 0.07,
+      "injection": 0.03
+    },
+    "jkudish/jev-mcp": {
+      "relevance": 0.54,
+      "injection": 0.06
+    },
+    "FeiLiuEM/tetrajev": {
+      "relevance": 0.15,
+      "injection": 0.03
+    },
+    "MiaoWuNYA/rikkahub-sillytavern-android": {
+      "relevance": 0.21,
+      "injection": 0.05
+    },
+    "romeromarcelo/jev-retrieval": {
+      "relevance": 0.5,
+      "injection": 0.04
+    },
+    "kydlikebtc/awesome-jev": {
+      "relevance": 0.47,
+      "injection": 0.04
+    },
+    "formulahendry/jev-acp": {
+      "relevance": 0.25,
+      "injection": 0.04
+    },
+    "hraness/algal": {
+      "relevance": 0.39,
+      "injection": 0.04
+    },
+    "masonlee39/Multi-Agent": {
+      "relevance": 0.31,
+      "injection": 0.04
+    },
+    "wustep/jev-playground": {
+      "relevance": 0.07,
+      "injection": 0.03
+    },
+    "sontakey/awesome-jev": {
+      "relevance": 0.33,
+      "injection": 0.03
+    },
+    "dnakhoa/jev-deferred-crispification": {
+      "relevance": 0.2,
+      "injection": 0.03
+    },
+    "Foxtailsss-Andy/Anna-Agent": {
+      "relevance": 0.12,
+      "injection": 0.06
+    },
+    "devagrawal09/jev-code": {
+      "relevance": 0.31,
+      "injection": 0.06
+    },
+    "mmastrac/djev-spark": {
+      "relevance": 0.11,
+      "injection": 0.03
+    },
+    "madeye/pi-jev": {
+      "relevance": 0.24,
+      "injection": 0.04
+    },
+    "parkavenue9639/jevloop": {
+      "relevance": 0.52,
+      "injection": 0.05
+    },
+    "noperator/siftrank": {
+      "relevance": 0.48,
+      "injection": 0.05
+    },
+    "shinpr/jev-reranker": {
+      "relevance": 0.54,
+      "injection": 0.03
+    },
+    "hotchpotch/jev-reranker": {
+      "relevance": 0.46,
+      "injection": 0.05
+    },
+    "agent-labs-dev/fastbrowse": {
+      "relevance": 0.25,
+      "injection": 0.06
+    },
+    "patryckalves/jev-no-enem": {
+      "relevance": 0.07,
+      "injection": 0.03
+    },
+    "rhc98/awesome-jev": {
+      "relevance": 0.26,
+      "injection": 0.04
+    },
+    "AiPersonacademy/jev-resume-disqualifier": {
+      "relevance": 0.05,
+      "injection": 0.06
+    },
+    "juancamiloqhz/roverlab": {
+      "relevance": 0.07,
+      "injection": 0.04
+    },
+    "zadescoxp/Jev-Trades": {
+      "relevance": 0.08,
+      "injection": 0.05
+    },
+    "leesk212/JEV-CPU": {
+      "relevance": 0.16,
+      "injection": 0.04
+    },
+    "OmniJev/awesome-jev-gallery": {
+      "relevance": 0.28,
+      "injection": 0.03
+    },
+    "dtduc-git/jev-packs": {
+      "relevance": 0.12,
+      "injection": 0.03
+    },
+    "OmniJev/awesome-jev": {
+      "relevance": 0.26,
+      "injection": 0.03
+    },
+    "ekizito96/Turn": {
+      "relevance": 0.5,
+      "injection": 0.04
+    },
+    "VeridicalTech/Edward": {
+      "relevance": 0.27,
+      "injection": 0.06
+    },
+    "shamazharikh/qwen-rlcd": {
+      "relevance": 0.14,
+      "injection": 0.03
+    },
+    "jbt95/jev-toolkit": {
+      "relevance": 0.29,
+      "injection": 0.03
+    },
+    "vinnylarouge/jevlike": {
+      "relevance": 0.14,
+      "injection": 0.03
+    },
+    "skeptrunedev/jev-recruiter": {
+      "relevance": 0.16,
+      "injection": 0.05
+    },
+    "Manavarya09/verdict": {
+      "relevance": 0.22,
+      "injection": 0.03
+    },
+    "Eliot5566/JEV-Paper-Radar": {
+      "relevance": 0.18,
+      "injection": 0.03
+    },
+    "qkal/Canny": {
+      "relevance": 0.37,
+      "injection": 0.09
+    },
+    "silverstein/minutes": {
+      "relevance": 0.45,
+      "injection": 0.05
+    },
+    "jerryjliu/docjev": {
+      "relevance": 0.15,
+      "injection": 0.05
+    },
+    "michaelswissa/jevry": {
+      "relevance": 0.13,
+      "injection": 0.04
+    },
+    "FreedomIntelligence/Tiermem": {
+      "relevance": 0.73,
+      "injection": 0.06
+    },
+    "jesset/pi-verdict": {
+      "relevance": 0.17,
+      "injection": 0.09
+    },
+    "phyous/tsai-civ2": {
+      "relevance": 0.1,
+      "injection": 0.05
+    },
+    "v-modal/awesome-jev-tools": {
+      "relevance": 0.26,
+      "injection": 0.03
+    },
+    "can1357/oh-my-pi": {
+      "relevance": 0.27,
+      "injection": 0.08
+    },
+    "sc2musa/Jev_Star": {
+      "relevance": 0.06,
+      "injection": 0.03
+    },
+    "kerpopule/hermes-jev-skills": {
+      "relevance": 0.4,
+      "injection": 0.07
+    },
+    "steven-shoemaker/hunch-js": {
+      "relevance": 0.52,
+      "injection": 0.02
+    },
+    "kraayenjon/awesome-jev": {
+      "relevance": 0.18,
+      "injection": 0.03
+    },
+    "Nainish-Rai/jev-frontend-qa": {
+      "relevance": 0.24,
+      "injection": 0.04
+    },
+    "fatwang2/awesome-jev": {
+      "relevance": 0.48,
+      "injection": 0.04
+    },
+    "gaborishka/jevtown": {
+      "relevance": 0.08,
+      "injection": 0.04
+    },
+    "doeixd/jev-pref": {
+      "relevance": 0.41,
+      "injection": 0.1
+    },
+    "TheoLeeCJ/SemIf": {
+      "relevance": 0.37,
+      "injection": 0.04
+    },
+    "Micha0827/snapjudge": {
+      "relevance": 0.48,
+      "injection": 0.03
+    },
+    "ipenywis/laya-ultrafast": {
+      "relevance": 0.16,
+      "injection": 0.03
+    },
+    "hellozenstrategist-lab/eutrya": {
+      "relevance": 0.42,
+      "injection": 0.05
+    },
+    "TrainLCD/Functions": {
+      "relevance": 0.04,
+      "injection": 0.03
+    },
+    "tylergibbs1/sift": {
+      "relevance": 0.3,
+      "injection": 0.04
+    },
+    "fidecastro/jevify": {
+      "relevance": 0.5,
+      "injection": 0.04
+    },
+    "mgaitan/sqlite-jev": {
+      "relevance": 0.36,
+      "injection": 0.03
+    },
+    "kshetrajna12/reflex": {
+      "relevance": 0.44,
+      "injection": 0.03
+    },
+    "Olli0103/openclaw-typesafe-ai": {
+      "relevance": 0.2,
+      "injection": 0.04
+    },
+    "compozy/yoshi": {
+      "relevance": 0.66,
+      "injection": 0.06
+    },
+    "caudena/beam_weaver": {
+      "relevance": 0.47,
+      "injection": 0.04
+    },
+    "unicodeveloper/jevocks": {
+      "relevance": 0.19,
+      "injection": 0.04
+    },
+    "hardness1020/learn-agent-architecture": {
+      "relevance": 0.27,
+      "injection": 0.03
+    },
+    "vmendes90/jev-shield": {
+      "relevance": 0.16,
+      "injection": 0.04
+    },
+    "lykycy123/RoboJEV": {
+      "relevance": 0.14,
+      "injection": 0.03
+    },
+    "libingzheren/Jev-Mem": {
+      "relevance": 0.76,
+      "injection": 0.04
+    },
+    "irfndi/prism-liquidity-agent": {
+      "relevance": 0.4,
+      "injection": 0.05
+    },
+    "zilliztech/deep-searcher": {
+      "relevance": 0.28,
+      "injection": 0.03
+    },
+    "YEDASAVG/Stratum": {
+      "relevance": 0.06,
+      "injection": 0.04
+    },
+    "RINNECODER/jev-behavior-study": {
+      "relevance": 0.14,
+      "injection": 0.04
+    },
+    "Amal-David/awesome-jev": {
+      "relevance": 0.2,
+      "injection": 0.04
+    },
+    "danielgshea/jev-as-a-judge": {
+      "relevance": 0.26,
+      "injection": 0.03
+    },
+    "a-Fig/jev-score": {
+      "relevance": 0.35,
+      "injection": 0.04
+    },
+    "ax-llm/ax": {
+      "relevance": 0.25,
+      "injection": 0.03
+    },
+    "TauricResearch/TradingAgents": {
+      "relevance": 0.16,
+      "injection": 0.03
+    },
+    "zhuyansen/jev-search-rerank-eval": {
+      "relevance": 0.5,
+      "injection": 0.03
+    },
+    "yibie/awesome-jev": {
+      "relevance": 0.27,
+      "injection": 0.03
+    },
+    "openqa-cn/jev-browser": {
+      "relevance": 0.21,
+      "injection": 0.05
+    },
+    "frankda/jev-poly-crypto-demo": {
+      "relevance": 0.17,
+      "injection": 0.05
+    },
+    "reticlehq/reticle": {
+      "relevance": 0.27,
+      "injection": 0.05
+    },
+    "keeltrace/hermes-nerve": {
+      "relevance": 0.37,
+      "injection": 0.04
+    },
+    "bartlomein/oko": {
+      "relevance": 0.55,
+      "injection": 0.03
+    },
+    "fabricioctelles/skills": {
+      "relevance": 0.21,
+      "injection": 0.04
+    },
+    "CompleteDotTech/paper-package": {
+      "relevance": 0.1,
+      "injection": 0.03
+    },
+    "liuhongrui087-art/jev-routed-agent": {
+      "relevance": 0.52,
+      "injection": 0.04
+    },
+    "hamakyo/jev-starter": {
+      "relevance": 0.4,
+      "injection": 0.04
+    },
+    "sosopop/jev_stock": {
+      "relevance": 0.13,
+      "injection": 0.04
+    },
+    "usenotra/notra": {
+      "relevance": 0.03,
+      "injection": 0.04
+    },
+    "valentynkit/jev-belay": {
+      "relevance": 0.38,
+      "injection": 0.06
+    },
+    "NicolaiLassen/open-bonsai-jev": {
+      "relevance": 0.34,
+      "injection": 0.04
+    },
+    "hev/reranker": {
+      "relevance": 0.7,
+      "injection": 0.03
+    },
+    "memorysaver/jev-atari-lab": {
+      "relevance": 0.16,
+      "injection": 0.11
+    },
+    "sonnylazuardi/superterminal": {
+      "relevance": 0.03,
+      "injection": 0.03
+    },
+    "ellistev/typesafe-minecraft-demo": {
+      "relevance": 0.09,
+      "injection": 0.03
+    },
+    "afshinm/laya-mps": {
+      "relevance": 0.29,
+      "injection": 0.03
+    },
+    "mayank953/Jev": {
+      "relevance": 0.16,
+      "injection": 0.04
+    },
+    "compozy/compozy": {
+      "relevance": 0.3,
+      "injection": 0.04
+    },
+    "cequence-io/openai-scala-client": {
+      "relevance": 0.16,
+      "injection": 0.03
+    },
+    "takeshy/obsidian-llm-hub": {
+      "relevance": 0.39,
+      "injection": 0.05
+    },
+    "brainstormity/Jev-Moderation-Bot": {
+      "relevance": 0.17,
+      "injection": 0.04
+    },
+    "rorshopping/jev-on-a-laptop": {
+      "relevance": 0.21,
+      "injection": 0.03
+    },
+    "awun8191/jev-resume-analyzer": {
+      "relevance": 0.24,
+      "injection": 0.03
+    },
+    "klauswg/jev-guard": {
+      "relevance": 0.1,
+      "injection": 0.04
+    },
+    "jvsteiner/jevex": {
+      "relevance": 0.34,
+      "injection": 0.11
+    },
+    "mameli/jev-vs-luna": {
+      "relevance": 0.16,
+      "injection": 0.11
+    },
+    "valentynkit/awesome-jev-typesafe": {
+      "relevance": 0.49,
+      "injection": 0.13
+    },
+    "omni-/ask-jev": {
+      "relevance": 0.54,
+      "injection": 0.21
+    },
+    "bodepudimuneendra-netizen/laya-jev-GraphRAG": {
+      "relevance": 0.75,
+      "injection": 0.05
+    },
+    "0x963D/last-exit": {
+      "relevance": 0.05,
+      "injection": 0.07
+    },
+    "notque/vexjoy-agent": {
+      "relevance": 0.41,
+      "injection": 0.06
+    },
+    "AkashPriyadarshii/jev-superpowers": {
+      "relevance": 0.38,
+      "injection": 0.06
+    },
+    "szczyglis-dev/py-gpt": {
+      "relevance": 0.31,
+      "injection": 0.05
+    },
+    "moritzkremb/jev-voice-browser": {
+      "relevance": 0.26,
+      "injection": 0.05
+    },
+    "replynodes/jev-web-analyzer": {
+      "relevance": 0.3,
+      "injection": 0.06
+    },
+    "DeepBlueDynamics/typesafe-arena": {
+      "relevance": 0.71,
+      "injection": 0.05
+    },
+    "TheoLeeCJ/SemIf-OpenJev": {
+      "relevance": 0.28,
+      "injection": 0.05
+    },
+    "willkelly/jev-evaluation": {
+      "relevance": 0.11,
+      "injection": 0.04
+    },
+    "genspark-ai/genoffice": {
+      "relevance": 0.15,
+      "injection": 0.05
+    },
+    "shimo4228/jev-research-pipeline": {
+      "relevance": 0.51,
+      "injection": 0.05
+    },
+    "erendikmenn/jev-rag-benchmark": {
+      "relevance": 0.23,
+      "injection": 0.03
+    },
+    "jkudish/jev-browser": {
+      "relevance": 0.19,
+      "injection": 0.05
+    },
+    "Das-rebel/a3m-router": {
+      "relevance": 0.19,
+      "injection": 0.07
+    },
+    "0xPlaygrounds/rig": {
+      "relevance": 0.56,
+      "injection": 0.05
+    },
+    "altryne/jevify": {
+      "relevance": 0.45,
+      "injection": 0.05
+    },
+    "kunpengtalk/OmniStudio": {
+      "relevance": 0.73,
+      "injection": 0.05
+    },
+    "deepanwadhwa/OpenDecision": {
+      "relevance": 0.42,
+      "injection": 0.04
+    },
+    "xerj-org/xerj": {
+      "relevance": 0.68,
+      "injection": 0.05
+    },
+    "rsdkrasen/hermes-jev-router": {
+      "relevance": 0.41,
+      "injection": 0.04
+    },
+    "keeltrace/hermes-jev": {
+      "relevance": 0.27,
+      "injection": 0.04
+    },
+    "jev-ids/jev-ids": {
+      "relevance": 0.1,
+      "injection": 0.03
+    },
+    "phyous/tsai-sc": {
+      "relevance": 0.1,
+      "injection": 0.04
+    },
+    "bastani-inc/atomic": {
+      "relevance": 0.13,
+      "injection": 0.04
+    },
+    "freepik-company/jev-mcp": {
+      "relevance": 0.36,
+      "injection": 0.04
+    },
+    "24601/Augustus": {
+      "relevance": 0.49,
+      "injection": 0.04
+    },
+    "marcus/frost": {
+      "relevance": 0.16,
+      "injection": 0.04
+    },
+    "SREGym/SREGym": {
+      "relevance": 0.06,
+      "injection": 0.03
+    },
+    "SamuelSacco/jev-exploration": {
+      "relevance": 0.16,
+      "injection": 0.04
+    },
+    "lhemerly/mcts-agent": {
+      "relevance": 0.28,
+      "injection": 0.04
+    },
+    "DecapodLabs/decapod": {
+      "relevance": 0.31,
+      "injection": 0.04
+    },
+    "0xNatoshi/jev-codex-router": {
+      "relevance": 0.28,
+      "injection": 0.05
+    },
+    "cpaczek/s1s": {
+      "relevance": 0.66,
+      "injection": 0.05
+    },
+    "milanboers/jev-plays-pokemon": {
+      "relevance": 0.13,
+      "injection": 0.03
+    },
+    "MichelKerkmeester/skilled-agent-harness_spec-driven-loops": {
+      "relevance": 0.67,
+      "injection": 0.05
+    },
+    "odin-labs-ai/odin-rnd": {
+      "relevance": 0.1,
+      "injection": 0.06
+    },
+    "mode-io/vllm-jev": {
+      "relevance": 0.11,
+      "injection": 0.04
+    },
+    "cbetz/extremely-specific-council": {
+      "relevance": 0.02,
+      "injection": 0.04
+    },
+    "JacquesGariepy/ORIGIN-CIVILIZATION": {
+      "relevance": 0.21,
+      "injection": 0.05
+    },
+    "kitze/unclutter": {
+      "relevance": 0.16,
+      "injection": 0.04
+    },
+    "lexmount/jev-browser-bridge": {
+      "relevance": 0.16,
+      "injection": 0.05
+    },
+    "komikat/psearch": {
+      "relevance": 0.36,
+      "injection": 0.05
+    },
+    "GhalebDweikat/winnow": {
+      "relevance": 0.68,
+      "injection": 0.04
+    },
+    "ReallyArtificial/jev-by-example": {
+      "relevance": 0.54,
+      "injection": 0.05
+    },
+    "prasanthj/duckdb-jev": {
+      "relevance": 0.23,
+      "injection": 0.03
+    },
+    "Friedjof/jev-mobile": {
+      "relevance": 0.2,
+      "injection": 0.04
+    },
+    "sightmap/jev-turbo": {
+      "relevance": 0.2,
+      "injection": 0.05
+    },
+    "YueBit/robodiag-harness": {
+      "relevance": 0.16,
+      "injection": 0.05
+    },
+    "ankit-aglawe/tinyjev": {
+      "relevance": 0.31,
+      "injection": 0.03
+    },
+    "Heman10x-NGU/Verdict-open-jev": {
+      "relevance": 0.18,
+      "injection": 0.04
+    },
+    "AlgoVaultLabs/algovault-integrations": {
+      "relevance": 0.08,
+      "injection": 0.05
+    },
+    "Contrastive-LM/CLM": {
+      "relevance": 0.19,
+      "injection": 0.05
+    },
+    "joelhooks/pi-fast-jev-compaction": {
+      "relevance": 0.64,
+      "injection": 0.05
+    },
+    "AlbionaHoti/refgarden": {
+      "relevance": 0.07,
+      "injection": 0.04
+    },
+    "zhangcy122/OpenJev": {
+      "relevance": 0.29,
+      "injection": 0.05
+    },
+    "earlyaidopters/away-together-starter": {
+      "relevance": 0.15,
+      "injection": 0.06
+    },
+    "everyinfra/jev-radar": {
+      "relevance": 0.21,
+      "injection": 0.04
+    },
+    "MongLong0214/jev-gate": {
+      "relevance": 0.55,
+      "injection": 0.1
+    },
+    "ShuhanSun/jev-oas-sentinel": {
+      "relevance": 0.23,
+      "injection": 0.06
+    },
+    "tyler-dot-earth/patdown": {
+      "relevance": 0.18,
+      "injection": 0.05
+    }
+  },
+  "answerable": 0.65,
+  "sufficient": false,
+  "sufficiency": 0.39,
+  "next_query": null,
+  "queries_tried": [
+    "all repository README files linked by the five requested Jev catalogs"
+  ],
+  "candidate_queries": [],
+  "round_index": 1,
+  "max_rounds": 1,
+  "top_k": 18,
+  "results_seen": 335,
+  "truncated": false,
+  "latency_ms": 861,
+  "usage": {
+    "input_tokens": 103195,
+    "output_tokens": 12189,
+    "cost": 0.00433419
+  }
+}

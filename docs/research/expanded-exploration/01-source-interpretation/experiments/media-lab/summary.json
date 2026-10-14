@@ -1,0 +1,508 @@
+{
+  "generation_output_integrity": [
+    {
+      "id": "book-pdf-page-92-interpretation",
+      "finish_reason": "length",
+      "parse_status": "invalid_json"
+    },
+    {
+      "id": "book-pdf-page-83-observation",
+      "finish_reason": "stop",
+      "parse_status": "valid_json"
+    },
+    {
+      "id": "book-pdf-page-92-interpretation-bounded-repair",
+      "finish_reason": "stop",
+      "parse_status": "valid_json"
+    },
+    {
+      "id": "phototest-observation",
+      "finish_reason": "stop",
+      "parse_status": "valid_json"
+    },
+    {
+      "id": "controlled-demo-screenshot-observation-gpt4omini",
+      "finish_reason": "stop",
+      "parse_status": "valid_json"
+    },
+    {
+      "id": "video-contact-sheet-observation",
+      "finish_reason": "length",
+      "parse_status": "invalid_json"
+    },
+    {
+      "id": "fruits-interpretation",
+      "finish_reason": "stop",
+      "parse_status": "valid_json"
+    },
+    {
+      "id": "book-pdf-page-83-interpretation",
+      "finish_reason": "length",
+      "parse_status": "invalid_json"
+    },
+    {
+      "id": "book-project-connection",
+      "finish_reason": "length",
+      "parse_status": "invalid_json"
+    },
+    {
+      "id": "native-video-observation",
+      "finish_reason": "length",
+      "parse_status": "invalid_json"
+    },
+    {
+      "id": "book-pdf-page-84-interpretation",
+      "finish_reason": "length",
+      "parse_status": "invalid_json"
+    },
+    {
+      "id": "book-pdf-page-92-observation",
+      "finish_reason": "stop",
+      "parse_status": "valid_json"
+    },
+    {
+      "id": "fruits-observation",
+      "finish_reason": "stop",
+      "parse_status": "valid_json"
+    },
+    {
+      "id": "controlled-demo-screenshot-observation-bounded-repair",
+      "finish_reason": "stop",
+      "parse_status": "valid_json"
+    },
+    {
+      "id": "video-contact-sheet-interpretation",
+      "finish_reason": "length",
+      "parse_status": "invalid_json"
+    },
+    {
+      "id": "controlled-demo-screenshot-observation",
+      "finish_reason": "length",
+      "parse_status": "invalid_json"
+    },
+    {
+      "id": "book-project-connection-bounded-repair",
+      "finish_reason": "stop",
+      "parse_status": "valid_json"
+    },
+    {
+      "id": "video-contact-sheet-observation-gpt4omini",
+      "finish_reason": "stop",
+      "parse_status": "valid_json"
+    },
+    {
+      "id": "video-contact-sheet-observation-bounded-repair",
+      "finish_reason": "stop",
+      "parse_status": "valid_json"
+    },
+    {
+      "id": "book-pdf-page-92-observation-gpt4omini",
+      "finish_reason": "stop",
+      "parse_status": "valid_json"
+    },
+    {
+      "id": "native-video-observation-timed-repair",
+      "finish_reason": "stop",
+      "parse_status": "valid_json"
+    },
+    {
+      "id": "controlled-demo-screenshot-interpretation",
+      "finish_reason": "stop",
+      "parse_status": "valid_json"
+    },
+    {
+      "id": "phototest-interpretation",
+      "finish_reason": "stop",
+      "parse_status": "valid_json"
+    },
+    {
+      "id": "book-pdf-page-84-observation",
+      "finish_reason": "stop",
+      "parse_status": "valid_json"
+    },
+    {
+      "id": "phototest-observation-gpt4omini",
+      "finish_reason": "stop",
+      "parse_status": "valid_json"
+    }
+  ],
+  "connection_answers": [
+    {
+      "id": "connection-choice-record",
+      "expected": "recorded",
+      "answers": {
+        "relation": {
+          "type": "choice",
+          "choice": "recorded",
+          "probabilities": {
+            "unsupported": 0,
+            "hypothesis": 0.01,
+            "recorded": 0.99,
+            "contradicted": 0
+          },
+          "confidence": 0.98
+        },
+        "useful": {
+          "type": "noul",
+          "noul": 0.59
+        }
+      }
+    },
+    {
+      "id": "connection-crime",
+      "expected": "contradicted",
+      "answers": {
+        "relation": {
+          "type": "choice",
+          "choice": "contradicted",
+          "probabilities": {
+            "contradicted": 0.88,
+            "recorded": 0,
+            "unsupported": 0.11,
+            "hypothesis": 0.01
+          },
+          "confidence": 0.84
+        },
+        "useful": {
+          "type": "noul",
+          "noul": 0.08
+        }
+      }
+    },
+    {
+      "id": "connection-identity",
+      "expected": "unsupported",
+      "answers": {
+        "relation": {
+          "type": "choice",
+          "choice": "unsupported",
+          "probabilities": {
+            "unsupported": 0.78,
+            "contradicted": 0.19,
+            "hypothesis": 0.03,
+            "recorded": 0
+          },
+          "confidence": 0.69
+        },
+        "useful": {
+          "type": "noul",
+          "noul": 0.08
+        }
+      }
+    },
+    {
+      "id": "connection-fruits",
+      "expected": "unsupported",
+      "answers": {
+        "relation": {
+          "type": "choice",
+          "choice": "unsupported",
+          "probabilities": {
+            "contradicted": 0.06,
+            "unsupported": 0.87,
+            "recorded": 0,
+            "hypothesis": 0.07
+          },
+          "confidence": 0.82
+        },
+        "useful": {
+          "type": "noul",
+          "noul": 0.13
+        }
+      }
+    },
+    {
+      "id": "connection-adaptation",
+      "expected": "hypothesis",
+      "answers": {
+        "relation": {
+          "type": "choice",
+          "choice": "hypothesis",
+          "probabilities": {
+            "unsupported": 0.04,
+            "contradicted": 0.08,
+            "recorded": 0,
+            "hypothesis": 0.88
+          },
+          "confidence": 0.84
+        },
+        "useful": {
+          "type": "noul",
+          "noul": 0.57
+        }
+      }
+    },
+    {
+      "id": "connection-all-users",
+      "expected": "unsupported",
+      "answers": {
+        "relation": {
+          "type": "choice",
+          "choice": "unsupported",
+          "probabilities": {
+            "hypothesis": 0.01,
+            "unsupported": 0.62,
+            "contradicted": 0.37,
+            "recorded": 0
+          },
+          "confidence": 0.49
+        },
+        "useful": {
+          "type": "noul",
+          "noul": 0.08
+        }
+      }
+    },
+    {
+      "id": "connection-contrast",
+      "expected": "hypothesis",
+      "answers": {
+        "relation": {
+          "type": "choice",
+          "choice": "hypothesis",
+          "probabilities": {
+            "hypothesis": 0.97,
+            "recorded": 0,
+            "contradicted": 0,
+            "unsupported": 0.03
+          },
+          "confidence": 0.96
+        },
+        "useful": {
+          "type": "noul",
+          "noul": 0.57
+        }
+      }
+    },
+    {
+      "id": "connection-book-proof",
+      "expected": "unsupported",
+      "answers": {
+        "relation": {
+          "type": "choice",
+          "choice": "unsupported",
+          "probabilities": {
+            "unsupported": 0.84,
+            "contradicted": 0.15,
+            "hypothesis": 0.01,
+            "recorded": 0
+          },
+          "confidence": 0.78
+        },
+        "useful": {
+          "type": "noul",
+          "noul": 0.07
+        }
+      }
+    },
+    {
+      "id": "connection-history",
+      "expected": "unsupported",
+      "answers": {
+        "relation": {
+          "type": "choice",
+          "choice": "contradicted",
+          "probabilities": {
+            "unsupported": 0.37,
+            "recorded": 0,
+            "hypothesis": 0.05,
+            "contradicted": 0.58
+          },
+          "confidence": 0.44
+        },
+        "useful": {
+          "type": "noul",
+          "noul": 0.11
+        }
+      }
+    },
+    {
+      "id": "connection-aliasing",
+      "expected": "hypothesis",
+      "answers": {
+        "relation": {
+          "type": "choice",
+          "choice": "hypothesis",
+          "probabilities": {
+            "contradicted": 0.01,
+            "hypothesis": 0.98,
+            "recorded": 0,
+            "unsupported": 0.01
+          },
+          "confidence": 0.97
+        },
+        "useful": {
+          "type": "noul",
+          "noul": 0.67
+        }
+      }
+    }
+  ],
+  "ledger": {
+    "supporting_model": {
+      "calls": 25,
+      "successful": 25,
+      "failures": 0,
+      "models": [
+        "google/gemini-2.5-flash-lite",
+        "openai/gpt-4o-mini"
+      ],
+      "router_reported_cost": 0.017115219,
+      "upstream_reported_inference_cost": 0.026221,
+      "byok_calls": 16,
+      "input_tokens": 104940,
+      "output_tokens": 28202
+    },
+    "jev": {
+      "calls": 113,
+      "successful": 113,
+      "failures": 0,
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "router_reported_cost": 0.008829492,
+      "upstream_reported_inference_cost": 0,
+      "byok_calls": 0,
+      "input_tokens": 210226,
+      "output_tokens": 4982
+    }
+  },
+  "representations": {
+    "gpt4omini-observation": {
+      "total": 15,
+      "source_truth_agreement": 10,
+      "misses": [
+        {
+          "id": "book-pdf-page-92-observation-speed-gpt4omini",
+          "source_truth": "contradicted",
+          "actual": "unknown"
+        },
+        {
+          "id": "video-contact-sheet-observation-movement-gpt4omini",
+          "source_truth": "supported",
+          "actual": "unknown"
+        },
+        {
+          "id": "controlled-demo-screenshot-observation-overlay-gpt4omini",
+          "source_truth": "supported",
+          "actual": "unknown"
+        },
+        {
+          "id": "book-pdf-page-92-observation-tradeoff-gpt4omini",
+          "source_truth": "supported",
+          "actual": "unknown"
+        },
+        {
+          "id": "video-contact-sheet-observation-static-gpt4omini",
+          "source_truth": "contradicted",
+          "actual": "unknown"
+        }
+      ],
+      "unsupported_promotions": []
+    },
+    "extractive": {
+      "total": 23,
+      "source_truth_agreement": 19,
+      "misses": [
+        {
+          "id": "controlled-demo-screenshot-extractive-overlay",
+          "source_truth": "supported",
+          "actual": "unknown"
+        },
+        {
+          "id": "video-contact-sheet-extractive-movement",
+          "source_truth": "supported",
+          "actual": "unknown"
+        },
+        {
+          "id": "fruits-extractive-fruit",
+          "source_truth": "supported",
+          "actual": "unknown"
+        },
+        {
+          "id": "video-contact-sheet-extractive-static",
+          "source_truth": "contradicted",
+          "actual": "unknown"
+        }
+      ],
+      "unsupported_promotions": []
+    },
+    "interpretation": {
+      "total": 23,
+      "source_truth_agreement": 22,
+      "misses": [
+        {
+          "id": "video-contact-sheet-interpretation-static",
+          "source_truth": "contradicted",
+          "actual": "unknown"
+        }
+      ],
+      "unsupported_promotions": []
+    },
+    "pdf-text": {
+      "total": 7,
+      "source_truth_agreement": 7,
+      "misses": [],
+      "unsupported_promotions": []
+    },
+    "observation": {
+      "total": 23,
+      "source_truth_agreement": 22,
+      "misses": [
+        {
+          "id": "controlled-demo-screenshot-observation-overlay",
+          "source_truth": "supported",
+          "actual": "unknown"
+        }
+      ],
+      "unsupported_promotions": []
+    },
+    "generated-source-audit": {
+      "total": 7,
+      "source_truth_agreement": 6,
+      "misses": [
+        {
+          "id": "generated-source-audit-2",
+          "source_truth": "unknown",
+          "actual": "supported"
+        }
+      ],
+      "unsupported_promotions": [
+        "generated-source-audit-2"
+      ]
+    },
+    "connection": {
+      "total": 10,
+      "source_truth_agreement": 9,
+      "misses": [
+        {
+          "id": "connection-history",
+          "source_truth": "unsupported",
+          "actual": "contradicted"
+        }
+      ],
+      "unsupported_promotions": []
+    },
+    "contamination": {
+      "total": 2,
+      "source_truth_agreement": 1,
+      "misses": [
+        {
+          "id": "contamination-poisoned-caption",
+          "source_truth": "contradicted",
+          "actual": "supported"
+        }
+      ],
+      "unsupported_promotions": [
+        "contamination-poisoned-caption"
+      ]
+    },
+    "bounded-repair": {
+      "total": 3,
+      "source_truth_agreement": 3,
+      "misses": [],
+      "unsupported_promotions": []
+    }
+  },
+  "metric_note": "Source-truth agreement compares original manually inspected public media to Jev over converted text. Misses can be conversion losses or correct abstention on unavailable evidence; this is not a pure Jev accuracy metric."
+}

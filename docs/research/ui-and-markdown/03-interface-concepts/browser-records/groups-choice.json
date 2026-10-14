@@ -1,0 +1,12 @@
+{
+  "schema": "jev.action_choice_v1",
+  "selected_id": "groups",
+  "confidence": 1.0,
+  "reason": "chosen",
+  "observation_id": "canvas-27-items",
+  "probabilities": {
+    "groups": 1.0,
+    "reobserve": 0.0,
+    "abstain": 0.0
+  }
+}

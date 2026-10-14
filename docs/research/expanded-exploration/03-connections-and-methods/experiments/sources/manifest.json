@@ -1,0 +1,146 @@
+[
+  {
+    "repo": "devagrawal09/stanley-code",
+    "sha": "85f39e71db0f615b8ce6161a6672a2bf955fa7fd",
+    "files": [
+      {
+        "path": "src/workflows/triage-failures.ts",
+        "sha256": "797644111c44b731da6a4c53d592c3b4e9e35dc269d4155f30c687001a211530",
+        "bytes": 21627,
+        "url": "https://github.com/devagrawal09/stanley-code/blob/85f39e71db0f615b8ce6161a6672a2bf955fa7fd/src/workflows/triage-failures.ts",
+        "source_status": "captured_public_implementation",
+        "inspection_scope": "targeted functions/sections inspected; not whole-file audit"
+      },
+      {
+        "path": "src/workflows/check-task.ts",
+        "sha256": "c53f8aba8d15ad28f263840a9b04a0d0c5bc545e39403909c62b8affe0a2fca1",
+        "bytes": 21681,
+        "url": "https://github.com/devagrawal09/stanley-code/blob/85f39e71db0f615b8ce6161a6672a2bf955fa7fd/src/workflows/check-task.ts",
+        "source_status": "captured_public_implementation",
+        "inspection_scope": "targeted functions/sections inspected; not whole-file audit"
+      },
+      {
+        "path": "src/core/workflow.ts",
+        "sha256": "dfa646d2341a3603c5601f2d1d1147f7d8012cd15292db9bc3d48eb021370708",
+        "bytes": 14661,
+        "url": "https://github.com/devagrawal09/stanley-code/blob/85f39e71db0f615b8ce6161a6672a2bf955fa7fd/src/core/workflow.ts",
+        "source_status": "captured_public_implementation",
+        "inspection_scope": "captured only; not inspected for report claims"
+      },
+      {
+        "path": "docs/workflow-design-decisions.md",
+        "sha256": "26c4328453eddfbe84e2fbb4abf9f81207d268611cf04c012c03004e5357ab56",
+        "bytes": 11826,
+        "url": "https://github.com/devagrawal09/stanley-code/blob/85f39e71db0f615b8ce6161a6672a2bf955fa7fd/docs/workflow-design-decisions.md",
+        "source_status": "captured_public_implementation",
+        "inspection_scope": "captured only; not inspected for report claims"
+      }
+    ]
+  },
+  {
+    "repo": "shimo4228/jev-research-pipeline",
+    "sha": "6dbac2bcf4221908cc16c934093cb1c52b4666ef",
+    "files": [
+      {
+        "path": "src/jev_research_pipeline/jev/question_movement.py",
+        "sha256": "68b705b30820f3d9af3b45a0e48f98acdae3e9425861d46ac11a7f1a82b848cc",
+        "bytes": 3411,
+        "url": "https://github.com/shimo4228/jev-research-pipeline/blob/6dbac2bcf4221908cc16c934093cb1c52b4666ef/src/jev_research_pipeline/jev/question_movement.py",
+        "source_status": "captured_public_implementation",
+        "inspection_scope": "targeted functions/sections inspected; not whole-file audit"
+      },
+      {
+        "path": "src/jev_research_pipeline/jev/source_support.py",
+        "sha256": "bc27613246d6f629efdd9513504849feba3c6ddc2df553092cd9af39b6bd412b",
+        "bytes": 3392,
+        "url": "https://github.com/shimo4228/jev-research-pipeline/blob/6dbac2bcf4221908cc16c934093cb1c52b4666ef/src/jev_research_pipeline/jev/source_support.py",
+        "source_status": "captured_public_implementation",
+        "inspection_scope": "targeted functions/sections inspected; not whole-file audit"
+      },
+      {
+        "path": "src/jev_research_pipeline/model/nodes.py",
+        "sha256": "3cad9f1d28b6e619a2fcdc0a75812a3f26258177fefdbce658e485e84c11fb8b",
+        "bytes": 32433,
+        "url": "https://github.com/shimo4228/jev-research-pipeline/blob/6dbac2bcf4221908cc16c934093cb1c52b4666ef/src/jev_research_pipeline/model/nodes.py",
+        "source_status": "captured_public_implementation",
+        "inspection_scope": "targeted functions/sections inspected; not whole-file audit"
+      },
+      {
+        "path": "src/jev_research_pipeline/store/stage_cache.py",
+        "sha256": "7c33bae9611bb6d16d94be41abec64698a9f8a555ccb2fecaa0b20554070c785",
+        "bytes": 1725,
+        "url": "https://github.com/shimo4228/jev-research-pipeline/blob/6dbac2bcf4221908cc16c934093cb1c52b4666ef/src/jev_research_pipeline/store/stage_cache.py",
+        "source_status": "captured_public_implementation",
+        "inspection_scope": "targeted functions/sections inspected; not whole-file audit"
+      }
+    ]
+  },
+  {
+    "repo": "kitze/skillbox",
+    "sha": "cda64ad3310abe690c6d497352791da4cfeb9a0a",
+    "files": [
+      {
+        "path": "src/server/mcp.ts",
+        "sha256": "83f86684f2399ccf4f3cdadf77d5a2e91107a50e5fcb30fd254fc97691bfd1e2",
+        "bytes": 13719,
+        "url": "https://github.com/kitze/skillbox/blob/cda64ad3310abe690c6d497352791da4cfeb9a0a/src/server/mcp.ts",
+        "source_status": "captured_public_implementation",
+        "inspection_scope": "targeted functions/sections inspected; not whole-file audit"
+      },
+      {
+        "path": "src/server/skill-resources.ts",
+        "sha256": "c1ffda51c1383842834b8c34c5f18f18b5c3f54bec167d7f522d3d4d9e57e704",
+        "bytes": 5173,
+        "url": "https://github.com/kitze/skillbox/blob/cda64ad3310abe690c6d497352791da4cfeb9a0a/src/server/skill-resources.ts",
+        "source_status": "captured_public_implementation",
+        "inspection_scope": "targeted functions/sections inspected; not whole-file audit"
+      },
+      {
+        "path": "src/skill-manifest.ts",
+        "sha256": "549d15c47da724f697ded3b8d2f4b256c9e3a401d1aa106358e5283d1d70caf1",
+        "bytes": 9902,
+        "url": "https://github.com/kitze/skillbox/blob/cda64ad3310abe690c6d497352791da4cfeb9a0a/src/skill-manifest.ts",
+        "source_status": "captured_public_implementation",
+        "inspection_scope": "targeted functions/sections inspected; not whole-file audit"
+      },
+      {
+        "path": "src/skill-import-safety.ts",
+        "sha256": "37c2e89998805ad1c1da4f0a5aaa4c6e7890b4974a1c59f29a282d1f1282bc06",
+        "bytes": 659,
+        "url": "https://github.com/kitze/skillbox/blob/cda64ad3310abe690c6d497352791da4cfeb9a0a/src/skill-import-safety.ts",
+        "source_status": "captured_public_implementation",
+        "inspection_scope": "targeted functions/sections inspected; not whole-file audit"
+      }
+    ]
+  },
+  {
+    "repo": "doeixd/discern",
+    "sha": "95c67914b20619da88c5a60076ac5898dfae1311",
+    "files": [
+      {
+        "path": "src/procedure.ts",
+        "sha256": "e77f78f8b6d5b792c905ca898d32db77371ee594424a73907aa1ef81b660b3e6",
+        "bytes": 20121,
+        "url": "https://github.com/doeixd/discern/blob/95c67914b20619da88c5a60076ac5898dfae1311/src/procedure.ts",
+        "source_status": "captured_public_implementation",
+        "inspection_scope": "targeted functions/sections inspected; not whole-file audit"
+      },
+      {
+        "path": "test/procedure.test.mjs",
+        "sha256": "e32bbe00b7304ed02a29ddb1215b442d911466a1f047f1a77725fb050fcf5656",
+        "bytes": 19358,
+        "url": "https://github.com/doeixd/discern/blob/95c67914b20619da88c5a60076ac5898dfae1311/test/procedure.test.mjs",
+        "source_status": "captured_public_implementation",
+        "inspection_scope": "captured only; not inspected for report claims"
+      },
+      {
+        "path": "README.md",
+        "sha256": "e239f5c1b8b17adc477951164a837d3fc9aaed4e7a10ed794273152ab5d7e8df",
+        "bytes": 37687,
+        "url": "https://github.com/doeixd/discern/blob/95c67914b20619da88c5a60076ac5898dfae1311/README.md",
+        "source_status": "captured_public_implementation",
+        "inspection_scope": "captured only; not inspected for report claims"
+      }
+    ]
+  }
+]

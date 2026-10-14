@@ -1,0 +1,132 @@
+{
+  "files": [
+    {
+      "file": "assets/book-pdf-page-84.png",
+      "bytes": 407195,
+      "sha256": "05a3b7221b9e0209bee6be16ef003bbfc18ca71cf693d319805adac112cafcb7",
+      "origin": "reused see prior media-lab/sources.json"
+    },
+    {
+      "file": "assets/briefing.pptx",
+      "bytes": 30077,
+      "sha256": "a661470f3605cb5ab93204d2f436d101fa8425f0529ad026bf88c5603ecab411",
+      "origin": "controlled authored fixture"
+    },
+    {
+      "file": "assets/controlled-coding-thread.json",
+      "bytes": 849,
+      "sha256": "90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e",
+      "origin": "reused see prior media-lab/sources.json"
+    },
+    {
+      "file": "assets/controlled-demo.mp4",
+      "bytes": 652778,
+      "sha256": "828f3a538f9ccbb5ddd81435c3a4b8ccd6d98d5313a15960a17f04ef039bf543",
+      "origin": "reused see prior media-lab/sources.json"
+    },
+    {
+      "file": "assets/controlled_demo.py",
+      "bytes": 1760,
+      "sha256": "0252143111c601230860c15973fbaa1f75aaf07d838ffdb09dcdb24a4c523e14",
+      "origin": "reused see prior media-lab/sources.json"
+    },
+    {
+      "file": "assets/conversation-link.md",
+      "bytes": 182,
+      "sha256": "f8638479949f32599b05d55db9590e9ad6d207bcae5f4dc3893953cf5320d9aa",
+      "origin": "controlled authored fixture"
+    },
+    {
+      "file": "assets/field-notes.txt",
+      "bytes": 233,
+      "sha256": "c22102712cf66426a2042910600e5bb9afb9822ab3919d3ffccc55c0de886343",
+      "origin": "controlled authored fixture"
+    },
+    {
+      "file": "assets/field-report.pdf",
+      "bytes": 1585,
+      "sha256": "3d2447e8136dddf29fadabf3bdee3e4c9159a3f120eb579e476398471fbf57d1",
+      "origin": "controlled authored fixture"
+    },
+    {
+      "file": "assets/fruits.jpg",
+      "bytes": 82429,
+      "sha256": "9c031d80a1c52da5eca790db896baffec6a7e52bf786cdb7bbfca5c7f880e6a1",
+      "origin": "reused see prior media-lab/sources.json"
+    },
+    {
+      "file": "assets/garden-download.html",
+      "bytes": 248,
+      "sha256": "87d17281e078c4d836ac99a4d9c3b1df475860da57062344605eb4a65354f964",
+      "origin": "controlled authored fixture"
+    },
+    {
+      "file": "assets/homework.pdf",
+      "bytes": 1599,
+      "sha256": "d86c4f463b4112b7322e7a608b19d2468b28700bb7ec87a6901c8c2b57f48d2c",
+      "origin": "controlled authored fixture"
+    },
+    {
+      "file": "assets/picnic-caption.md",
+      "bytes": 261,
+      "sha256": "669ea66791d655fc0a9406a148d946ff3d063907f4200eb631d12ca1a7f31bec",
+      "origin": "controlled authored fixture"
+    },
+    {
+      "file": "assets/plan-v1.md",
+      "bytes": 164,
+      "sha256": "2d62d16b116cd202edf31cc038f3853af4b0b505728cf807b3ee736494e9a8ba",
+      "origin": "controlled authored fixture"
+    },
+    {
+      "file": "assets/plan-v2.md",
+      "bytes": 210,
+      "sha256": "11def6157f016c6d868125a2841126da7a2a7a9f63fd3daacd0d06c4e5d726bf",
+      "origin": "controlled authored fixture"
+    },
+    {
+      "file": "assets/question.md",
+      "bytes": 132,
+      "sha256": "a7fc4346fe25a6470387031c0f4302594c54250a87517905afcc4b5803b01d2d",
+      "origin": "controlled authored fixture"
+    },
+    {
+      "file": "assets/reasoning.md",
+      "bytes": 231,
+      "sha256": "99f802dbc17efcc48643956f87a70f1ad35012d9fe88c968fb823d560b059a7a",
+      "origin": "controlled authored fixture"
+    },
+    {
+      "file": "assets/receipt.txt",
+      "bytes": 162,
+      "sha256": "84cb723171c24e0beaee0e41890f2c70aca867d135c4c7dff93ded5feca9c545",
+      "origin": "controlled authored fixture"
+    },
+    {
+      "file": "assets/tone.wav",
+      "bytes": 16044,
+      "sha256": "3a6f623c555c324fb74a4c908858c66a47d05bd316459514858cc4529c31aa34",
+      "origin": "controlled authored fixture"
+    },
+    {
+      "file": "assets/trail.md",
+      "bytes": 152,
+      "sha256": "e1ee37b6c7578774fe795db438f54982322f276c0d10badb249395e76c28b4dd",
+      "origin": "controlled authored fixture"
+    },
+    {
+      "file": "assets/unknown-photo.txt",
+      "bytes": 216,
+      "sha256": "64cfc4ba6d804dd9c37e4be048e192135d87a1435bd97125b1049c06f6d8e870",
+      "origin": "controlled authored fixture"
+    },
+    {
+      "file": "assets/visits.csv",
+      "bytes": 96,
+      "sha256": "7c96d132bf90064912ca0493363466dafe60962476a5a62fdcae463e9d9d516f",
+      "origin": "controlled authored fixture"
+    }
+  ],
+  "previousManifest": "../../../expanded-exploration/01-source-interpretation/experiments/media-lab/sources.json",
+  "conversationDestinationFetches": 0
+}

@@ -1,0 +1,55 @@
+{
+  "researchDate": "2026-09-29",
+  "source": "04-search-and-timelines/experiments/run-20260930T004745Z/summary.json",
+  "requests": 44,
+  "successful": 44,
+  "inputTokens": 80977,
+  "outputTokens": 5804,
+  "reportedRouterCostUSD": 0.005773986,
+  "models": [
+    "openai/gpt-4.1-mini",
+    "typesafe/jev-1.13-20260917"
+  ],
+  "byRole": {
+    "answer-verifier": {
+      "requests": 6,
+      "successful": 6,
+      "inputTokens": 5943,
+      "outputTokens": 473,
+      "reportedCostUSD": 0.000249606,
+      "medianSeconds": 0.27797614598239306
+    },
+    "cited-answer": {
+      "requests": 6,
+      "successful": 6,
+      "inputTokens": 1996,
+      "outputTokens": 1052,
+      "reportedCostUSD": 0.002456784,
+      "medianSeconds": 1.8846800624887692
+    },
+    "retrieval-broad": {
+      "requests": 16,
+      "successful": 16,
+      "inputTokens": 59138,
+      "outputTokens": 3438,
+      "reportedCostUSD": 0.002483796,
+      "medianSeconds": 2.093586104005226
+    },
+    "retrieval-shortlist": {
+      "requests": 16,
+      "successful": 16,
+      "inputTokens": 13900,
+      "outputTokens": 841,
+      "reportedCostUSD": 0.0005838,
+      "medianSeconds": 0.6147738955041859
+    }
+  },
+  "excluded": [
+    "coding agents",
+    "previous research collections",
+    "browser Jev chooser and typing helper",
+    "local extraction/runtime",
+    "unreported billing"
+  ],
+  "boundary": "Reported response accounting, not total account or project cost. No measured provider failures or retries; semantic and quote failures retained."
+}

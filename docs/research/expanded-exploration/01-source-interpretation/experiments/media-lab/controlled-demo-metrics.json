@@ -1,0 +1,252 @@
+[
+  {
+    "seconds": 0.0,
+    "changed_pixels": 0,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 0.2,
+    "changed_pixels": 5961,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 0.4,
+    "changed_pixels": 6885,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 0.6,
+    "changed_pixels": 6197,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 0.8,
+    "changed_pixels": 6029,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 1.0,
+    "changed_pixels": 8135,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 1.2,
+    "changed_pixels": 8076,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 1.4,
+    "changed_pixels": 10360,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 1.6,
+    "changed_pixels": 8755,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 1.8,
+    "changed_pixels": 10428,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 2.0,
+    "changed_pixels": 11566,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 2.2,
+    "changed_pixels": 8811,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 2.4,
+    "changed_pixels": 9951,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 2.6,
+    "changed_pixels": 6022,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 2.8,
+    "changed_pixels": 7627,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 3.0,
+    "changed_pixels": 5572,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 3.2,
+    "changed_pixels": 6436,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 3.4,
+    "changed_pixels": 4965,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 3.6,
+    "changed_pixels": 5669,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 3.8,
+    "changed_pixels": 5452,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 4.0,
+    "changed_pixels": 7795,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 4.2,
+    "changed_pixels": 7866,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 4.4,
+    "changed_pixels": 9235,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 4.6,
+    "changed_pixels": 8168,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 4.8,
+    "changed_pixels": 9770,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 5.0,
+    "changed_pixels": 9863,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 5.2,
+    "changed_pixels": 6989,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 5.4,
+    "changed_pixels": 8543,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 5.6,
+    "changed_pixels": 7334,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 5.8,
+    "changed_pixels": 7083,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 6.0,
+    "changed_pixels": 7835,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 6.2,
+    "changed_pixels": 5233,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 6.4,
+    "changed_pixels": 7730,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 6.6,
+    "changed_pixels": 5814,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 6.8,
+    "changed_pixels": 6948,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 7.0,
+    "changed_pixels": 4922,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 7.2,
+    "changed_pixels": 5125,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 7.4,
+    "changed_pixels": 3949,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 7.6,
+    "changed_pixels": 3719,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 7.8,
+    "changed_pixels": 4120,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 8.0,
+    "changed_pixels": 3007,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 8.2,
+    "changed_pixels": 4046,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 8.4,
+    "changed_pixels": 3588,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 8.6,
+    "changed_pixels": 4410,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 8.8,
+    "changed_pixels": 5401,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 9.0,
+    "changed_pixels": 3974,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 9.2,
+    "changed_pixels": 6715,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 9.4,
+    "changed_pixels": 4966,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 9.6,
+    "changed_pixels": 6000,
+    "total_pixels": 442368
+  },
+  {
+    "seconds": 9.8,
+    "changed_pixels": 4785,
+    "total_pixels": 442368
+  }
+]

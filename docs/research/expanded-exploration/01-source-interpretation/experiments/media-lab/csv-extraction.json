@@ -1,0 +1,20 @@
+{
+  "source": "iris.csv",
+  "rows": 150,
+  "species_counts": {
+    "Iris-setosa": 50,
+    "Iris-versicolor": 50,
+    "Iris-virginica": 50
+  },
+  "first_row": {
+    "anchor": "row:1",
+    "raw": [
+      "5.1",
+      "3.5",
+      "1.4",
+      "0.2",
+      "Iris-setosa"
+    ]
+  },
+  "limits": "CSV alone has no header or measurement units; do not infer units without separate dataset documentation."
+}

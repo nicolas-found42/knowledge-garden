@@ -1,0 +1,63 @@
+{
+  "recorded_at": "2026-09-29T22:50:39.217236+00:00",
+  "model": "typesafe/jev-1.13",
+  "sdk_version": "0.7.2",
+  "fixture_hash": "d32a40b872b7938f46ab26fb2c68d33ca9974b07f320d8584dd3d9f1a4368d46",
+  "requests": 80,
+  "successful": 75,
+  "wall_seconds": 43.829573166993214,
+  "median_seconds": 0.33216291602002457,
+  "reported_cost_usd": 0.0015584940000000001,
+  "input_tokens": 37107,
+  "output_tokens": 4366,
+  "groups": {
+    "source_freshness/revision_aware": {
+      "requests": 10,
+      "successful": 10,
+      "checks": 10,
+      "correct": 10
+    },
+    "source_freshness/cached_only": {
+      "requests": 10,
+      "successful": 10,
+      "checks": 10,
+      "correct": 2
+    },
+    "context_retention/topic_only": {
+      "requests": 10,
+      "successful": 9,
+      "checks": 9,
+      "correct": 7
+    },
+    "context_retention/constraint_aware": {
+      "requests": 10,
+      "successful": 10,
+      "checks": 10,
+      "correct": 10
+    },
+    "typed_query_plan/flat": {
+      "requests": 10,
+      "successful": 9,
+      "checks": 18,
+      "correct": 15
+    },
+    "typed_query_plan/typed": {
+      "requests": 10,
+      "successful": 10,
+      "checks": 20,
+      "correct": 17
+    },
+    "raw_source_acquisition/raw_source": {
+      "requests": 10,
+      "successful": 8,
+      "checks": 16,
+      "correct": 15
+    },
+    "raw_source_acquisition/synopsis": {
+      "requests": 10,
+      "successful": 9,
+      "checks": 18,
+      "correct": 10
+    }
+  }
+}

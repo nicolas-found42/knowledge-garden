@@ -1,0 +1,36 @@
+{
+  "requests": 25,
+  "reported_cost_usd": 0.000654654,
+  "groups": {
+    "raw_source_acquisition/synopsis_service_retry": {
+      "requests": 1,
+      "checks": 2,
+      "correct": 1
+    },
+    "typed_query_plan/flat_service_retry": {
+      "requests": 1,
+      "checks": 2,
+      "correct": 2
+    },
+    "context_retention/topic_only_service_retry": {
+      "requests": 1,
+      "checks": 1,
+      "correct": 1
+    },
+    "raw_source_acquisition/raw_source_service_retry": {
+      "requests": 2,
+      "checks": 4,
+      "correct": 2
+    },
+    "typed_query_plan/branch_specific": {
+      "requests": 10,
+      "checks": 16,
+      "correct": 15
+    },
+    "raw_source_acquisition/adaptive_fetched": {
+      "requests": 10,
+      "checks": 20,
+      "correct": 17
+    }
+  }
+}

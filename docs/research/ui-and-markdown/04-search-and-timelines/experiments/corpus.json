@@ -1,0 +1,1125 @@
+{
+  "schema": "kg-research-corpus-v1",
+  "researchDate": "2026-09-29",
+  "boundary": "Public and explicitly controlled research only. Relationships are researcher-authored, not inferred or user accepted.",
+  "items": [
+    {
+      "id": "photo-fruit",
+      "title": "Fruit on a picnic table",
+      "kind": "file",
+      "format": "JPG",
+      "origin": "public reused",
+      "visibility": "public",
+      "body": "A real public OpenCV fruit photograph. Controlled picnic caption is separate; pixels do not establish Maya, Riverside, a date, nutrition, or weight.",
+      "tags": [
+        "food",
+        "photo"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/fruits.jpg",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": null,
+      "eventEnd": null,
+      "eventLabel": "Unknown",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "caption",
+      "title": "Picnic caption with an uncertain date",
+      "kind": "annotation",
+      "format": "Markdown",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "# Picnic photo caption\nControlled metadata for the public fruit photograph, not its true provenance. Maya prepared fruit at Riverside on a day in May 2024. Photographer did not record the exact date. The photograph alone does not identify Maya or the location.\n",
+      "tags": [
+        "Maya",
+        "Riverside",
+        "photo"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/picnic-caption.md",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": "2024-05-01",
+      "eventEnd": "2024-05-31",
+      "eventLabel": "May 2024, day unknown",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "homework",
+      "title": "Sampling homework",
+      "kind": "file",
+      "format": "PDF",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "Controlled homework: 12 visits in ten minutes is 1.2 per minute. A short observation does not estimate all-day activity. Rain causality is not established.",
+      "tags": [
+        "learning",
+        "sampling",
+        "pollinators"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/homework.pdf",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": null,
+      "eventEnd": null,
+      "eventLabel": "Unknown",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "report",
+      "title": "Riverside field report",
+      "kind": "file",
+      "format": "PDF",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "Maya recorded 12 pollinator visits in ten minutes on 17 May 2024 at Riverside. One observation does not establish a trend. A later wet visit was interrupted.",
+      "tags": [
+        "Maya",
+        "Riverside",
+        "pollinators"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/field-report.pdf",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": "2024-05-17",
+      "eventEnd": "2024-05-17",
+      "eventLabel": "17 May 2024",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "slides",
+      "title": "Field study briefing",
+      "kind": "file",
+      "format": "PPTX",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "Controlled slides describe Maya at Riverside, 12 visits in ten minutes on 17 May 2024, interrupted wet visit and revised morning/noon plan.",
+      "tags": [
+        "learning",
+        "Maya",
+        "Riverside"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/briefing.pptx",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": "2024-05-21",
+      "eventEnd": "2024-05-21",
+      "eventLabel": "21 May 2024",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "notes",
+      "title": "Visit notes",
+      "kind": "file",
+      "format": "TXT",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "Controlled handwritten-note transcription surrogate. On 17 May 2024 at Riverside, Maya counted 12 pollinator visits in ten minutes. This was one observation, not a controlled trial. No handwritten original exists in this experiment.\n",
+      "tags": [
+        "Maya",
+        "Riverside",
+        "pollinators"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/field-notes.txt",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": "2024-05-17",
+      "eventEnd": "2024-05-17",
+      "eventLabel": "17 May 2024",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "table",
+      "title": "Two pollinator counts",
+      "kind": "file",
+      "format": "CSV",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "Controlled rows: 17 May 2024, Maya, Riverside, 12 visits, 10 minutes; 18 May, 8 visits, 10 minutes. Rows do not attribute a difference to rain.",
+      "tags": [
+        "counts",
+        "pollinators"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/visits.csv",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": "2024-05-17",
+      "eventEnd": "2024-05-18",
+      "eventLabel": "17\u201318 May 2024",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "download",
+      "title": "Garden visiting notes",
+      "kind": "file",
+      "format": "HTML",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "Controlled arbitrary download: fictional Riverside glasshouse closes on Mondays. This is not a real venue schedule.",
+      "tags": [
+        "download",
+        "Riverside"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/garden-download.html",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": null,
+      "eventEnd": null,
+      "eventLabel": "Unknown",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "receipt",
+      "title": "Notebook purchase record",
+      "kind": "file",
+      "format": "TXT",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "Controlled ordinary download. Field notebook, one unit, 4.00 study tokens. Downloaded 2026-09-03. Transaction described: 2024-05-16. Not a real financial record.\n",
+      "tags": [
+        "download",
+        "notebook"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/receipt.txt",
+      "activityTime": "2026-09-03T09:00:00-04:00",
+      "eventStart": "2024-05-16",
+      "eventEnd": "2024-05-16",
+      "eventLabel": "Transaction 16 May 2024; imported later",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "plan-1",
+      "title": "Noon-only sampling proposal",
+      "kind": "decision",
+      "format": "Markdown",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "# Study plan, version 1\nControlled plan, 2024-05-18. Count visits at noon only. Maya proposed noon because the path is quieter. Proposal, not a measured best time.\n",
+      "tags": [
+        "sampling",
+        "Maya"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/plan-v1.md",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": "2024-05-18",
+      "eventEnd": "2024-05-18",
+      "eventLabel": "18 May 2024",
+      "epistemic": "tentative",
+      "acquisition": "captured"
+    },
+    {
+      "id": "plan-2",
+      "title": "Morning and noon sampling decision",
+      "kind": "decision",
+      "format": "Markdown",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "# Study plan, version 2\nControlled decision, 2024-05-20. Use morning and noon observations after rain disrupted the noon visit. This replaces the noon-only plan; better sampling accuracy has not been measured.\n",
+      "tags": [
+        "sampling",
+        "Maya"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/plan-v2.md",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": "2024-05-20",
+      "eventEnd": "2024-05-20",
+      "eventLabel": "20 May 2024",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "reasoning",
+      "title": "Why the sampling plan changed",
+      "kind": "file",
+      "format": "Markdown",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "# Controlled study reasoning\n2024-05-18T09:00:00Z Maya proposes noon-only visits.\n2024-05-19T11:00:00Z Rain interrupts the noon visit.\n2024-05-20T08:00:00Z Maya adopts morning and noon observations. No accuracy comparison was run.\n",
+      "tags": [
+        "sampling",
+        "rain"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/reasoning.md",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": "2024-05-18",
+      "eventEnd": "2024-05-20",
+      "eventLabel": "18\u201320 May 2024",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "person-maya",
+      "title": "Maya",
+      "kind": "person",
+      "format": "Markdown",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "Controlled named participant. Mentioned in caption, report, notes and presentation. No face identification has been run.",
+      "tags": [
+        "Maya"
+      ],
+      "sourceHref": "",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": null,
+      "eventEnd": null,
+      "eventLabel": "Unknown",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "place-river",
+      "title": "Riverside",
+      "kind": "place",
+      "format": "Markdown",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "Fictional shared place in authored study records. It is not geolocated and is not a known real venue.",
+      "tags": [
+        "Riverside"
+      ],
+      "sourceHref": "",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": null,
+      "eventEnd": null,
+      "eventLabel": "Unknown",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "concept-sampling",
+      "title": "Sampling",
+      "kind": "concept",
+      "format": "Markdown",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "Studying a limited set of observations. A common concept joins learning material, counts and plans.",
+      "tags": [
+        "learning",
+        "sampling"
+      ],
+      "sourceHref": "",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": null,
+      "eventEnd": null,
+      "eventLabel": "Unknown",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "event-visit",
+      "title": "The 17 May visit",
+      "kind": "event",
+      "format": "Markdown",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "Controlled event described by notes, report and counts. Source import time is different from this described event.",
+      "tags": [
+        "Riverside"
+      ],
+      "sourceHref": "",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": "2024-05-17",
+      "eventEnd": "2024-05-17",
+      "eventLabel": "17 May 2024",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "claim-rate",
+      "title": "Observed rate: 1.2 visits per minute",
+      "kind": "claim",
+      "format": "Markdown",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "A calculation from 12 visits divided by ten minutes; bounded to the 17 May observation, not a daily estimate.",
+      "tags": [
+        "sampling",
+        "counts"
+      ],
+      "sourceHref": "",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": null,
+      "eventEnd": null,
+      "eventLabel": "Unknown",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "claim-rain",
+      "title": "Rain reduced pollinator activity",
+      "kind": "claim",
+      "format": "Markdown",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "Speculative causal explanation, not established by the interrupted visit or the two rows. Distinguish missing observations from fewer insects.",
+      "tags": [
+        "rain",
+        "pollinators"
+      ],
+      "sourceHref": "",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": null,
+      "eventEnd": null,
+      "eventLabel": "Unknown",
+      "epistemic": "speculative",
+      "acquisition": "captured"
+    },
+    {
+      "id": "question-rain",
+      "title": "Did rain affect activity or observation?",
+      "kind": "question",
+      "format": "Markdown",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "# Open question\nDid rain change pollinator activity or only prevent observation? Current notes do not resolve this causal question.\n",
+      "tags": [
+        "rain",
+        "gaps"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/question.md",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": null,
+      "eventEnd": null,
+      "eventLabel": "Unknown",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "trail",
+      "title": "Study the observation before the explanation",
+      "kind": "trail",
+      "format": "Markdown",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "# Study trail\nRead the visit notes, inspect counts, compare the two plans, then consider the unresolved rain question. This is an authored study route.\n",
+      "tags": [
+        "learning"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/trail.md",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": null,
+      "eventEnd": null,
+      "eventLabel": "Unknown",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "photo-missing",
+      "title": "Blue canoe by a winter lake",
+      "kind": "file",
+      "format": "HEIC",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "# Missing source record\nControlled inaccessible original: winter-lake.heic was referenced but is not present. Caption mentions a blue canoe; date and photographer unknown. Do not treat a caption as inspected pixels.\n",
+      "tags": [
+        "photo",
+        "missing"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/unknown-photo.txt",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": null,
+      "eventEnd": null,
+      "eventLabel": "Unknown",
+      "epistemic": "recorded",
+      "acquisition": "could_not_retrieve"
+    },
+    {
+      "id": "linked",
+      "title": "Field-guide link occurrence",
+      "kind": "file",
+      "format": "URL",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "# Link occurrence\nControlled conversation mentioned https://example.invalid/field-guide. Acquisition: merely linked. Destination has never been fetched and its contents are unknown.\n",
+      "tags": [
+        "link",
+        "gaps"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/conversation-link.md",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": null,
+      "eventEnd": null,
+      "eventLabel": "Unknown",
+      "epistemic": "recorded",
+      "acquisition": "merely_linked"
+    },
+    {
+      "id": "audio",
+      "title": "One-second 440 Hz tone",
+      "kind": "file",
+      "format": "WAV",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "Controlled waveform with no speech. This fixture checks retained file opening, not audio transcription or tone understanding.",
+      "tags": [
+        "audio"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/tone.wav",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": null,
+      "eventEnd": null,
+      "eventLabel": "Unknown",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "book",
+      "title": "Historical book scan, page 84",
+      "kind": "file",
+      "format": "PNG",
+      "origin": "public derivative",
+      "visibility": "public",
+      "body": "Reused real public Darwin scan derivative. Printed-page and PDF-page numbering differ; see prior media manifest for original acquisition. No personal historical inspiration is implied.",
+      "tags": [
+        "book",
+        "learning"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/book-pdf-page-84.png",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": null,
+      "eventEnd": null,
+      "eventLabel": "Unknown",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "video",
+      "title": "Motion difference demonstration",
+      "kind": "file",
+      "format": "MP4",
+      "origin": "controlled over public video",
+      "visibility": "controlled",
+      "body": "Reused executed demonstration built from public OpenCV video. At two seconds, 11566 is a sampled consecutive-frame changed-pixel count, not an interval aggregate or accuracy score.",
+      "tags": [
+        "video",
+        "motion"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/controlled-demo.mp4",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": null,
+      "eventEnd": null,
+      "eventLabel": "Unknown",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "code",
+      "title": "Motion demonstration source",
+      "kind": "file",
+      "format": "Python",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "Executed controlled code: grayscale, blur and threshold 35. It produces masks; better accuracy was not established.",
+      "tags": [
+        "code",
+        "motion"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/controlled_demo.py",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": null,
+      "eventEnd": null,
+      "eventLabel": "Unknown",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    },
+    {
+      "id": "chat",
+      "title": "Controlled motion discussion",
+      "kind": "file",
+      "format": "JSON",
+      "origin": "controlled",
+      "visibility": "controlled",
+      "body": "Authored conversation proposing and adopting a motion-mask change. This is not recovered personal history. Source code and measured output are separate records.",
+      "tags": [
+        "conversation",
+        "motion"
+      ],
+      "sourceHref": "/docs/research/ui-and-markdown/04-search-and-timelines/experiments/assets/controlled-coding-thread.json",
+      "activityTime": "2026-09-29T20:00:00-04:00",
+      "eventStart": null,
+      "eventEnd": null,
+      "eventLabel": "Unknown",
+      "epistemic": "recorded",
+      "acquisition": "captured"
+    }
+  ],
+  "relations": [
+    {
+      "id": "r1",
+      "from": "caption",
+      "to": "person-maya",
+      "type": "mentions",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "caption",
+          "quote": "Maya",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r2",
+      "from": "caption",
+      "to": "place-river",
+      "type": "describes-place",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "caption",
+          "quote": "Riverside",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r3",
+      "from": "report",
+      "to": "person-maya",
+      "type": "mentions",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "report",
+          "quote": "Maya",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r4",
+      "from": "report",
+      "to": "place-river",
+      "type": "describes-place",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "report",
+          "quote": "Riverside",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r5",
+      "from": "slides",
+      "to": "person-maya",
+      "type": "mentions",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "slides",
+          "quote": "Maya",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r6",
+      "from": "slides",
+      "to": "place-river",
+      "type": "describes-place",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "slides",
+          "quote": "Riverside",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r7",
+      "from": "notes",
+      "to": "person-maya",
+      "type": "mentions",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "notes",
+          "quote": "Maya",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r8",
+      "from": "notes",
+      "to": "place-river",
+      "type": "describes-place",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "notes",
+          "quote": "Riverside",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r9",
+      "from": "caption",
+      "to": "photo-fruit",
+      "type": "annotates",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "caption",
+          "quote": "Controlled metadata",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r10",
+      "from": "homework",
+      "to": "concept-sampling",
+      "type": "about",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "homework",
+          "quote": "",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r11",
+      "from": "report",
+      "to": "concept-sampling",
+      "type": "about",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "report",
+          "quote": "",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r12",
+      "from": "table",
+      "to": "concept-sampling",
+      "type": "about",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "table",
+          "quote": "",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r13",
+      "from": "plan-1",
+      "to": "concept-sampling",
+      "type": "about",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "plan-1",
+          "quote": "",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r14",
+      "from": "plan-2",
+      "to": "concept-sampling",
+      "type": "about",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "plan-2",
+          "quote": "",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r15",
+      "from": "notes",
+      "to": "event-visit",
+      "type": "describes",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "notes",
+          "quote": "17 May 2024",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r16",
+      "from": "report",
+      "to": "event-visit",
+      "type": "describes",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "report",
+          "quote": "17 May 2024",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r17",
+      "from": "table",
+      "to": "claim-rate",
+      "type": "supports",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "table",
+          "quote": "12 visits, 10 minutes",
+          "selector": "row 1"
+        }
+      ],
+      "selector": "row 1"
+    },
+    {
+      "id": "r18",
+      "from": "homework",
+      "to": "claim-rate",
+      "type": "explains",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "homework",
+          "quote": "1.2 per minute",
+          "selector": "page 1"
+        }
+      ],
+      "selector": "page 1"
+    },
+    {
+      "id": "r19",
+      "from": "plan-2",
+      "to": "plan-1",
+      "type": "revises",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "plan-2",
+          "quote": "This replaces the noon-only plan",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r20",
+      "from": "reasoning",
+      "to": "plan-2",
+      "type": "explains",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "reasoning",
+          "quote": "Rain interrupts the noon visit",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r21",
+      "from": "claim-rain",
+      "to": "question-rain",
+      "type": "needs-evidence",
+      "status": "speculative",
+      "evidence": [
+        {
+          "itemId": "question-rain",
+          "quote": "",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r22",
+      "from": "table",
+      "to": "claim-rain",
+      "type": "insufficient-for",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "table",
+          "quote": "Rows do not attribute a difference to rain",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r23",
+      "from": "trail",
+      "to": "notes",
+      "type": "trail-step",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "trail",
+          "quote": "",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r24",
+      "from": "trail",
+      "to": "table",
+      "type": "trail-step",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "trail",
+          "quote": "",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r25",
+      "from": "trail",
+      "to": "plan-1",
+      "type": "trail-step",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "trail",
+          "quote": "",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r26",
+      "from": "trail",
+      "to": "plan-2",
+      "type": "trail-step",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "trail",
+          "quote": "",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r27",
+      "from": "trail",
+      "to": "question-rain",
+      "type": "trail-step",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "trail",
+          "quote": "",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r28",
+      "from": "code",
+      "to": "video",
+      "type": "produces",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "code",
+          "quote": "",
+          "selector": "source code"
+        }
+      ],
+      "selector": "source code"
+    },
+    {
+      "id": "r29",
+      "from": "chat",
+      "to": "code",
+      "type": "motivates",
+      "status": "recorded",
+      "evidence": [
+        {
+          "itemId": "chat",
+          "quote": "",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    },
+    {
+      "id": "r30",
+      "from": "book",
+      "to": "concept-sampling",
+      "type": "possible-analogy",
+      "status": "speculative",
+      "evidence": [
+        {
+          "itemId": "book",
+          "quote": "",
+          "selector": "document"
+        }
+      ],
+      "selector": "document"
+    }
+  ],
+  "reasoning": [
+    {
+      "id": "reason-1",
+      "time": "2024-05-18T09:00:00Z",
+      "type": "proposal",
+      "itemId": "plan-1",
+      "label": "Propose noon-only visits",
+      "evidence": [
+        {
+          "itemId": "reasoning",
+          "selector": "line 2"
+        }
+      ]
+    },
+    {
+      "id": "reason-2",
+      "time": "2024-05-19T11:00:00Z",
+      "type": "observation",
+      "itemId": "reasoning",
+      "label": "Rain interrupts a visit",
+      "evidence": [
+        {
+          "itemId": "reasoning",
+          "selector": "line 3"
+        }
+      ]
+    },
+    {
+      "id": "reason-3",
+      "time": "2024-05-20T08:00:00Z",
+      "type": "revision",
+      "itemId": "plan-2",
+      "label": "Adopt morning and noon",
+      "evidence": [
+        {
+          "itemId": "reasoning",
+          "selector": "line 4"
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "explore",
+      "title": "Follow a useful connection",
+      "instruction": "Explore how a photograph annotation leads to a person, report and learning material.",
+      "expectedIds": [
+        "caption",
+        "person-maya",
+        "report",
+        "homework"
+      ]
+    },
+    {
+      "id": "explain",
+      "title": "Check the rate claim",
+      "instruction": "Recover the calculation and its single-observation qualification.",
+      "expectedIds": [
+        "claim-rate",
+        "table",
+        "homework"
+      ]
+    },
+    {
+      "id": "orient",
+      "title": "Orient across the whole collection",
+      "instruction": "Show files and extracted items, then expand a group without losing collection access.",
+      "expectedIds": [
+        "photo-fruit",
+        "person-maya",
+        "video"
+      ]
+    },
+    {
+      "id": "remember",
+      "title": "Recover a partly remembered file",
+      "instruction": "Find the slides mentioning Maya at Riverside.",
+      "expectedIds": [
+        "slides"
+      ]
+    },
+    {
+      "id": "compare",
+      "title": "Compare plans",
+      "instruction": "Explain noon-only versus morning-and-noon; identify what was never measured.",
+      "expectedIds": [
+        "plan-1",
+        "plan-2",
+        "reasoning"
+      ]
+    },
+    {
+      "id": "change",
+      "title": "Separate three kinds of time",
+      "instruction": "Inspect activity, reasoning and described events; retain unknown and month-only dates.",
+      "expectedIds": [
+        "receipt",
+        "caption",
+        "reasoning"
+      ]
+    },
+    {
+      "id": "gaps",
+      "title": "Inspect gaps",
+      "instruction": "Find the missing photograph, unacquired link and unsupported rain explanation.",
+      "expectedIds": [
+        "photo-missing",
+        "linked",
+        "question-rain",
+        "claim-rain"
+      ]
+    },
+    {
+      "id": "trails",
+      "title": "Follow the study trail",
+      "instruction": "Follow evidence, versions and unresolved question in order.",
+      "expectedIds": [
+        "trail",
+        "notes",
+        "table",
+        "plan-1",
+        "plan-2",
+        "question-rain"
+      ]
+    }
+  ]
+}

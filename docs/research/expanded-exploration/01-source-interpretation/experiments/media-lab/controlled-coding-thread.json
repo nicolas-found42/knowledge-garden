@@ -1,0 +1,22 @@
+[
+  {
+    "turn": "c1",
+    "role": "user",
+    "text": "Controlled research demonstration: use the public OpenCV surveillance sample to find frame changes. Mark changed pixels, without interpreting people or their intent."
+  },
+  {
+    "turn": "c2",
+    "role": "assistant",
+    "text": "First attempt compared RGB values directly with threshold 10, producing noise. I propose blur plus grayscale and threshold 35."
+  },
+  {
+    "turn": "c3",
+    "role": "user",
+    "text": "Use grayscale, a small blur, and threshold 35. Keep frame time anchors. This is an experiment; do not claim the detector identifies suspicious behavior."
+  },
+  {
+    "turn": "c4",
+    "role": "assistant",
+    "text": "Changed controlled_demo.py accordingly and rendered a demonstration. Difference masks are evidence of pixel change, not a reliable object tracker."
+  }
+]

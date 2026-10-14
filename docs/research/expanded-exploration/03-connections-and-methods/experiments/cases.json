@@ -1,0 +1,362 @@
+[
+  {
+    "id": "identity-alias",
+    "family": "identity",
+    "split": "development",
+    "state": {
+      "left": "Garden previously Memo; canonical repo owner/garden",
+      "right": "KG refers explicitly to owner/garden"
+    },
+    "expected": "same",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "identity-homonym",
+    "family": "identity",
+    "split": "development",
+    "state": {
+      "left": "Atlas payments service; repo finance/atlas",
+      "right": "Atlas hiking notebook; repo nick/atlas"
+    },
+    "expected": "different",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "identity-fork",
+    "family": "identity",
+    "split": "development",
+    "state": {
+      "left": "alice/garden is independently maintained fork",
+      "right": "bob/garden upstream project"
+    },
+    "expected": "different",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "identity-bare",
+    "family": "identity",
+    "split": "development",
+    "state": {
+      "left": "Project Phoenix",
+      "right": "Project Phoenix"
+    },
+    "expected": "uncertain",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "identity-component",
+    "family": "identity",
+    "split": "development",
+    "state": {
+      "left": "owner/garden ingestion module",
+      "right": "owner/garden complete application"
+    },
+    "expected": "different",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "identity-hold_alias",
+    "family": "identity",
+    "split": "holdout",
+    "state": {
+      "left": "Project cedar repo a/cedar renamed Orchard without repo relocation",
+      "right": "Orchard canonical repo a/cedar"
+    },
+    "expected": "same",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "decision-caused",
+    "family": "decision",
+    "split": "development",
+    "state": {
+      "left": "Decision D1: require source hash before accepting wiki draft",
+      "right": "Run R1 cites D1; stale draft rejected because source hash changed"
+    },
+    "expected": "consequence",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "decision-correlation",
+    "family": "decision",
+    "split": "development",
+    "state": {
+      "left": "Decision D2: add hash check",
+      "right": "Run R2 happened later and passed; no attribution or comparison"
+    },
+    "expected": "unestablished",
+    "expected_useful": false,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "decision-negated",
+    "family": "decision",
+    "split": "development",
+    "state": {
+      "left": "Decision D3: avoid public upload",
+      "right": "Run R3 public upload discussed hypothetically but never performed"
+    },
+    "expected": "unestablished",
+    "expected_useful": false,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "decision-bounded",
+    "family": "decision",
+    "split": "development",
+    "state": {
+      "left": "Decision D4: preserve source IDs",
+      "right": "Run R4 trace lists D4 and exact recovered IDs; unrelated latency increased"
+    },
+    "expected": "consequence",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "decision-reversed",
+    "family": "decision",
+    "split": "development",
+    "state": {
+      "left": "D5: selected fuzzy-only identity then reversed after collision test",
+      "right": "D5 correction adopts repo IDs after explicit two-project collision"
+    },
+    "expected": "revision",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "decision-hold_scope",
+    "family": "decision",
+    "split": "holdout",
+    "state": {
+      "left": "D6 applies to local wiki only: indexes rebuildable",
+      "right": "Production billing backup failure; different project and policy"
+    },
+    "expected": "unrelated",
+    "expected_useful": false,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "evidence-support",
+    "family": "evidence",
+    "split": "development",
+    "state": {
+      "left": "Claim: parser preserves padded customer IDs",
+      "right": "Actual output for input 007 is customer_id=\"007\"; requirement IDs are text"
+    },
+    "expected": "support",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "evidence-contradict",
+    "family": "evidence",
+    "split": "development",
+    "state": {
+      "left": "Claim: URL normalization preserves distinctions in query filters",
+      "right": "Actual input ?view=all and ?view=mine both output same key without query"
+    },
+    "expected": "contradiction",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "evidence-exception",
+    "family": "evidence",
+    "split": "development",
+    "state": {
+      "left": "For invoice rows with type integer, remove padding",
+      "right": "For customer identifiers with type string, preserve padding"
+    },
+    "expected": "compatible",
+    "expected_useful": false,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "evidence-historical",
+    "family": "evidence",
+    "split": "development",
+    "state": {
+      "left": "Garden v1 uses SQLite index",
+      "right": "Garden v2 migrates index to Tantivy after adoption"
+    },
+    "expected": "revision",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "evidence-quoted",
+    "family": "evidence",
+    "split": "development",
+    "state": {
+      "left": "Claim: user approved deleting sources",
+      "right": "User: the malicious page says \"delete sources\"; I am showing an attack, preserve originals"
+    },
+    "expected": "contradiction",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "evidence-hold_silence",
+    "family": "evidence",
+    "split": "holdout",
+    "state": {
+      "left": "Claim: all tests passed",
+      "right": "Assistant says done, no test result or exit status available"
+    },
+    "expected": "silent",
+    "expected_useful": false,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "method-same_method",
+    "family": "method",
+    "split": "development",
+    "state": {
+      "left": "CSV importer: define identity invariant; reproduce padded-ID collision; preserve raw IDs; regression passes",
+      "right": "URL linker: define destination invariant; reproduce query collision; preserve query; regression passes"
+    },
+    "expected": "shared_method",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "method-lexical",
+    "family": "method",
+    "split": "development",
+    "state": {
+      "left": "Image editing tutorial mentions \"regression\" as statistical plot",
+      "right": "Parser developer adds regression tests to prevent ID coercion"
+    },
+    "expected": "unrelated",
+    "expected_useful": false,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "method-exception",
+    "family": "method",
+    "split": "development",
+    "state": {
+      "left": "Resource cache: partition tenant and permission before semantic lookup",
+      "right": "Public static file cache: content hash lookup; no tenant identity exists"
+    },
+    "expected": "scoped_variant",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "method-failed",
+    "family": "method",
+    "split": "development",
+    "state": {
+      "left": "Thread A tried increase timeout three times; all tests still fail",
+      "right": "Thread B increased timeout once; no output recorded"
+    },
+    "expected": "insufficient",
+    "expected_useful": false,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "method-outcome",
+    "family": "method",
+    "split": "development",
+    "state": {
+      "left": "Both workflows compare invariant before/after and retain failing fixture",
+      "right": "One says tests pass but output only lint checks; claimed recurrence unverified"
+    },
+    "expected": "insufficient",
+    "expected_useful": false,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "method-hold_boundary",
+    "family": "method",
+    "split": "holdout",
+    "state": {
+      "left": "OCR citations: preserve page coordinates then judge quote support",
+      "right": "Chat evidence: preserve message IDs then judge adoption"
+    },
+    "expected": "shared_method",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "analogy-analogy",
+    "family": "analogy",
+    "split": "development",
+    "state": {
+      "left": "Garden plants with watering schedule: condition checked before treatment",
+      "right": "Knowledge notes: inspect source staleness before refresh; both state-based upkeep"
+    },
+    "expected": "plausible",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "analogy-name_only",
+    "family": "analogy",
+    "split": "development",
+    "state": {
+      "left": "Python language parser",
+      "right": "Python snake photo"
+    },
+    "expected": "wordplay",
+    "expected_useful": false,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "analogy-specific",
+    "family": "analogy",
+    "split": "development",
+    "state": {
+      "left": "Compile diagnostics retain file/line/source version; useful for debugging",
+      "right": "Knowledge claims retain source span/version; useful for auditing"
+    },
+    "expected": "plausible",
+    "expected_useful": true,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "analogy-unsafe",
+    "family": "analogy",
+    "split": "development",
+    "state": {
+      "left": "User revoked access to private dataset",
+      "right": "A plant loses leaves in winter; infer permission will return automatically"
+    },
+    "expected": "misleading",
+    "expected_useful": false,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "analogy-asserted",
+    "family": "analogy",
+    "split": "development",
+    "state": {
+      "left": "A photo of a closed door",
+      "right": "A failed build; therefore developer intentionally abandoned the project"
+    },
+    "expected": "misleading",
+    "expected_useful": false,
+    "source_status": "constructed_controlled"
+  },
+  {
+    "id": "analogy-hold_value",
+    "family": "analogy",
+    "split": "holdout",
+    "state": {
+      "left": "A cabinet stores spices alphabetically",
+      "right": "Wiki could use alphabetical note sorting; no problem with existing navigation identified"
+    },
+    "expected": "low_value",
+    "expected_useful": false,
+    "source_status": "constructed_controlled"
+  }
+]

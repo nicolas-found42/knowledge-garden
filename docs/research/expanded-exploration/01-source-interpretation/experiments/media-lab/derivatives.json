@@ -1,0 +1,101 @@
+[
+  {
+    "id": "book-pdf-page-83.png",
+    "parent": "book.pdf",
+    "anchor": {
+      "pdf_page_1based": 83,
+      "printed_page": 77
+    },
+    "method": "PyMuPDF render 1.5x",
+    "sha256": "a453dab1991caf25e6795eb2f946c6bd8ddfe96f7c4b8f5e4048e97b49421110",
+    "bytes": 323702
+  },
+  {
+    "id": "book-pdf-page-84.png",
+    "parent": "book.pdf",
+    "anchor": {
+      "pdf_page_1based": 84,
+      "printed_page": 78
+    },
+    "method": "PyMuPDF render 1.5x",
+    "sha256": "05a3b7221b9e0209bee6be16ef003bbfc18ca71cf693d319805adac112cafcb7",
+    "bytes": 407195
+  },
+  {
+    "id": "book-pdf-page-92.png",
+    "parent": "book.pdf",
+    "anchor": {
+      "pdf_page_1based": 92,
+      "printed_page": 86
+    },
+    "method": "PyMuPDF render 1.5x",
+    "sha256": "90a395e266c48434b4bccde4c13b97af83855a307f261128679d710e9e140750",
+    "bytes": 424853
+  },
+  {
+    "id": "video-t00.png",
+    "parent": "vtest.avi",
+    "anchor": {
+      "seconds": 0,
+      "frame_selection": "ffmpeg seek nearest decode"
+    },
+    "method": "ffmpeg still",
+    "sha256": "b2dc220f2df079c379be9c2d7869d85fe6ea1a3e7f599268e02b26c361a76f09",
+    "bytes": 538581
+  },
+  {
+    "id": "video-t02.png",
+    "parent": "vtest.avi",
+    "anchor": {
+      "seconds": 2,
+      "frame_selection": "ffmpeg seek nearest decode"
+    },
+    "method": "ffmpeg still",
+    "sha256": "7c6d0e91dcd5545021a51523b661d4eb821da3c085923ead446e3b94a5630f91",
+    "bytes": 631994
+  },
+  {
+    "id": "video-t05.png",
+    "parent": "vtest.avi",
+    "anchor": {
+      "seconds": 5,
+      "frame_selection": "ffmpeg seek nearest decode"
+    },
+    "method": "ffmpeg still",
+    "sha256": "c54d2fa2b78db901729c9d7b377b087f469698acae0cb7bb98f5a729f7782d2b",
+    "bytes": 627983
+  },
+  {
+    "id": "video-t10.png",
+    "parent": "vtest.avi",
+    "anchor": {
+      "seconds": 10,
+      "frame_selection": "ffmpeg seek nearest decode"
+    },
+    "method": "ffmpeg still",
+    "sha256": "3fb7b5ff919d3a3b9be554b76975198f8b1b64b9cc86ebd2cd991d08cc3dae8c",
+    "bytes": 625006
+  },
+  {
+    "id": "video-t20.png",
+    "parent": "vtest.avi",
+    "anchor": {
+      "seconds": 20,
+      "frame_selection": "ffmpeg seek nearest decode"
+    },
+    "method": "ffmpeg still",
+    "sha256": "481dd9f85e40a00382f8c2557815b174f7679df3cd4cfe86905ad4dd2d07a38e",
+    "bytes": 633693
+  },
+  {
+    "id": "video-t30.png",
+    "parent": "vtest.avi",
+    "anchor": {
+      "seconds": 30,
+      "frame_selection": "ffmpeg seek nearest decode"
+    },
+    "method": "ffmpeg still",
+    "sha256": "f458dfa7937fadc82ade9b18f0a40634232a2bbf9d08d905c100cd097f99416d",
+    "bytes": 613606
+  }
+]

@@ -1,0 +1,32 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPMmA",
+        "number": 3,
+        "state": "OPEN",
+        "title": "Turn a text source into evidence-grounded facts and linked pages with Jev",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/3"
+      }
+    ],
+    "totalCount": 1
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 1, 7, 31; **Prior evidence and remaining gates**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nMake ordinary office documents and presentations readable and searchable as knowledge while preserving meaningful structure, original assets, and the passage or slide supporting each fact.\n\n## Acceptance criteria\n\n- [ ] Representative modern word-processing documents and presentation files import through file selection and the common acquisition path, with their originals preserved unchanged.\n- [ ] Headings, paragraphs, tables, slide text, and available speaker notes retain enough structure to identify source meaning and distinguish visible slide content from notes.\n- [ ] Evidence opens the actual passage/slide where supported or clearly identifies the original plus location fallback; notes and inferred descriptions are not mislabeled as visible slide evidence.\n- [ ] Embedded links remain uncrawled references, and unavailable embedded objects/media produce coverage gaps without discarding the whole original.\n- [ ] Generated pages preserve qualifications and source ordering/context rather than flattening tables or slide sequence into unsupported assertions.\n- [ ] Damaged, unsupported, or partly extracted containers remain inspectable with explicit processing state; omission-based updates honor common coverage rules.\n- [ ] A labeled document/presentation corpus exercises tables, notes, embedded objects, links, and interrupted processing through public import and evidence navigation.\n\n## Blocked by\n\n- [#3 \u2014 Turn a text source into evidence-grounded facts and linked pages with Jev](https://github.com/nicolas-found42/knowledge-garden/issues/3)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nEstablish a documented supported-format matrix using actual owner-relevant samples, with concrete modern document and presentation formats included. Do not create a general conversion service or claim legacy/container support that was not tested. Other media extractors can extend embedded coverage later without changing the provenance contract.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nPrepare a document with a qualified table entry and a presentation whose visible slide says \u201c12 visits\u201d while a speaker note describes an unconfirmed correction. Import both, inspect the extracted knowledge and each origin/location, and open the retained originals. Repeat with an unreadable embedded object.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Turn documents and presentations into knowledge with passage and slide provenance",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/12"
+}

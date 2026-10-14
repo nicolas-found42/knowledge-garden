@@ -1,0 +1,272 @@
+[
+  {
+    "repo": "cpaczek/s1s",
+    "sha": "8c433affb3086a91bca2a4d384505eeeb98feed7",
+    "inspected_files": [
+      {
+        "path": "src/questions.ts",
+        "sha256": "3c309d66417cfecc1cbf92a5bef198b3dff63784f6aa2080df1d3609253787e8",
+        "lines": 414,
+        "url": "https://github.com/cpaczek/s1s/blob/8c433affb3086a91bca2a4d384505eeeb98feed7/src/questions.ts"
+      },
+      {
+        "path": "src/nav/search.ts",
+        "sha256": "1a69a8bdf6de559a680b9553a0d05c7d97e6a7298cd1d4448adcc0b26f1e6b08",
+        "lines": 89,
+        "url": "https://github.com/cpaczek/s1s/blob/8c433affb3086a91bca2a4d384505eeeb98feed7/src/nav/search.ts"
+      },
+      {
+        "path": "src/nav/attribution.ts",
+        "sha256": "38c616fd5da6eea3bfd228519640bd4da23e62cb6acb71a5466f6fbb58d70326",
+        "lines": 97,
+        "url": "https://github.com/cpaczek/s1s/blob/8c433affb3086a91bca2a4d384505eeeb98feed7/src/nav/attribution.ts"
+      },
+      {
+        "path": "test/retrieval-provenance.test.ts",
+        "sha256": "75db1ded43fac93e61a348ca9944f2d520bbd6de8a74d26971b85267bac34879",
+        "lines": 47,
+        "url": "https://github.com/cpaczek/s1s/blob/8c433affb3086a91bca2a4d384505eeeb98feed7/test/retrieval-provenance.test.ts"
+      },
+      {
+        "path": "docs/limitations.md",
+        "sha256": "cec17addbaa2dd0aa2623ceed9776a31eecb09b89a9fcf2548594644a5a001d9",
+        "lines": 95,
+        "url": "https://github.com/cpaczek/s1s/blob/8c433affb3086a91bca2a4d384505eeeb98feed7/docs/limitations.md"
+      }
+    ]
+  },
+  {
+    "repo": "EugeneBoondock/jevsql",
+    "sha": "45f3862f679c064e371a800c2fcc0c5b8b90c6c6",
+    "inspected_files": [
+      {
+        "path": "src/functions.mjs",
+        "sha256": "17f066a933a909ea423d15f204371cdbd4d4bfff2c0e281743cc16a94c06b02e",
+        "lines": 113,
+        "url": "https://github.com/EugeneBoondock/jevsql/blob/45f3862f679c064e371a800c2fcc0c5b8b90c6c6/src/functions.mjs"
+      },
+      {
+        "path": "src/decisions.mjs",
+        "sha256": "68aafea467ded8e087ed645d693aac606c991630952b5af5fc7701717c449c3c",
+        "lines": 113,
+        "url": "https://github.com/EugeneBoondock/jevsql/blob/45f3862f679c064e371a800c2fcc0c5b8b90c6c6/src/decisions.mjs"
+      },
+      {
+        "path": "src/planner.mjs",
+        "sha256": "9839d21f5923a9faf766f2297b2c608d81b35978490d1ed714bd9c9fff3e7de2",
+        "lines": 85,
+        "url": "https://github.com/EugeneBoondock/jevsql/blob/45f3862f679c064e371a800c2fcc0c5b8b90c6c6/src/planner.mjs"
+      },
+      {
+        "path": "src/cache.mjs",
+        "sha256": "b663d501531c285ac17ee8baaab366d39f838f1e79b349ddcbe4e63137c596d7",
+        "lines": 46,
+        "url": "https://github.com/EugeneBoondock/jevsql/blob/45f3862f679c064e371a800c2fcc0c5b8b90c6c6/src/cache.mjs"
+      },
+      {
+        "path": "src/workflows.mjs",
+        "sha256": "2204704fb94ba495c2b5f522a92f39f5c7309fb72b815a10c840ebaa908bbe0d",
+        "lines": 156,
+        "url": "https://github.com/EugeneBoondock/jevsql/blob/45f3862f679c064e371a800c2fcc0c5b8b90c6c6/src/workflows.mjs"
+      },
+      {
+        "path": "test/workflows.test.mjs",
+        "sha256": "336727978ac9fc09d27cac1440e47811b59c81fe93e9954766bfc448d5f2eec7",
+        "lines": 137,
+        "url": "https://github.com/EugeneBoondock/jevsql/blob/45f3862f679c064e371a800c2fcc0c5b8b90c6c6/test/workflows.test.mjs"
+      }
+    ]
+  },
+  {
+    "repo": "libingzheren/Jev-Mem",
+    "sha": "7ab0c73c6d8f4f611ad252c1e6ba8083f8df0e44",
+    "inspected_files": [
+      {
+        "path": "memory/jev_questions.py",
+        "sha256": "2e8f4b8483e1da30f4e2d7d9d9ece227c3890dbb641f3d96ac7bbccff5ce8e9c",
+        "lines": 163,
+        "url": "https://github.com/libingzheren/Jev-Mem/blob/7ab0c73c6d8f4f611ad252c1e6ba8083f8df0e44/memory/jev_questions.py"
+      },
+      {
+        "path": "memory/jev_mem_retrieval.py",
+        "sha256": "5c6b8fa0125994c3c1186d85309aa7e00f09a86e911302160a74655f81bd692d",
+        "lines": 206,
+        "url": "https://github.com/libingzheren/Jev-Mem/blob/7ab0c73c6d8f4f611ad252c1e6ba8083f8df0e44/memory/jev_mem_retrieval.py"
+      },
+      {
+        "path": "memory/jev_client.py",
+        "sha256": "278c877f25b5f9599c33480fe4424c31b3476762e772023e54ebeb194fdef4c4",
+        "lines": 300,
+        "url": "https://github.com/libingzheren/Jev-Mem/blob/7ab0c73c6d8f4f611ad252c1e6ba8083f8df0e44/memory/jev_client.py"
+      },
+      {
+        "path": "memory/query_engine.py",
+        "sha256": "bae93b3169292c373f41f0930e4454c9f3d5a985a32e02a9f185d87b48d87aa1",
+        "lines": 2113,
+        "url": "https://github.com/libingzheren/Jev-Mem/blob/7ab0c73c6d8f4f611ad252c1e6ba8083f8df0e44/memory/query_engine.py"
+      }
+    ]
+  },
+  {
+    "repo": "FreedomIntelligence/Tiermem",
+    "sha": "dba57bf2ce91a9920fdebaf5ffb0e6fc029fc398",
+    "inspected_files": [
+      {
+        "path": "jev_tiermem/system.py",
+        "sha256": "ba4a90ecfa47c6526636c54ab727ac19326e4a58c06e6197500ed6a4e3f471ee",
+        "lines": 290,
+        "url": "https://github.com/FreedomIntelligence/Tiermem/blob/dba57bf2ce91a9920fdebaf5ffb0e6fc029fc398/jev_tiermem/system.py"
+      },
+      {
+        "path": "jev_tiermem/providers.py",
+        "sha256": "2933be4a27f1d4d3edff28113fb8d3f11402b45ec8798f92e88f7c22a1b4af67",
+        "lines": 181,
+        "url": "https://github.com/FreedomIntelligence/Tiermem/blob/dba57bf2ce91a9920fdebaf5ffb0e6fc029fc398/jev_tiermem/providers.py"
+      },
+      {
+        "path": "jev_tiermem/tests/test_agent_loop.py",
+        "sha256": "ac392879a94aab8438a2b838ada02cba32c6a6e902f053f840d82b784dcd84ef",
+        "lines": 109,
+        "url": "https://github.com/FreedomIntelligence/Tiermem/blob/dba57bf2ce91a9920fdebaf5ffb0e6fc029fc398/jev_tiermem/tests/test_agent_loop.py"
+      },
+      {
+        "path": "jev_tiermem/mcp_server.py",
+        "sha256": "b61dd51295a70dd43a8f0240e3bd59cdee66cea2d3bc037cf4e0c6312d939725",
+        "lines": 112,
+        "url": "https://github.com/FreedomIntelligence/Tiermem/blob/dba57bf2ce91a9920fdebaf5ffb0e6fc029fc398/jev_tiermem/mcp_server.py"
+      }
+    ]
+  },
+  {
+    "repo": "GhalebDweikat/winnow",
+    "sha": "51d80b945c74c8384bc47fa817179f668289afd8",
+    "inspected_files": [
+      {
+        "path": "sidecar/src/winnow/questions.py",
+        "sha256": "fa5345e32b6e836608c854c6bf696f45b33b066d93b3a0a31c3283b162f59595",
+        "lines": 103,
+        "url": "https://github.com/GhalebDweikat/winnow/blob/51d80b945c74c8384bc47fa817179f668289afd8/sidecar/src/winnow/questions.py"
+      },
+      {
+        "path": "sidecar/src/winnow/judge.py",
+        "sha256": "2f9d37cbccc0c909e512525159a714043693383c8648f60090839ff7a6849191",
+        "lines": 114,
+        "url": "https://github.com/GhalebDweikat/winnow/blob/51d80b945c74c8384bc47fa817179f668289afd8/sidecar/src/winnow/judge.py"
+      },
+      {
+        "path": "sidecar/src/winnow/policy.py",
+        "sha256": "a4bc5f836e5bc9500360372ad3f4890f9cd47df5e54684f64571d198c3e2e5b0",
+        "lines": 59,
+        "url": "https://github.com/GhalebDweikat/winnow/blob/51d80b945c74c8384bc47fa817179f668289afd8/sidecar/src/winnow/policy.py"
+      },
+      {
+        "path": "sidecar/src/winnow/mcp_server.py",
+        "sha256": "03284fa8e26998db84cabd6eb36048985159cb8708f91fe1714f44245a4ad7d8",
+        "lines": 47,
+        "url": "https://github.com/GhalebDweikat/winnow/blob/51d80b945c74c8384bc47fa817179f668289afd8/sidecar/src/winnow/mcp_server.py"
+      },
+      {
+        "path": "README.md",
+        "sha256": "0ebe29d9bc0c2bb41c7477bd1d57929d6331c9031e68b92e2c00c84c2bf08afb",
+        "lines": 377,
+        "url": "https://github.com/GhalebDweikat/winnow/blob/51d80b945c74c8384bc47fa817179f668289afd8/README.md"
+      }
+    ]
+  },
+  {
+    "repo": "picaye/jev-compaction",
+    "sha": "ef5372d343eff22c1d5816d17d2742b16278dda3",
+    "inspected_files": [
+      {
+        "path": "hermes-compact.mjs",
+        "sha256": "017dc6d8076d332a36b2ddc5c8edc6f0601ba0e41466015e1d4dad3a05837719",
+        "lines": 661,
+        "url": "https://github.com/picaye/jev-compaction/blob/ef5372d343eff22c1d5816d17d2742b16278dda3/hermes-compact.mjs"
+      },
+      {
+        "path": "README.md",
+        "sha256": "6dfbcec30b089008e1c30a421bd7135f2a8a0efbeb2d40936dfea1be806f3712",
+        "lines": 292,
+        "url": "https://github.com/picaye/jev-compaction/blob/ef5372d343eff22c1d5816d17d2742b16278dda3/README.md"
+      }
+    ]
+  },
+  {
+    "repo": "joelhooks/pi-fast-jev-compaction",
+    "sha": "eb83f533f4fd10a08728b02c062c249afda5a4dc",
+    "inspected_files": [
+      {
+        "path": "src/core/decide.ts",
+        "sha256": "475baefe5768b4e23e41d39ddf5a2394629fe5d4a79299c0012f9384fcf8f8f2",
+        "lines": 201,
+        "url": "https://github.com/joelhooks/pi-fast-jev-compaction/blob/eb83f533f4fd10a08728b02c062c249afda5a4dc/src/core/decide.ts"
+      },
+      {
+        "path": "src/core/state.ts",
+        "sha256": "f5955b008ab584ed066c440f4503639a034cd013748da9a31b11b69b6423f921",
+        "lines": 320,
+        "url": "https://github.com/joelhooks/pi-fast-jev-compaction/blob/eb83f533f4fd10a08728b02c062c249afda5a4dc/src/core/state.ts"
+      },
+      {
+        "path": "tests/core.test.ts",
+        "sha256": "55a35b4807e21b94ae9c29ed8b54658a2aa6bcfcb135fe10d15d158cebe5adf5",
+        "lines": 363,
+        "url": "https://github.com/joelhooks/pi-fast-jev-compaction/blob/eb83f533f4fd10a08728b02c062c249afda5a4dc/tests/core.test.ts"
+      },
+      {
+        "path": "src/ledger.ts",
+        "sha256": "3f2e0c6e705a21fa5d38d0613ecdc6513d284888bccf4583d09db897f4a132b5",
+        "lines": 181,
+        "url": "https://github.com/joelhooks/pi-fast-jev-compaction/blob/eb83f533f4fd10a08728b02c062c249afda5a4dc/src/ledger.ts"
+      }
+    ]
+  },
+  {
+    "repo": "kylemclaren/jevsearch",
+    "sha": "1df37decb960b3c4826c71b41d3393c15a8f28d3",
+    "inspected_files": [
+      {
+        "path": "src/lib/jev-search-server.ts",
+        "sha256": "b1d5dbf12a3d8297413bea5dc17cc29ff9fe01b71fdd0289f8cd31c81aa90218",
+        "lines": 277,
+        "url": "https://github.com/kylemclaren/jevsearch/blob/1df37decb960b3c4826c71b41d3393c15a8f28d3/src/lib/jev-search-server.ts"
+      },
+      {
+        "path": "src/lib/jev-search-core.ts",
+        "sha256": "c5e4571f611462480e705cb5262f46f2423dfe0cd7817687ce9e56dbc5d2b3a0",
+        "lines": 247,
+        "url": "https://github.com/kylemclaren/jevsearch/blob/1df37decb960b3c4826c71b41d3393c15a8f28d3/src/lib/jev-search-core.ts"
+      }
+    ]
+  },
+  {
+    "repo": "romeromarcelo/jev-retrieval",
+    "sha": "d6af3725276b1dae65b43272b9df5357b5b6c017",
+    "inspected_files": [
+      {
+        "path": "src/jev/questions.rs",
+        "sha256": "23279fd72ba424b1356af1a89f9b7ef2d008443e7af5f82ae617dd510e3f2aac",
+        "lines": 110,
+        "url": "https://github.com/romeromarcelo/jev-retrieval/blob/d6af3725276b1dae65b43272b9df5357b5b6c017/src/jev/questions.rs"
+      },
+      {
+        "path": "src/jev/client.rs",
+        "sha256": "1bf3ca379a360a5def3a103e29d3b4919001989053239c63e85fdb5612fd0a1e",
+        "lines": 162,
+        "url": "https://github.com/romeromarcelo/jev-retrieval/blob/d6af3725276b1dae65b43272b9df5357b5b6c017/src/jev/client.rs"
+      }
+    ]
+  },
+  {
+    "repo": "jexp/neo4jev",
+    "sha": "d157bbe496eb91813475156942bef1c6badfb342",
+    "inspected_files": [
+      {
+        "path": "src/neo4jev/navigator.py",
+        "sha256": "38ec4c2558a885340a9fffdb73c969956225303388043a72094145ba55cd94d5",
+        "lines": 686,
+        "url": "https://github.com/jexp/neo4jev/blob/d157bbe496eb91813475156942bef1c6badfb342/src/neo4jev/navigator.py"
+      }
+    ]
+  }
+]

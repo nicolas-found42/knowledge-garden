@@ -1,0 +1,39 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPc2A",
+        "number": 13,
+        "state": "OPEN",
+        "title": "Form photo knowledge without confusing pixels, metadata, and captions",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/13"
+      },
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPe3w",
+        "number": 14,
+        "state": "OPEN",
+        "title": "Ingest audio recordings with time-located transcripts and qualified knowledge",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/14"
+      }
+    ],
+    "totalCount": 2
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 1, 7, 31; **Inputs and source access**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nMake a saved video\u2019s spoken and visual content navigable together, with every fact tied to the appropriate frame, interval, transcript, or supplied metadata in the original video.\n\n## Acceptance criteria\n\n- [ ] Representative saved-video formats retain the original file and produce a source page with playback and bounded on-demand previews.\n- [ ] Speech and visual details retain synchronized time locations and distinct origins; a narrated statement is not automatically treated as visually observed evidence.\n- [ ] A search result or fact opens the relevant segment/frame and surrounding context, or discloses the precise limitation of its fallback.\n- [ ] Silent videos, absent audio tracks, changing frame rates, and partly decoded tracks have accurate coverage states; missing a track does not discard supported content from another.\n- [ ] Long videos resume bounded segment work without duplicate facts or requiring all frames/audio in memory.\n- [ ] Qualifications, uncertain identities, captions, and metadata use the photo/audio evidence discipline and selected provider policy.\n- [ ] An application-level fixture with mismatched narration and visuals, a silent section, and a damaged segment verifies origin, synchronization, partial recovery, and retained-original access.\n\n## Blocked by\n\n- [#13 \u2014 Form photo knowledge without confusing pixels, metadata, and captions](https://github.com/nicolas-found42/knowledge-garden/issues/13)\n- [#14 \u2014 Ingest audio recordings with time-located transcripts and qualified knowledge](https://github.com/nicolas-found42/knowledge-garden/issues/14)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nThe blockers supply working image and audio evidence paths; this ticket composes them into one complete video workflow. It does not crawl streaming links found inside another source. Explicitly supplied downloadable URLs use the URL acquisition path when available.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nUse a synthetic video showing a river while narration explicitly says the location is uncertain; include a later title card with a date and a silent segment. Retrieve both spoken and visual details, inspect where each originated, and resume after an interrupted segment. Verify no title-card date is promoted to authenticated capture time.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Ingest video with synchronized visual and spoken evidence",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/15"
+}

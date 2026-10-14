@@ -1,0 +1,2 @@
+# Missing source record
+Controlled inaccessible original: winter-lake.heic was referenced but is not present. Caption mentions a blue canoe; date and photographer unknown. Do not treat a caption as inspected pixels.

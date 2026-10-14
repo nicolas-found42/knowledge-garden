@@ -1,0 +1,374 @@
+{
+  "frozen_at": "2026-09-29T23:56:10.649771+00:00",
+  "purpose": "Source-structuring vs generated prose; selected source excerpts, not whole binaries or user histories. Lossy variants intentionally omit provenance, negative qualifiers and exceptions.",
+  "bundles": [
+    {
+      "id": "motion",
+      "sources": [
+        {
+          "id": "motion-c1",
+          "text": "Controlled research demonstration: use the public OpenCV surveillance sample to find frame changes. Mark changed pixels, without interpreting people or their intent.",
+          "origin": "constructed conversation",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/controlled-coding-thread.json",
+          "artifact_sha256": "90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e",
+          "selector": "turn c1"
+        },
+        {
+          "id": "motion-c2",
+          "text": "First attempt compared RGB values directly with threshold 10, producing noise. I propose blur plus grayscale and threshold 35.",
+          "origin": "constructed assistant assertion, no measured before comparison",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/controlled-coding-thread.json",
+          "artifact_sha256": "90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e",
+          "selector": "turn c2"
+        },
+        {
+          "id": "motion-c3",
+          "text": "Use grayscale, a small blur, and threshold 35. Keep frame time anchors. This is an experiment; do not claim the detector identifies suspicious behavior.",
+          "origin": "constructed user adoption",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/controlled-coding-thread.json",
+          "artifact_sha256": "90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e",
+          "selector": "turn c3"
+        },
+        {
+          "id": "motion-code",
+          "text": "\"\"\"Actual controlled change and runnable public-video difference demonstration.\nNo object identity or intent inference. Output overlays pixel changes.\n\"\"\"\nfrom pathlib import Path\nimport subprocess,json\nfrom PIL import Image,ImageChops,ImageFilter,ImageDraw\nROOT=Path(__file__).parent\nCACHE=Path('/tmp/knowledge-garden-media-lab')\nTHRESHOLD=35\ndef mask(previous,current):\n a=previous.convert('L').filter(ImageFilter.GaussianBlur(1))\n b=current.convert('L').filter(ImageFilter.GaussianBlur(1))\n return ImageChops.difference(a,b).point(lambda x:255 if x>THRESHOLD else 0)\ndef main():\n frames=CACHE/'demo-frames';frames.mkdir(exist_ok=True)\n subprocess.run(['ffmpeg','-y','-loglevel','error','-i',str(CACHE/'vtest.avi'),'-t','10','-vf','fps=5',str(frames/'input-%03d.png')],check=True)\n paths=sorted(frames.glob('input-*.png'));previous=Image.open(paths[0]);rows=[]\n for i,path in enumerate(paths):\n  current=Image.open(path).convert('RGB');m=mask(previous,current)\n  overlay=Image.new('RGB',current.size,(255,0,0));out=Image.composite(overlay,current,m)\n  d=ImageDraw.Draw(out);d.rectangle((0,0,768,24),fill='black');d.text((5,5),f'Controlled demo | SOURCE t={i/5:.1f}s | changed pixels, no intent inference',fill='white')\n  out.save(frames/f'output-{i:03d}.png');rows.append(dict(seconds=i/5,changed_pixels=sum(v>0 for v in m.getdata()),total_pixels=m.width*m.height));previous=current\n subprocess.run(['ffmpeg','-y','-loglevel','error','-framerate','5','-i',str(frames/'output-%03d.png'),'-c:v','libx264','-pix_fmt','yuv420p',str(ROOT/'controlled-demo.mp4')],check=True)\n Image.open(frames/'output-010.png').save(ROOT/'controlled-demo-screenshot.png')\n (ROOT/'controlled-demo-metrics.json').write_text(json.dumps(rows,indent=2))\nif __name__=='__main__':main()\n",
+          "origin": "actually executed constructed code",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/controlled_demo.py",
+          "artifact_sha256": "0252143111c601230860c15973fbaa1f75aaf07d838ffdb09dcdb24a4c523e14"
+        },
+        {
+          "id": "motion-t2",
+          "text": "{\"seconds\": 2.0, \"changed_pixels\": 11566, \"total_pixels\": 442368}",
+          "origin": "actual measured output",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/controlled-demo-metrics.json",
+          "artifact_sha256": "f22e4dc18a264c0597cd413add1f5c8d2f22dd65999e1434ab6606fab5bc24fe",
+          "selector": "seconds=2.0"
+        },
+        {
+          "id": "motion-c4",
+          "text": "Changed controlled_demo.py accordingly and rendered a demonstration. Difference masks are evidence of pixel change, not a reliable object tracker.",
+          "origin": "constructed assistant assertion",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/controlled-coding-thread.json",
+          "artifact_sha256": "90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e",
+          "selector": "turn c4"
+        }
+      ],
+      "required_qualifiers": [
+        "constructed history, not user past work",
+        "changed pixels, no suspicious behavior/object-tracking proof",
+        "no measured before/after noise accuracy improvement"
+      ],
+      "fact_to_preserve": "t2 {\"seconds\": 2.0, \"changed_pixels\": 11566, \"total_pixels\": 442368}"
+    },
+    {
+      "id": "book",
+      "sources": [
+        {
+          "id": "book-ocr",
+          "text": "78\nNATURAL SELECTION.\n[CHAP. IV\nOn the other hand, we may feel sure that any\nvariation\nin the lenst degree injurious would be rigidly destroved.\nThis preservation of favourable variations and the rejec-\ntion of injurious\nvariations, I call Natural Selection.\nVariations neither useful nor injurious would not be aftect-\ned by natural selection, and would be left a fluctuating\nclement, as perhaps we see in the species called polymor-\nphic.\nWe shall best understand the probable course of na-\ntuwral sclection by taking the case of a country undergo-\ning some physical change, for instance, of climate.\nThe\nproportional numbers of its inhabitants would almost im-\nmediately undergo a change, and some species might be-\ncome extinet.\nWe may conelude, from what we have\nseen of the intimate and complex manner in which the in-\nhabitants of cach country are bound together, that any\nchange in the munerical\nsome of the in-\nCabiguts, ithe peumeia of rue chango of ehimat tiedil,\nwould most seriously affeet many of the others.\ncountry were open on its borders, new forms would cer-\ntainly immigrate, and this also would serionsly disturb\nthe relations of some of the former inhabitants.\nLet it be\nremembered how powerfiul the influence of' a single intro-\nduced tree or manual has been shown to be.\nBut in the\ncase of an island, or of a country partly surrounded by\nbarriers, into which new and betfer adapted forms could\nnot freely enter, we should then have places in the econo-\nmny of nature whieh would assuredly be better filled up,\nif some of' the original inhabitants were in some manner\nmnodified; for, had the arca been open to inmigration,\nthese same places would have been seized on by intruders.\nIn such case, every slight moditication, which in the course\nof ages chanced to arise, and wlueh in any way favoured\nthe individuals of any of the species, by |\nthem to their altered conditions, would tend to be pre-\nserved; and natural selection would thus have free scope\nfor the work of improvement.\nWe have reason to believe, as stated in the first chap-\nter, that a change in the conditions of life, by specially\naeting on the reproductive system, causes or increases",
+          "origin": "derived OCR from real 1860 book scan; not exact scan text",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/book-pdf-page-84-ocr.json",
+          "artifact_sha256": "aa1886cd8584e1bfda580e7bfa1c0e598733d0ec56c93a1d1ba844ad7f22cd79",
+          "selector": "PDF page84,printed page78",
+          "primary_scan": "01-source-interpretation/experiments/media-lab/book-pdf-page-84.png"
+        },
+        {
+          "id": "deap-article",
+          "text": "\nSelection\n---------\n\nSelection is made among a population by the selection operators that are\navailable in the :mod:`deap.tools` module. The selection operator usually\ntakes as first argument an iterable container of individuals and the number of\nindividuals to select. It returns a list containing the references to the\nselected individuals. The selection is made as follow.\n\n.. literalinclude:: /code/tutorials/part_3/3_next_step.py\n   :lines: 49-50\n\n.. warning:: It is **very** important here to note that the selection\n   operators does not duplicate any individual during the selection process.\n   If an individual is selected twice and one of either object is modified,\n   the other will also be modified. Only a reference to the individual is\n   copied. Just like every other operator it selects and only selects.\n\nUsually duplication of the entire population will be made after selection or\nbefore variation.\n\n.. literalinclude:: /code/tutorials/part_3/3_next_step.py\n   :lines: 56-57\n\n\nUsing the Toolbox\n-----------------\n\nThe toolbox is intended to contain all the evolutionary tools, from the object\ninitializers to the evaluation operator. It allows easy configuration of each\nalgorithm. The toolbox has basically two methods,\n:meth:`~deap.toolbox.Toolbox.register` and\n:meth:`~deap.toolbox.Toolbox.unregister`, that are used to add or remove tools\nfrom the toolbox.\n\nThis part of the tutorial will focus on registration of the evolutionary tools\nin the toolbox rather than the initialization tools. The usual names for the\nevolutionary tools are :func:`~deap.mate`, :func:`~deap.mutate`,\n:func:`~deap.evaluate` and :func:`~deap.select`, however, any name can be\nregistered as long as it is unique. Here is how they are registered in the\ntoolbox.\n\n.. literalinclude:: /code/tutorials/part_3/3_6_using_the_toolbox.py\n   :lines: 2-8,10-15\n\nUsing the toolbox for registering tools helps with keeping the rest of the\nalgorithms independent from the operator set. Using this scheme makes it very\neasy to locate and change any tool in the toolbox if needed.\n\n.. _using-tools:\n\nUsing the Tools\n+++++++++++++++\nWhen building evolutionary algorithms, the toolbox is used to contain the\noperators, which are called using their generic name. For example, here is a\nvery simple generational evolutionary algorithm.\n\n.. literalinclude:: /code/tutorials/part_3/3_6_using_the_toolbox.py\n   :lines: 30-\n\nThis is a complete algorithm. It is generic enough to accept any kind of\nindividual and any operator, as long as the operators are suitable for the\nchosen individual type. As shown in the last example, the usage of the toolbox\nallows to write algorithms that are as close as possible to pseudo code.\nNow it is up to you to write and experiment on your own.\n\nTool Decoration\n+++++++++++++++\nTool decoration is a very powerful feature that helps to control very precise\nthings during an evolution without changing anything in the algorithm or\noperators. A decorator is a wrapper that is called instead of a function. It\nis asked to make some initialization and termination work before and after the\nactual function is called. For example, in the case of a constrained domain,\none can apply a decorator",
+          "origin": "captured public DEAP tutorial, not user history",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/article-selection.rst",
+          "artifact_sha256": "94e2c8d2df9bf220fdae088d7d9e092e7e19e2877f905b171135a0e2cda1dde7"
+        },
+        {
+          "id": "deap-code",
+          "text": "import random\nimport numpy as np\n\nfrom functools import partial\nfrom operator import attrgetter\n\n######################################\n# Selections                         #\n######################################\n\n\ndef selRandom(individuals, k):\n    \"\"\"Select *k* individuals at random from the input *individuals* with\n    replacement. The list returned contains references to the input\n    *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :returns: A list of selected individuals.\n\n    This function uses the :func:`~random.choice` function from the\n    python base :mod:`random` module.\n    \"\"\"\n    return [random.choice(individuals) for i in range(k)]\n\n\ndef selBest(individuals, k, fit_attr=\"fitness\"):\n    \"\"\"Select the *k* best individuals among the input *individuals*. The\n    list returned contains references to the input *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list containing the k best individuals.\n    \"\"\"\n    return sorted(individuals, key=attrgetter(fit_attr), reverse=True)[:k]\n\n\ndef selWorst(individuals, k, fit_attr=\"fitness\"):\n    \"\"\"Select the *k* worst individuals among the input *individuals*. The\n    list returned contains references to the input *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list containing the k worst individuals.\n    \"\"\"\n    return sorted(individuals, key=attrgetter(fit_attr))[:k]\n\n\ndef selTournament(individuals, k, tournsize, fit_attr=\"fitness\"):\n    \"\"\"Select the best individual among *tournsize* randomly chosen\n    individuals, *k* times. The list returned contains\n    references to the input *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param tournsize: The number of individuals participating in each tournament.\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list of selected individuals.\n\n    This function uses the :func:`~random.choice` function from the python base\n    :mod:`random` module.\n    \"\"\"\n    chosen = []\n    for i in range(k):\n        aspirants = selRandom(individuals, tournsize)\n        chosen.append(max(aspirants, key=attrgetter(fit_attr)))\n    return chosen\n\n\ndef selRoulette(individuals, k, fit_attr=\"fitness\"):\n    \"\"\"Select *k* individuals from the input *individuals* using *k*\n    spins of a roulette. The selection is made by looking only at the first\n    objective of each individual. The list returned contains references to\n    the input *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list of selected individuals.\n\n    This function uses the :func:`~random.random` function from the python base\n    :mod:`random` module.\n\n    .. warning::\n       The roulette selection by definition cannot be used for minimization\n       or when the fitness can be smaller or equal to 0.\n    \"\"\"\n\n    s_inds = sorted(individuals, key=attrgetter(fit_attr), reverse=True)\n    sum_fits = sum(getattr(ind, fit_attr).values[0] for ind in individuals)\n    chosen = []\n    for i in range(k):\n        u = random.random() * sum_fits\n        sum_ = 0\n        for ind in s_inds:\n            sum_ += getattr(ind, fit_attr).values[0]\n            if sum_ > u:\n                chosen.append(ind)\n                break\n\n    return chosen\n\n\ndef selDoubleTournament(individuals, k, fitness_size, parsimony_size, fitness_first, fit_attr=\"fitness\"):\n    \"\"\"Tournament selection which use the size of the individuals in order\n    to discriminate good solutions. This kind of tournament is obviously\n    useless with fixed-length representation, but has been shown to\n    significantly reduce excessive growth of individuals, especially in GP,\n    where it can be used as a bloat control technique (see\n    [Luke2002fighting]_). This selection operator implements the double\n    tournament technique presented in this paper.\n\n    The core principle is to use a normal tournament selection, but using a\n    special sample function to select aspirants, which is another tournament\n    based on the size of the individuals. To ensure that the selection\n    pressure is not too high, the size of the size tournament (the number\n    of candidates evaluated) can be a real number between 1 and 2. In this\n    case, the smaller individual among two will be selected with a probability\n    *size_tourn_size*/2. For instance, if *size_tourn_size* is set to 1.4,\n    then the smaller individual will have a 0.7 probability to be selected.\n\n    .. note::\n        In GP, it has been shown that this operator produces better results\n        when it is combined with some kind of a depth limit.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param fitness_size: The number of individuals participating in each \\\n    fitness tournament\n    :param parsimony_size: The number of individuals participating in each \\\n    size tournament. This value has to be a real number\\\n    in the range [1,2], see above for details.\n    :param fitness_first: Set this to True if the first tournament done should \\\n    be the fitness one (i.e. the fitness tournament producing aspirants for \\\n    the size tournament). Setting it to False will behaves as the opposite \\\n    (size tournament feeding fitness tournaments with candidates). It has been \\\n    shown that this parameter does not have a significant effect in most cases\\\n    (see [Luke2002fighting]_).\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list of selected individuals.\n\n    .. [Luke2002fighting] Luke and Panait, 2002, Fighting bloat with\n        nonparametric parsimony pressure\n    \"\"\"\n    assert (1 <= parsimony_size <= 2), \"Parsimony tournament size has to be in the range [1, 2].\"\n\n    def _sizeTournament(individuals, k, select):\n        chosen = []\n        for i in range(k):\n            # Select two individuals from ",
+          "origin": "captured public implementation, not a recovered user project",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/old-project-selection.py",
+          "artifact_sha256": "18fbb468f438dfb9c8eb2a161a48a869b80bdde52c173628d3330bc0e11e05a4"
+        },
+        {
+          "id": "controlled-note",
+          "text": "CONTROLLED PERSONAL NOTE \u2014 authored for this experiment, not recovered user history.\n\nI once tried retaining only the fastest benchmark configuration in a toy search project. That lost alternatives useful under changed workloads. I want to revisit whether keeping diverse candidates improves adaptation. No relationship to Darwin or DEAP has been recorded in this note.\n",
+          "origin": "authored controlled personal note, not recovered user history",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/controlled-personal-note.md",
+          "artifact_sha256": "b4211909cc77f267323616af1fbd3f673f098b5358e494ce24163cc6fe987fcc"
+        }
+      ],
+      "required_qualifiers": [
+        "derived OCR with original scan/source ID retained",
+        "controlled personal note, not recovered user history",
+        "cross-book/project influence and diversity transfer speculative, not established"
+      ],
+      "fact_to_preserve": "DEAP selection returns references, not copies"
+    },
+    {
+      "id": "methods",
+      "sources": [
+        {
+          "id": "thread-csv_ids",
+          "text": "{\"id\": \"thread-csv_ids\", \"status\": \"constructed_coding_history_with_actual_execution\", \"project\": \"csv_ids\", \"messages\": [{\"id\": \"csv_ids-m1\", \"role\": \"user\", \"text\": \"Preserve distinct source identities in the derived lookup key.\"}, {\"id\": \"csv_ids-m2\", \"role\": \"assistant\", \"text\": \"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\"}, {\"id\": \"csv_ids-m3\", \"role\": \"tool\", \"text\": \"[{\\\"id\\\": \\\"csv_ids-failed\\\", \\\"file\\\": \\\"coding-demo/csv_ids/failed.py\\\", \\\"exit_code\\\": 1, \\\"stdout\\\": \\\"\\\", \\\"stderr\\\": \\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/csv_ids/failed.py\\\\\\\", line 2, in <module>\\\\n    assert key(\\\\\\\"007\\\\\\\") != key(\\\\\\\"7\\\\\\\"), \\\\\\\"distinct customer IDs collapsed\\\\\\\"\\\\n           ^^^^^^^^^^^^^^^^^^^^^^\\\\nAssertionError: distinct customer IDs collapsed\\\\n\\\"}, {\\\"id\\\": \\\"csv_ids-successful\\\", \\\"file\\\": \\\"coding-demo/csv_ids/successful.py\\\", \\\"exit_code\\\": 0, \\\"stdout\\\": \\\"invariants passed\\\\n\\\", \\\"stderr\\\": \\\"\\\"}]\"}, {\"id\": \"csv_ids-m4\", \"role\": \"assistant\", \"text\": \"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\"}], \"source_code\": {\"failed\": \"def key(x): return str(int(x))\", \"successful\": \"def key(x): return x\", \"invariant\": \"assert key(\\\"007\\\") != key(\\\"7\\\"), \\\"distinct customer IDs collapsed\\\"\"}}",
+          "origin": "constructed_coding_history_with_actual_execution",
+          "source_status": "captured",
+          "artifact": "03-connections-and-methods/experiments/method-demo.json",
+          "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+        },
+        {
+          "id": "thread-url_keys",
+          "text": "{\"id\": \"thread-url_keys\", \"status\": \"constructed_coding_history_with_actual_execution\", \"project\": \"url_keys\", \"messages\": [{\"id\": \"url_keys-m1\", \"role\": \"user\", \"text\": \"Preserve distinct source identities in the derived lookup key.\"}, {\"id\": \"url_keys-m2\", \"role\": \"assistant\", \"text\": \"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\"}, {\"id\": \"url_keys-m3\", \"role\": \"tool\", \"text\": \"[{\\\"id\\\": \\\"url_keys-failed\\\", \\\"file\\\": \\\"coding-demo/url_keys/failed.py\\\", \\\"exit_code\\\": 1, \\\"stdout\\\": \\\"\\\", \\\"stderr\\\": \\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/url_keys/failed.py\\\\\\\", line 4, in <module>\\\\n    assert key(\\\\\\\"https://example.invalid/a?view=all\\\\\\\") != key(\\\\\\\"https://example.invalid/a?view=mine\\\\\\\"), \\\\\\\"query destinations collapsed\\\\\\\"\\\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\\\nAssertionError: query destinations collapsed\\\\n\\\"}, {\\\"id\\\": \\\"url_keys-successful\\\", \\\"file\\\": \\\"coding-demo/url_keys/successful.py\\\", \\\"exit_code\\\": 0, \\\"stdout\\\": \\\"invariants passed\\\\n\\\", \\\"stderr\\\": \\\"\\\"}]\"}, {\"id\": \"url_keys-m4\", \"role\": \"assistant\", \"text\": \"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\"}], \"source_code\": {\"failed\": \"from urllib.parse import urlsplit\\ndef key(x):\\n p=urlsplit(x); return (p.scheme.lower(),p.netloc.lower(),p.path)\", \"successful\": \"from urllib.parse import urlsplit\\ndef key(x):\\n p=urlsplit(x); return (p.scheme.lower(),p.netloc.lower(),p.path,p.query)\", \"invariant\": \"assert key(\\\"https://example.invalid/a?view=all\\\") != key(\\\"https://example.invalid/a?view=mine\\\"), \\\"query destinations collapsed\\\"\"}}",
+          "origin": "constructed_coding_history_with_actual_execution",
+          "source_status": "captured",
+          "artifact": "03-connections-and-methods/experiments/method-demo.json",
+          "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+        },
+        {
+          "id": "thread-cache_scope",
+          "text": "{\"id\": \"thread-cache_scope\", \"status\": \"constructed_coding_history_with_actual_execution\", \"project\": \"cache_scope\", \"messages\": [{\"id\": \"cache_scope-m1\", \"role\": \"user\", \"text\": \"Preserve distinct source identities in the derived lookup key.\"}, {\"id\": \"cache_scope-m2\", \"role\": \"assistant\", \"text\": \"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\"}, {\"id\": \"cache_scope-m3\", \"role\": \"tool\", \"text\": \"[{\\\"id\\\": \\\"cache_scope-failed\\\", \\\"file\\\": \\\"coding-demo/cache_scope/failed.py\\\", \\\"exit_code\\\": 1, \\\"stdout\\\": \\\"\\\", \\\"stderr\\\": \\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/cache_scope/failed.py\\\\\\\", line 2, in <module>\\\\n    assert key(\\\\\\\"A\\\\\\\",\\\\\\\"v1\\\\\\\",\\\\\\\"hello\\\\\\\") != key(\\\\\\\"B\\\\\\\",\\\\\\\"v1\\\\\\\",\\\\\\\"HELLO\\\\\\\"), \\\\\\\"tenant isolation lost\\\\\\\"\\\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\\\nAssertionError: tenant isolation lost\\\\n\\\"}, {\\\"id\\\": \\\"cache_scope-successful\\\", \\\"file\\\": \\\"coding-demo/cache_scope/successful.py\\\", \\\"exit_code\\\": 0, \\\"stdout\\\": \\\"invariants passed\\\\n\\\", \\\"stderr\\\": \\\"\\\"}]\"}, {\"id\": \"cache_scope-m4\", \"role\": \"assistant\", \"text\": \"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\"}], \"source_code\": {\"failed\": \"def key(tenant,policy,text): return text.casefold()\", \"successful\": \"def key(tenant,policy,text): return (tenant,policy,text.casefold())\", \"invariant\": \"assert key(\\\"A\\\",\\\"v1\\\",\\\"hello\\\") != key(\\\"B\\\",\\\"v1\\\",\\\"HELLO\\\"), \\\"tenant isolation lost\\\"\\nassert key(\\\"A\\\",\\\"v1\\\",\\\"hello\\\") != key(\\\"A\\\",\\\"v2\\\",\\\"hello\\\"), \\\"policy revision ignored\\\"\"}}",
+          "origin": "constructed_coding_history_with_actual_execution",
+          "source_status": "captured",
+          "artifact": "03-connections-and-methods/experiments/method-demo.json",
+          "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+        },
+        {
+          "id": "thread-unresolved",
+          "text": "{\"id\": \"thread-unresolved\", \"status\": \"constructed_counterexample\", \"project\": \"signed_urls\", \"messages\": [{\"id\": \"signed-m1\", \"role\": \"user\", \"text\": \"Can query parameters be sorted for signed URLs? The signature might cover exact bytes. No provider signing specification or verification run is available.\"}]}",
+          "origin": "constructed_counterexample",
+          "source_status": "captured",
+          "artifact": "03-connections-and-methods/experiments/method-demo.json",
+          "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+        },
+        {
+          "id": "method-candidate",
+          "text": "{\"candidate\": \"Preserve exact identity/scope fields, reproduce collision, make bounded correction, run invariant regression, then use semantic judgments only where compatible.\", \"exceptions\": [\"Source fields declared numeric may legitimately normalize padding.\", \"Signed URL byte equivalence remains unresolved: preserve original bytes until provider semantics verified.\", \"Tenant identity not applicable to genuinely public immutable resources.\"]}",
+          "origin": "authored method hypothesis; not an installed skill",
+          "source_status": "captured",
+          "artifact": "03-connections-and-methods/experiments/method-demo.json",
+          "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+        }
+      ],
+      "required_qualifiers": [
+        "three constructed histories with actual bounded executions, not real user recurrence",
+        "method is scoped proposal, not universal rule",
+        "signed URL sorting unverified",
+        "numeric fields/public immutable-resource scope exceptions"
+      ],
+      "fact_to_preserve": "failed and corrected invariant tests exist for CSV IDs, URL queries and tenant/policy cache keys"
+    }
+  ],
+  "variants": [
+    {
+      "id": "motion-full",
+      "bundle": "motion",
+      "variant": "full_evidence",
+      "generation_input": [
+        {
+          "id": "motion-c1",
+          "text": "Controlled research demonstration: use the public OpenCV surveillance sample to find frame changes. Mark changed pixels, without interpreting people or their intent.",
+          "origin": "constructed conversation",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/controlled-coding-thread.json",
+          "artifact_sha256": "90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e",
+          "selector": "turn c1"
+        },
+        {
+          "id": "motion-c2",
+          "text": "First attempt compared RGB values directly with threshold 10, producing noise. I propose blur plus grayscale and threshold 35.",
+          "origin": "constructed assistant assertion, no measured before comparison",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/controlled-coding-thread.json",
+          "artifact_sha256": "90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e",
+          "selector": "turn c2"
+        },
+        {
+          "id": "motion-c3",
+          "text": "Use grayscale, a small blur, and threshold 35. Keep frame time anchors. This is an experiment; do not claim the detector identifies suspicious behavior.",
+          "origin": "constructed user adoption",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/controlled-coding-thread.json",
+          "artifact_sha256": "90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e",
+          "selector": "turn c3"
+        },
+        {
+          "id": "motion-code",
+          "text": "\"\"\"Actual controlled change and runnable public-video difference demonstration.\nNo object identity or intent inference. Output overlays pixel changes.\n\"\"\"\nfrom pathlib import Path\nimport subprocess,json\nfrom PIL import Image,ImageChops,ImageFilter,ImageDraw\nROOT=Path(__file__).parent\nCACHE=Path('/tmp/knowledge-garden-media-lab')\nTHRESHOLD=35\ndef mask(previous,current):\n a=previous.convert('L').filter(ImageFilter.GaussianBlur(1))\n b=current.convert('L').filter(ImageFilter.GaussianBlur(1))\n return ImageChops.difference(a,b).point(lambda x:255 if x>THRESHOLD else 0)\ndef main():\n frames=CACHE/'demo-frames';frames.mkdir(exist_ok=True)\n subprocess.run(['ffmpeg','-y','-loglevel','error','-i',str(CACHE/'vtest.avi'),'-t','10','-vf','fps=5',str(frames/'input-%03d.png')],check=True)\n paths=sorted(frames.glob('input-*.png'));previous=Image.open(paths[0]);rows=[]\n for i,path in enumerate(paths):\n  current=Image.open(path).convert('RGB');m=mask(previous,current)\n  overlay=Image.new('RGB',current.size,(255,0,0));out=Image.composite(overlay,current,m)\n  d=ImageDraw.Draw(out);d.rectangle((0,0,768,24),fill='black');d.text((5,5),f'Controlled demo | SOURCE t={i/5:.1f}s | changed pixels, no intent inference',fill='white')\n  out.save(frames/f'output-{i:03d}.png');rows.append(dict(seconds=i/5,changed_pixels=sum(v>0 for v in m.getdata()),total_pixels=m.width*m.height));previous=current\n subprocess.run(['ffmpeg','-y','-loglevel','error','-framerate','5','-i',str(frames/'output-%03d.png'),'-c:v','libx264','-pix_fmt','yuv420p',str(ROOT/'controlled-demo.mp4')],check=True)\n Image.open(frames/'output-010.png').save(ROOT/'controlled-demo-screenshot.png')\n (ROOT/'controlled-demo-metrics.json').write_text(json.dumps(rows,indent=2))\nif __name__=='__main__':main()\n",
+          "origin": "actually executed constructed code",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/controlled_demo.py",
+          "artifact_sha256": "0252143111c601230860c15973fbaa1f75aaf07d838ffdb09dcdb24a4c523e14"
+        },
+        {
+          "id": "motion-t2",
+          "text": "{\"seconds\": 2.0, \"changed_pixels\": 11566, \"total_pixels\": 442368}",
+          "origin": "actual measured output",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/controlled-demo-metrics.json",
+          "artifact_sha256": "f22e4dc18a264c0597cd413add1f5c8d2f22dd65999e1434ab6606fab5bc24fe",
+          "selector": "seconds=2.0"
+        },
+        {
+          "id": "motion-c4",
+          "text": "Changed controlled_demo.py accordingly and rendered a demonstration. Difference masks are evidence of pixel change, not a reliable object tracker.",
+          "origin": "constructed assistant assertion",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/controlled-coding-thread.json",
+          "artifact_sha256": "90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e",
+          "selector": "turn c4"
+        }
+      ]
+    },
+    {
+      "id": "motion-lossy",
+      "bundle": "motion",
+      "variant": "lossy_observations",
+      "generation_input": [
+        {
+          "id": "motion-c3",
+          "observation": "Use grayscale, a small blur, and threshold 35. Keep frame time anchors."
+        },
+        {
+          "id": "motion-t2",
+          "observation": "{\"seconds\": 2.0, \"changed_pixels\": 11566, \"total_pixels\": 442368}"
+        },
+        {
+          "id": "motion-code",
+          "observation": "The code renders difference masks from grayscale frames with Gaussian blur1 and threshold35."
+        }
+      ]
+    },
+    {
+      "id": "book-full",
+      "bundle": "book",
+      "variant": "full_evidence",
+      "generation_input": [
+        {
+          "id": "book-ocr",
+          "text": "78\nNATURAL SELECTION.\n[CHAP. IV\nOn the other hand, we may feel sure that any\nvariation\nin the lenst degree injurious would be rigidly destroved.\nThis preservation of favourable variations and the rejec-\ntion of injurious\nvariations, I call Natural Selection.\nVariations neither useful nor injurious would not be aftect-\ned by natural selection, and would be left a fluctuating\nclement, as perhaps we see in the species called polymor-\nphic.\nWe shall best understand the probable course of na-\ntuwral sclection by taking the case of a country undergo-\ning some physical change, for instance, of climate.\nThe\nproportional numbers of its inhabitants would almost im-\nmediately undergo a change, and some species might be-\ncome extinet.\nWe may conelude, from what we have\nseen of the intimate and complex manner in which the in-\nhabitants of cach country are bound together, that any\nchange in the munerical\nsome of the in-\nCabiguts, ithe peumeia of rue chango of ehimat tiedil,\nwould most seriously affeet many of the others.\ncountry were open on its borders, new forms would cer-\ntainly immigrate, and this also would serionsly disturb\nthe relations of some of the former inhabitants.\nLet it be\nremembered how powerfiul the influence of' a single intro-\nduced tree or manual has been shown to be.\nBut in the\ncase of an island, or of a country partly surrounded by\nbarriers, into which new and betfer adapted forms could\nnot freely enter, we should then have places in the econo-\nmny of nature whieh would assuredly be better filled up,\nif some of' the original inhabitants were in some manner\nmnodified; for, had the arca been open to inmigration,\nthese same places would have been seized on by intruders.\nIn such case, every slight moditication, which in the course\nof ages chanced to arise, and wlueh in any way favoured\nthe individuals of any of the species, by |\nthem to their altered conditions, would tend to be pre-\nserved; and natural selection would thus have free scope\nfor the work of improvement.\nWe have reason to believe, as stated in the first chap-\nter, that a change in the conditions of life, by specially\naeting on the reproductive system, causes or increases",
+          "origin": "derived OCR from real 1860 book scan; not exact scan text",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/book-pdf-page-84-ocr.json",
+          "artifact_sha256": "aa1886cd8584e1bfda580e7bfa1c0e598733d0ec56c93a1d1ba844ad7f22cd79",
+          "selector": "PDF page84,printed page78",
+          "primary_scan": "01-source-interpretation/experiments/media-lab/book-pdf-page-84.png"
+        },
+        {
+          "id": "deap-article",
+          "text": "\nSelection\n---------\n\nSelection is made among a population by the selection operators that are\navailable in the :mod:`deap.tools` module. The selection operator usually\ntakes as first argument an iterable container of individuals and the number of\nindividuals to select. It returns a list containing the references to the\nselected individuals. The selection is made as follow.\n\n.. literalinclude:: /code/tutorials/part_3/3_next_step.py\n   :lines: 49-50\n\n.. warning:: It is **very** important here to note that the selection\n   operators does not duplicate any individual during the selection process.\n   If an individual is selected twice and one of either object is modified,\n   the other will also be modified. Only a reference to the individual is\n   copied. Just like every other operator it selects and only selects.\n\nUsually duplication of the entire population will be made after selection or\nbefore variation.\n\n.. literalinclude:: /code/tutorials/part_3/3_next_step.py\n   :lines: 56-57\n\n\nUsing the Toolbox\n-----------------\n\nThe toolbox is intended to contain all the evolutionary tools, from the object\ninitializers to the evaluation operator. It allows easy configuration of each\nalgorithm. The toolbox has basically two methods,\n:meth:`~deap.toolbox.Toolbox.register` and\n:meth:`~deap.toolbox.Toolbox.unregister`, that are used to add or remove tools\nfrom the toolbox.\n\nThis part of the tutorial will focus on registration of the evolutionary tools\nin the toolbox rather than the initialization tools. The usual names for the\nevolutionary tools are :func:`~deap.mate`, :func:`~deap.mutate`,\n:func:`~deap.evaluate` and :func:`~deap.select`, however, any name can be\nregistered as long as it is unique. Here is how they are registered in the\ntoolbox.\n\n.. literalinclude:: /code/tutorials/part_3/3_6_using_the_toolbox.py\n   :lines: 2-8,10-15\n\nUsing the toolbox for registering tools helps with keeping the rest of the\nalgorithms independent from the operator set. Using this scheme makes it very\neasy to locate and change any tool in the toolbox if needed.\n\n.. _using-tools:\n\nUsing the Tools\n+++++++++++++++\nWhen building evolutionary algorithms, the toolbox is used to contain the\noperators, which are called using their generic name. For example, here is a\nvery simple generational evolutionary algorithm.\n\n.. literalinclude:: /code/tutorials/part_3/3_6_using_the_toolbox.py\n   :lines: 30-\n\nThis is a complete algorithm. It is generic enough to accept any kind of\nindividual and any operator, as long as the operators are suitable for the\nchosen individual type. As shown in the last example, the usage of the toolbox\nallows to write algorithms that are as close as possible to pseudo code.\nNow it is up to you to write and experiment on your own.\n\nTool Decoration\n+++++++++++++++\nTool decoration is a very powerful feature that helps to control very precise\nthings during an evolution without changing anything in the algorithm or\noperators. A decorator is a wrapper that is called instead of a function. It\nis asked to make some initialization and termination work before and after the\nactual function is called. For example, in the case of a constrained domain,\none can apply a decorator",
+          "origin": "captured public DEAP tutorial, not user history",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/article-selection.rst",
+          "artifact_sha256": "94e2c8d2df9bf220fdae088d7d9e092e7e19e2877f905b171135a0e2cda1dde7"
+        },
+        {
+          "id": "deap-code",
+          "text": "import random\nimport numpy as np\n\nfrom functools import partial\nfrom operator import attrgetter\n\n######################################\n# Selections                         #\n######################################\n\n\ndef selRandom(individuals, k):\n    \"\"\"Select *k* individuals at random from the input *individuals* with\n    replacement. The list returned contains references to the input\n    *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :returns: A list of selected individuals.\n\n    This function uses the :func:`~random.choice` function from the\n    python base :mod:`random` module.\n    \"\"\"\n    return [random.choice(individuals) for i in range(k)]\n\n\ndef selBest(individuals, k, fit_attr=\"fitness\"):\n    \"\"\"Select the *k* best individuals among the input *individuals*. The\n    list returned contains references to the input *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list containing the k best individuals.\n    \"\"\"\n    return sorted(individuals, key=attrgetter(fit_attr), reverse=True)[:k]\n\n\ndef selWorst(individuals, k, fit_attr=\"fitness\"):\n    \"\"\"Select the *k* worst individuals among the input *individuals*. The\n    list returned contains references to the input *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list containing the k worst individuals.\n    \"\"\"\n    return sorted(individuals, key=attrgetter(fit_attr))[:k]\n\n\ndef selTournament(individuals, k, tournsize, fit_attr=\"fitness\"):\n    \"\"\"Select the best individual among *tournsize* randomly chosen\n    individuals, *k* times. The list returned contains\n    references to the input *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param tournsize: The number of individuals participating in each tournament.\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list of selected individuals.\n\n    This function uses the :func:`~random.choice` function from the python base\n    :mod:`random` module.\n    \"\"\"\n    chosen = []\n    for i in range(k):\n        aspirants = selRandom(individuals, tournsize)\n        chosen.append(max(aspirants, key=attrgetter(fit_attr)))\n    return chosen\n\n\ndef selRoulette(individuals, k, fit_attr=\"fitness\"):\n    \"\"\"Select *k* individuals from the input *individuals* using *k*\n    spins of a roulette. The selection is made by looking only at the first\n    objective of each individual. The list returned contains references to\n    the input *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list of selected individuals.\n\n    This function uses the :func:`~random.random` function from the python base\n    :mod:`random` module.\n\n    .. warning::\n       The roulette selection by definition cannot be used for minimization\n       or when the fitness can be smaller or equal to 0.\n    \"\"\"\n\n    s_inds = sorted(individuals, key=attrgetter(fit_attr), reverse=True)\n    sum_fits = sum(getattr(ind, fit_attr).values[0] for ind in individuals)\n    chosen = []\n    for i in range(k):\n        u = random.random() * sum_fits\n        sum_ = 0\n        for ind in s_inds:\n            sum_ += getattr(ind, fit_attr).values[0]\n            if sum_ > u:\n                chosen.append(ind)\n                break\n\n    return chosen\n\n\ndef selDoubleTournament(individuals, k, fitness_size, parsimony_size, fitness_first, fit_attr=\"fitness\"):\n    \"\"\"Tournament selection which use the size of the individuals in order\n    to discriminate good solutions. This kind of tournament is obviously\n    useless with fixed-length representation, but has been shown to\n    significantly reduce excessive growth of individuals, especially in GP,\n    where it can be used as a bloat control technique (see\n    [Luke2002fighting]_). This selection operator implements the double\n    tournament technique presented in this paper.\n\n    The core principle is to use a normal tournament selection, but using a\n    special sample function to select aspirants, which is another tournament\n    based on the size of the individuals. To ensure that the selection\n    pressure is not too high, the size of the size tournament (the number\n    of candidates evaluated) can be a real number between 1 and 2. In this\n    case, the smaller individual among two will be selected with a probability\n    *size_tourn_size*/2. For instance, if *size_tourn_size* is set to 1.4,\n    then the smaller individual will have a 0.7 probability to be selected.\n\n    .. note::\n        In GP, it has been shown that this operator produces better results\n        when it is combined with some kind of a depth limit.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param fitness_size: The number of individuals participating in each \\\n    fitness tournament\n    :param parsimony_size: The number of individuals participating in each \\\n    size tournament. This value has to be a real number\\\n    in the range [1,2], see above for details.\n    :param fitness_first: Set this to True if the first tournament done should \\\n    be the fitness one (i.e. the fitness tournament producing aspirants for \\\n    the size tournament). Setting it to False will behaves as the opposite \\\n    (size tournament feeding fitness tournaments with candidates). It has been \\\n    shown that this parameter does not have a significant effect in most cases\\\n    (see [Luke2002fighting]_).\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list of selected individuals.\n\n    .. [Luke2002fighting] Luke and Panait, 2002, Fighting bloat with\n        nonparametric parsimony pressure\n    \"\"\"\n    assert (1 <= parsimony_size <= 2), \"Parsimony tournament size has to be in the range [1, 2].\"\n\n    def _sizeTournament(individuals, k, select):\n        chosen = []\n        for i in range(k):\n            # Select two individuals from ",
+          "origin": "captured public implementation, not a recovered user project",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/old-project-selection.py",
+          "artifact_sha256": "18fbb468f438dfb9c8eb2a161a48a869b80bdde52c173628d3330bc0e11e05a4"
+        },
+        {
+          "id": "controlled-note",
+          "text": "CONTROLLED PERSONAL NOTE \u2014 authored for this experiment, not recovered user history.\n\nI once tried retaining only the fastest benchmark configuration in a toy search project. That lost alternatives useful under changed workloads. I want to revisit whether keeping diverse candidates improves adaptation. No relationship to Darwin or DEAP has been recorded in this note.\n",
+          "origin": "authored controlled personal note, not recovered user history",
+          "source_status": "captured",
+          "artifact": "01-source-interpretation/experiments/media-lab/controlled-personal-note.md",
+          "artifact_sha256": "b4211909cc77f267323616af1fbd3f673f098b5358e494ce24163cc6fe987fcc"
+        }
+      ]
+    },
+    {
+      "id": "book-lossy",
+      "bundle": "book",
+      "variant": "lossy_observations",
+      "generation_input": [
+        {
+          "id": "book-ocr",
+          "observation": "Page heading NATURAL SELECTION; preservation of favourable variations and rejection of injurious variations."
+        },
+        {
+          "id": "deap-article",
+          "observation": "Selection operators select individuals; selected individuals are references, not independent copies."
+        },
+        {
+          "id": "controlled-note",
+          "observation": "Retaining only the fastest benchmark configuration lost alternatives useful under changed workloads; revisit whether keeping diverse candidates improves adaptation."
+        }
+      ]
+    },
+    {
+      "id": "methods-full",
+      "bundle": "methods",
+      "variant": "full_evidence",
+      "generation_input": [
+        {
+          "id": "thread-csv_ids",
+          "text": "{\"id\": \"thread-csv_ids\", \"status\": \"constructed_coding_history_with_actual_execution\", \"project\": \"csv_ids\", \"messages\": [{\"id\": \"csv_ids-m1\", \"role\": \"user\", \"text\": \"Preserve distinct source identities in the derived lookup key.\"}, {\"id\": \"csv_ids-m2\", \"role\": \"assistant\", \"text\": \"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\"}, {\"id\": \"csv_ids-m3\", \"role\": \"tool\", \"text\": \"[{\\\"id\\\": \\\"csv_ids-failed\\\", \\\"file\\\": \\\"coding-demo/csv_ids/failed.py\\\", \\\"exit_code\\\": 1, \\\"stdout\\\": \\\"\\\", \\\"stderr\\\": \\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/csv_ids/failed.py\\\\\\\", line 2, in <module>\\\\n    assert key(\\\\\\\"007\\\\\\\") != key(\\\\\\\"7\\\\\\\"), \\\\\\\"distinct customer IDs collapsed\\\\\\\"\\\\n           ^^^^^^^^^^^^^^^^^^^^^^\\\\nAssertionError: distinct customer IDs collapsed\\\\n\\\"}, {\\\"id\\\": \\\"csv_ids-successful\\\", \\\"file\\\": \\\"coding-demo/csv_ids/successful.py\\\", \\\"exit_code\\\": 0, \\\"stdout\\\": \\\"invariants passed\\\\n\\\", \\\"stderr\\\": \\\"\\\"}]\"}, {\"id\": \"csv_ids-m4\", \"role\": \"assistant\", \"text\": \"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\"}], \"source_code\": {\"failed\": \"def key(x): return str(int(x))\", \"successful\": \"def key(x): return x\", \"invariant\": \"assert key(\\\"007\\\") != key(\\\"7\\\"), \\\"distinct customer IDs collapsed\\\"\"}}",
+          "origin": "constructed_coding_history_with_actual_execution",
+          "source_status": "captured",
+          "artifact": "03-connections-and-methods/experiments/method-demo.json",
+          "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+        },
+        {
+          "id": "thread-url_keys",
+          "text": "{\"id\": \"thread-url_keys\", \"status\": \"constructed_coding_history_with_actual_execution\", \"project\": \"url_keys\", \"messages\": [{\"id\": \"url_keys-m1\", \"role\": \"user\", \"text\": \"Preserve distinct source identities in the derived lookup key.\"}, {\"id\": \"url_keys-m2\", \"role\": \"assistant\", \"text\": \"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\"}, {\"id\": \"url_keys-m3\", \"role\": \"tool\", \"text\": \"[{\\\"id\\\": \\\"url_keys-failed\\\", \\\"file\\\": \\\"coding-demo/url_keys/failed.py\\\", \\\"exit_code\\\": 1, \\\"stdout\\\": \\\"\\\", \\\"stderr\\\": \\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/url_keys/failed.py\\\\\\\", line 4, in <module>\\\\n    assert key(\\\\\\\"https://example.invalid/a?view=all\\\\\\\") != key(\\\\\\\"https://example.invalid/a?view=mine\\\\\\\"), \\\\\\\"query destinations collapsed\\\\\\\"\\\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\\\nAssertionError: query destinations collapsed\\\\n\\\"}, {\\\"id\\\": \\\"url_keys-successful\\\", \\\"file\\\": \\\"coding-demo/url_keys/successful.py\\\", \\\"exit_code\\\": 0, \\\"stdout\\\": \\\"invariants passed\\\\n\\\", \\\"stderr\\\": \\\"\\\"}]\"}, {\"id\": \"url_keys-m4\", \"role\": \"assistant\", \"text\": \"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\"}], \"source_code\": {\"failed\": \"from urllib.parse import urlsplit\\ndef key(x):\\n p=urlsplit(x); return (p.scheme.lower(),p.netloc.lower(),p.path)\", \"successful\": \"from urllib.parse import urlsplit\\ndef key(x):\\n p=urlsplit(x); return (p.scheme.lower(),p.netloc.lower(),p.path,p.query)\", \"invariant\": \"assert key(\\\"https://example.invalid/a?view=all\\\") != key(\\\"https://example.invalid/a?view=mine\\\"), \\\"query destinations collapsed\\\"\"}}",
+          "origin": "constructed_coding_history_with_actual_execution",
+          "source_status": "captured",
+          "artifact": "03-connections-and-methods/experiments/method-demo.json",
+          "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+        },
+        {
+          "id": "thread-cache_scope",
+          "text": "{\"id\": \"thread-cache_scope\", \"status\": \"constructed_coding_history_with_actual_execution\", \"project\": \"cache_scope\", \"messages\": [{\"id\": \"cache_scope-m1\", \"role\": \"user\", \"text\": \"Preserve distinct source identities in the derived lookup key.\"}, {\"id\": \"cache_scope-m2\", \"role\": \"assistant\", \"text\": \"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\"}, {\"id\": \"cache_scope-m3\", \"role\": \"tool\", \"text\": \"[{\\\"id\\\": \\\"cache_scope-failed\\\", \\\"file\\\": \\\"coding-demo/cache_scope/failed.py\\\", \\\"exit_code\\\": 1, \\\"stdout\\\": \\\"\\\", \\\"stderr\\\": \\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/cache_scope/failed.py\\\\\\\", line 2, in <module>\\\\n    assert key(\\\\\\\"A\\\\\\\",\\\\\\\"v1\\\\\\\",\\\\\\\"hello\\\\\\\") != key(\\\\\\\"B\\\\\\\",\\\\\\\"v1\\\\\\\",\\\\\\\"HELLO\\\\\\\"), \\\\\\\"tenant isolation lost\\\\\\\"\\\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\\\nAssertionError: tenant isolation lost\\\\n\\\"}, {\\\"id\\\": \\\"cache_scope-successful\\\", \\\"file\\\": \\\"coding-demo/cache_scope/successful.py\\\", \\\"exit_code\\\": 0, \\\"stdout\\\": \\\"invariants passed\\\\n\\\", \\\"stderr\\\": \\\"\\\"}]\"}, {\"id\": \"cache_scope-m4\", \"role\": \"assistant\", \"text\": \"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\"}], \"source_code\": {\"failed\": \"def key(tenant,policy,text): return text.casefold()\", \"successful\": \"def key(tenant,policy,text): return (tenant,policy,text.casefold())\", \"invariant\": \"assert key(\\\"A\\\",\\\"v1\\\",\\\"hello\\\") != key(\\\"B\\\",\\\"v1\\\",\\\"HELLO\\\"), \\\"tenant isolation lost\\\"\\nassert key(\\\"A\\\",\\\"v1\\\",\\\"hello\\\") != key(\\\"A\\\",\\\"v2\\\",\\\"hello\\\"), \\\"policy revision ignored\\\"\"}}",
+          "origin": "constructed_coding_history_with_actual_execution",
+          "source_status": "captured",
+          "artifact": "03-connections-and-methods/experiments/method-demo.json",
+          "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+        },
+        {
+          "id": "thread-unresolved",
+          "text": "{\"id\": \"thread-unresolved\", \"status\": \"constructed_counterexample\", \"project\": \"signed_urls\", \"messages\": [{\"id\": \"signed-m1\", \"role\": \"user\", \"text\": \"Can query parameters be sorted for signed URLs? The signature might cover exact bytes. No provider signing specification or verification run is available.\"}]}",
+          "origin": "constructed_counterexample",
+          "source_status": "captured",
+          "artifact": "03-connections-and-methods/experiments/method-demo.json",
+          "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+        },
+        {
+          "id": "method-candidate",
+          "text": "{\"candidate\": \"Preserve exact identity/scope fields, reproduce collision, make bounded correction, run invariant regression, then use semantic judgments only where compatible.\", \"exceptions\": [\"Source fields declared numeric may legitimately normalize padding.\", \"Signed URL byte equivalence remains unresolved: preserve original bytes until provider semantics verified.\", \"Tenant identity not applicable to genuinely public immutable resources.\"]}",
+          "origin": "authored method hypothesis; not an installed skill",
+          "source_status": "captured",
+          "artifact": "03-connections-and-methods/experiments/method-demo.json",
+          "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+        }
+      ]
+    },
+    {
+      "id": "methods-lossy",
+      "bundle": "methods",
+      "variant": "lossy_observations",
+      "generation_input": [
+        {
+          "id": "thread-csv_ids",
+          "observation": "Padded IDs collapsed with int conversion; string-preserving correction passes."
+        },
+        {
+          "id": "thread-url_keys",
+          "observation": "Query-free URL key collapsed distinct views; query-preserving correction passes."
+        },
+        {
+          "id": "thread-cache_scope",
+          "observation": "Tenant/policy-free keys collapsed scopes; partitioned key passes."
+        }
+      ]
+    }
+  ]
+}

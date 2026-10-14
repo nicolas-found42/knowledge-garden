@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "book-pdf-page-84-extractive-all",
+    "family": "claim",
+    "source": "book-pdf-page-84",
+    "representation": "extractive",
+    "claim": "Every variation is destroyed by natural selection.",
+    "source_truth": "contradicted",
+    "state": {
+      "source": "book-pdf-page-84",
+      "evidence_kind": "extractive",
+      "evidence": "78\nNATURAL SELECTION.\n[CHAP. IV\nOn the other hand, we may feel sure that any\nvariation\nin the lenst degree injurious would be rigidly destroved.\nThis preservation of favourable variations and the rejec-\ntion of injurious\nvariations, I call Natural Selection.\nVariations neither useful nor injurious would not be aftect-\ned by natural selection, and would be left a fluctuating\nclement, as perhaps we see in the species called polymor-\nphic.\nWe shall best understand the probable course of na-\ntuwral sclection by taking the case of a country undergo-\ning some physical change, for instance, of climate.\nThe\nproportional numbers of its inhabitants would almost im-\nmediately undergo a change, and some species might be-\ncome extinet.\nWe may conelude, from what we have\nseen of the intimate and complex manner in which the in-\nhabitants of cach country are bound together, that any\nchange in the munerical\nsome of the in-\nCabiguts, ithe peumeia of rue chango of ehimat tiedil,\nwould most seriously affeet many of the others.\ncountry were open on its borders, new forms would cer-\ntainly immigrate, and this also would serionsly disturb\nthe relations of some of the former inhabitants.\nLet it be\nremembered how powerfiul the influence of' a single intro-\nduced tree or manual has been shown to be.\nBut in the\ncase of an island, or of a country partly surrounded by\nbarriers, into which new and betfer adapted forms could\nnot freely enter, we should then have places in the econo-\nmny of nature whieh would assuredly be better filled up,\nif some of' the original inhabitants were in some manner\nmnodified; for, had the arca been open to inmigration,\nthese same places would have been seized on by intruders.\nIn such case, every slight moditication, which in the course\nof ages chanced to arise, and wlueh in any way favoured\nthe individuals of any of the species, by |\nthem to their altered conditions, would tend to be pre-\nserved; and natural selection would thus have free scope\nfor the work of improvement.\nWe have reason to believe, as stated in the first chap-\nter, that a change in the conditions of life, by specially\naeting on the reproductive system, causes or increases",
+      "claim": "Every variation is destroyed by natural selection."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "contradicted",
+        "probabilities": {
+          "unknown": 0,
+          "supported": 0,
+          "contradicted": 1
+        },
+        "confidence": 1
+      }
+    },
+    "usage": {
+      "input_tokens": 976,
+      "output_tokens": 44,
+      "cost": 4.0992e-05
+    },
+    "id": "gen-dec-1790725833-XuB1gkWTYnCX6fv5Fz3B",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.20427462499355897
+}

@@ -1,0 +1,42 @@
+{
+  "sentences": [
+    {
+      "text": "The exact day on which the picnic photograph was taken is unknown.",
+      "sourceIds": [
+        "caption"
+      ],
+      "quote": "The photographer did not record the exact date."
+    },
+    {
+      "text": "The photograph was taken on some day in May 2024, but the precise date is not specified.",
+      "sourceIds": [
+        "caption"
+      ],
+      "quote": "Maya prepared fruit at Riverside on a day in May 2024."
+    },
+    {
+      "text": "The photograph itself does not provide any information about the date it was taken.",
+      "sourceIds": [
+        "photo-fruit"
+      ],
+      "quote": "pixels do not establish Maya, Riverside, a date, nutrition, or weight."
+    }
+  ],
+  "checks": [
+    {
+      "index": 0,
+      "idsValid": true,
+      "quoteExact": false
+    },
+    {
+      "index": 1,
+      "idsValid": true,
+      "quoteExact": true
+    },
+    {
+      "index": 2,
+      "idsValid": true,
+      "quoteExact": true
+    }
+  ]
+}

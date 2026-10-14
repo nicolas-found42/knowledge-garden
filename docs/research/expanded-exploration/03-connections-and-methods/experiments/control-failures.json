@@ -1,0 +1,10 @@
+[
+  {
+    "stage": "diagnostic extraction",
+    "failure": "TypeError: required field lineno missing from stmt",
+    "kind": "experiment_code_error",
+    "provider_call_made": false,
+    "repair": "ast.fix_missing_locations before compile",
+    "not_model_error": true
+  }
+]

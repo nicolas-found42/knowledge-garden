@@ -1,0 +1,112 @@
+{
+  "researchDate": "2026-09-29",
+  "inventoryFilesConsidered": 6479,
+  "eligibleByFormat": {
+    ".csv": 170,
+    ".docx": 19,
+    ".jpeg": 5,
+    ".jpg": 13,
+    ".pdf": 11,
+    ".png": 288,
+    ".pptx": 31,
+    ".txt": 44,
+    ".xlsx": 8
+  },
+  "selectedCount": 9,
+  "results": [
+    {
+      "format": ".csv",
+      "selected": 1,
+      "bytesBucket": "<1MB",
+      "copyHashVerified": true,
+      "status": "csv-decoded",
+      "units": 1,
+      "seconds": 2.7542002499103546e-05,
+      "originalUnchanged": true
+    },
+    {
+      "format": ".docx",
+      "selected": 1,
+      "bytesBucket": "1\u20138MB",
+      "copyHashVerified": true,
+      "status": "xml-structure-checked",
+      "units": 1,
+      "hasTextNodes": true,
+      "seconds": 0.004164209007285535,
+      "originalUnchanged": true
+    },
+    {
+      "format": ".jpeg",
+      "selected": 1,
+      "bytesBucket": "<1MB",
+      "copyHashVerified": true,
+      "status": "image-container-decoded",
+      "seconds": 0.5806739169929642,
+      "originalUnchanged": true
+    },
+    {
+      "format": ".jpg",
+      "selected": 1,
+      "bytesBucket": "<1MB",
+      "copyHashVerified": true,
+      "status": "image-container-decoded",
+      "seconds": 0.00014449999434873462,
+      "originalUnchanged": true
+    },
+    {
+      "format": ".pdf",
+      "selected": 1,
+      "bytesBucket": "1\u20138MB",
+      "copyHashVerified": true,
+      "status": "text-layer-checked",
+      "units": 26,
+      "hasExtractableText": true,
+      "seconds": 0.7311356250138488,
+      "originalUnchanged": true
+    },
+    {
+      "format": ".png",
+      "selected": 1,
+      "bytesBucket": "<1MB",
+      "copyHashVerified": true,
+      "status": "image-container-decoded",
+      "seconds": 0.00010470798588357866,
+      "originalUnchanged": true
+    },
+    {
+      "format": ".pptx",
+      "selected": 1,
+      "bytesBucket": "<1MB",
+      "copyHashVerified": true,
+      "status": "xml-structure-checked",
+      "units": 3,
+      "hasTextNodes": true,
+      "seconds": 0.00046441599261015654,
+      "originalUnchanged": true
+    },
+    {
+      "format": ".txt",
+      "selected": 1,
+      "bytesBucket": "<1MB",
+      "copyHashVerified": true,
+      "status": "utf8-decoded",
+      "hasText": true,
+      "seconds": 8.000002708286047e-06,
+      "originalUnchanged": true
+    },
+    {
+      "format": ".xlsx",
+      "selected": 1,
+      "bytesBucket": "<1MB",
+      "copyHashVerified": true,
+      "status": "xml-structure-checked",
+      "units": 1,
+      "hasTextNodes": true,
+      "seconds": 0.00014966700109653175,
+      "originalUnchanged": true
+    }
+  ],
+  "seconds": 1.4761311250040308,
+  "boundary": "Documents only; github and hidden/cache/build folders excluded; max depth 5, 10000 files, 8 MB/file, 1/hash-selected format, 14 total. Local copies and exact mappings restricted outside repository. No text exposed or sent to API. Structural extraction is NOT semantic fidelity or general support.",
+  "conversationURLDestinationsFetched": 0
+}

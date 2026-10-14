@@ -1,0 +1,80 @@
+{
+  "requests": 160,
+  "successful": 160,
+  "labeled_checks": 240,
+  "correct": 231,
+  "reported_cost_usd": 0.004321968,
+  "cost_available": true,
+  "input_tokens": 102904,
+  "median_seconds": 0.3532457705005072,
+  "by_family": {
+    "context": {
+      "plain": {
+        "requests": 20,
+        "checks": 20,
+        "correct": 18,
+        "all_checks_correct": 18
+      },
+      "evidence_aware": {
+        "requests": 20,
+        "checks": 20,
+        "correct": 18,
+        "all_checks_correct": 18
+      }
+    },
+    "impact": {
+      "plain": {
+        "requests": 20,
+        "checks": 60,
+        "correct": 60,
+        "all_checks_correct": 20
+      },
+      "evidence_aware": {
+        "requests": 20,
+        "checks": 60,
+        "correct": 60,
+        "all_checks_correct": 20
+      }
+    },
+    "maintenance": {
+      "plain": {
+        "requests": 20,
+        "checks": 20,
+        "correct": 20,
+        "all_checks_correct": 20
+      },
+      "evidence_aware": {
+        "requests": 20,
+        "checks": 20,
+        "correct": 20,
+        "all_checks_correct": 20
+      }
+    },
+    "procedure": {
+      "plain": {
+        "requests": 20,
+        "checks": 20,
+        "correct": 17,
+        "all_checks_correct": 17
+      },
+      "evidence_aware": {
+        "requests": 20,
+        "checks": 20,
+        "correct": 18,
+        "all_checks_correct": 18
+      }
+    }
+  },
+  "wall_seconds": 15.102424041979248,
+  "output_tokens": 10548,
+  "resolved_models": [
+    "typesafe/jev-1.13-20260917"
+  ],
+  "followup_requests": 0,
+  "families": 4,
+  "unique_synthetic_cases": 40,
+  "repeated_trials_per_variant": 2,
+  "prompt_variants": 2,
+  "cases_sha256": "d0692a90141b1bfb4dd8903377a71cf8387c8dd76dac4953e393889e874b2bb5",
+  "label_audit": "label-audit.json"
+}

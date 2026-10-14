@@ -1,0 +1,94 @@
+[
+  {
+    "id": "vtest.avi",
+    "url": "https://raw.githubusercontent.com/opencv/opencv/d21a05f1afee9521f0a700dc4f22dd7dc5f7ac72/samples/data/vtest.avi",
+    "path": "/tmp/knowledge-garden-media-lab/vtest.avi",
+    "sha256": "45cddc9490be69345cbdab64ca583be65987e864ca408038e648db99e10516cf",
+    "bytes": 8131690,
+    "status": "captured"
+  },
+  {
+    "id": "book.pdf",
+    "url": "https://archive.org/download/101619491.nlm.nih.gov/101619491.pdf",
+    "path": "/tmp/knowledge-garden-media-lab/book.pdf",
+    "sha256": "7f939890d8b87b615867e2f79927cad709901026df7fe136340511fdbc5f1d04",
+    "bytes": 24753009,
+    "status": "captured"
+  },
+  {
+    "id": "book-ocr.txt",
+    "url": "https://archive.org/download/101619491.nlm.nih.gov/101619491_djvu.txt",
+    "path": "docs/research/expanded-exploration/01-source-interpretation/experiments/media-lab/book-ocr.txt",
+    "sha256": "7408fd8e22668cb1edc9be1aecd91a95b7766871c8bac902d29201af610c3c1f",
+    "bytes": 1124255,
+    "status": "captured"
+  },
+  {
+    "id": "book-scandata.xml",
+    "url": "https://archive.org/download/101619491.nlm.nih.gov/101619491_scandata.xml",
+    "path": "docs/research/expanded-exploration/01-source-interpretation/experiments/media-lab/book-scandata.xml",
+    "sha256": "a96053a1f58186a4c1a5123df8747b91004367891604b4ce456f2c9a96c3ad23",
+    "bytes": 158177,
+    "status": "captured"
+  },
+  {
+    "id": "old-project-selection.py",
+    "url": "https://raw.githubusercontent.com/DEAP/deap/8a96fd3a75026f7b30e835f595a5199c75634ddf/deap/tools/selection.py",
+    "path": "docs/research/expanded-exploration/01-source-interpretation/experiments/media-lab/old-project-selection.py",
+    "sha256": "18fbb468f438dfb9c8eb2a161a48a869b80bdde52c173628d3330bc0e11e05a4",
+    "bytes": 13325,
+    "status": "captured"
+  },
+  {
+    "id": "article-selection.html",
+    "url": "https://deap.readthedocs.io/en/master/api/tools.html",
+    "status": "could_not_retrieve",
+    "error": "HTTP Error 403: Forbidden"
+  },
+  {
+    "id": "opencv-demo.py",
+    "url": "https://raw.githubusercontent.com/opencv/opencv/d21a05f1afee9521f0a700dc4f22dd7dc5f7ac72/samples/python/tutorial_code/video/background_subtraction/bg_sub.py",
+    "path": "docs/research/expanded-exploration/01-source-interpretation/experiments/media-lab/opencv-demo.py",
+    "sha256": "a185ec37c6136cdb75a4e93f7984f1bcd54c96bb3af139c319e4854f14853086",
+    "bytes": 1614,
+    "status": "captured"
+  },
+  {
+    "id": "fruits.jpg",
+    "url": "https://raw.githubusercontent.com/opencv/opencv/d21a05f1afee9521f0a700dc4f22dd7dc5f7ac72/samples/data/fruits.jpg",
+    "path": "docs/research/expanded-exploration/01-source-interpretation/experiments/media-lab/fruits.jpg",
+    "sha256": "9c031d80a1c52da5eca790db896baffec6a7e52bf786cdb7bbfca5c7f880e6a1",
+    "bytes": 82429,
+    "status": "captured"
+  },
+  {
+    "id": "article-selection.rst",
+    "url": "https://raw.githubusercontent.com/DEAP/deap/8a96fd3a75026f7b30e835f595a5199c75634ddf/doc/tutorials/basic/part2.rst",
+    "path": "docs/research/expanded-exploration/01-source-interpretation/experiments/media-lab/article-selection.rst",
+    "sha256": "94e2c8d2df9bf220fdae088d7d9e092e7e19e2877f905b171135a0e2cda1dde7",
+    "bytes": 10996,
+    "status": "captured"
+  },
+  {
+    "id": "iris.csv",
+    "url": "https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data",
+    "path": "docs/research/expanded-exploration/01-source-interpretation/experiments/media-lab/iris.csv",
+    "sha256": "6f608b71a7317216319b4d27b4d9bc84e6abd734eda7872b71a458569e2656c0",
+    "bytes": 4551,
+    "status": "captured"
+  },
+  {
+    "id": "phototest-commit-master",
+    "url": "https://api.github.com/repos/tesseract-ocr/test/commits/master",
+    "status": "could_not_retrieve",
+    "error": "HTTP422 invalid commit ref; repository default branch is main"
+  },
+  {
+    "id": "phototest.tif",
+    "url": "https://raw.githubusercontent.com/tesseract-ocr/test/232ff181c66516116ec0e84c4963f70de15050fd/testing/phototest.tif",
+    "path": "docs/research/expanded-exploration/01-source-interpretation/experiments/media-lab/phototest.tif",
+    "sha256": "d2241a1eb6d6cd2eb6544b8e228c2862c852b7467d16ed636caa32179b780692",
+    "bytes": 38668,
+    "status": "captured"
+  }
+]

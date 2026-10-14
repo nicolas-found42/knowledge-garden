@@ -1,0 +1,59 @@
+{
+  "task": {
+    "id": "video-contact-sheet-interpretation",
+    "file": "/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/01-source-interpretation/experiments/media-lab/video-contact-sheet.jpg",
+    "mode": "interpretation",
+    "media": "image"
+  },
+  "model_requested": "google/gemini-2.5-flash-lite",
+  "prompt": "Return concise JSON with observations and interpretive_candidates:[{claim,anchor,status,why}], limitations. Suggest useful interpretations or research connections, marking hypothesis vs directly observed facts. Do not claim connections were actually used historically, do not infer identities or suspicious intent. Preserve uncertainty and source anchors.\n",
+  "media_sha256": "f2532602fc89431c148d596afea5dbc2088c1135b0df340f5a5c7f3752dcb7f2",
+  "media_bytes": 525535,
+  "response": {
+    "id": "gen-1790725762-uezqiHY7iIE3CZzetOH7",
+    "object": "chat.completion",
+    "created": 1790725762,
+    "model": "google/gemini-2.5-flash-lite",
+    "provider": "Google",
+    "system_fingerprint": null,
+    "service_tier": "default",
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "length",
+        "native_finish_reason": "MAX_TOKENS",
+        "message": {
+          "role": "assistant",
+          "content": "```json\n{\n  \"observations\": [\n    {\n      \"box_2d\": [130, 128, 188, 184],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [130, 322, 188, 378],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [130, 416, 188, 472],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [130, 776, 188, 832],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [330, 240, 388, 296],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [330, 328, 388, 384],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [330, 460, 388, 516],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [330, 728, 388, 784],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [330, 876, 388, 932],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [530, 48, 588, 104],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [530, 140, 588, 196],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [530, 328, 588, 384],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [530, 436, 588, 492],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [530, 696, 588, 752],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [530, 816, 588, 872],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [530, 880, 588, 936],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [730, 48, 788, 104],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [730, 140, 788, 196],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [730, 316, 788, 372],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [730, 440, 788, 496],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [730, 620, 788, 676],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [730, 696, 788, 752],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [730, 876, 788, 932],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [730, 900, 788, 956],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [930, 48, 988, 104],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [930, 400, 988, 456],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [930, 456, 988, 512],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [930, 540, 988, 596],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [930, 708, 988, 764],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [930, 816, 988, 872],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [930, 896, 988, 952],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [28, 376, 60, 408],\n      \"label\": \"van\"\n    },\n    {\n      \"box_2d\": [28, 424, 60, 468],\n      \"label\": \"van\"\n    },\n    {\n      \"box_2d\": [28, 924, 60, 968],\n      \"label\": \"van\"\n    },\n    {\n      \"box_2d\": [356, 424, 388, 468],\n      \"label\": \"van\"\n    },\n    {\n      \"box_2d\": [356, 924, 388, 968],\n      \"label\": \"van\"\n    },\n    {\n      \"box_2d\": [684, 424, 716, 468],\n      \"label\": \"van\"\n    },\n    {\n      \"box_2d\": [684, 924, 716, 968],\n      \"label\": \"van\"\n    },\n    {\n      \"box_2d\": [10, 268, 30, 284],\n      \"label\": \"cone\"\n    },\n    {\n      \"box_2d\": [10, 300, 30, 316],\n      \"label\": \"cone\"\n    },\n    {\n      \"box_2d\": [10, 320, 30, 336],\n      \"label\": \"cone\"\n    },\n    {\n      \"box_2d\": [10, 336, 30, 352],\n      \"label\": \"cone\"\n    },\n    {\n      \"box_2d\": [10, 352, 30, 368],\n      \"label\": \"cone\"\n    },\n    {",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 1864,
+      "completion_tokens": 1800,
+      "total_tokens": 3664,
+      "cost": 0.000897336,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0009064,
+        "upstream_inference_prompt_cost": 0.0001864,
+        "upstream_inference_completions_cost": 0.00072
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  "seconds": 5.824620041996241
+}

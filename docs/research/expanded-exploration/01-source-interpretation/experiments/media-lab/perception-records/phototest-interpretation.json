@@ -1,0 +1,59 @@
+{
+  "task": {
+    "id": "phototest-interpretation",
+    "file": "/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/01-source-interpretation/experiments/media-lab/phototest.png",
+    "mode": "interpretation",
+    "media": "image"
+  },
+  "model_requested": "google/gemini-2.5-flash-lite",
+  "prompt": "Return concise JSON with observations and interpretive_candidates:[{claim,anchor,status,why}], limitations. Suggest useful interpretations or research connections, marking hypothesis vs directly observed facts. Do not claim connections were actually used historically, do not infer identities or suspicious intent. Preserve uncertainty and source anchors.\n",
+  "media_sha256": "e8f478459b0802c57a9e2ec7e5c872262ca7b31bdaaeb60bf5a182014a28a25c",
+  "media_bytes": 5720,
+  "response": {
+    "id": "gen-1790725748-VkZkMUI7FEnOBhdW6zGb",
+    "object": "chat.completion",
+    "created": 1790725748,
+    "model": "google/gemini-2.5-flash-lite",
+    "provider": "Google AI Studio",
+    "system_fingerprint": null,
+    "service_tier": "default",
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "STOP",
+        "message": {
+          "role": "assistant",
+          "content": "```json\n{\n  \"observations\": [\n    {\n      \"text\": \"This is a lot of 12 point text to test the ocr code and see if it works on all types of file format.\",\n      \"anchor\": [\n        187,\n        54,\n        334,\n        967\n      ]\n    },\n    {\n      \"text\": \"The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox.\",\n      \"anchor\": [\n        396,\n        54,\n        740,\n        967\n      ]\n    }\n  ],\n  \"interpretive_candidates\": [\n    {\n      \"claim\": \"The text is intended to test OCR capabilities.\",\n      \"anchor\": [\n        187,\n        54,\n        334,\n        967\n      ],\n      \"status\": \"supported\",\n      \"why\": \"The text explicitly states 'to test the ocr code'.\"\n    },\n    {\n      \"claim\": \"The text is composed of 12-point font.\",\n      \"anchor\": [\n        187,\n        54,\n        334,\n        967\n      ],\n      \"status\": \"supported\",\n      \"why\": \"The text explicitly states '12 point text'.\"\n    },\n    {\n      \"claim\": \"The text is designed to evaluate OCR performance across different file formats.\",\n      \"anchor\": [\n        187,\n        54,\n        334,\n        967\n      ],\n      \"status\": \"supported\",\n      \"why\": \"The text states 'see if it works on all types of file format'.\"\n    },\n    {\n      \"claim\": \"The text includes a pangram.\",\n      \"anchor\": [\n        396,\n        54,\n        740,\n        967\n      ],\n      \"status\": \"supported\",\n      \"why\": \"The sentence 'The quick brown fox jumps over the lazy dog' is a well-known pangram, and the repeated sentence 'The quick brown dog jumped over the lazy fox' is a variation of it.\"\n    }\n  ],\n  \"limitations\": [\n    \"The exact font used is not specified beyond its point size.\",\n    \"The specific file formats being tested are not enumerated.\",\n    \"The success or failure of the OCR test is not indicated.\",\n    \"The image quality, while generally good, may have minor imperfections that could affect OCR accuracy in edge cases.\"\n  ],\n  \"research_connections\": [\n    {\n      \"hypothesis\": \"The use of a pangram is a common practice in OCR testing to ensure all letters of the alphabet are represented.\",\n      \"anchor\": [\n        396,\n        54,\n        740,\n        967\n      ]\n    },\n    {\n      \"hypothesis\": \"The mention of '12 point text' suggests a standard or common font size used for readability and testing.\",\n      \"anchor\": [\n        187,\n        54,\n        334,\n        967\n      ]\n    },\n    {\n      \"hypothesis\": \"The phrase 'all types of file format' implies a broad scope for the OCR test, potentially including common image formats like JPEG, PNG, TIFF, and possibly document formats like PDF.\",\n      \"anchor\": [\n        187,\n        54,\n        334,\n        967\n      ]\n    }\n  ]\n}\n```",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 317,
+      "completion_tokens": 820,
+      "total_tokens": 1137,
+      "cost": 0,
+      "is_byok": true,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0003597,
+        "upstream_inference_prompt_cost": 3.17e-05,
+        "upstream_inference_completions_cost": 0.000328
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  "seconds": 3.2934767919941805
+}

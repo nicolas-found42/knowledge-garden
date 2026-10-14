@@ -1,0 +1,139 @@
+{
+  "main": {
+    "requests": 192,
+    "successful": 192,
+    "checks": 256,
+    "correct": 225,
+    "wall_seconds": 15.857718708983157,
+    "median_seconds": 0.3638824790104991,
+    "input_tokens": 121824,
+    "output_tokens": 21344,
+    "cost_usd": 0.005116608
+  },
+  "families": {
+    "coverage": {
+      "unique_fixtures": 16,
+      "calls": 32,
+      "questions": 136,
+      "labeled_checks": 32,
+      "correct": 31,
+      "holdout_calls": 8,
+      "holdout_checks": 8,
+      "holdout_correct": 8,
+      "cost_usd": 0.0008130359999999999
+    },
+    "entity": {
+      "unique_fixtures": 16,
+      "calls": 32,
+      "questions": 96,
+      "labeled_checks": 32,
+      "correct": 30,
+      "holdout_calls": 8,
+      "holdout_checks": 8,
+      "holdout_correct": 8,
+      "cost_usd": 0.000663684
+    },
+    "episode": {
+      "unique_fixtures": 16,
+      "calls": 32,
+      "questions": 96,
+      "labeled_checks": 64,
+      "correct": 58,
+      "holdout_calls": 8,
+      "holdout_checks": 16,
+      "holdout_correct": 16,
+      "cost_usd": 0.000762888
+    },
+    "lifecycle": {
+      "unique_fixtures": 16,
+      "calls": 32,
+      "questions": 64,
+      "labeled_checks": 32,
+      "correct": 26,
+      "holdout_calls": 8,
+      "holdout_checks": 8,
+      "holdout_correct": 6,
+      "cost_usd": 0.000763812
+    },
+    "ontology": {
+      "unique_fixtures": 16,
+      "calls": 32,
+      "questions": 192,
+      "labeled_checks": 32,
+      "correct": 32,
+      "holdout_calls": 8,
+      "holdout_checks": 8,
+      "holdout_correct": 8,
+      "cost_usd": 0.001001196
+    },
+    "spans": {
+      "unique_fixtures": 16,
+      "calls": 32,
+      "questions": 128,
+      "labeled_checks": 64,
+      "correct": 48,
+      "holdout_calls": 8,
+      "holdout_checks": 16,
+      "holdout_correct": 10,
+      "cost_usd": 0.001111992
+    }
+  },
+  "provider_errors": 0,
+  "fixture_count": 96,
+  "holdout_fixture_count": 24,
+  "holdout_status": "All main-run labels and questions frozen before any responses; diagnostic reuse separately marked.",
+  "paired_choice_changes": [
+    [
+      "coverage",
+      "quoted",
+      [
+        "coverage"
+      ]
+    ],
+    [
+      "spans",
+      "uncertain",
+      [
+        "role_p1"
+      ]
+    ]
+  ],
+  "questions": 712,
+  "models": [
+    "typesafe/jev-1.13-20260917"
+  ],
+  "diagnostic": {
+    "original": {
+      "correct_at_0.5": 11,
+      "n": 16,
+      "false_positive": 2,
+      "false_negative": 3
+    },
+    "named": {
+      "correct_at_0.5": 15,
+      "n": 16,
+      "false_positive": 1,
+      "false_negative": 0
+    },
+    "inline": {
+      "correct_at_0.5": 13,
+      "n": 16,
+      "false_positive": 3,
+      "false_negative": 0
+    },
+    "usage": {
+      "requests": 16,
+      "input_tokens": 6490,
+      "output_tokens": 832,
+      "cost_usd": 0.00027258,
+      "wall_seconds": 2.671683041000506
+    }
+  },
+  "combined": {
+    "requests": 208,
+    "questions": 760,
+    "input_tokens": 128314,
+    "output_tokens": 22176,
+    "cost_usd": 0.005389188
+  }
+}

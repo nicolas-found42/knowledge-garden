@@ -1,0 +1,134 @@
+{
+  "checks": [
+    {
+      "file": "homework.pdf",
+      "passed": true,
+      "seconds": 0.0006457090203184634,
+      "sha256": "d86c4f463b4112b7322e7a608b19d2468b28700bb7ec87a6901c8c2b57f48d2c",
+      "details": {
+        "pages": 1,
+        "extract": "Controlled homework: sampling and uncertainty\nProblem 1: 12 visits in 10 minutes gives 1.2 visits per minute.\nOne short observation does not estimate all-day activity.\nDo not infer rain caused a change without comparable observations.\n",
+        "checkedPhrases": [
+          "1.2 visits per minute",
+          "does not estimate all-day activity"
+        ]
+      }
+    },
+    {
+      "file": "field-report.pdf",
+      "passed": true,
+      "seconds": 0.0006734999769832939,
+      "sha256": "3d2447e8136dddf29fadabf3bdee3e4c9159a3f120eb579e476398471fbf57d1",
+      "details": {
+        "pages": 1,
+        "extract": "Controlled field report - Riverside\nMaya recorded 12 pollinator visits in ten minutes on 17 May 2024.\nThe day was warm. A single observation does not establish a trend.\nA later wet visit was interrupted, leaving missing observations.\n",
+        "checkedPhrases": [
+          "12 pollinator visits",
+          "does not establish a trend"
+        ]
+      }
+    },
+    {
+      "file": "briefing.pptx",
+      "passed": true,
+      "seconds": 0.001186209003208205,
+      "sha256": "a661470f3605cb5ab93204d2f436d101fa8425f0529ad026bf88c5603ecab411",
+      "details": {
+        "slides": [
+          "Field study briefing Controlled presentation. Maya observed Riverside pollinators.",
+          "Observation, not causation 12 visits in ten minutes on 17 May 2024. Rain interrupted a later visit; no causal estimate.",
+          "Next sampling plan Morning and noon. Compare against the earlier noon-only proposal."
+        ]
+      }
+    },
+    {
+      "file": "visits.csv",
+      "passed": true,
+      "seconds": 0.00024208298418670893,
+      "sha256": "7c96d132bf90064912ca0493363466dafe60962476a5a62fdcae463e9d9d516f",
+      "details": {
+        "rows": [
+          {
+            "date": "2024-05-17",
+            "observer": "Maya",
+            "site": "Riverside",
+            "count": "12",
+            "minutes": "10"
+          },
+          {
+            "date": "2024-05-18",
+            "observer": "Maya",
+            "site": "Riverside",
+            "count": "8",
+            "minutes": "10"
+          }
+        ],
+        "rate": 1.2
+      }
+    },
+    {
+      "file": "fruits.jpg",
+      "passed": true,
+      "seconds": 0.0011139999842271209,
+      "sha256": "9c031d80a1c52da5eca790db896baffec6a7e52bf786cdb7bbfca5c7f880e6a1",
+      "details": {
+        "dimensions": [
+          512,
+          480
+        ],
+        "format": "JPEG",
+        "semanticFidelity": "not checked by container decode"
+      }
+    },
+    {
+      "file": "book-pdf-page-84.png",
+      "passed": true,
+      "seconds": 0.0027287080010864884,
+      "sha256": "05a3b7221b9e0209bee6be16ef003bbfc18ca71cf693d319805adac112cafcb7",
+      "details": {
+        "dimensions": [
+          456,
+          767
+        ],
+        "format": "PNG",
+        "semanticFidelity": "not checked by container decode"
+      }
+    },
+    {
+      "file": "tone.wav",
+      "passed": true,
+      "seconds": 0.00013787500211037695,
+      "sha256": "3a6f623c555c324fb74a4c908858c66a47d05bd316459514858cc4529c31aa34",
+      "details": {
+        "sampleRate": 8000,
+        "frames": 8000,
+        "duration": 1.0,
+        "transcription": "not tested; controlled tone contains no speech"
+      }
+    },
+    {
+      "file": "controlled-demo.mp4",
+      "passed": true,
+      "seconds": 0.09834933301317506,
+      "sha256": "828f3a538f9ccbb5ddd81435c3a4b8ccd6d98d5313a15960a17f04ef039bf543",
+      "details": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 768,
+            "height": 576
+          }
+        ],
+        "format": {
+          "duration": "10.000000"
+        }
+      }
+    }
+  ],
+  "passed": 8,
+  "total": 8,
+  "boundary": "8 actual retained files; fixture phrase assertions/container validity only. Model calls use public authored corpus cards, not fresh multimodal extraction. No arbitrary format support or PDF/PPTX visual fidelity claim."
+}

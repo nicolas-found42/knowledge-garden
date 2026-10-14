@@ -1,0 +1,542 @@
+[
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561403508771926,
+      0.89322916692708332,
+      0.043859649122807015,
+      0.02083333333333337
+    ],
+    "text" : "86"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.35087719319838057,
+      0.90104166665665064,
+      0.28947368421052638,
+      0.01302083333333337
+    ],
+    "text" : "NATURAL SELECTION."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.79821624951495029,
+      0.89835866825254607,
+      0.11847977889211558,
+      0.015782662356893296
+    ],
+    "text" : "(CHAP. IV."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947382456139886,
+      0.85937500008680556,
+      0.8421052631578948,
+      0.015625
+    ],
+    "text" : "the fleefest prev, a deer for.instanee, had from any change"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947378892543565,
+      0.83854166676432296,
+      0.83771929824561409,
+      0.01822916666666663
+    ],
+    "text" : "in the country increased in numbers, or that other prey"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947382456139886,
+      0.82031250008680556,
+      0.8421052631578948,
+      0.015625
+    ],
+    "text" : "had decreased in numbers, during that season of the vear"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.0833333472953212,
+      0.79947916684027776,
+      0.83771929824561409,
+      0.015625
+    ],
+    "text" : "when the wolf is hardest pressed for food. 1 ean under"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947376842105149,
+      0.77864583346354166,
+      0.8421052631578948,
+      0.01822916666666663
+    ],
+    "text" : "such ciremnstances see no reason to doubt that the swift-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074445588504825425,
+      0.76008919766918515,
+      0.12303865165041204,
+      0.016279938320318932
+    ],
+    "text" : "estand"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.19736840906432787,
+      0.76041666644965278,
+      0.7192982456140351,
+      0.01822916666666663
+    ],
+    "text" : "slimmest wolves would have the best chance of"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947382383040499,
+      0.73958333350694438,
+      0.83771929824561409,
+      0.015625000000000111
+    ],
+    "text" : "surviving, and so be preserved or selected,—provided"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.07891843753081268,
+      0.71826771963126834,
+      0.83777718794973288,
+      0.019193726281325096
+    ],
+    "text" : "always that they retained strength to master their prey"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561417616958586,
+      0.69531250013020829,
+      0.84649122807017541,
+      0.0234375
+    ],
+    "text" : "at this or at some other period of the year, when they"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561415277777418,
+      0.67708333350694438,
+      0.70614035087719307,
+      0.02083333333333337
+    ],
+    "text" : "might be compelled to prey on other animals."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.78508772136114469,
+      0.67968750030381941,
+      0.13596490391513749,
+      0.018229166666666741
+    ],
+    "text" : "I can see"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561412335526087,
+      0.65624999973958342,
+      0.84649122807017552,
+      0.020833333333333259
+    ],
+    "text" : "no more reason to doubt this, than that man can improve"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.07456139292763185,
+      0.63802083320312497,
+      0.84649122807017541,
+      0.020833333333333481
+    ],
+    "text" : "the fleetness of' his greyhounds by careful and mothodical"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561389473684667,
+      0.61979166649305562,
+      0.8421052631578948,
+      0.015625
+    ],
+    "text" : "selection, or by that unconscious selection which results"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074474884147275502,
+      0.59741926699413672,
+      0.84227832994962981,
+      0.021307299534479629
+    ],
+    "text" : "from each man trving to keep the best dogs without any"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.0701754434210526,
+      0.57552083341145832,
+      0.48245614035087719,
+      0.0234375
+    ],
+    "text" : "thought of modifying the breed."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.12719299039473667,
+      0.5572916667447918,
+      0.79385964912280704,
+      0.0234375
+    ],
+    "text" : "Even without any change in the proportional mumbers"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561417690058029,
+      0.53645833346354155,
+      0.85087719298245612,
+      0.0234375
+    ],
+    "text" : "of the animals on which our woll preyed, a cub might"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561417690058029,
+      0.51822916675347219,
+      0.85087719298245612,
+      0.020833333333333259
+    ],
+    "text" : "be born with an innate tendeney to pursue certain kinds"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561402357456161,
+      0.49739583359374995,
+      0.12719298245614036,
+      0.02083333333333337
+    ],
+    "text" : "of prey."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.23245615182748491,
+      0.50000000008680545,
+      0.68859649122807021,
+      0.015625
+    ],
+    "text" : "Nor can this be thought very improbable; for"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947378892543621,
+      0.47916666676432296,
+      0.83771929824561397,
+      0.01822916666666663
+    ],
+    "text" : "we often observe great differences in the nutural tenden-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561400584795393,
+      0.45833333372395835,
+      0.85087719298245601,
+      0.0234375
+    ],
+    "text" : "cies of our domestic animals; one caf, for instance, taking"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.07456141408991207,
+      0.43750000006510414,
+      0.84649122807017552,
+      0.02083333333333337
+    ],
+    "text" : "to catch rats, another mice; one cat, according to Nr. St."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947354532164282,
+      0.41666666705729161,
+      0.84210526315789469,
+      0.0234375
+    ],
+    "text" : "John, bringing home winged game, another liares or rab-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.07422766817958118,
+      0.39361927554870979,
+      0.85150353950366631,
+      0.028344826151927349
+    ],
+    "text" : "bits, and another lunting on marshy ground and almost"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561413084794956,
+      0.37760416675347219,
+      0.57456140350877205,
+      0.02083333333333337
+    ],
+    "text" : "nightly catching woodcocks or snipes."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.6710526357456138,
+      0.38020833342013882,
+      0.25,
+      0.015625
+    ],
+    "text" : "The tendener to"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078920876729919459,
+      0.36146302908069017,
+      0.83338633754797153,
+      0.016657274216413498
+    ],
+    "text" : "enteh rats rather than mice is known to be inherited"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561389400585279,
+      0.33593749995659716,
+      0.84649122807017541,
+      0.0234375
+    ],
+    "text" : "Now, if any slight inate change of habit or of structure"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.069793234568849186,
+      0.31669724743120276,
+      0.14988721880996436,
+      0.022855505347251892
+    ],
+    "text" : "benetited"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.22807017441520472,
+      0.3203124998697916,
+      0.061403508771929849,
+      0.013020833333333259
+    ],
+    "text" : "811"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.28508772880116934,
+      0.32031250013020829,
+      0.57017543859649122,
+      0.01822916666666663
+    ],
+    "text" : "individual wolf, it would have the"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.85087719419665431,
+      0.32031250030381953,
+      0.070175434413709104,
+      0.01822916666666663
+    ],
+    "text" : "best"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561414912280272,
+      0.29687500008680556,
+      0.68421052631578949,
+      0.020833333333333259
+    ],
+    "text" : "chance of surviving and of leaving offipring."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.7890232376696894,
+      0.29825455662292422,
+      0.13247984334042195,
+      0.020678386713067654
+    ],
+    "text" : "Some of"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561416260300883,
+      0.27604166688368059,
+      0.26315787800571377,
+      0.0234375
+    ],
+    "text" : "its young would"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.34210527288011661,
+      0.27864583342013882,
+      0.58333333333333337,
+      0.02083333333333337
+    ],
+    "text" : "probably inherit the same habits or"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.07864234429602926,
+      0.25394778956378439,
+      0.83829913222998897,
+      0.027379314104716057
+    ],
+    "text" : "structure, and br the repetition of this process, a new"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078872867474659991,
+      0.23828430403026157,
+      0.8378682722125137,
+      0.020827223857243893
+    ],
+    "text" : "variety might be formed which would either supplant or"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561403070175461,
+      0.21614583294270828,
+      0.58771929824561409,
+      0.0234375
+    ],
+    "text" : "coexist with the parent form of wolf."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.69736841739766087,
+      0.21875000034722214,
+      0.22807017543859642,
+      0.02083333271245158
+    ],
+    "text" : "Or, again. the"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947375548245408,
+      0.19791666695963539,
+      0.8421052631578948,
+      0.0234375
+    ],
+    "text" : "wolves inhabiting a mountainous district, and those fre-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.0833333472953212,
+      0.17968750017361101,
+      0.83771929824561409,
+      0.015625
+    ],
+    "text" : "quenting the lowlands, would naturally be foreed to huut"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.08329031128855989,
+      0.1606021586651839,
+      0.8334193982576068,
+      0.01733735017478466
+    ],
+    "text" : "different orer : and from the continued preservation of"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947382529239288,
+      0.14062500004340273,
+      0.84649122807017541,
+      0.018229166666666741
+    ],
+    "text" : "the individuals best fitted for the two sites, two varieties"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947372280701672,
+      0.11718750010416679,
+      0.38596491228070173,
+      0.020833333333333259
+    ],
+    "text" : "might slowly be formed."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.50000000526315769,
+      0.12239583339843751,
+      0.42105263157894735,
+      0.015625
+    ],
+    "text" : "These varieties would eross"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947382529239288,
+      0.098958333420138822,
+      0.84649122807017541,
+      0.02083333333333337
+    ],
+    "text" : "and blend where they met; but to this subjeet of inter-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947379002192772,
+      0.078125,
+      0.84649122807017552,
+      0.02083333333333337
+    ],
+    "text" : "crossing we shall soon have to return. I may add, that,"
+  }
+]

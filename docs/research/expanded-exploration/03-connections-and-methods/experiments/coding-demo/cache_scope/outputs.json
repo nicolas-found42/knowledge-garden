@@ -1,0 +1,16 @@
+[
+  {
+    "id": "cache_scope-failed",
+    "file": "coding-demo/cache_scope/failed.py",
+    "exit_code": 1,
+    "stdout": "",
+    "stderr": "Traceback (most recent call last):\n  File \"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/cache_scope/failed.py\", line 2, in <module>\n    assert key(\"A\",\"v1\",\"hello\") != key(\"B\",\"v1\",\"HELLO\"), \"tenant isolation lost\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: tenant isolation lost\n"
+  },
+  {
+    "id": "cache_scope-successful",
+    "file": "coding-demo/cache_scope/successful.py",
+    "exit_code": 0,
+    "stdout": "invariants passed\n",
+    "stderr": ""
+  }
+]

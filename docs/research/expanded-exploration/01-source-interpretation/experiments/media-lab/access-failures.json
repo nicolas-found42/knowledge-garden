@@ -1,0 +1,27 @@
+[
+  {
+    "url": "https://docs.typesafe.ai/concepts/state.md",
+    "tool": "web.open",
+    "result": "not accessible; urllib capture succeeded separately"
+  },
+  {
+    "url": "https://openrouter.ai/docs/guides/overview/multimodal/images.md",
+    "tool": "urllib",
+    "result": "HTTP403"
+  },
+  {
+    "url": "https://openrouter.ai/docs/guides/overview/multimodal/videos.md",
+    "tool": "urllib",
+    "result": "HTTP403; extensionless web open succeeded"
+  },
+  {
+    "url": "https://openrouter.ai/docs/guides/overview/multimodal/images",
+    "tool": "web.open",
+    "result": "HTTP404; navigation yielded image-understanding current path"
+  },
+  {
+    "url": "https://archive.org/metadata/originofspecies00darw_1",
+    "tool": "urllib",
+    "result": "empty {} metadata; later Archive search found NLM edition"
+  }
+]

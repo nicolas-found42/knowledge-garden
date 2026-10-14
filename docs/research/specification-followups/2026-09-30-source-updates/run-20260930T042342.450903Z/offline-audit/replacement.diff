@@ -1,0 +1,15 @@
+--- replacement.before.md
++++ replacement.after.md
+@@ -6,8 +6,7 @@
+ 
+ | Field | Value | Supporting source | Exact excerpt |
+ | --- | --- | --- | --- |
+-| observer | Maya | report-r1 | Observer: Maya. |
+-| location | Riverside | report-r1 | Location: Riverside. |
+-| count | 12 | report-r1 | Count: 12 visits. |
+-| duration | 10 | report-r1 | Duration: 10 minutes. |
+-| event_date | 2024-05-17 | report-r1 | Observation date: 2024-05-17. |
++| observer | Maya | report-r2 | Observer: Maya. |
++| location | Riverside | report-r2 | Location: Riverside. |
++| count | 15 | report-r2 | Count: 15 visits. |
++| event_date | 2024-05-17 | report-r2 | Observation date: 2024-05-17. |

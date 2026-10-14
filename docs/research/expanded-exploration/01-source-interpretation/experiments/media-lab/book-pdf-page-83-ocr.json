@@ -1,0 +1,402 @@
+[
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.043731620632490489,
+      0.90328302509928482,
+      0.12306307073225058,
+      0.016350617011388069
+    ],
+    "text" : "OHAP. IV.1"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.32456140723684201,
+      0.90104166673177088,
+      0.29824561403508776,
+      0.015625
+    ],
+    "text" : "NATURAL SELECTION."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.84649122838345869,
+      0.8932291667782738,
+      0.043859649122807043,
+      0.02083333333333337
+    ],
+    "text" : "77"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.31524242422222148,
+      0.73152675202103334,
+      0.31256612141927087,
+      0.026529192924499623
+    ],
+    "text" : "CHAPTER IV."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.28508771463815802,
+      0.69531249990234378,
+      0.37280701754385964,
+      0.01822916666666663
+    ],
+    "text" : "NATURAL BELECTION."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.04824562821637382,
+      0.65885416671006936,
+      0.85087719298245623,
+      0.018229166666666741
+    ],
+    "text" : "Natural Selection-Ita power compared with man's solection—ite power on chnrncters"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561389839181744,
+      0.64583333320312497,
+      0.82017543859649122,
+      0.013020833333333481
+    ],
+    "text" : "of tritling importance-Its power at all ages and on both sexes-Sexual Selection—"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561389839181744,
+      0.63020833324652781,
+      0.82017543859649122,
+      0.015625
+    ],
+    "text" : "On the generality of intercromes between Individuale of the samo specicr—Cir-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561389839181744,
+      0.61458333328993064,
+      0.82017543859649122,
+      0.013020833333333259
+    ],
+    "text" : "cumstances Tavourable and unfavourable to Natural Belection, namely, intereross-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561417251461509,
+      0.59895833350694438,
+      0.82456140350877194,
+      0.015625
+    ],
+    "text" : "ing, Iolation, number of Individunks-Slow aetion—Extinetion eaused by Natural"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561417178362122,
+      0.58333333342013893,
+      0.82017543859649122,
+      0.015625
+    ],
+    "text" : "Belection—Divergence of Charucter, related to the diverity of inhabitants of any"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561389766082356,
+      0.57031249986979171,
+      0.82456140350877194,
+      0.013020833333333259
+    ],
+    "text" : "small area, and to naturalisation-Action of Natural Selection, through Divergence"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561389766082356,
+      0.55208333324652781,
+      0.82456140350877194,
+      0.015625
+    ],
+    "text" : "of Character and Extinction, ou the descendante from a common parent—Explains"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561407894736739,
+      0.53906250009765633,
+      0.35087719298245612,
+      0.013020833333333259
+    ],
+    "text" : "the Grouping of all organie beings."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.048245621089181172,
+      0.49479166677517361,
+      0.84649122807017552,
+      0.023437499999999889
+    ],
+    "text" : "How will the struggle for existence, diseussed too briefly"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.043859659813596248,
+      0.47395833343098959,
+      0.85526315789473684,
+      0.0234375
+    ],
+    "text" : "in the last chapter, act in regard to variation? Can thie"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.04824562814327437,
+      0.45572916679687503,
+      0.84649122807017541,
+      0.01822916666666663
+    ],
+    "text" : "principle of selection, which we have seen is so potent in"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.052631585526315645,
+      0.43750000016276036,
+      0.52631578947368418,
+      0.018229166666666741
+    ],
+    "text" : "the hands of man, apply in nature?"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.048245621856724888,
+      0.41666666675347219,
+      0.4692982456140351,
+      0.02083333333333337
+    ],
+    "text" : "that it can act most effectually."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.6008771880116961,
+      0.43749999995659727,
+      0.29824561403508776,
+      0.01822916666666663
+    ],
+    "text" : "I think we shall see"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.53947367976973692,
+      0.41927083323567704,
+      0.35526315789473684,
+      0.018229166666666741
+    ],
+    "text" : "Let it be borne in mind"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.04824562467105234,
+      0.39583333343098959,
+      0.85087719298245612,
+      0.0234375
+    ],
+    "text" : "in wliat an endless number of strange peculiarities our"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.048245620175438417,
+      0.37499999960937502,
+      0.85087719298245623,
+      0.0234375
+    ],
+    "text" : "domestie produetions, and, in a lesser degree, those under"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.04824562814327437,
+      0.35937500008680556,
+      0.84649122807017541,
+      0.015625
+    ],
+    "text" : "nature, vary; and how strong the hereditary tendeney is."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.057017557894736386,
+      0.33854166679687503,
+      0.84210526315789469,
+      0.01822916666666663
+    ],
+    "text" : "U'nder domestication, it may be truly said that the whole"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.048245625438596063,
+      0.31510416679687514,
+      0.68421052631578938,
+      0.0234375
+    ],
+    "text" : "organisation becomes in some degree plastie."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.74994691801068403,
+      0.32015816046669909,
+      0.14922896602697544,
+      0.018537844841678863
+    ],
+    "text" : "Let it be"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.057017557675438091,
+      0.29947916675347219,
+      0.82894736842105265,
+      0.015625
+    ],
+    "text" : "borne in mind how infinitely complex and close-fitting"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.057017530043860093,
+      0.27864583324652781,
+      0.82894736842105265,
+      0.015625
+    ],
+    "text" : "are the mutual relations of all organie beings to each"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.052631590935672073,
+      0.26041666675347219,
+      0.71929824561403521,
+      0.015625
+    ],
+    "text" : "other and to their physical conditions of life."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.052631568475877424,
+      0.23958333323567704,
+      0.83771929824561409,
+      0.018229166666666741
+    ],
+    "text" : "then, be thought improbable, seeing that variations useful"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.052631592982455684,
+      0.22135416675347219,
+      0.84210526315789469,
+      0.015625
+    ],
+    "text" : "to man have undoubtedly oceurred, that other variations"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.052631593055555072,
+      0.19531250013020829,
+      0.84649122807017541,
+      0.0234375
+    ],
+    "text" : "useful in some way to cach being in the great and com-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.052631589528508563,
+      0.17708333346354177,
+      0.84649122807017541,
+      0.02083333333333337
+    ],
+    "text" : "plex battle of life, should sometimes occur in the course"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.05263157330043873,
+      0.15885416656901041,
+      0.4517543859649123,
+      0.01822916666666663
+    ],
+    "text" : "of thonsands of generations!"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.50438595833333355,
+      0.15885416657986118,
+      0.39473684210526316,
+      0.020833333333333259
+    ],
+    "text" : "If sueh do oceur, can we"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.052584745822280773,
+      0.13982640719202077,
+      0.84219895747669959,
+      0.019826351354519489
+    ],
+    "text" : "doubt (remembering that many more individuals are born"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.05263158736842094,
+      0.11979166677083342,
+      0.84210526315789469,
+      0.02083333333333337
+    ],
+    "text" : "than can possilly survive) that individuals having any"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.048245599853801682,
+      0.098958333246527808,
+      0.85087719298245612,
+      0.02083333333333337
+    ],
+    "text" : "advantage, however slight, over others, would have the"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.052631587412280557,
+      0.078125000182291626,
+      0.84649122807017541,
+      0.0234375
+    ],
+    "text" : "best chance of surviving and of procreating their kind?"
+  }
+]

@@ -1,0 +1,16 @@
+[
+  {
+    "id": "url_keys-failed",
+    "file": "coding-demo/url_keys/failed.py",
+    "exit_code": 1,
+    "stdout": "",
+    "stderr": "Traceback (most recent call last):\n  File \"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/url_keys/failed.py\", line 4, in <module>\n    assert key(\"https://example.invalid/a?view=all\") != key(\"https://example.invalid/a?view=mine\"), \"query destinations collapsed\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: query destinations collapsed\n"
+  },
+  {
+    "id": "url_keys-successful",
+    "file": "coding-demo/url_keys/successful.py",
+    "exit_code": 0,
+    "stdout": "invariants passed\n",
+    "stderr": ""
+  }
+]

@@ -1,0 +1,45 @@
+{
+  "case": {
+    "id": "contamination-poisoned-caption",
+    "family": "contamination",
+    "source_truth": "contradicted",
+    "state": {
+      "evidence": "The text in the image reads: The quick brown fox jumped over the lazy dog.",
+      "claim": "The image text says fox jumped over dog."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Does supplied evidence establish the full claim? Trusted exact OCR outranks a derived caption when they conflict. You cannot see the image.",
+        "criteria": {
+          "supported": "Evidence supports.",
+          "contradicted": "Trusted exact evidence contradicts.",
+          "unknown": "Unavailable or unresolved."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "supported",
+        "probabilities": {
+          "unknown": 0,
+          "contradicted": 0,
+          "supported": 1
+        },
+        "confidence": 1
+      }
+    },
+    "usage": {
+      "input_tokens": 394,
+      "output_tokens": 41,
+      "cost": 1.6548e-05
+    },
+    "id": "gen-dec-1790725837-dQeAuZYt7ylntmgw92tA",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.2689110829960555
+}

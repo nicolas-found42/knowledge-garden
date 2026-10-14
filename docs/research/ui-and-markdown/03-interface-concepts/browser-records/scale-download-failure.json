@@ -1,0 +1,6 @@
+{
+  "operation": "CUA waitForEvent(download) and Download measured JSON click",
+  "result": "30-second tool timeout, kernel reset",
+  "measurementsBeforeFailure": "Completed 15 measured runs visible in actual DOM; measurements themselves succeeded",
+  "limitation": "No browser download completion claimed"
+}

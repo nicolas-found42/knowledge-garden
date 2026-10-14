@@ -1,0 +1,32 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPMmA",
+        "number": 3,
+        "state": "OPEN",
+        "title": "Turn a text source into evidence-grounded facts and linked pages with Jev",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/3"
+      }
+    ],
+    "totalCount": 1
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 15, 16, 17, 19, 20, 21, 25; **Search returns pages**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nGive the owner a usable local search-to-reader path over existing pages, with useful excerpts and explicit active scope instead of generated answers.\n\n## Acceptance criteria\n\n- [ ] Title lookup, tag selection, and SQLite-backed keyword search return navigable pages with useful existing metadata and source/page excerpts.\n- [ ] Search supports combinations of the available date, format, and processing-status filters, with all active scope and constraints visible and removable.\n- [ ] Searching Riverside and selecting #fieldwork produces the expected labeled page set; empty and no-match states are explicit.\n- [ ] Opening a result or an ordinary page link preserves enough query, selection, scroll/focus, and scope context for Back to restore the previous view.\n- [ ] Fine-span/message matches lead to the owning page and relevant context rather than requiring every detail to be a permanent navigation node.\n- [ ] Results exclude superseded/removed facts as later updates arrive, while clearly labeling pending/failed source states. No search action generates an answer, new explanation, or chat.\n- [ ] The complete title/tag/keyword workflow works offline over processed content and supports keyboard navigation and bounded result pagination.\n\n## Blocked by\n\n- [#3 \u2014 Turn a text source into evidence-grounded facts and linked pages with Jev](https://github.com/nicolas-found42/knowledge-garden/issues/3)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nTags are automatically maintained knowledge under the semantic path, not a required manual tagging chore. Use existing excerpts rather than generating search summaries. Meaning search and typed multi-hop querying extend this result contract in their own tickets.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nImport several text reports with known titles, dates, formats, and tags including Riverside and #fieldwork. Search by each mode, combine and clear filters, open a result and an in-page link, then navigate Back. Disconnect networking and repeat; verify exact expected matches and a deliberate no-match query.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Find pages by title, tag, keyword, and visible filters",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/18"
+}

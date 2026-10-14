@@ -1,0 +1,26 @@
+[
+  {
+    "id": "typesafe-state",
+    "source_snapshot_text_sha256": "e4ac4ff9d615fee3f19dc3d828e073a6bd77100761b40823c0753a0afeb91d95",
+    "excerpt_original_start": 2197,
+    "text": "only one piece of text. Jev accepts text only. State must be a string,",
+    "quote": "Jev accepts text only.",
+    "source": "Short original excerpt with deterministic controlled mutations; not a complete document"
+  },
+  {
+    "id": "w3c-prov",
+    "source_snapshot_text_sha256": "9ff0f8e15d74ce2f9c8fc28b54a10a544adb14b3008c85b9ac8a067e8291335a",
+    "excerpt_original_start": 14743,
+    "text": "asDerivedFrom property. A derivation is a transformation of one entity into another. For example, if the Act",
+    "quote": "A derivation is a transformation of one entity into another.",
+    "source": "Short original excerpt with deterministic controlled mutations; not a complete document"
+  },
+  {
+    "id": "iiif-presentation",
+    "source_snapshot_text_sha256": "542cb8d6df15c7b8767f672834acfab5000f079335c172b04ccd404141565111",
+    "excerpt_original_start": 8288,
+    "text": "Annotation Pages. Range An ordered list of Canvases, and/or further Ranges. Ranges allow Canvases, ",
+    "quote": "An ordered list of Canvases, and/or further Ranges.",
+    "source": "Short original excerpt with deterministic controlled mutations; not a complete document"
+  }
+]

@@ -1,0 +1,66 @@
+{
+  "id": "a4",
+  "role": "cited-answer",
+  "request": {
+    "model": "openai/gpt-4.1-mini",
+    "temperature": 0,
+    "max_tokens": 900,
+    "response_format": {
+      "type": "json_object"
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "{\"instruction\": \"Return JSON with sentences:[{text,sourceIds,quote}]. Each sentence must be supported by supplied source context; quote is exact source text. Explicitly state unknown, uncertainty, constructed origin and missing evidence. A valid citation is not proof of a claim. Do not fill gaps. This is one question, no follow-up conversation.\", \"question\": \"What does the field-guide website say?\", \"sources\": [{\"id\": \"linked\", \"title\": \"Field-guide link occurrence\", \"kind\": \"file\", \"format\": \"URL\", \"body\": \"# Link occurrence\\nControlled conversation mentioned https://example.invalid/field-guide. Acquisition: merely linked. Destination has never been fetched and its contents are unknown.\\n\", \"origin\": \"controlled\", \"epistemic\": \"recorded\", \"acquisition\": \"merely_linked\"}]}"
+      }
+    ]
+  },
+  "started": "2026-09-30T00:48:12.916283+00:00",
+  "response": {
+    "id": "gen-1790729293-3xxtHb3SD75f5B5aFeis",
+    "object": "chat.completion",
+    "created": 1790729293,
+    "model": "openai/gpt-4.1-mini",
+    "provider": "OpenAI",
+    "system_fingerprint": null,
+    "service_tier": "default",
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "completed",
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"sentences\": [\n    {\n      \"text\": \"The field-guide website is mentioned as a link in the controlled conversation but its contents are unknown because it has never been fetched.\",\n      \"sourceIds\": [\"linked\"],\n      \"quote\": \"Controlled conversation mentioned https://example.invalid/field-guide. Acquisition: merely linked. Destination has never been fetched and its contents are unknown.\"\n    }\n  ]\n}",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 183,
+      "completion_tokens": 85,
+      "total_tokens": 268,
+      "cost": 0.000207108,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0002092,
+        "upstream_inference_prompt_cost": 7.32e-05,
+        "upstream_inference_completions_cost": 0.000136
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  "seconds": 1.5077705839939881
+}

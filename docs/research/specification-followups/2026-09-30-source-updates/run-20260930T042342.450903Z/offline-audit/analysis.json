@@ -1,0 +1,55 @@
+{
+  "source_summary_sha256": "d7603dc40d9b08c4aacf5897ce57d2d706bd24f221c6cd00c4e8be20dfbbd8af",
+  "main_trials": 9,
+  "trial_count_including_boundaries_and_recovery": 13,
+  "relationship_matches": 13,
+  "field_operations": 65,
+  "field_operation_matches": 65,
+  "proposals_matching_expected": 13,
+  "complete_inputs": 12,
+  "unnecessary_more_content_flags_at_prefixed_half_cutoff": 12,
+  "correct_proposals_rejected_by_broad_verifier": [
+    "selective_summary-r1"
+  ],
+  "seeded_errors": 3,
+  "seeded_errors_detected": 2,
+  "seeded_errors_missed": [
+    "correction"
+  ],
+  "examples": [
+    {
+      "case": "replacement",
+      "source_trial": "replacement-r1",
+      "proposal_matches_expected": true,
+      "before_sha256": "9d9f02cc012372098cb4fe5190ac44011af3b5bd9f0119821bac1462c6a43689",
+      "after_sha256": "e0d3320b0288ad2f5ae63484bc1275b1dedae35c3e36c9a4f1f621e94967ba41",
+      "boundary": "Offline deterministic rendering of the actually selected Jev field operations. Does not demonstrate parsing, external-editor writes or Obsidian."
+    },
+    {
+      "case": "correction",
+      "source_trial": "correction-r1",
+      "proposal_matches_expected": true,
+      "before_sha256": "9d9f02cc012372098cb4fe5190ac44011af3b5bd9f0119821bac1462c6a43689",
+      "after_sha256": "fbc15b94f26605743a43a5113cc32e4a10beefb47b470309f3d5ec349e042626",
+      "boundary": "Offline deterministic rendering of the actually selected Jev field operations. Does not demonstrate parsing, external-editor writes or Obsidian."
+    },
+    {
+      "case": "separate_event",
+      "source_trial": "separate_event-r1",
+      "proposal_matches_expected": true,
+      "before_sha256": "9d9f02cc012372098cb4fe5190ac44011af3b5bd9f0119821bac1462c6a43689",
+      "after_sha256": "7ac2baf30886fe25816f325f07534472f70e887652630b046e66a05ff04946ce",
+      "boundary": "Offline deterministic rendering of the actually selected Jev field operations. Does not demonstrate parsing, external-editor writes or Obsidian."
+    }
+  ],
+  "interpretation": [
+    "Q18 omission semantics remain a candidate policy; model agreement does not accept policy for the user.",
+    "Complete source content and pre-extracted candidate fields are authored fixture inputs, not real extraction results.",
+    "Date ordering was computed in code and supplied to Jev; source-age extraction was not tested.",
+    "Independent questions can disagree. The whole-record verifier missed an erroneous observer deletion and rejected a correct summary update.",
+    "The broad more-content predicate is over-triggered under its frozen 0.5 diagnostic cutoff. This is not a calibrated production threshold.",
+    "Actual extraction-completeness metadata and structural output checks should be enforced in code; semantic questions alone are not integrity guarantees.",
+    "Incomplete-extraction recovery revealed frozen additional source text after a model signal, then made a new request. It was not a real PDF fetch or extraction.",
+    "Repeated small fixtures provide no general accuracy estimate or zero-maintenance product guarantee."
+  ]
+}

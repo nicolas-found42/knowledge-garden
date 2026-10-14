@@ -1,0 +1,557 @@
+[
+  {
+    "id": "codex-c20781311812d053",
+    "app": "Codex",
+    "records": 2,
+    "roles": {
+      "user": 1,
+      "developer": 1
+    },
+    "text_chars": 375,
+    "rank": 0
+  },
+  {
+    "id": "codex-da323ff35a509546",
+    "app": "Codex",
+    "records": 0,
+    "roles": {},
+    "text_chars": 0,
+    "rank": 1
+  },
+  {
+    "id": "codex-38f7c4eb81d80635",
+    "app": "Codex",
+    "records": 2,
+    "roles": {
+      "user": 1,
+      "developer": 1
+    },
+    "text_chars": 484,
+    "rank": 2
+  },
+  {
+    "id": "codex-f9e5fb04fc0ce4a4",
+    "app": "Codex",
+    "records": 2,
+    "roles": {
+      "user": 1,
+      "developer": 1
+    },
+    "text_chars": 387,
+    "rank": 3
+  },
+  {
+    "id": "codex-9b3b7a36cc9098b6",
+    "app": "Codex",
+    "records": 6,
+    "roles": {
+      "developer": 3,
+      "user": 2,
+      "assistant": 1
+    },
+    "text_chars": 28240,
+    "rank": 4
+  },
+  {
+    "id": "codex-bc2b773ac01321b0",
+    "app": "Codex",
+    "records": 6,
+    "roles": {
+      "developer": 4,
+      "user": 2
+    },
+    "text_chars": 27426,
+    "rank": 5
+  },
+  {
+    "id": "codex-70d3bee9484040f5",
+    "app": "Codex",
+    "records": 2,
+    "roles": {
+      "user": 1,
+      "assistant": 1
+    },
+    "text_chars": 15172,
+    "rank": 6
+  },
+  {
+    "id": "codex-ee7ebe9380d5f9ab",
+    "app": "Codex",
+    "records": 8,
+    "roles": {
+      "developer": 3,
+      "user": 3,
+      "assistant": 2
+    },
+    "text_chars": 39743,
+    "rank": 7
+  },
+  {
+    "id": "codex-d0e016a1f4642098",
+    "app": "Codex",
+    "records": 6,
+    "roles": {
+      "developer": 3,
+      "user": 3
+    },
+    "text_chars": 34682,
+    "rank": 56
+  },
+  {
+    "id": "codex-0bbac877fcbd07fd",
+    "app": "Codex",
+    "records": 15,
+    "roles": {
+      "developer": 3,
+      "user": 2,
+      "assistant": 2,
+      "tool": 8
+    },
+    "text_chars": 36896,
+    "rank": 141
+  },
+  {
+    "id": "codex-12e515fcd0cbbfc5",
+    "app": "Codex",
+    "records": 29,
+    "roles": {
+      "developer": 3,
+      "user": 3,
+      "assistant": 3,
+      "tool": 20
+    },
+    "text_chars": 48126,
+    "rank": 282
+  },
+  {
+    "id": "codex-ca712b790858160d",
+    "app": "Codex",
+    "records": 174,
+    "roles": {
+      "user": 3,
+      "assistant": 20,
+      "tool": 150,
+      "developer": 1
+    },
+    "text_chars": 80218,
+    "rank": 423
+  },
+  {
+    "id": "codex-1163e6bd2bd87461",
+    "app": "Codex",
+    "records": 479,
+    "roles": {
+      "developer": 10,
+      "user": 5,
+      "assistant": 30,
+      "tool": 434
+    },
+    "text_chars": 170714,
+    "rank": 507
+  },
+  {
+    "id": "claude-3c268a1066243bc1",
+    "app": "Claude",
+    "records": 0,
+    "roles": {},
+    "text_chars": 0,
+    "rank": 0
+  },
+  {
+    "id": "claude-da1d9bdf27a5d5ba",
+    "app": "Claude",
+    "records": 0,
+    "roles": {},
+    "text_chars": 0,
+    "rank": 1
+  },
+  {
+    "id": "claude-1890beb2a53cd219",
+    "app": "Claude",
+    "records": 0,
+    "roles": {},
+    "text_chars": 0,
+    "rank": 2
+  },
+  {
+    "id": "claude-61058d3fa3171734",
+    "app": "Claude",
+    "records": 0,
+    "roles": {},
+    "text_chars": 0,
+    "rank": 3
+  },
+  {
+    "id": "claude-bfa3a316b1c04ef4",
+    "app": "Claude",
+    "records": 0,
+    "roles": {},
+    "text_chars": 0,
+    "rank": 4
+  },
+  {
+    "id": "claude-4dc8983581a13659",
+    "app": "Claude",
+    "records": 2,
+    "roles": {
+      "user": 2
+    },
+    "text_chars": 375,
+    "rank": 5
+  },
+  {
+    "id": "claude-bf4cd3937cb0e701",
+    "app": "Claude",
+    "records": 2,
+    "roles": {
+      "user": 2
+    },
+    "text_chars": 375,
+    "rank": 6
+  },
+  {
+    "id": "claude-f7621a863572072c",
+    "app": "Claude",
+    "records": 2,
+    "roles": {
+      "user": 2
+    },
+    "text_chars": 375,
+    "rank": 7
+  },
+  {
+    "id": "claude-52ff9e3b362aa44f",
+    "app": "Claude",
+    "records": 41,
+    "roles": {
+      "user": 10,
+      "assistant": 13,
+      "tool": 18
+    },
+    "text_chars": 69193,
+    "rank": 43
+  },
+  {
+    "id": "claude-b5eaa298261b25bd",
+    "app": "Claude",
+    "records": 28,
+    "roles": {
+      "user": 7,
+      "assistant": 11,
+      "tool": 10
+    },
+    "text_chars": 22898,
+    "rank": 108
+  },
+  {
+    "id": "claude-b847a688906e3d68",
+    "app": "Claude",
+    "records": 390,
+    "roles": {
+      "user": 84,
+      "assistant": 144,
+      "tool": 162
+    },
+    "text_chars": 316517,
+    "rank": 216
+  },
+  {
+    "id": "claude-3730c64f31a85878",
+    "app": "Claude",
+    "records": 733,
+    "roles": {
+      "user": 169,
+      "assistant": 266,
+      "tool": 298
+    },
+    "text_chars": 495478,
+    "rank": 324
+  },
+  {
+    "id": "claude-0a2e05744d0a23f1",
+    "app": "Claude",
+    "records": 833,
+    "roles": {
+      "user": 188,
+      "assistant": 275,
+      "tool": 370
+    },
+    "text_chars": 1245903,
+    "rank": 388
+  },
+  {
+    "id": "omp-d3292a0bbb22de81",
+    "app": "OMP",
+    "records": 0,
+    "roles": {},
+    "text_chars": 0,
+    "rank": 0
+  },
+  {
+    "id": "omp-101db4c9505ef402",
+    "app": "OMP",
+    "records": 0,
+    "roles": {},
+    "text_chars": 0,
+    "rank": 1
+  },
+  {
+    "id": "omp-b4a31f8a592dd418",
+    "app": "OMP",
+    "records": 0,
+    "roles": {},
+    "text_chars": 0,
+    "rank": 2
+  },
+  {
+    "id": "omp-c95acaf3d05c3c42",
+    "app": "OMP",
+    "records": 0,
+    "roles": {},
+    "text_chars": 0,
+    "rank": 3
+  },
+  {
+    "id": "omp-731cb026eaa1da44",
+    "app": "OMP",
+    "records": 0,
+    "roles": {},
+    "text_chars": 0,
+    "rank": 4
+  },
+  {
+    "id": "omp-ff7b4621638b6cae",
+    "app": "OMP",
+    "records": 0,
+    "roles": {},
+    "text_chars": 0,
+    "rank": 5
+  },
+  {
+    "id": "omp-6ca9acee0b92c63c",
+    "app": "OMP",
+    "records": 0,
+    "roles": {},
+    "text_chars": 0,
+    "rank": 6
+  },
+  {
+    "id": "omp-ac1a49f0aaa4856b",
+    "app": "OMP",
+    "records": 0,
+    "roles": {},
+    "text_chars": 0,
+    "rank": 7
+  },
+  {
+    "id": "omp-504c1fafb65fee36",
+    "app": "OMP",
+    "records": 47,
+    "roles": {
+      "user": 22,
+      "assistant": 22,
+      "toolResult": 3
+    },
+    "text_chars": 10594,
+    "rank": 318
+  },
+  {
+    "id": "omp-eea9cd7537104274",
+    "app": "OMP",
+    "records": 14,
+    "roles": {
+      "user": 1,
+      "assistant": 5,
+      "toolResult": 8
+    },
+    "text_chars": 26793,
+    "rank": 795
+  },
+  {
+    "id": "omp-adfd29ff6244e9ce",
+    "app": "OMP",
+    "records": 34,
+    "roles": {
+      "user": 2,
+      "assistant": 12,
+      "toolResult": 20
+    },
+    "text_chars": 120014,
+    "rank": 1590
+  },
+  {
+    "id": "omp-c8ec3eda5a82cc71",
+    "app": "OMP",
+    "records": 70,
+    "roles": {
+      "user": 1,
+      "assistant": 24,
+      "toolResult": 45
+    },
+    "text_chars": 181347,
+    "rank": 2385
+  },
+  {
+    "id": "omp-c1b3335fc798def4",
+    "app": "OMP",
+    "records": 253,
+    "roles": {
+      "user": 3,
+      "assistant": 119,
+      "toolResult": 129,
+      "developer": 2
+    },
+    "text_chars": 299023,
+    "rank": 2862
+  },
+  {
+    "id": "hermes-2116d347594d501e",
+    "app": "Hermes",
+    "records": 2,
+    "roles": {
+      "user": 1,
+      "assistant": 1
+    },
+    "text_chars": 83,
+    "rank": 0
+  },
+  {
+    "id": "hermes-88c611c906da3a8c",
+    "app": "Hermes",
+    "records": 2,
+    "roles": {
+      "user": 1,
+      "assistant": 1
+    },
+    "text_chars": 10,
+    "rank": 1
+  },
+  {
+    "id": "hermes-9a42078e864ae3a4",
+    "app": "Hermes",
+    "records": 2,
+    "roles": {
+      "user": 1,
+      "assistant": 1
+    },
+    "text_chars": 11649,
+    "rank": 2
+  },
+  {
+    "id": "hermes-e6e3155d4aa55ec0",
+    "app": "Hermes",
+    "records": 2,
+    "roles": {
+      "user": 1,
+      "assistant": 1
+    },
+    "text_chars": 9524,
+    "rank": 3
+  },
+  {
+    "id": "hermes-1ee98be5d59d2593",
+    "app": "Hermes",
+    "records": 4,
+    "roles": {
+      "user": 2,
+      "assistant": 2
+    },
+    "text_chars": 19809,
+    "rank": 4
+  },
+  {
+    "id": "hermes-55ba59bdfc627fba",
+    "app": "Hermes",
+    "records": 5,
+    "roles": {
+      "user": 3,
+      "assistant": 2
+    },
+    "text_chars": 2470,
+    "rank": 5
+  },
+  {
+    "id": "hermes-9e3454c8854d57f9",
+    "app": "Hermes",
+    "records": 6,
+    "roles": {
+      "user": 1,
+      "assistant": 3,
+      "tool": 2
+    },
+    "text_chars": 23277,
+    "rank": 6
+  },
+  {
+    "id": "hermes-ab4d2f3f96844e6b",
+    "app": "Hermes",
+    "records": 6,
+    "roles": {
+      "user": 1,
+      "assistant": 2,
+      "tool": 3
+    },
+    "text_chars": 31943,
+    "rank": 7
+  },
+  {
+    "id": "hermes-aa964ba312495394",
+    "app": "Hermes",
+    "records": 8,
+    "roles": {
+      "user": 1,
+      "assistant": 3,
+      "tool": 4
+    },
+    "text_chars": 10304,
+    "rank": 10
+  },
+  {
+    "id": "hermes-4e2367cbd5618b61",
+    "app": "Hermes",
+    "records": 21,
+    "roles": {
+      "user": 1,
+      "assistant": 8,
+      "tool": 12
+    },
+    "text_chars": 96780,
+    "rank": 27
+  },
+  {
+    "id": "hermes-ca795c2d36846f33",
+    "app": "Hermes",
+    "records": 61,
+    "roles": {
+      "user": 5,
+      "assistant": 26,
+      "tool": 30
+    },
+    "text_chars": 186148,
+    "rank": 54
+  },
+  {
+    "id": "hermes-bb9fb52452f99abf",
+    "app": "Hermes",
+    "records": 111,
+    "roles": {
+      "user": 1,
+      "assistant": 51,
+      "tool": 59
+    },
+    "text_chars": 654208,
+    "rank": 81
+  },
+  {
+    "id": "hermes-873c246111f0a2a4",
+    "app": "Hermes",
+    "records": 405,
+    "roles": {
+      "user": 5,
+      "assistant": 69,
+      "tool": 331
+    },
+    "text_chars": 2438829,
+    "rank": 97
+  }
+]

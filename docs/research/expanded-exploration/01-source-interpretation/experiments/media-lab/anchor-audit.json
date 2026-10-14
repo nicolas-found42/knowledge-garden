@@ -1,0 +1,1134 @@
+[
+  {
+    "id": "book-pdf-page-83-interpretation",
+    "parse": false
+  },
+  {
+    "id": "book-pdf-page-83-observation",
+    "parse": true,
+    "observations": 7,
+    "anchor_checks": [
+      {
+        "claim": "CHAP. IV.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          80,
+          79,
+          160,
+          93
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "NATURAL SELECTION.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          326,
+          79,
+          604,
+          93
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "77",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          847,
+          80,
+          890,
+          94
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "CHAPTER IV.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          317,
+          237,
+          612,
+          254
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "NATURAL SELECTION.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          286,
+          286,
+          642,
+          299
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "Natural Selection\u2014Its power compared with man's selection\u2014its power on characters of trifling importance\u2014its power at all ages and on both sexes\u2014Sexual Selection\u2014On the generality of intercrosses between individuals of the same species\u2014Circumstances favourable and unfavourable to Natural Selection, namely, intercrossing, isolation, number of individuals\u2014Slow action\u2014Extinction caused by Natural Selection\u2014Divergence of Character, related to the diversity of inhabitants of any small area, and to naturalisation\u2014Action of Natural Selection, through Divergence of Character and Extinction, on the descendants from a common parent\u2014Explains the Grouping of all organic beings.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          71,
+          323,
+          890,
+          462
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "How will the struggle for existence, discussed too briefly in the last chapter, act in regard to variation? Can the principle of selection, which we have seen is so potent in the hands of man, apply in nature? I think we shall see that it can act most effectually. Let it be borne in mind in what an endless number of strange peculiarities our domestic productions, and, in a lesser degree, those under nature, vary; and how strong the hereditary tendency is. Under domestication, it may be truly said that the whole organisation becomes in some degree plastic. Let it be borne in mind how infinitely complex and close-fitting are the mutual relations of all organic beings to each other and to their physical conditions of life. Can it, then, be thought improbable, seeing that variations useful to man have undoubtedly occurred, that other variations useful in some way to each being in the great and complex battle of life, should sometimes occur in the course of thousands of generations? If such do occur, can we doubt (remembering that many more individuals are born than can possibly survive) that individuals having any advantage, however slight, over others, would have the best chance of surviving and of procreating their kind?",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          71,
+          483,
+          890,
+          918
+        ],
+        "time_seconds": null
+      }
+    ]
+  },
+  {
+    "id": "book-pdf-page-84-interpretation",
+    "parse": false
+  },
+  {
+    "id": "book-pdf-page-84-observation",
+    "parse": true,
+    "observations": 15,
+    "anchor_checks": [
+      {
+        "claim": "The page number is 78.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          80,
+          78,
+          109,
+          97
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "The chapter title is NATURAL SELECTION.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          352,
+          78,
+          609,
+          97
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "The chapter number is IV.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          800,
+          78,
+          919,
+          97
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "On the other hand, we may feel sure that any variation in the least degree injurious would be rigidly destroyed.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          78,
+          115,
+          921,
+          160
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "This preservation of favourable variations, and the rejection of injurious variations, I call Natural Selection.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          78,
+          160,
+          921,
+          205
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "Variations neither useful nor injurious would not be affected by natural selection, and would be left a fluctuating element, as perhaps we see in the species called polymorphic.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          78,
+          205,
+          921,
+          271
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "We shall best understand the probable course of natural selection by taking the case of a country undergoing some physical change, for instance, of climate.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          78,
+          271,
+          921,
+          337
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "The proportional numbers of its inhabitants would almost immediately undergo a change, and some species might become extinct.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          78,
+          337,
+          921,
+          382
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "We may conclude, from what we have seen of the intimate and complex manner in which the inhabitants of each country are bound together, that any change in the numerical proportions of some of the inhabitants, independently of the change of climate itself, would most seriously affect many of the others.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          78,
+          382,
+          921,
+          500
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "If the country were open on its borders, new forms would certainly immigrate, and this also would seriously disturb the relations of some of the former inhabitants.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          78,
+          500,
+          921,
+          566
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "Let it be remembered how powerful the influence of a single introduced tree or mammal has been shown to be.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          78,
+          566,
+          921,
+          611
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "But in the case of an island, or of a country partly surrounded by barriers, into which new and better adapted forms could not freely enter, we should then have places in the economy of nature which would assuredly be better filled up.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          78,
+          611,
+          921,
+          719
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "If some of the original inhabitants were in some manner modified; for, had the area been open to immigration, these same places would have been seized on by intruders.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          78,
+          719,
+          921,
+          785
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "In such case, every slight modification, which in the course of ages chanced to arise, and which in any way favoured the individuals of any of the species, by better adapting them to their altered conditions, would tend to be preserved; and natural selection would thus have free scope for the work of improvement.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          78,
+          785,
+          921,
+          893
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "We have reason to believe, as stated in the first chapter, that a change in the conditions of life, by specially acting on the reproductive system, causes or increases",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          78,
+          893,
+          921,
+          938
+        ],
+        "time_seconds": null
+      }
+    ]
+  },
+  {
+    "id": "book-pdf-page-92-interpretation-bounded-repair",
+    "parse": true,
+    "observations": 6,
+    "anchor_checks": [
+      {
+        "claim": "The fleetest prey, such as deer, had decreased in numbers during seasons when wolves were hardest pressed for food.",
+        "status": "source_label_without_region",
+        "anchor": "book_scan_pdf_page84",
+        "time_seconds": null
+      },
+      {
+        "claim": "Swift and slimmest wolves would have the best chance of surviving and being preserved or selected.",
+        "status": "source_label_without_region",
+        "anchor": "book_scan_pdf_page84",
+        "time_seconds": null
+      },
+      {
+        "claim": "Wolves might be compelled to prey on other animals when their usual prey is scarce.",
+        "status": "source_label_without_region",
+        "anchor": "book_scan_pdf_page84",
+        "time_seconds": null
+      },
+      {
+        "claim": "Man can improve greyhounds by careful and methodical selection, or by unconscious selection, to keep the best dogs.",
+        "status": "source_label_without_region",
+        "anchor": "book_scan_pdf_page84",
+        "time_seconds": null
+      },
+      {
+        "claim": "Wolf cubs might be born with an innate tendency to pursue certain kinds of prey.",
+        "status": "source_label_without_region",
+        "anchor": "book_scan_pdf_page84",
+        "time_seconds": null
+      },
+      {
+        "claim": "Great differences exist in the natural tendencies of domestic animals, such as cats hunting mice or winged game.",
+        "status": "source_label_without_region",
+        "anchor": "book_scan_pdf_page84",
+        "time_seconds": null
+      }
+    ]
+  },
+  {
+    "id": "book-pdf-page-92-interpretation",
+    "parse": false
+  },
+  {
+    "id": "book-pdf-page-92-observation-gpt4omini",
+    "parse": true,
+    "observations": 5,
+    "anchor_checks": [
+      {
+        "claim": "The text discusses the survival of prey and the impact of selection on animal traits.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          0,
+          0,
+          767,
+          456
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "It mentions the influence of unconscious selection on the traits of greyhounds.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          0,
+          0,
+          767,
+          456
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "The text refers to the innate tendencies of a cub to pursue certain kinds of prey.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          0,
+          0,
+          767,
+          456
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "It describes variations in domestic animals' tendencies to catch different types of prey.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          0,
+          0,
+          767,
+          456
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "The text suggests that different varieties of animals might emerge from the process of selection.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          0,
+          0,
+          767,
+          456
+        ],
+        "time_seconds": null
+      }
+    ]
+  },
+  {
+    "id": "book-pdf-page-92-observation",
+    "parse": true,
+    "observations": 11,
+    "anchor_checks": [
+      {
+        "claim": "the fleetest prey, a deer for instance, had from any change in the country increased in numbers, or that other prey had decreased in numbers, during that season of the year when the wolf is hardest pressed for food.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          119,
+          119,
+          918,
+          199
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "I can under such circumstances see no reason to doubt that the swiftest and slimmest wolves would have the best chance of surviving, and so be preserved or selected,\u2014provided always that they retained strength to master their prey at this or at some other period of the year, when they might be compelled to prey on other animals.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          119,
+          199,
+          918,
+          320
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "I can see no more reason to doubt this, than that man can improve the fleetness of his greyhounds by careful and methodical selection, or by that unconscious selection which results from each man trying to keep the best dogs without any thought of modifying the breed.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          119,
+          320,
+          918,
+          420
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "Even without any change in the proportional numbers of the animals on which our wolf preyed, a cub might be born with an innate tendency to pursue certain kinds of prey.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          119,
+          420,
+          918,
+          480
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "Nor can this be thought very improbable; for we often observe great differences in the natural tendencies of our domestic animals; one cat, for instance, taking to catch rats, another mice; one cat, according to Mr. St. John, bringing home winged game, another hares or rabbits, and another hunting on marshy ground and almost nightly catching woodcocks or snipes.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          119,
+          480,
+          918,
+          620
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "The tendency to catch rats rather than mice is known to be inherited.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          119,
+          620,
+          918,
+          640
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "Now, if any slight innate change of habit or of structure benefited an individual wolf, it would have the best chance of surviving and of leaving offspring.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          119,
+          640,
+          918,
+          699
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "Some of its young would probably inherit the same habits or structure, and by the repetition of this process, a new variety might be formed which would either supplant or coexist with the parent form of wolf.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          119,
+          699,
+          918,
+          779
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "Or, again, the wolves inhabiting a mountainous district, and those frequenting the lowlands, would naturally be forced to hunt different prey; and from the continued preservation of the individuals best fitted for the two sites, two varieties might slowly be formed.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          119,
+          779,
+          918,
+          859
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "These varieties would cross and blend where they met; but to this subject of inter-crossing we shall soon have to return.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          119,
+          859,
+          918,
+          919
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "I may add, that,",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          659,
+          919,
+          918,
+          939
+        ],
+        "time_seconds": null
+      }
+    ]
+  },
+  {
+    "id": "book-project-connection-bounded-repair",
+    "parse": true,
+    "observations": 6,
+    "anchor_checks": [
+      {
+        "claim": "Selection operators in DEAP do not duplicate individuals; they return references. Modifying one selected individual will affect others if it's selected multiple times.",
+        "status": "source_label_without_region",
+        "anchor": "public_deap_article",
+        "time_seconds": null
+      },
+      {
+        "claim": "The DEAP toolbox allows registration of evolutionary tools like selection, mutation, and evaluation under conventional names.",
+        "status": "source_label_without_region",
+        "anchor": "public_deap_article",
+        "time_seconds": null
+      },
+      {
+        "claim": "DEAP's recursive loops can use a 'memo' dictionary to store deep copies of individuals, preventing redundant deep copying on subsequent encounters.",
+        "status": "source_label_without_region",
+        "anchor": "public_deap_article",
+        "time_seconds": null
+      },
+      {
+        "claim": "The DEAP `selDoubleTournament` selection method is designed to reduce 'bloat' in genetic programming by considering individual size.",
+        "status": "source_label_without_region",
+        "anchor": "public_deap_code",
+        "time_seconds": null
+      },
+      {
+        "claim": "Natural selection is described as preserving favourable variations and rejecting injurious ones.",
+        "status": "source_label_without_region",
+        "anchor": "book_scan_pdf_page84",
+        "time_seconds": null
+      },
+      {
+        "claim": "Variations that are neither useful nor injurious are left to fluctuate and may be affected by natural selection.",
+        "status": "source_label_without_region",
+        "anchor": "book_scan_pdf_page84",
+        "time_seconds": null
+      }
+    ]
+  },
+  {
+    "id": "book-project-connection",
+    "parse": false
+  },
+  {
+    "id": "controlled-demo-screenshot-interpretation",
+    "parse": true,
+    "observations": 5,
+    "anchor_checks": [
+      {
+        "claim": null,
+        "status": "missing",
+        "anchor": null,
+        "time_seconds": null
+      },
+      {
+        "claim": null,
+        "status": "missing",
+        "anchor": null,
+        "time_seconds": null
+      },
+      {
+        "claim": null,
+        "status": "missing",
+        "anchor": null,
+        "time_seconds": null
+      },
+      {
+        "claim": null,
+        "status": "missing",
+        "anchor": null,
+        "time_seconds": null
+      },
+      {
+        "claim": null,
+        "status": "missing",
+        "anchor": null,
+        "time_seconds": null
+      }
+    ]
+  },
+  {
+    "id": "controlled-demo-screenshot-observation-bounded-repair",
+    "parse": true,
+    "observations": 6,
+    "anchor_checks": [
+      {
+        "claim": "Several figures are highlighted in red, indicating detection.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.41,
+          0.33,
+          0.23,
+          0.23
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "A group of figures are highlighted in red.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.54,
+          0.39,
+          0.14,
+          0.17
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "A figure is highlighted in red.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.41,
+          0.33,
+          0.06,
+          0.11
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "A figure is highlighted in red.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.56,
+          0.43,
+          0.05,
+          0.1
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "A figure is highlighted in red.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.59,
+          0.45,
+          0.05,
+          0.1
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "A figure is highlighted in red.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.54,
+          0.39,
+          0.05,
+          0.1
+        ],
+        "time_seconds": null
+      }
+    ]
+  },
+  {
+    "id": "controlled-demo-screenshot-observation-gpt4omini",
+    "parse": true,
+    "observations": 5,
+    "anchor_checks": [
+      {
+        "claim": "There are several individuals walking in the area.",
+        "status": "uncontracted_object_box",
+        "anchor": {
+          "x": 300,
+          "y": 200,
+          "w": 200,
+          "h": 100
+        },
+        "time_seconds": null
+      },
+      {
+        "claim": "A yellow object is on the ground.",
+        "status": "uncontracted_object_box",
+        "anchor": {
+          "x": 100,
+          "y": 300,
+          "w": 50,
+          "h": 30
+        },
+        "time_seconds": null
+      },
+      {
+        "claim": "There are traffic cones placed in the area.",
+        "status": "uncontracted_object_box",
+        "anchor": {
+          "x": 250,
+          "y": 250,
+          "w": 30,
+          "h": 30
+        },
+        "time_seconds": null
+      },
+      {
+        "claim": "A sign is present near the individuals.",
+        "status": "uncontracted_object_box",
+        "anchor": {
+          "x": 350,
+          "y": 150,
+          "w": 20,
+          "h": 50
+        },
+        "time_seconds": null
+      },
+      {
+        "claim": "There is a vehicle parked in the background.",
+        "status": "uncontracted_object_box",
+        "anchor": {
+          "x": 400,
+          "y": 100,
+          "w": 100,
+          "h": 50
+        },
+        "time_seconds": null
+      }
+    ]
+  },
+  {
+    "id": "controlled-demo-screenshot-observation",
+    "parse": false
+  },
+  {
+    "id": "fruits-interpretation",
+    "parse": true,
+    "observations": 6,
+    "anchor_checks": [
+      {
+        "claim": null,
+        "status": "missing",
+        "anchor": null,
+        "time_seconds": null
+      },
+      {
+        "claim": null,
+        "status": "missing",
+        "anchor": null,
+        "time_seconds": null
+      },
+      {
+        "claim": null,
+        "status": "missing",
+        "anchor": null,
+        "time_seconds": null
+      },
+      {
+        "claim": null,
+        "status": "missing",
+        "anchor": null,
+        "time_seconds": null
+      },
+      {
+        "claim": null,
+        "status": "missing",
+        "anchor": null,
+        "time_seconds": null
+      },
+      {
+        "claim": null,
+        "status": "missing",
+        "anchor": null,
+        "time_seconds": null
+      }
+    ]
+  },
+  {
+    "id": "fruits-observation",
+    "parse": true,
+    "observations": 6,
+    "anchor_checks": [
+      {
+        "claim": "A slice of orange is in the foreground.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.13,
+          0.13,
+          0.65,
+          0.87
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "A lime is to the right of the orange slice.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.55,
+          0.24,
+          0.45,
+          0.76
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "A slice of lemon is in the lower right.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.59,
+          0.51,
+          0.41,
+          0.49
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "A slice of kiwi is in the lower left.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.0,
+          0.56,
+          0.23,
+          0.44
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "A banana is in the upper left.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.0,
+          0.19,
+          0.25,
+          0.44
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "Red cabbage is in the background.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.18,
+          0.0,
+          0.82,
+          0.37
+        ],
+        "time_seconds": null
+      }
+    ]
+  },
+  {
+    "id": "native-video-observation-timed-repair",
+    "parse": true,
+    "observations": 3,
+    "anchor_checks": [
+      {
+        "claim": "A person walks away from the camera on the right side of the path.",
+        "status": "numeric_time_in_range",
+        "anchor": null,
+        "time_seconds": 1
+      },
+      {
+        "claim": "Two people walk towards the camera on the right side of the path.",
+        "status": "numeric_time_in_range",
+        "anchor": null,
+        "time_seconds": 3
+      },
+      {
+        "claim": "A group of four people are gathered near a lamppost.",
+        "status": "numeric_time_in_range",
+        "anchor": null,
+        "time_seconds": 5
+      }
+    ]
+  },
+  {
+    "id": "native-video-observation",
+    "parse": false
+  },
+  {
+    "id": "phototest-interpretation",
+    "parse": true,
+    "observations": 2,
+    "anchor_checks": [
+      {
+        "claim": null,
+        "status": "invalid_normalized_box",
+        "anchor": [
+          187,
+          54,
+          334,
+          967
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": null,
+        "status": "invalid_normalized_box",
+        "anchor": [
+          396,
+          54,
+          740,
+          967
+        ],
+        "time_seconds": null
+      }
+    ]
+  },
+  {
+    "id": "phototest-observation-gpt4omini",
+    "parse": true,
+    "observations": 5,
+    "anchor_checks": [
+      {
+        "claim": "The text is in 12 point font.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          0,
+          0,
+          640,
+          480
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "The text includes a repeated phrase about a quick brown dog and a lazy fox.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          0,
+          0,
+          640,
+          480
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "The text is intended to test OCR code functionality.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          0,
+          0,
+          640,
+          480
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "The text mentions various file formats.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          0,
+          0,
+          640,
+          480
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "The text is displayed in a single block.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          0,
+          0,
+          640,
+          480
+        ],
+        "time_seconds": null
+      }
+    ]
+  },
+  {
+    "id": "phototest-observation",
+    "parse": true,
+    "observations": 2,
+    "anchor_checks": [
+      {
+        "claim": "This is a lot of 12 point text to test the ocr code and see if it works on all types of file format.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.053,
+          0.187,
+          0.939,
+          0.133
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.053,
+          0.307,
+          0.939,
+          0.593
+        ],
+        "time_seconds": null
+      }
+    ]
+  },
+  {
+    "id": "video-contact-sheet-interpretation",
+    "parse": false
+  },
+  {
+    "id": "video-contact-sheet-observation-bounded-repair",
+    "parse": true,
+    "observations": 6,
+    "anchor_checks": [
+      {
+        "claim": "A person is walking on the grass.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.15,
+          0.13,
+          0.07,
+          0.13
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "A person is walking on the grass.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.39,
+          0.14,
+          0.05,
+          0.12
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "A person is walking on the grass.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.43,
+          0.14,
+          0.05,
+          0.12
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "A person is walking on the grass.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.76,
+          0.16,
+          0.05,
+          0.12
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "A person is walking on the grass.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.15,
+          0.53,
+          0.05,
+          0.12
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "A person is walking on the grass.",
+        "status": "normalized_in_bounds",
+        "anchor": [
+          0.32,
+          0.53,
+          0.05,
+          0.12
+        ],
+        "time_seconds": null
+      }
+    ]
+  },
+  {
+    "id": "video-contact-sheet-observation-gpt4omini",
+    "parse": true,
+    "observations": 5,
+    "anchor_checks": [
+      {
+        "claim": "There are multiple individuals walking in the area.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          0,
+          0,
+          768,
+          432
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "A white van is parked in the background.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          0,
+          0,
+          768,
+          432
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "There are yellow objects on the ground.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          0,
+          0,
+          768,
+          432
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "A camera tripod is set up on the grass.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          0,
+          0,
+          768,
+          432
+        ],
+        "time_seconds": null
+      },
+      {
+        "claim": "The area has a street sign visible.",
+        "status": "invalid_normalized_box",
+        "anchor": [
+          0,
+          0,
+          768,
+          432
+        ],
+        "time_seconds": null
+      }
+    ]
+  },
+  {
+    "id": "video-contact-sheet-observation",
+    "parse": false
+  }
+]

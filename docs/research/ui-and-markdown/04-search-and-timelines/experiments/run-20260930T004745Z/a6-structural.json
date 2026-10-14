@@ -1,0 +1,18 @@
+{
+  "sentences": [
+    {
+      "text": "The video count at two seconds is a sampled consecutive-frame changed-pixel count, not an interval aggregate or accuracy score.",
+      "sourceIds": [
+        "video"
+      ],
+      "quote": "At two seconds, 11566 is a sampled consecutive-frame changed-pixel count, not an interval aggregate or accuracy score."
+    }
+  ],
+  "checks": [
+    {
+      "index": 0,
+      "idsValid": true,
+      "quoteExact": true
+    }
+  ]
+}

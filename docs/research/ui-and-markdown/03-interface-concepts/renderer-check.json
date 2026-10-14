@@ -1,0 +1,101 @@
+{
+  "status": "passed",
+  "kind": "CLI DOM-stub renderer smoke, not browser",
+  "corpusItems": 27,
+  "corpusRelations": 30,
+  "renders": [
+    {
+      "variant": "reading",
+      "view": "read",
+      "renderedCharacters": 19861
+    },
+    {
+      "variant": "reading",
+      "view": "map",
+      "renderedCharacters": 40013
+    },
+    {
+      "variant": "reading",
+      "view": "search",
+      "renderedCharacters": 17793
+    },
+    {
+      "variant": "reading",
+      "view": "timeline",
+      "renderedCharacters": 11734
+    },
+    {
+      "variant": "reading",
+      "view": "compare",
+      "renderedCharacters": 9367
+    },
+    {
+      "variant": "reading",
+      "view": "trail",
+      "renderedCharacters": 4994
+    },
+    {
+      "variant": "workspace",
+      "view": "read",
+      "renderedCharacters": 20767
+    },
+    {
+      "variant": "workspace",
+      "view": "map",
+      "renderedCharacters": 40919
+    },
+    {
+      "variant": "workspace",
+      "view": "search",
+      "renderedCharacters": 18699
+    },
+    {
+      "variant": "workspace",
+      "view": "timeline",
+      "renderedCharacters": 12640
+    },
+    {
+      "variant": "workspace",
+      "view": "compare",
+      "renderedCharacters": 10273
+    },
+    {
+      "variant": "workspace",
+      "view": "trail",
+      "renderedCharacters": 5900
+    },
+    {
+      "variant": "canvas",
+      "view": "read",
+      "renderedCharacters": 20761
+    },
+    {
+      "variant": "canvas",
+      "view": "map",
+      "renderedCharacters": 40913
+    },
+    {
+      "variant": "canvas",
+      "view": "search",
+      "renderedCharacters": 18693
+    },
+    {
+      "variant": "canvas",
+      "view": "timeline",
+      "renderedCharacters": 12634
+    },
+    {
+      "variant": "canvas",
+      "view": "compare",
+      "renderedCharacters": 10267
+    },
+    {
+      "variant": "canvas",
+      "view": "trail",
+      "renderedCharacters": 5894
+    }
+  ],
+  "sourceInspectors": 27,
+  "relationInspectors": 30,
+  "limitation": "No layout, focus, click, dialog-native, asset decoding or usability validation."
+}

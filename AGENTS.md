@@ -1,7 +1,3 @@
-## Subagent model
-
-Use either `gpt-6.1-sol` or `gpt-6-luna` with `low` (light) or `medium` reasoning for all subagents, including nested subagents. Explicitly set an allowed model and reasoning effort when spawning a subagent. Custom agents must use these same allowed settings. If no allowed combination is available, do the work in the main agent.
-
 ## Agent skills
 
 ### Issue tracker

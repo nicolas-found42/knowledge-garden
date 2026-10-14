@@ -1,0 +1,452 @@
+[
+  {
+    "id": "phototest-observation-dog-gpt4omini",
+    "family": "claim",
+    "source": "phototest",
+    "representation": "gpt4omini-observation",
+    "claim": "The text says a quick brown dog jumped over a lazy fox.",
+    "source_truth": "supported",
+    "state": {
+      "source": "phototest",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"The text is in 12 point font.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text includes a repeated phrase about a quick brown dog and a lazy fox.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text is intended to test OCR code functionality.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text mentions various file formats.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text is displayed in a single block.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"This is a lot of 12 point text to test the ocr code and see if it works on  all types of file format.\\nThe quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox.\",\n  \"limitations\": \"The observations are based solely on the visible text and do not infer any additional context or meaning.\"\n}\n```",
+      "claim": "The text says a quick brown dog jumped over a lazy fox."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  {
+    "id": "phototest-observation-cliche-gpt4omini",
+    "family": "claim",
+    "source": "phototest",
+    "representation": "gpt4omini-observation",
+    "claim": "The text says a quick brown fox jumped over a lazy dog.",
+    "source_truth": "contradicted",
+    "state": {
+      "source": "phototest",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"The text is in 12 point font.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text includes a repeated phrase about a quick brown dog and a lazy fox.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text is intended to test OCR code functionality.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text mentions various file formats.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text is displayed in a single block.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"This is a lot of 12 point text to test the ocr code and see if it works on  all types of file format.\\nThe quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox.\",\n  \"limitations\": \"The observations are based solely on the visible text and do not infer any additional context or meaning.\"\n}\n```",
+      "claim": "The text says a quick brown fox jumped over a lazy dog."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  {
+    "id": "phototest-observation-font-gpt4omini",
+    "family": "claim",
+    "source": "phototest",
+    "representation": "gpt4omini-observation",
+    "claim": "The text mentions 12 point text.",
+    "source_truth": "supported",
+    "state": {
+      "source": "phototest",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"The text is in 12 point font.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text includes a repeated phrase about a quick brown dog and a lazy fox.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text is intended to test OCR code functionality.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text mentions various file formats.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text is displayed in a single block.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"This is a lot of 12 point text to test the ocr code and see if it works on  all types of file format.\\nThe quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox.\",\n  \"limitations\": \"The observations are based solely on the visible text and do not infer any additional context or meaning.\"\n}\n```",
+      "claim": "The text mentions 12 point text."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  {
+    "id": "phototest-observation-success-gpt4omini",
+    "family": "claim",
+    "source": "phototest",
+    "representation": "gpt4omini-observation",
+    "claim": "The OCR code passed all file format tests.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "phototest",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"The text is in 12 point font.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text includes a repeated phrase about a quick brown dog and a lazy fox.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text is intended to test OCR code functionality.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text mentions various file formats.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text is displayed in a single block.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"This is a lot of 12 point text to test the ocr code and see if it works on  all types of file format.\\nThe quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox.\",\n  \"limitations\": \"The observations are based solely on the visible text and do not infer any additional context or meaning.\"\n}\n```",
+      "claim": "The OCR code passed all file format tests."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  {
+    "id": "book-pdf-page-92-observation-tradeoff-gpt4omini",
+    "family": "claim",
+    "source": "book-pdf-page-92",
+    "representation": "gpt4omini-observation",
+    "claim": "The swifter wolves have the best chance only provided they retain strength to master prey.",
+    "source_truth": "supported",
+    "state": {
+      "source": "book-pdf-page-92",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"The text discusses the survival of prey and the impact of selection on animal traits.\",\n      \"anchor\": [0, 0, 767, 456],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"It mentions the influence of unconscious selection on the traits of greyhounds.\",\n      \"anchor\": [0, 0, 767, 456],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text refers to the innate tendencies of a cub to pursue certain kinds of prey.\",\n      \"anchor\": [0, 0, 767, 456],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"It describes variations in domestic animals' tendencies to catch different types of prey.\",\n      \"anchor\": [0, 0, 767, 456],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text suggests that different varieties of animals might emerge from the process of selection.\",\n      \"anchor\": [0, 0, 767, 456],\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"the fleetest prey, a deer for instance, had from any change in the country increased in numbers, or that other prey had decreased in numbers, during that season of the year when the wolf is hardest pressed for food. I can see no more reason to doubt this, than that man can improve the fleetness of his greyhounds by careful and methodical selection, or by that unconscious selection which results from each man trying to keep the best dogs without any thought of modifying the breed. Even without any change in the proportional numbers of the animals on which our wolf preyed, a cub might be born with an innate tendency to pursue certain kinds of prey. Nor can this be thought very improbable; for we often observe great differences in the natural tendencies of our domestic animals; one cat, for instance, taking to catch rats, another mice; one cat, according to Mr. St. John, bringing home winged game, another hares or rabbits, and another hunting woodcocks or snipes. The tendency to catch rats rather than mice is known to be inherited. Now, if any slight innate character of habit or of structure benefited an individual wolf, it would have the best chance of surviving and of leaving offspring. Some of its young would probably inherit the same habits of structure, and by the repetition of this process, a new variety might be formed which would either equal or coexist with the parent form of wolf. Again, the wolves inhabiting a mountainous district, and those frequenting the lowlands, would naturally be forced to hunt different prey; and from the continued preservation of the individuals best fitted for the two sites, two varieties might slowly be formed. These varieties would cross and blend where they met; but to this subject of intercrossing we shall soon have to return. I may add that,\",\n  \"limitations\": \"The text is a historical excerpt discussing natural selection and does not provide visual information or context beyond the written content.\"\n}\n```",
+      "claim": "The swifter wolves have the best chance only provided they retain strength to master prey."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  {
+    "id": "book-pdf-page-92-observation-speed-gpt4omini",
+    "family": "claim",
+    "source": "book-pdf-page-92",
+    "representation": "gpt4omini-observation",
+    "claim": "The author says speed alone is sufficient regardless of strength to master prey.",
+    "source_truth": "contradicted",
+    "state": {
+      "source": "book-pdf-page-92",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"The text discusses the survival of prey and the impact of selection on animal traits.\",\n      \"anchor\": [0, 0, 767, 456],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"It mentions the influence of unconscious selection on the traits of greyhounds.\",\n      \"anchor\": [0, 0, 767, 456],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text refers to the innate tendencies of a cub to pursue certain kinds of prey.\",\n      \"anchor\": [0, 0, 767, 456],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"It describes variations in domestic animals' tendencies to catch different types of prey.\",\n      \"anchor\": [0, 0, 767, 456],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text suggests that different varieties of animals might emerge from the process of selection.\",\n      \"anchor\": [0, 0, 767, 456],\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"the fleetest prey, a deer for instance, had from any change in the country increased in numbers, or that other prey had decreased in numbers, during that season of the year when the wolf is hardest pressed for food. I can see no more reason to doubt this, than that man can improve the fleetness of his greyhounds by careful and methodical selection, or by that unconscious selection which results from each man trying to keep the best dogs without any thought of modifying the breed. Even without any change in the proportional numbers of the animals on which our wolf preyed, a cub might be born with an innate tendency to pursue certain kinds of prey. Nor can this be thought very improbable; for we often observe great differences in the natural tendencies of our domestic animals; one cat, for instance, taking to catch rats, another mice; one cat, according to Mr. St. John, bringing home winged game, another hares or rabbits, and another hunting woodcocks or snipes. The tendency to catch rats rather than mice is known to be inherited. Now, if any slight innate character of habit or of structure benefited an individual wolf, it would have the best chance of surviving and of leaving offspring. Some of its young would probably inherit the same habits of structure, and by the repetition of this process, a new variety might be formed which would either equal or coexist with the parent form of wolf. Again, the wolves inhabiting a mountainous district, and those frequenting the lowlands, would naturally be forced to hunt different prey; and from the continued preservation of the individuals best fitted for the two sites, two varieties might slowly be formed. These varieties would cross and blend where they met; but to this subject of intercrossing we shall soon have to return. I may add that,\",\n  \"limitations\": \"The text is a historical excerpt discussing natural selection and does not provide visual information or context beyond the written content.\"\n}\n```",
+      "claim": "The author says speed alone is sufficient regardless of strength to master prey."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  {
+    "id": "book-pdf-page-92-observation-intent-gpt4omini",
+    "family": "claim",
+    "source": "book-pdf-page-92",
+    "representation": "gpt4omini-observation",
+    "claim": "The user used this wolf passage to design their benchmark tool.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "book-pdf-page-92",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"The text discusses the survival of prey and the impact of selection on animal traits.\",\n      \"anchor\": [0, 0, 767, 456],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"It mentions the influence of unconscious selection on the traits of greyhounds.\",\n      \"anchor\": [0, 0, 767, 456],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text refers to the innate tendencies of a cub to pursue certain kinds of prey.\",\n      \"anchor\": [0, 0, 767, 456],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"It describes variations in domestic animals' tendencies to catch different types of prey.\",\n      \"anchor\": [0, 0, 767, 456],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text suggests that different varieties of animals might emerge from the process of selection.\",\n      \"anchor\": [0, 0, 767, 456],\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"the fleetest prey, a deer for instance, had from any change in the country increased in numbers, or that other prey had decreased in numbers, during that season of the year when the wolf is hardest pressed for food. I can see no more reason to doubt this, than that man can improve the fleetness of his greyhounds by careful and methodical selection, or by that unconscious selection which results from each man trying to keep the best dogs without any thought of modifying the breed. Even without any change in the proportional numbers of the animals on which our wolf preyed, a cub might be born with an innate tendency to pursue certain kinds of prey. Nor can this be thought very improbable; for we often observe great differences in the natural tendencies of our domestic animals; one cat, for instance, taking to catch rats, another mice; one cat, according to Mr. St. John, bringing home winged game, another hares or rabbits, and another hunting woodcocks or snipes. The tendency to catch rats rather than mice is known to be inherited. Now, if any slight innate character of habit or of structure benefited an individual wolf, it would have the best chance of surviving and of leaving offspring. Some of its young would probably inherit the same habits of structure, and by the repetition of this process, a new variety might be formed which would either equal or coexist with the parent form of wolf. Again, the wolves inhabiting a mountainous district, and those frequenting the lowlands, would naturally be forced to hunt different prey; and from the continued preservation of the individuals best fitted for the two sites, two varieties might slowly be formed. These varieties would cross and blend where they met; but to this subject of intercrossing we shall soon have to return. I may add that,\",\n  \"limitations\": \"The text is a historical excerpt discussing natural selection and does not provide visual information or context beyond the written content.\"\n}\n```",
+      "claim": "The user used this wolf passage to design their benchmark tool."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  {
+    "id": "video-contact-sheet-observation-movement-gpt4omini",
+    "family": "claim",
+    "source": "video-contact-sheet",
+    "representation": "gpt4omini-observation",
+    "claim": "People occupy different positions in the supplied timestamped frames.",
+    "source_truth": "supported",
+    "state": {
+      "source": "video-contact-sheet",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"There are multiple individuals walking in the area.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A white van is parked in the background.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"There are yellow objects on the ground.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A camera tripod is set up on the grass.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The area has a street sign visible.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"SOURCE: 16:16\",\n  \"limitations\": \"The observations are based solely on the visible elements in the image and do not infer any context or intent.\"\n}\n```",
+      "claim": "People occupy different positions in the supplied timestamped frames."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  {
+    "id": "video-contact-sheet-observation-static-gpt4omini",
+    "family": "claim",
+    "source": "video-contact-sheet",
+    "representation": "gpt4omini-observation",
+    "claim": "All people remain in exactly the same positions in all shown frames.",
+    "source_truth": "contradicted",
+    "state": {
+      "source": "video-contact-sheet",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"There are multiple individuals walking in the area.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A white van is parked in the background.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"There are yellow objects on the ground.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A camera tripod is set up on the grass.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The area has a street sign visible.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"SOURCE: 16:16\",\n  \"limitations\": \"The observations are based solely on the visible elements in the image and do not infer any context or intent.\"\n}\n```",
+      "claim": "All people remain in exactly the same positions in all shown frames."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  {
+    "id": "video-contact-sheet-observation-intent-gpt4omini",
+    "family": "claim",
+    "source": "video-contact-sheet",
+    "representation": "gpt4omini-observation",
+    "claim": "One person is committing a theft.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "video-contact-sheet",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"There are multiple individuals walking in the area.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A white van is parked in the background.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"There are yellow objects on the ground.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A camera tripod is set up on the grass.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The area has a street sign visible.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"SOURCE: 16:16\",\n  \"limitations\": \"The observations are based solely on the visible elements in the image and do not infer any context or intent.\"\n}\n```",
+      "claim": "One person is committing a theft."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  {
+    "id": "video-contact-sheet-observation-trajectory-gpt4omini",
+    "family": "claim",
+    "source": "video-contact-sheet",
+    "representation": "gpt4omini-observation",
+    "claim": "The exact uninterrupted trajectory of every person between 0 and 30 seconds is established.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "video-contact-sheet",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"There are multiple individuals walking in the area.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A white van is parked in the background.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"There are yellow objects on the ground.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A camera tripod is set up on the grass.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The area has a street sign visible.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"SOURCE: 16:16\",\n  \"limitations\": \"The observations are based solely on the visible elements in the image and do not infer any context or intent.\"\n}\n```",
+      "claim": "The exact uninterrupted trajectory of every person between 0 and 30 seconds is established."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  {
+    "id": "video-contact-sheet-observation-reason-gpt4omini",
+    "family": "claim",
+    "source": "video-contact-sheet",
+    "representation": "gpt4omini-observation",
+    "claim": "The video establishes why the programmer chose threshold 35.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "video-contact-sheet",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"There are multiple individuals walking in the area.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A white van is parked in the background.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"There are yellow objects on the ground.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A camera tripod is set up on the grass.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The area has a street sign visible.\",\n      \"anchor\": [0, 0, 768, 432],\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"SOURCE: 16:16\",\n  \"limitations\": \"The observations are based solely on the visible elements in the image and do not infer any context or intent.\"\n}\n```",
+      "claim": "The video establishes why the programmer chose threshold 35."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  {
+    "id": "controlled-demo-screenshot-observation-overlay-gpt4omini",
+    "family": "claim",
+    "source": "controlled-demo-screenshot",
+    "representation": "gpt4omini-observation",
+    "claim": "The displayed screenshot includes red changed pixel overlays.",
+    "source_truth": "supported",
+    "state": {
+      "source": "controlled-demo-screenshot",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"There are several individuals walking in the area.\",\n      \"anchor\": {\"x\": 300, \"y\": 200, \"w\": 200, \"h\": 100},\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A yellow object is on the ground.\",\n      \"anchor\": {\"x\": 100, \"y\": 300, \"w\": 50, \"h\": 30},\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"There are traffic cones placed in the area.\",\n      \"anchor\": {\"x\": 250, \"y\": 250, \"w\": 30, \"h\": 30},\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A sign is present near the individuals.\",\n      \"anchor\": {\"x\": 350, \"y\": 150, \"w\": 20, \"h\": 50},\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"There is a vehicle parked in the background.\",\n      \"anchor\": {\"x\": 400, \"y\": 100, \"w\": 100, \"h\": 50},\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"Controlled demo | SOURCE t=2.0s | changed pixels, no intent inference\",\n  \"limitations\": \"The observations are based solely on visible elements in the image and do not infer any context or intent.\"\n}\n```",
+      "claim": "The displayed screenshot includes red changed pixel overlays."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  {
+    "id": "controlled-demo-screenshot-observation-threshold-gpt4omini",
+    "family": "claim",
+    "source": "controlled-demo-screenshot",
+    "representation": "gpt4omini-observation",
+    "claim": "The screenshot independently establishes that the threshold equals 35.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "controlled-demo-screenshot",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"There are several individuals walking in the area.\",\n      \"anchor\": {\"x\": 300, \"y\": 200, \"w\": 200, \"h\": 100},\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A yellow object is on the ground.\",\n      \"anchor\": {\"x\": 100, \"y\": 300, \"w\": 50, \"h\": 30},\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"There are traffic cones placed in the area.\",\n      \"anchor\": {\"x\": 250, \"y\": 250, \"w\": 30, \"h\": 30},\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A sign is present near the individuals.\",\n      \"anchor\": {\"x\": 350, \"y\": 150, \"w\": 20, \"h\": 50},\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"There is a vehicle parked in the background.\",\n      \"anchor\": {\"x\": 400, \"y\": 100, \"w\": 100, \"h\": 50},\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"Controlled demo | SOURCE t=2.0s | changed pixels, no intent inference\",\n  \"limitations\": \"The observations are based solely on visible elements in the image and do not infer any context or intent.\"\n}\n```",
+      "claim": "The screenshot independently establishes that the threshold equals 35."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  {
+    "id": "controlled-demo-screenshot-observation-crime-gpt4omini",
+    "family": "claim",
+    "source": "controlled-demo-screenshot",
+    "representation": "gpt4omini-observation",
+    "claim": "Red highlights prove that a suspicious person was detected.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "controlled-demo-screenshot",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"There are several individuals walking in the area.\",\n      \"anchor\": {\"x\": 300, \"y\": 200, \"w\": 200, \"h\": 100},\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A yellow object is on the ground.\",\n      \"anchor\": {\"x\": 100, \"y\": 300, \"w\": 50, \"h\": 30},\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"There are traffic cones placed in the area.\",\n      \"anchor\": {\"x\": 250, \"y\": 250, \"w\": 30, \"h\": 30},\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"A sign is present near the individuals.\",\n      \"anchor\": {\"x\": 350, \"y\": 150, \"w\": 20, \"h\": 50},\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"There is a vehicle parked in the background.\",\n      \"anchor\": {\"x\": 400, \"y\": 100, \"w\": 100, \"h\": 50},\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"Controlled demo | SOURCE t=2.0s | changed pixels, no intent inference\",\n  \"limitations\": \"The observations are based solely on visible elements in the image and do not infer any context or intent.\"\n}\n```",
+      "claim": "Red highlights prove that a suspicious person was detected."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  {
+    "id": "controlled-demo-screenshot-observation-overlay-bounded-repair",
+    "family": "claim",
+    "source": "controlled-demo-screenshot",
+    "representation": "bounded-repair",
+    "claim": "The displayed screenshot includes red changed pixel overlays.",
+    "source_truth": "supported",
+    "state": {
+      "source": "controlled-demo-screenshot",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"Several figures are highlighted in red, indicating detection.\",\n      \"anchor\": [0.41, 0.33, 0.23, 0.23],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A group of figures are highlighted in red.\",\n      \"anchor\": [0.54, 0.39, 0.14, 0.17],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A figure is highlighted in red.\",\n      \"anchor\": [0.41, 0.33, 0.06, 0.11],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A figure is highlighted in red.\",\n      \"anchor\": [0.56, 0.43, 0.05, 0.1],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A figure is highlighted in red.\",\n      \"anchor\": [0.59, 0.45, 0.05, 0.1],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A figure is highlighted in red.\",\n      \"anchor\": [0.54, 0.39, 0.05, 0.1],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    }\n  ],\n  \"exact_visible_text\": \"Controlled demo | SOURCE t-2.0s | changed pixels, no intent inference\",\n  \"limitations\": \"The image shows a surveillance camera view with several areas highlighted in red, presumably indicating detected objects or people. The exact nature of these highlights (e.g., people, vehicles, or other objects) is not explicitly stated, but the shapes suggest human figures. The context of the red highlighting is not provided, beyond the label 'changed pixels'. No further interpretation of the scene or the highlighted areas is possible from the visual information alone.\"\n}\n```",
+      "claim": "The displayed screenshot includes red changed pixel overlays."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  {
+    "id": "controlled-demo-screenshot-observation-threshold-bounded-repair",
+    "family": "claim",
+    "source": "controlled-demo-screenshot",
+    "representation": "bounded-repair",
+    "claim": "The screenshot independently establishes that the threshold equals 35.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "controlled-demo-screenshot",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"Several figures are highlighted in red, indicating detection.\",\n      \"anchor\": [0.41, 0.33, 0.23, 0.23],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A group of figures are highlighted in red.\",\n      \"anchor\": [0.54, 0.39, 0.14, 0.17],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A figure is highlighted in red.\",\n      \"anchor\": [0.41, 0.33, 0.06, 0.11],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A figure is highlighted in red.\",\n      \"anchor\": [0.56, 0.43, 0.05, 0.1],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A figure is highlighted in red.\",\n      \"anchor\": [0.59, 0.45, 0.05, 0.1],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A figure is highlighted in red.\",\n      \"anchor\": [0.54, 0.39, 0.05, 0.1],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    }\n  ],\n  \"exact_visible_text\": \"Controlled demo | SOURCE t-2.0s | changed pixels, no intent inference\",\n  \"limitations\": \"The image shows a surveillance camera view with several areas highlighted in red, presumably indicating detected objects or people. The exact nature of these highlights (e.g., people, vehicles, or other objects) is not explicitly stated, but the shapes suggest human figures. The context of the red highlighting is not provided, beyond the label 'changed pixels'. No further interpretation of the scene or the highlighted areas is possible from the visual information alone.\"\n}\n```",
+      "claim": "The screenshot independently establishes that the threshold equals 35."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  {
+    "id": "controlled-demo-screenshot-observation-crime-bounded-repair",
+    "family": "claim",
+    "source": "controlled-demo-screenshot",
+    "representation": "bounded-repair",
+    "claim": "Red highlights prove that a suspicious person was detected.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "controlled-demo-screenshot",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"Several figures are highlighted in red, indicating detection.\",\n      \"anchor\": [0.41, 0.33, 0.23, 0.23],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A group of figures are highlighted in red.\",\n      \"anchor\": [0.54, 0.39, 0.14, 0.17],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A figure is highlighted in red.\",\n      \"anchor\": [0.41, 0.33, 0.06, 0.11],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A figure is highlighted in red.\",\n      \"anchor\": [0.56, 0.43, 0.05, 0.1],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A figure is highlighted in red.\",\n      \"anchor\": [0.59, 0.45, 0.05, 0.1],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A figure is highlighted in red.\",\n      \"anchor\": [0.54, 0.39, 0.05, 0.1],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    }\n  ],\n  \"exact_visible_text\": \"Controlled demo | SOURCE t-2.0s | changed pixels, no intent inference\",\n  \"limitations\": \"The image shows a surveillance camera view with several areas highlighted in red, presumably indicating detected objects or people. The exact nature of these highlights (e.g., people, vehicles, or other objects) is not explicitly stated, but the shapes suggest human figures. The context of the red highlighting is not provided, beyond the label 'changed pixels'. No further interpretation of the scene or the highlighted areas is possible from the visual information alone.\"\n}\n```",
+      "claim": "Red highlights prove that a suspicious person was detected."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  }
+]

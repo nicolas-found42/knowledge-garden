@@ -1,0 +1,44 @@
+{
+  "date": "2026-09-29",
+  "driver": "CUA in-app browser; actions chosen with Jev",
+  "canvas": {
+    "visibleNodeButtons": 27,
+    "visibleEdgeButtons": 30,
+    "groupCounts": {
+      "file": 16,
+      "annotation": 1,
+      "decision": 2,
+      "person": 1,
+      "place": 1,
+      "concept": 1,
+      "event": 1,
+      "claim": 2,
+      "question": 1,
+      "trail": 1
+    },
+    "observedAfterClick": "All 27 items remain addressable through expandable groups",
+    "selectedContext": "photo-fruit"
+  },
+  "readingScreenshot": {
+    "viewport": [
+      1280,
+      720
+    ],
+    "before": [
+      "active Read text white on pale background",
+      "task selector overflowed rail"
+    ],
+    "after": [
+      "active Read has green background",
+      "task selector contained in rail"
+    ],
+    "retention": "Screenshots visually inspected in tool transcript; this record is a researcher transcription, not saved screenshot bytes"
+  },
+  "largeGraphScreenshot": "50k/400k full drawing visually dense and individual links unreadable at overview; no human usability score",
+  "obsidian": {
+    "standardAppFolders": false,
+    "spotlightBundleSearch": false,
+    "liveAppInventory": false,
+    "status": "unavailable; not installed"
+  }
+}

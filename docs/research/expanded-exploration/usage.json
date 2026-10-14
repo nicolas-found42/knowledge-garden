@@ -1,0 +1,216 @@
+{
+  "research_date": "2026-09-29",
+  "records": [
+    {
+      "concern": "media",
+      "role": "supporting_model",
+      "successful_requests": 25,
+      "input_tokens": 104940,
+      "output_tokens": 28202,
+      "reported_router_cost_usd": "0.017115219",
+      "models": [
+        "google/gemini-2.5-flash-lite",
+        "openai/gpt-4o-mini"
+      ]
+    },
+    {
+      "concern": "media",
+      "role": "jev",
+      "successful_requests": 113,
+      "input_tokens": 210226,
+      "output_tokens": 4982,
+      "reported_router_cost_usd": "0.008829492",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ]
+    },
+    {
+      "concern": "histories",
+      "role": "jev",
+      "successful_requests": 114,
+      "input_tokens": 168122,
+      "output_tokens": 8660,
+      "reported_router_cost_usd": "0.007061124",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ]
+    },
+    {
+      "concern": "connections",
+      "role": "jev",
+      "successful_requests": 53,
+      "input_tokens": 27908,
+      "output_tokens": 3161,
+      "reported_router_cost_usd": "0.001172136",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ]
+    },
+    {
+      "concern": "connections",
+      "role": "generative",
+      "successful_requests": 5,
+      "input_tokens": 6328,
+      "output_tokens": 2673,
+      "reported_router_cost_usd": "0.00673992",
+      "models": [
+        "openai/gpt-4.1-mini"
+      ]
+    },
+    {
+      "concern": "wiki",
+      "role": "generative",
+      "successful_requests": 6,
+      "input_tokens": 8168,
+      "output_tokens": 1338,
+      "reported_router_cost_usd": "0.00535392",
+      "models": [
+        "openai/gpt-4.1-mini"
+      ]
+    },
+    {
+      "concern": "wiki",
+      "role": "jev",
+      "successful_requests": 6,
+      "input_tokens": 23897,
+      "output_tokens": 1404,
+      "reported_router_cost_usd": "0.001003674",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "path": "01-source-interpretation/experiments/media-lab/summary.json",
+      "sha256": "5fca5a0149ff63aac5734a17426b1c72b1bec12319957f3796d85c41d62232c8"
+    },
+    {
+      "path": "02-agent-histories/experiments/aggregate-results.json",
+      "sha256": "f6f3152e255f4246f91c7497e7812f8fbe18fe7c39682ca4f2de3a022fb5c41a"
+    },
+    {
+      "path": "03-connections-and-methods/experiments/audit.json",
+      "sha256": "54067e133fe69f7eeffbcd0071d3c5523a975ce15325c0475364654fba24920f"
+    },
+    {
+      "path": "04-navigation-and-provenance/experiments/wiki-lab/analysis.json",
+      "sha256": "11ebb5ed5b677423dbbef63cd02c1b3d2f0e99f9090a14dcabe42b7f04197e78"
+    }
+  ],
+  "measured": {
+    "successful_requests": 322,
+    "input_tokens": 549589,
+    "output_tokens": 50420,
+    "reported_router_cost_usd": "0.047275485"
+  },
+  "jev": {
+    "successful_requests": 286,
+    "input_tokens": 430153,
+    "output_tokens": 18207,
+    "reported_router_cost_usd": "0.018066426"
+  },
+  "supporting_and_generative": {
+    "successful_requests": 36,
+    "input_tokens": 119436,
+    "output_tokens": 32213,
+    "reported_router_cost_usd": "0.029209059"
+  },
+  "provider_transport_failures": 0,
+  "separate_upstream_metadata": {
+    "media_upstream_inference_cost_usd": 0.026221,
+    "byok_calls": 16,
+    "additive_to_router_total": false
+  },
+  "browser_checks": [
+    {
+      "log": "04-navigation-and-provenance/experiments/navigation-lab/browser-check-collection-sequential.txt",
+      "result": null,
+      "usage_and_cost_available": false,
+      "status": "control_failure_or_unverified"
+    },
+    {
+      "log": "04-navigation-and-provenance/experiments/navigation-lab/browser-check-collection.txt",
+      "result": null,
+      "usage_and_cost_available": false,
+      "status": "control_failure_or_unverified"
+    },
+    {
+      "log": "04-navigation-and-provenance/experiments/navigation-lab/browser-check-connections-sequential.txt",
+      "result": {
+        "schema": "hermes.browser_use_jev_run_v1",
+        "goal": "Show Connections centered on the changed detector; stay on the local page.",
+        "final_url": "http://127.0.0.1:8876/04-navigation-and-provenance/experiments/navigation-lab/index.html",
+        "title": "Connections \u00b7 Knowledge Garden evidence",
+        "heading": "One body of evidence. Five ways to explore it.",
+        "steps": 1,
+        "text_calls": 0,
+        "ticks": 2,
+        "left_allowlist": false,
+        "expected": "Connections",
+        "verified": true,
+        "browser": "owned"
+      },
+      "usage_and_cost_available": false,
+      "status": "verified"
+    },
+    {
+      "log": "04-navigation-and-provenance/experiments/navigation-lab/browser-check-connections.txt",
+      "result": null,
+      "usage_and_cost_available": false,
+      "status": "control_failure_or_unverified"
+    },
+    {
+      "log": "04-navigation-and-provenance/experiments/navigation-lab/browser-check-source-explorer.txt",
+      "result": {
+        "schema": "hermes.browser_use_jev_run_v1",
+        "goal": "Show the Source explorer filtered to PNG format, so the rendered frame is the one visible source record. Switching views and using the Format filter count as progress; stay on this local page.",
+        "final_url": "http://127.0.0.1:8876/04-navigation-and-provenance/experiments/navigation-lab/index.html",
+        "title": "Source explorer \u00b7 1 record \u00b7 Knowledge Garden evidence",
+        "heading": "One body of evidence. Five ways to explore it.",
+        "steps": 2,
+        "text_calls": 0,
+        "ticks": 3,
+        "left_allowlist": false,
+        "expected": "Source explorer \u00b7 1 record \u00b7",
+        "verified": true,
+        "browser": "owned"
+      },
+      "usage_and_cost_available": false,
+      "status": "verified"
+    },
+    {
+      "log": "04-navigation-and-provenance/experiments/navigation-lab/browser-check-timeline-sequential.txt",
+      "result": {
+        "schema": "hermes.browser_use_jev_run_v1",
+        "goal": "Show the Reasoning timeline for the motion experiment; stay on the local page.",
+        "final_url": "http://127.0.0.1:8876/04-navigation-and-provenance/experiments/navigation-lab/index.html",
+        "title": "Reasoning timeline \u00b7 Knowledge Garden evidence",
+        "heading": "One body of evidence. Five ways to explore it.",
+        "steps": 1,
+        "text_calls": 0,
+        "ticks": 2,
+        "left_allowlist": false,
+        "expected": "Reasoning timeline",
+        "verified": true,
+        "browser": "owned"
+      },
+      "usage_and_cost_available": false,
+      "status": "verified"
+    },
+    {
+      "log": "04-navigation-and-provenance/experiments/navigation-lab/browser-check-timeline.txt",
+      "result": null,
+      "usage_and_cost_available": false,
+      "status": "control_failure_or_unverified"
+    }
+  ],
+  "exclusions": [
+    "Coding-agent work and subscriptions",
+    "Extraction/local runtime",
+    "External BYOK account charges",
+    "Browser chooser usage, not exposed by runner",
+    "Previous research collection"
+  ],
+  "limitations": "Reported router costs are response metadata, not a complete billing reconciliation. Successful transport includes retained invalid/truncated generations. Deterministic experiments incur no model calls."
+}

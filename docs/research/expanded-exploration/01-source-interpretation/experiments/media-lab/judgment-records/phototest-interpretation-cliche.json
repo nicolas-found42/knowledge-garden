@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "phototest-interpretation-cliche",
+    "family": "claim",
+    "source": "phototest",
+    "representation": "interpretation",
+    "claim": "The text says a quick brown fox jumped over a lazy dog.",
+    "source_truth": "contradicted",
+    "state": {
+      "source": "phototest",
+      "evidence_kind": "interpretation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"text\": \"This is a lot of 12 point text to test the ocr code and see if it works on all types of file format.\",\n      \"anchor\": [\n        187,\n        54,\n        334,\n        967\n      ]\n    },\n    {\n      \"text\": \"The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox.\",\n      \"anchor\": [\n        396,\n        54,\n        740,\n        967\n      ]\n    }\n  ],\n  \"interpretive_candidates\": [\n    {\n      \"claim\": \"The text is intended to test OCR capabilities.\",\n      \"anchor\": [\n        187,\n        54,\n        334,\n        967\n      ],\n      \"status\": \"supported\",\n      \"why\": \"The text explicitly states 'to test the ocr code'.\"\n    },\n    {\n      \"claim\": \"The text is composed of 12-point font.\",\n      \"anchor\": [\n        187,\n        54,\n        334,\n        967\n      ],\n      \"status\": \"supported\",\n      \"why\": \"The text explicitly states '12 point text'.\"\n    },\n    {\n      \"claim\": \"The text is designed to evaluate OCR performance across different file formats.\",\n      \"anchor\": [\n        187,\n        54,\n        334,\n        967\n      ],\n      \"status\": \"supported\",\n      \"why\": \"The text states 'see if it works on all types of file format'.\"\n    },\n    {\n      \"claim\": \"The text includes a pangram.\",\n      \"anchor\": [\n        396,\n        54,\n        740,\n        967\n      ],\n      \"status\": \"supported\",\n      \"why\": \"The sentence 'The quick brown fox jumps over the lazy dog' is a well-known pangram, and the repeated sentence 'The quick brown dog jumped over the lazy fox' is a variation of it.\"\n    }\n  ],\n  \"limitations\": [\n    \"The exact font used is not specified beyond its point size.\",\n    \"The specific file formats being tested are not enumerated.\",\n    \"The success or failure of the OCR test is not indicated.\",\n    \"The image quality, while generally good, may have minor imperfections that could affect OCR accuracy in edge cases.\"\n  ],\n  \"research_connections\": [\n    {\n      \"hypothesis\": \"The use of a pangram is a common practice in OCR testing to ensure all letters of the alphabet are represented.\",\n      \"anchor\": [\n        396,\n        54,\n        740,\n        967\n      ]\n    },\n    {\n      \"hypothesis\": \"The mention of '12 point text' suggests a standard or common font size used for readability and testing.\",\n      \"anchor\": [\n        187,\n        54,\n        334,\n        967\n      ]\n    },\n    {\n      \"hypothesis\": \"The phrase 'all types of file format' implies a broad scope for the OCR test, potentially including common image formats like JPEG, PNG, TIFF, and possibly document formats like PDF.\",\n      \"anchor\": [\n        187,\n        54,\n        334,\n        967\n      ]\n    }\n  ]\n}\n```",
+      "claim": "The text says a quick brown fox jumped over a lazy dog."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "contradicted",
+        "probabilities": {
+          "contradicted": 0.96,
+          "supported": 0.01,
+          "unknown": 0.03
+        },
+        "confidence": 0.95
+      }
+    },
+    "usage": {
+      "input_tokens": 1229,
+      "output_tokens": 44,
+      "cost": 5.1618e-05
+    },
+    "id": "gen-dec-1790725833-WkVPswN4xAPo1WX0kSCI",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.276319208991481
+}

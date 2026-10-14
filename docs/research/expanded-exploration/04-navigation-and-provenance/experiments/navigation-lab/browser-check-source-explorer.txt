@@ -1,0 +1,9 @@
+  browser: our own Chrome (pid=96583, port=57326, throwaway profile) — closed on exit
+  tick  1     326 ms  actions=1  status=ready  last=click
+  tick  2     525 ms  actions=2  status=ready  last=select
+  tick  3     696 ms  actions=2  status=done  last=select
+  final_url: http://127.0.0.1:8876/04-navigation-and-provenance/experiments/navigation-lab/index.html
+  title: 'Source explorer · 1 record · Knowledge Garden evidence'
+  independent check for 'Source explorer · 1 record ·': PASS
+{"schema": "hermes.browser_use_jev_run_v1", "goal": "Show the Source explorer filtered to PNG format, so the rendered frame is the one visible source record. Switching views and using the Format filter count as progress; stay on this local page.", "final_url": "http://127.0.0.1:8876/04-navigation-and-provenance/experiments/navigation-lab/index.html", "title": "Source explorer \u00b7 1 record \u00b7 Knowledge Garden evidence", "heading": "One body of evidence. Five ways to explore it.", "steps": 2, "text_calls": 0, "ticks": 3, "left_allowlist": false, "expected": "Source explorer \u00b7 1 record \u00b7", "verified": true, "browser": "owned"}
+

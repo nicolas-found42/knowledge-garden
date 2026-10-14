@@ -1,0 +1,32 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPMmA",
+        "number": 3,
+        "state": "OPEN",
+        "title": "Turn a text source into evidence-grounded facts and linked pages with Jev",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/3"
+      }
+    ],
+    "totalCount": 1
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 2, 6, 31; **Collection organization and granularity**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nTurn supplied agent conversation exports into readable knowledge while retaining message context, speaker/tool origin, reasoning-event identity, and linked-only URL occurrences.\n\n## Acceptance criteria\n\n- [ ] Representative supplied conversation exports retain original data and expose conversations plus individual messages in context.\n- [ ] Message identity/order, available dates, author/tool role, quoted content, and tool outputs remain distinguishable in durable evidence; a model claim is not automatically an observed external fact.\n- [ ] Meaningful questions, decisions, claims, and reasoning events become navigable targets with support back to the relevant message or message range.\n- [ ] Similar wording across turns or sessions does not merge distinct events or convert an abandoned suggestion into the current accepted decision without evidence.\n- [ ] URLs in messages stay searchable linked occurrences; destinations are not acquired unless explicitly supplied through the app\u2019s URL ingestion workflow.\n- [ ] Partial/malformed exports and missing timestamps expose coverage and date uncertainty without inventing chronology, losing originals, or requiring curation.\n- [ ] Synthetic or authorized sanitized exports verify role distinctions, quoted/tool-origin evidence, event separation, link boundaries, and message-context retrieval.\n\n## Blocked by\n\n- [#3 \u2014 Turn a text source into evidence-grounded facts and linked pages with Jev](https://github.com/nicolas-found42/knowledge-garden/issues/3)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nValidate concrete export adapters rather than claiming every provider\u2019s history is supported. Private raw histories and exact source mappings are not publication fixtures. A reasoning event\u2019s source date is separate from the date the collection imported the conversation.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nImport a synthetic conversation where a user proposes a plan, an assistant suggests an alternative, a tool reports a failure, and the user later records a decision; include an unknown timestamp and a URL whose destination was not supplied. Navigate the decision and reasoning events to their messages and inspect the origin of each assertion.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Ingest agent conversations with message provenance and separate reasoning events",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/17"
+}

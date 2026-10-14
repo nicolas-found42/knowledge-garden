@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "book-pdf-page-92-pdf-text-intent",
+    "family": "claim",
+    "source": "book-pdf-page-92",
+    "representation": "pdf-text",
+    "claim": "The user used this wolf passage to design their benchmark tool.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "book-pdf-page-92",
+      "evidence_kind": "pdf-text",
+      "evidence": "86 \nNATURAL  SELECTION. \n\n[Chap.  IV. \n\nthe  fleetest  prey,  a  deer  for. instance,  had  from  any  change \nin  the  country  increased  in  numbers,  or  that  other  prey \nhad  decreased  in  numbers,  during  that  season  of  the  year \nwhen  the  wolf  is  hardest  pressed  for  food.  I  can  under \nsuch  circumstances  see  no  reason  to  doubt  that  the  swift\u00ac \nest  and  slimmest  wolves  would  have  the  best  chance  of \n\nsurviving,  and  so  be  preserved  or  selected, \u2014 provided \nalways  that  they  retained  strength  to  master  their  prey \nat  this  or  at  some  other  period  of  the  year,  when  they \nmight  be  compelled  to  prey  on  other  animals.  I  can  see \nno  more  reason  to  doubt  this,  than  that  man  can  improve \nthe  fleetness  of  his  greyhounds  by  careful  and  methodical \nselection,  or  by  that  unconscious  selection  which  results \nfrom  each  man  trying  to  keep  the  best  dogs  without  any \nthought  of  modifying  the  breed. \n\nEven  without  any  change  in  the  proportional  numbers \nof  the  animals  on  which  our  wolf  preyed,  a  cub  might \nbe  born  with  an  innate  tendency  to  pursue  certain  kinds \nof  prey.  Nor  can  this  be  thought  very  improbable  ;  for \n\nwre  often  observe  great  differences  in  the  natural  tenden\u00ac \ncies  of  our  domestic  animals  ;  one  cat,  for  instance,  taking \nto  catch  rats,  another  mice  ;  one  cat,  according  to  Mr.  St. \nJohn,  bringing  home  winged  game,  another  hares  or  rab\u00ac \nbits,  and  another  hunting  on  marshy  ground  and  almost \nnightly  catching  woodcocks  or  snipes.  The  tendency  to \ncatch  rats  rather  than  mice  is  known  to  be  inherited. \n\nNow,  if  any  slight  innate  change  of  habit  or  of  structure \nbenefited  an  individual  wolf,  it  would  have  the  best \nchance  of  surviving  and  of  leaving  offspring.  Some  of \nits  young  would  probably  inherit  the  same  habits  or \nstructure,  and  by  the  repetition  of  this  process,  a  new \nvariety  might  be  formed  which  would  either  supplant  or \ncoexist  with  the  parent  form  of  wolf.  Or,  again,  the \nwolves  inhabiting  a  mountainous  district,  and  those  fre\u00ac \nquenting  the  lowlands,  would  naturally  be  forced  to  hunt \ndifferent  prey ;  and  from  the  continued  preservation  of \nthe  individuals  best  fitted  for  the  two  sites,  two  varieties \nmight  slowly  be  formed.  These  varieties  would  cross \n\nand  blend  where  they  met ;  but  to  this  subject  of  inter\u00ac \ncrossing  we  shall  soon  have  to  return.  I  may  add,  that, \n",
+      "claim": "The user used this wolf passage to design their benchmark tool."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "unknown",
+        "probabilities": {
+          "unknown": 1,
+          "contradicted": 0,
+          "supported": 0
+        },
+        "confidence": 1
+      }
+    },
+    "usage": {
+      "input_tokens": 1322,
+      "output_tokens": 41,
+      "cost": 5.5524e-05
+    },
+    "id": "gen-dec-1790725834-6XjIzykufqGQjoOMZTOt",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.29979024999192916
+}

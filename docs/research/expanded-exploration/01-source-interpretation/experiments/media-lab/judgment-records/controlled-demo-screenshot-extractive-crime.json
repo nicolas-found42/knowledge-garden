@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "controlled-demo-screenshot-extractive-crime",
+    "family": "claim",
+    "source": "controlled-demo-screenshot",
+    "representation": "extractive",
+    "claim": "Red highlights prove that a suspicious person was detected.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "controlled-demo-screenshot",
+      "evidence_kind": "extractive",
+      "evidence": "CONTROLLED IMAGE LABEL: changed pixels, no intent inference; SOURCE t=2.0s. No other text extracted.",
+      "claim": "Red highlights prove that a suspicious person was detected."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "unknown",
+        "probabilities": {
+          "contradicted": 0.42,
+          "unknown": 0.58,
+          "supported": 0
+        },
+        "confidence": 0.37
+      }
+    },
+    "usage": {
+      "input_tokens": 470,
+      "output_tokens": 41,
+      "cost": 1.974e-05
+    },
+    "id": "gen-dec-1790725836-4fybQYr6BGoggTOz7Qfp",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.3122895839915145
+}

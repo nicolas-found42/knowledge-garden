@@ -1,0 +1,17 @@
+{
+  "record": {
+    "id": "rel-observation",
+    "subject": "person-mira",
+    "relation": "observed-at",
+    "object": "place-riverside",
+    "status": "recorded",
+    "evidence_source": "source-field",
+    "evidence_revision": "r1",
+    "evidence_anchor": "observation"
+  },
+  "assertions": [
+    "exact-recovery",
+    "external-prose-preserved",
+    "all-meaning-in-md"
+  ]
+}

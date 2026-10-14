@@ -1,0 +1,28 @@
+{
+  "recordedAt": "2026-09-30T00:49:34.704Z",
+  "method": "15 measured browser runs after 3 warmups; medians transcribed from observed DOM, rounded to 0.1 ms; raw full repetitions retained in later run",
+  "medianResults": [
+    {
+      "count": 1000,
+      "layoutMs": 0,
+      "indexMs": 0.1,
+      "100HitTestsMs": 0.1,
+      "drawSubmissionMs": 0.1
+    },
+    {
+      "count": 10000,
+      "layoutMs": 0.3,
+      "indexMs": 0.9,
+      "100HitTestsMs": 0.1,
+      "drawSubmissionMs": 0.5
+    },
+    {
+      "count": 50000,
+      "layoutMs": 1.1,
+      "indexMs": 4.5,
+      "100HitTestsMs": 0.2,
+      "drawSubmissionMs": 2.5
+    }
+  ],
+  "download": "CUA timeout retained separately; repeat used local research capture endpoint"
+}

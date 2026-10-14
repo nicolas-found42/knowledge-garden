@@ -1,0 +1,60 @@
+{
+  "task": {
+    "id": "controlled-demo-screenshot-observation-bounded-repair",
+    "file": "/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/01-source-interpretation/experiments/media-lab/controlled-demo-screenshot.png",
+    "mode": "observation",
+    "media": "image",
+    "extra": "\nREPAIR OUTPUT CONTRACT: at most 6 observations and 3 candidates; output under 700 tokens; omit full transcript/exact_visible_text. Use explicit source_id from [book_scan_pdf_page84, book_scan_pdf_page92, public_deap_article, public_deap_code, controlled_personal_note, source_video_contact_sheet, controlled_demo_screenshot] for every claim. Book text must never be attributed to DEAP. Do not describe notes as real recovered personal history. All anchors are proposals; keep source identity correct. Include central qualification: favorable/injurious/neutral variation or wolves retain strength, if visible."
+  },
+  "model_requested": "google/gemini-2.5-flash-lite",
+  "prompt": "Return concise JSON with observations:[{claim,anchor,uncertainty}], exact_visible_text, and limitations. Describe only what the supplied image/video directly shows. Separate uncertain interpretations. Anchor image claims by approximate normalized top-left bounding box [x,y,w,h]; video claims by seconds. Never infer author motives, historical links, exact weights, medical facts, identity, or security intent from appearances. Preserve qualifications and negations in book text. Do not normalize familiar phrases into a different sentence.\n\nREPAIR OUTPUT CONTRACT: at most 6 observations and 3 candidates; output under 700 tokens; omit full transcript/exact_visible_text. Use explicit source_id from [book_scan_pdf_page84, book_scan_pdf_page92, public_deap_article, public_deap_code, controlled_personal_note, source_video_contact_sheet, controlled_demo_screenshot] for every claim. Book text must never be attributed to DEAP. Do not describe notes as real recovered personal history. All anchors are proposals; keep source identity correct. Include central qualification: favorable/injurious/neutral variation or wolves retain strength, if visible.",
+  "media_sha256": "f193631beabeb9f6fc0cb5f32b53b192a073784866d712c8e753bc967a0cdd31",
+  "media_bytes": 585275,
+  "response": {
+    "id": "gen-1790725864-H46x0YhH7Rf6UjTo6saX",
+    "object": "chat.completion",
+    "created": 1790725864,
+    "model": "google/gemini-2.5-flash-lite",
+    "provider": "Google AI Studio",
+    "system_fingerprint": null,
+    "service_tier": "default",
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "STOP",
+        "message": {
+          "role": "assistant",
+          "content": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"Several figures are highlighted in red, indicating detection.\",\n      \"anchor\": [0.41, 0.33, 0.23, 0.23],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A group of figures are highlighted in red.\",\n      \"anchor\": [0.54, 0.39, 0.14, 0.17],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A figure is highlighted in red.\",\n      \"anchor\": [0.41, 0.33, 0.06, 0.11],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A figure is highlighted in red.\",\n      \"anchor\": [0.56, 0.43, 0.05, 0.1],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A figure is highlighted in red.\",\n      \"anchor\": [0.59, 0.45, 0.05, 0.1],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    },\n    {\n      \"claim\": \"A figure is highlighted in red.\",\n      \"anchor\": [0.54, 0.39, 0.05, 0.1],\n      \"uncertainty\": \"neutral\",\n      \"source_id\": \"controlled_demo_screenshot\"\n    }\n  ],\n  \"exact_visible_text\": \"Controlled demo | SOURCE t-2.0s | changed pixels, no intent inference\",\n  \"limitations\": \"The image shows a surveillance camera view with several areas highlighted in red, presumably indicating detected objects or people. The exact nature of these highlights (e.g., people, vehicles, or other objects) is not explicitly stated, but the shapes suggest human figures. The context of the red highlighting is not provided, beyond the label 'changed pixels'. No further interpretation of the scene or the highlighted areas is possible from the visual information alone.\"\n}\n```",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 511,
+      "completion_tokens": 560,
+      "total_tokens": 1071,
+      "cost": 0,
+      "is_byok": true,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0002751,
+        "upstream_inference_prompt_cost": 5.11e-05,
+        "upstream_inference_completions_cost": 0.000224
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  "seconds": 3.4161656660144217
+}

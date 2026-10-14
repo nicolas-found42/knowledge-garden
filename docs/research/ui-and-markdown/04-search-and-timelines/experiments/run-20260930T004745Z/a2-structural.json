@@ -1,0 +1,32 @@
+{
+  "sentences": [
+    {
+      "text": "The noon-only plan was changed because rain disrupted the noon visit, leading to the adoption of morning and noon observations.",
+      "sourceIds": [
+        "plan-2",
+        "reasoning"
+      ],
+      "quote": "Use morning and noon observations after rain disrupted the noon visit. This replaces the noon-only plan; better sampling accuracy has not been measured.\n2024-05-19T11:00:00Z Rain interrupts the noon visit.\n2024-05-20T08:00:00Z Maya adopts morning and noon observations."
+    },
+    {
+      "text": "Better accuracy was not established when the plan changed from noon-only to morning and noon sampling.",
+      "sourceIds": [
+        "plan-2",
+        "reasoning"
+      ],
+      "quote": "Better sampling accuracy has not been measured.\nNo accuracy comparison was run."
+    }
+  ],
+  "checks": [
+    {
+      "index": 0,
+      "idsValid": true,
+      "quoteExact": false
+    },
+    {
+      "index": 1,
+      "idsValid": true,
+      "quoteExact": false
+    }
+  ]
+}

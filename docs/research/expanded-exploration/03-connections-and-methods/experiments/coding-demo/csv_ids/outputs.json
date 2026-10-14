@@ -1,0 +1,16 @@
+[
+  {
+    "id": "csv_ids-failed",
+    "file": "coding-demo/csv_ids/failed.py",
+    "exit_code": 1,
+    "stdout": "",
+    "stderr": "Traceback (most recent call last):\n  File \"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/csv_ids/failed.py\", line 2, in <module>\n    assert key(\"007\") != key(\"7\"), \"distinct customer IDs collapsed\"\n           ^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: distinct customer IDs collapsed\n"
+  },
+  {
+    "id": "csv_ids-successful",
+    "file": "coding-demo/csv_ids/successful.py",
+    "exit_code": 0,
+    "stdout": "invariants passed\n",
+    "stderr": ""
+  }
+]

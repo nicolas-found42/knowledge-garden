@@ -1,0 +1,212 @@
+{
+  "01": {
+    "number": 2,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/2",
+    "title": "Import a local text source into a durable Markdown reader",
+    "key": "01"
+  },
+  "02": {
+    "number": 3,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/3",
+    "title": "Turn a text source into evidence-grounded facts and linked pages with Jev",
+    "key": "02"
+  },
+  "03": {
+    "number": 4,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/4",
+    "title": "Reconcile complete source replacements using version order and independent support",
+    "key": "03"
+  },
+  "04": {
+    "number": 5,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/5",
+    "title": "Apply targeted corrections while keeping distinct observations separate",
+    "key": "04"
+  },
+  "05": {
+    "number": 6,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/6",
+    "title": "Recover incomplete source updates without deleting unextracted facts",
+    "key": "05"
+  },
+  "06": {
+    "number": 7,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/7",
+    "title": "Preserve external manual corrections while other facts refresh automatically",
+    "key": "06"
+  },
+  "07": {
+    "number": 8,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/8",
+    "title": "Keep external moves, renames, and concurrent edits safe and navigable",
+    "key": "07"
+  },
+  "08": {
+    "number": 9,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/9",
+    "title": "Ingest watched directories and distinguish deletion from disconnection",
+    "key": "08"
+  },
+  "09": {
+    "number": 10,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/10",
+    "title": "Ingest explicitly supplied URLs while preserving uncrawled link references",
+    "key": "09"
+  },
+  "10": {
+    "number": 11,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/11",
+    "title": "Read PDFs and scanned documents with located evidence and coverage recovery",
+    "key": "10"
+  },
+  "11": {
+    "number": 12,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/12",
+    "title": "Turn documents and presentations into knowledge with passage and slide provenance",
+    "key": "11"
+  },
+  "12": {
+    "number": 13,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/13",
+    "title": "Form photo knowledge without confusing pixels, metadata, and captions",
+    "key": "12"
+  },
+  "13": {
+    "number": 14,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/14",
+    "title": "Ingest audio recordings with time-located transcripts and qualified knowledge",
+    "key": "13"
+  },
+  "14": {
+    "number": 15,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/15",
+    "title": "Ingest video with synchronized visual and spoken evidence",
+    "key": "14"
+  },
+  "15": {
+    "number": 16,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/16",
+    "title": "Import repositories as connected source material with precise code and document evidence",
+    "key": "15"
+  },
+  "16": {
+    "number": 17,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/17",
+    "title": "Ingest agent conversations with message provenance and separate reasoning events",
+    "key": "16"
+  },
+  "17": {
+    "number": 18,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/18",
+    "title": "Find pages by title, tag, keyword, and visible filters",
+    "key": "17"
+  },
+  "18": {
+    "number": 19,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/19",
+    "title": "Search remembered meaning locally while offline",
+    "key": "18"
+  },
+  "19": {
+    "number": 20,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/20",
+    "title": "Explore degrees of separation and inspect evidence for connecting paths",
+    "key": "19"
+  },
+  "20": {
+    "number": 21,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/21",
+    "title": "Compose visual multi-hop relationship queries with Boolean constraints",
+    "key": "20"
+  },
+  "21": {
+    "number": 22,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/22",
+    "title": "Browse automatic collection groups and expand a whole-collection canvas",
+    "key": "21"
+  },
+  "22": {
+    "number": 23,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/23",
+    "title": "Compare current sources and relevant passages side by side",
+    "key": "22"
+  },
+  "23": {
+    "number": 24,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/24",
+    "title": "Inspect knowledge gaps without creating review chores",
+    "key": "23"
+  },
+  "24": {
+    "number": 25,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/25",
+    "title": "Navigate distinct source-event, reasoning, and collection-activity timelines",
+    "key": "24"
+  },
+  "25": {
+    "number": 26,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/26",
+    "title": "Save named views in Markdown and reopen them against current knowledge",
+    "key": "25"
+  },
+  "26": {
+    "number": 27,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/27",
+    "title": "Assemble mixed-material trails and persist them only when explicitly saved",
+    "key": "26"
+  },
+  "27": {
+    "number": 28,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/28",
+    "title": "Continue ingestion through menu-bar, login, close, Quit, and sleep lifecycles",
+    "key": "27"
+  },
+  "28": {
+    "number": 29,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/29",
+    "title": "Accept new sources offline and resume remote processing automatically",
+    "key": "28"
+  },
+  "29": {
+    "number": 30,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/30",
+    "title": "Rebuild all derived stores from Markdown and retained assets without knowledge loss",
+    "key": "29"
+  },
+  "30": {
+    "number": 31,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/31",
+    "title": "Verify real plugin-free Obsidian reading, edits, media, moves, and originals",
+    "key": "30"
+  },
+  "31": {
+    "number": 32,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/32",
+    "title": "Preserve navigation context and accessible reading across every presentation",
+    "key": "31"
+  },
+  "32": {
+    "number": 33,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/33",
+    "title": "Keep large watched imports progressive, resumable, and responsive",
+    "key": "32"
+  },
+  "33": {
+    "number": 34,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/34",
+    "title": "Qualify semantic workflows with independently fixed labels and failure cases",
+    "key": "33"
+  },
+  "34": {
+    "number": 35,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/35",
+    "title": "Qualify integrated search, updates, navigation, and rebuild at target collection scale",
+    "key": "34"
+  },
+  "35": {
+    "number": 36,
+    "url": "https://github.com/nicolas-found42/knowledge-garden/issues/36",
+    "title": "Deliver and verify the complete installable personal Mac release",
+    "key": "35"
+  }
+}

@@ -1,0 +1,307 @@
+{
+  "fixture_sha256": "b42947846ac5cfd543c7fdb899acb84cd40f6fa7dadec997959e4bf1876df408",
+  "ledger": {
+    "generative": {
+      "successful_requests": 6,
+      "models": [
+        "openai/gpt-4.1-mini"
+      ],
+      "input_tokens": 8168,
+      "output_tokens": 1338,
+      "reported_cost_usd": 0.00535392,
+      "all_cost_available": true,
+      "median_request_seconds": 2.481895187520422,
+      "sum_request_seconds": 16.409644959057914
+    },
+    "jev": {
+      "successful_requests": 6,
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "input_tokens": 23897,
+      "output_tokens": 1404,
+      "reported_cost_usd": 0.001003674,
+      "all_cost_available": true,
+      "median_request_seconds": 0.26173581248440314,
+      "sum_request_seconds": 1.6147197089449037
+    }
+  },
+  "provider_failures": [],
+  "parse_control_failures": [],
+  "structural_checks": [
+    {
+      "id": "motion-full",
+      "sentences": 4,
+      "at_most_four": true,
+      "unknown_source_ids": [],
+      "all_statuses_valid": true,
+      "selected_original_source_ids": [
+        "motion-c1",
+        "motion-c2",
+        "motion-c3",
+        "motion-c4",
+        "motion-t2"
+      ],
+      "available_original_source_count": 6,
+      "input_sha256": "eee26f69c60ab8024e8f036cfb970a19b1f773e930c6695d3b505a4e106e3c02"
+    },
+    {
+      "id": "motion-lossy",
+      "sentences": 3,
+      "at_most_four": true,
+      "unknown_source_ids": [],
+      "all_statuses_valid": true,
+      "selected_original_source_ids": [
+        "motion-c3",
+        "motion-code",
+        "motion-t2"
+      ],
+      "available_original_source_count": 6,
+      "input_sha256": "d3d9c4848326c5f75053325c1de91f9892b45fca0c6093e0076607cf8a8cb1c3"
+    },
+    {
+      "id": "book-full",
+      "sentences": 4,
+      "at_most_four": true,
+      "unknown_source_ids": [],
+      "all_statuses_valid": true,
+      "selected_original_source_ids": [
+        "book-ocr",
+        "deap-article",
+        "deap-code"
+      ],
+      "available_original_source_count": 4,
+      "input_sha256": "4a7ea26b3e4088ad28dbe082572bb753cc37196c3966449a94f3bd054e156748"
+    },
+    {
+      "id": "book-lossy",
+      "sentences": 4,
+      "at_most_four": true,
+      "unknown_source_ids": [],
+      "all_statuses_valid": true,
+      "selected_original_source_ids": [
+        "book-ocr",
+        "controlled-note",
+        "deap-article"
+      ],
+      "available_original_source_count": 4,
+      "input_sha256": "e64ca08c9fa66a8d86a4e3926a234d5219165b925cfb6f8b02f579e917770235"
+    },
+    {
+      "id": "methods-full",
+      "sentences": 4,
+      "at_most_four": true,
+      "unknown_source_ids": [],
+      "all_statuses_valid": true,
+      "selected_original_source_ids": [
+        "method-candidate",
+        "thread-cache_scope",
+        "thread-csv_ids",
+        "thread-unresolved",
+        "thread-url_keys"
+      ],
+      "available_original_source_count": 5,
+      "input_sha256": "612dc3555e66c233634b748ac69d1dbdfb1fa86ae2cdc232ca4c2e40d3aff78a"
+    },
+    {
+      "id": "methods-lossy",
+      "sentences": 3,
+      "at_most_four": true,
+      "unknown_source_ids": [],
+      "all_statuses_valid": true,
+      "selected_original_source_ids": [
+        "thread-cache_scope",
+        "thread-csv_ids",
+        "thread-url_keys"
+      ],
+      "available_original_source_count": 5,
+      "input_sha256": "ce0f9f3c9aeffb89685ac0a3141a0a5f53d94873612f0c57c72379c0af7e03e5"
+    }
+  ],
+  "jev_fidelity_argmax_counts": {
+    "faithful": 14,
+    "unsupported": 3,
+    "qualifier_missing": 5
+  },
+  "manual_audit": {
+    "motion-full": {
+      "qualifier_coverage": {
+        "explicit_constructed_history": "partial: controlled demonstration stated; authored conversation not named",
+        "pixel_changes_not_intent_or_tracking": "present",
+        "no_measured_comparative_accuracy": "omitted"
+      },
+      "findings": [
+        {
+          "sentence": 1,
+          "kind": "generator_attribution_omission",
+          "detail": "Noise reduction is presented as unqualified comparative rationale. Wording to reduce may express purpose rather than observed improvement; the supplied generation bundle contains no measured before/after accuracy/noise comparison and the assistant assertion is not attributed. The separate media study measured before/after changed-pixel counts, without accuracy/noise ground truth. Jev unsupported is defensible but not proof the model invented a measured gain."
+        }
+      ],
+      "source_structuring_retains_required_qualifiers": true
+    },
+    "motion-lossy": {
+      "qualifier_coverage": {
+        "explicit_constructed_history": "omitted",
+        "pixel_changes_not_intent_or_tracking": "omitted",
+        "no_measured_comparative_accuracy": "omitted"
+      },
+      "findings": [
+        {
+          "sentence": 2,
+          "kind": "generator_timing_distortion",
+          "detail": "Over 2 seconds suggests interval aggregation; source seconds=2.0 is timestamp for consecutive-frame difference at5fps, not a two-second total. Jev calls faithful (0.58), missing this distinction."
+        },
+        {
+          "sentence": 0,
+          "kind": "conversion_qualifier_omission",
+          "detail": "Concise observations omit constructed origin and no-intent/tracker limitations; generator fails to label the missing provenance unknown. Verifier calls faithful despite origin/scope omissions."
+        }
+      ],
+      "source_structuring_retains_required_qualifiers": false
+    },
+    "book-full": {
+      "qualifier_coverage": {
+        "ocr_and_primary_scan_origin": "omitted",
+        "controlled_note_not_user_history": "not represented: note omitted entirely",
+        "speculative_transfer": "not represented: application connection omitted"
+      },
+      "findings": [
+        {
+          "sentence": 0,
+          "kind": "generator_conversion_attribution_omission",
+          "detail": "OCR content presented as recorded fact without identifying derived OCR, original scan/page or possible OCR errors. Jev calls faithful despite explicit original OCR metadata."
+        },
+        {
+          "sentence": null,
+          "kind": "generator_selection_omission",
+          "detail": "All four sentences focus on Darwin/DEAP; controlled note, its question, and potential source-linked transfer are omitted even though available in full evidence."
+        }
+      ],
+      "source_structuring_retains_required_qualifiers": true
+    },
+    "book-lossy": {
+      "qualifier_coverage": {
+        "ocr_and_primary_scan_origin": "omitted",
+        "controlled_note_not_user_history": "omitted",
+        "speculative_transfer": "partial: uncertainty of retaining diversity stated; no explicit cross-source analogy claim"
+      },
+      "findings": [
+        {
+          "sentence": 2,
+          "kind": "conversion_origin_omission",
+          "detail": "Source observation removed controlled-note provenance. Generator converts example into generalized may-result statement labeled recorded; Jev detects qualifier omission."
+        },
+        {
+          "sentence": 3,
+          "kind": "preserved_uncertainty",
+          "detail": "Keeps diversity benefit unresolved rather than claiming established historical influence. This question can reasonably be tentative; no explicit novel analogy is actually generated."
+        }
+      ],
+      "source_structuring_retains_required_qualifiers": false
+    },
+    "methods-full": {
+      "qualifier_coverage": {
+        "constructed_histories_with_actual_executions": "omitted origin; actual regression theme retained",
+        "bounded_proposal_not_universal_rule": "partial: bounded corrections/exception scope but no explicit method nomination status",
+        "signed_urls_unverified": "present",
+        "numeric_and_public_resource_exceptions": "present"
+      },
+      "findings": [
+        {
+          "sentence": 0,
+          "kind": "generator_origin_omission",
+          "detail": "Recorded method prose omits all three histories authored origin despite full source metadata. Jev detects missing qualifier."
+        },
+        {
+          "sentence": 1,
+          "kind": "generator_origin_omission",
+          "detail": "Regression evidence exists but source origin omitted. Jev detects missing qualifier."
+        },
+        {
+          "sentence": 2,
+          "kind": "verifier_overstrictness_ambiguous",
+          "detail": "Numeric/public exceptions are explicitly preserved and tentative. Jev qualifier_missing may reflect global method-history omission rather than an error in this particular exception sentence."
+        }
+      ],
+      "source_structuring_retains_required_qualifiers": true
+    },
+    "methods-lossy": {
+      "qualifier_coverage": {
+        "constructed_histories_with_actual_executions": "omitted origin; bounded correction theme retained",
+        "bounded_proposal_not_universal_rule": "omitted",
+        "signed_urls_unverified": "omitted",
+        "numeric_and_public_resource_exceptions": "omitted"
+      },
+      "findings": [
+        {
+          "sentence": 0,
+          "kind": "verifier_false_rejection",
+          "detail": "CSV correction content is supported by original real code/output; constructed-history qualifier omitted. Jev unsupported (0.59) overstates content failure; qualifier_missing is the more appropriate manual label."
+        },
+        {
+          "sentence": 1,
+          "kind": "generator_semantic_distortion",
+          "detail": "URL keys collapsed into distinct views reverses/muddles collision direction: distinct destination views collapsed into the same key. Jev correctly rejects as unsupported."
+        },
+        {
+          "sentence": null,
+          "kind": "conversion_exception_omission",
+          "detail": "Concise observations removed signed-URL question and numeric/public exceptions; capsule cannot recover them without originals. All omitted from generated output."
+        }
+      ],
+      "source_structuring_retains_required_qualifiers": false
+    }
+  },
+  "stale_prose_tests": [
+    {
+      "id": "book-full",
+      "removed_source_ids": [
+        "controlled-note"
+      ],
+      "fixed_prose_before": "Natural selection preserves favorable variations and rejects injurious ones, while neutral variations remain fluctuating elements in populations, especially under changing environmental conditions such as climate shifts. Selection operators in the DEAP evolutionary computation framework select individuals from a population based on criteria like fitness, without duplicating individuals during the selection process. Common selection methods implemented in DEAP include random selection, best and worst selection, tournament selection, roulette wheel selection, and double tournament selection, each with specific mechanisms and use cases. Double tournament selection in DEAP uses both fitness and individual size to reduce bloat in genetic programming, with parameters controlling tournament sizes and order, as described in Luke and Panait (2002).",
+      "fixed_prose_after_filter": "Natural selection preserves favorable variations and rejects injurious ones, while neutral variations remain fluctuating elements in populations, especially under changing environmental conditions such as climate shifts. Selection operators in the DEAP evolutionary computation framework select individuals from a population based on criteria like fitness, without duplicating individuals during the selection process. Common selection methods implemented in DEAP include random selection, best and worst selection, tournament selection, roulette wheel selection, and double tournament selection, each with specific mechanisms and use cases. Double tournament selection in DEAP uses both fitness and individual size to reduce bloat in genetic programming, with parameters controlling tournament sizes and order, as described in Luke and Panait (2002).",
+      "unchanged": true,
+      "sentences_with_filtered_references": [],
+      "meaning": "Record filtering alone cannot hide or rewrite already stored prose; host must choose an explicit capsule policy."
+    },
+    {
+      "id": "book-lossy",
+      "removed_source_ids": [
+        "controlled-note"
+      ],
+      "fixed_prose_before": "Natural selection involves the preservation of favorable variations and the rejection of injurious variations. Selection operators function by selecting individuals as references rather than creating independent copies. Retaining only the fastest benchmark configuration may result in losing alternative candidates that could be useful under changed workloads. It remains tentative whether keeping a diverse set of candidates improves adaptation to varying conditions.",
+      "fixed_prose_after_filter": "Natural selection involves the preservation of favorable variations and the rejection of injurious variations. Selection operators function by selecting individuals as references rather than creating independent copies. Retaining only the fastest benchmark configuration may result in losing alternative candidates that could be useful under changed workloads. It remains tentative whether keeping a diverse set of candidates improves adaptation to varying conditions.",
+      "unchanged": true,
+      "sentences_with_filtered_references": [
+        2,
+        3
+      ],
+      "meaning": "Record filtering alone cannot hide or rewrite already stored prose; host must choose an explicit capsule policy."
+    },
+    {
+      "id": "methods-full",
+      "removed_source_ids": [
+        "method-candidate",
+        "thread-unresolved"
+      ],
+      "fixed_prose_before": "Preserving exact identity and scope fields in lookup keys prevents unintended collisions, as shown by failed attempts to normalize numeric IDs or URL components that collapsed distinct values. Regression tests that reproduce collisions and then apply bounded corrections have been used to verify that distinct source identities are maintained in key derivation. Some exceptions exist, such as numeric source fields where normalization of padding may be legitimate, and tenant identity is not relevant for public immutable resources. The question of sorting query parameters for signed URLs remains unresolved due to lack of provider signing specifications and verification, so original bytes should be preserved until semantics are confirmed.",
+      "fixed_prose_after_filter": "Preserving exact identity and scope fields in lookup keys prevents unintended collisions, as shown by failed attempts to normalize numeric IDs or URL components that collapsed distinct values. Regression tests that reproduce collisions and then apply bounded corrections have been used to verify that distinct source identities are maintained in key derivation. Some exceptions exist, such as numeric source fields where normalization of padding may be legitimate, and tenant identity is not relevant for public immutable resources. The question of sorting query parameters for signed URLs remains unresolved due to lack of provider signing specifications and verification, so original bytes should be preserved until semantics are confirmed.",
+      "unchanged": true,
+      "sentences_with_filtered_references": [
+        2,
+        3
+      ],
+      "meaning": "Record filtering alone cannot hide or rewrite already stored prose; host must choose an explicit capsule policy."
+    },
+    {
+      "id": "hypothetical-t2-revision",
+      "origin": "constructed revision mutation, not executed output",
+      "old_source_text": "{\"seconds\": 2.0, \"changed_pixels\": 11566, \"total_pixels\": 442368}",
+      "mutated_source_text": "{\"seconds\": 2.0, \"changed_pixels\": 20000, \"total_pixels\": 442368}",
+      "source_hash_changed": true,
+      "fixed_prose_after_revision": "An example measurement at 2 seconds showed 11,566 changed pixels out of 442,368 total pixels, demonstrating the pixel change detection output.",
+      "meaning": "Stored prose does not automatically adopt new source revisions; mutation values are not actual measurements."
+    }
+  ],
+  "limits": "Six authored bundles/variants, not independent histories; researcher manual audit, no external human labels or readability/usability study. Verifier answers are not correctness labels. No pooled accuracy."
+}

@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "book-pdf-page-84-observation-selection",
+    "family": "claim",
+    "source": "book-pdf-page-84",
+    "representation": "observation",
+    "claim": "Natural Selection preserves favourable variations and rejects injurious variations.",
+    "source_truth": "supported",
+    "state": {
+      "source": "book-pdf-page-84",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"The page number is 78.\",\n      \"anchor\": [80, 78, 109, 97],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"The chapter title is NATURAL SELECTION.\",\n      \"anchor\": [352, 78, 609, 97],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"The chapter number is IV.\",\n      \"anchor\": [800, 78, 919, 97],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"On the other hand, we may feel sure that any variation in the least degree injurious would be rigidly destroyed.\",\n      \"anchor\": [78, 115, 921, 160],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"This preservation of favourable variations, and the rejection of injurious variations, I call Natural Selection.\",\n      \"anchor\": [78, 160, 921, 205],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"Variations neither useful nor injurious would not be affected by natural selection, and would be left a fluctuating element, as perhaps we see in the species called polymorphic.\",\n      \"anchor\": [78, 205, 921, 271],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"We shall best understand the probable course of natural selection by taking the case of a country undergoing some physical change, for instance, of climate.\",\n      \"anchor\": [78, 271, 921, 337],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"The proportional numbers of its inhabitants would almost immediately undergo a change, and some species might become extinct.\",\n      \"anchor\": [78, 337, 921, 382],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"We may conclude, from what we have seen of the intimate and complex manner in which the inhabitants of each country are bound together, that any change in the numerical proportions of some of the inhabitants, independently of the change of climate itself, would most seriously affect many of the others.\",\n      \"anchor\": [78, 382, 921, 500],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"If the country were open on its borders, new forms would certainly immigrate, and this also would seriously disturb the relations of some of the former inhabitants.\",\n      \"anchor\": [78, 500, 921, 566],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"Let it be remembered how powerful the influence of a single introduced tree or mammal has been shown to be.\",\n      \"anchor\": [78, 566, 921, 611],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"But in the case of an island, or of a country partly surrounded by barriers, into which new and better adapted forms could not freely enter, we should then have places in the economy of nature which would assuredly be better filled up.\",\n      \"anchor\": [78, 611, 921, 719],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"If some of the original inhabitants were in some manner modified; for, had the area been open to immigration, these same places would have been seized on by intruders.\",\n      \"anchor\": [78, 719, 921, 785],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"In such case, every slight modification, which in the course of ages chanced to arise, and which in any way favoured the individuals of any of the species, by better adapting them to their altered conditions, would tend to be preserved; and natural selection would thus have free scope for the work of improvement.\",\n      \"anchor\": [78, 785, 921, 893],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"We have reason to believe, as stated in the first chapter, that a change in the conditions of life, by specially acting on the reproductive system, causes or increases\",\n      \"anchor\": [78, 893, 921, 938],\n      \"uncertainty\": \"none\"\n    }\n  ],\n  \"exact_visible_text\": \"78 NATURAL SELECTION. [CHAP. IV\\nOn the other hand, we may feel sure that any variation\\nin the least degree injurious would be rigidly destroyed.\\nThis preservation of favourable variations, and the rejec-\\ntion of injurious variations, I call Natural Selection.\\nVariations neither useful nor injurious would not be affect-\\ned by natural selection, and would be left a fluctuating\\nelement, as perhaps we see in the species called polymor-\\nphic.\\nWe shall best understand the probable course of na-\\ntural selection by taking the case of a country undergo-\\ning some physical change, for instance, of climate.\\nThe\\nproportional numbers of its inhabitants would almost im-\\nmediately undergo a change, and some species might be-\\ncome extinct. We may conclude, from what we have\\nseen of the intimate and complex manner in which the in-\\nhabitants of each country are bound together, that any\\nchange in the numerical proportions of some of the in-\\nhabitants, independently of the change of climate itself,\\nwould most seriously affect many of the others. If the\\ncountry were open on its borders, new forms would cer-\\ntainly immigrate, and this also would seriously disturb\\nthe relations of some of the former inhabitants. Let it be\\nremembered how powerful the influence of a single intro-\\nduced tree or mammal has been shown to be. But in the\\ncase of an island, or of a country partly surrounded by\\nbarriers, into which new and better adapted forms could\\nnot freely enter, we should then have places in the econo-\\nmy of nature which would assuredly be better filled up.\\nIf some of the original inhabitants were in some manner\\nmodified; for, had the area been open to immigration,\\nthese same places would have been seized on by intruders.\\nIn such case, every slight modification, which in the course\\nof ages chanced to arise, and which in any way favoured\\nthe individuals of any of the species, by better adapting\\nthem to their altered conditions, would tend to be pre-\\nserved; and natural selection would thus have free scope\\nfor the work of improvement.\\nWe have reason to believe, as stated in the first chap-\\nter, that a change in the conditions of life, by specially\\nacting on the reproductive system, causes or increases\",\n  \"limitations\": [\n    \"The text is a scanned document and may contain OCR errors.\",\n    \"The image is a static image and does not provide any information about the context or origin of the text beyond what is visible.\",\n    \"The image does not contain any visual elements other than text.\"\n  ]\n}\n```",
+      "claim": "Natural Selection preserves favourable variations and rejects injurious variations."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "supported",
+        "probabilities": {
+          "contradicted": 0,
+          "supported": 1,
+          "unknown": 0
+        },
+        "confidence": 1
+      }
+    },
+    "usage": {
+      "input_tokens": 2113,
+      "output_tokens": 41,
+      "cost": 8.8746e-05
+    },
+    "id": "gen-dec-1790725833-HstVidYcBzLkIB0fE6TY",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.24600466698757373
+}

@@ -1,0 +1,895 @@
+{
+  "summary": {
+    "original": {
+      "correct_at_0.5": 11,
+      "n": 16,
+      "false_positive": 2,
+      "false_negative": 3
+    },
+    "named": {
+      "correct_at_0.5": 15,
+      "n": 16,
+      "false_positive": 1,
+      "false_negative": 0
+    },
+    "inline": {
+      "correct_at_0.5": 13,
+      "n": 16,
+      "false_positive": 3,
+      "false_negative": 0
+    },
+    "usage": {
+      "requests": 16,
+      "input_tokens": 6490,
+      "output_tokens": 832,
+      "cost_usd": 0.00027258,
+      "wall_seconds": 2.671683041000506
+    }
+  },
+  "results": [
+    {
+      "case": {
+        "family": "entity",
+        "name": "alias",
+        "split": "post_result_diagnostic",
+        "state": {
+          "left": "KG, alias of Knowledge Garden at repo a/garden",
+          "right": "Knowledge Garden at repo a/garden"
+        },
+        "expected": {},
+        "policy": true,
+        "variant": "explicit_references",
+        "questions": {
+          "original": {
+            "type": "noul",
+            "instructions": "Does evidence establish individual identity, beyond a shared ambiguous name?"
+          },
+          "named": {
+            "type": "noul",
+            "instructions": "Do `left` and `right` denote the same individual entity? Require an explicit alias, rename or shared canonical identifier. Shared names alone do not establish identity. Components and independent forks are different."
+          },
+          "inline": {
+            "type": "noul",
+            "instructions": "Do these TWO supplied descriptions identify the same individual entity: LEFT 'KG, alias of Knowledge Garden at repo a/garden'; RIGHT 'Knowledge Garden at repo a/garden'? Explicit alias, rename or shared canonical identifier counts. Ambiguous names alone do not."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "original": {
+            "type": "noul",
+            "noul": 0.43
+          },
+          "named": {
+            "type": "noul",
+            "noul": 0.94
+          },
+          "inline": {
+            "type": "noul",
+            "noul": 0.98
+          }
+        },
+        "usage": {
+          "input_tokens": 420,
+          "output_tokens": 52,
+          "cost": 1.764e-05
+        },
+        "id": "gen-dec-1790721761-QwwSN7rSkkUNMaqBa7Yk",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.8818913750001229,
+      "checks": {}
+    },
+    {
+      "case": {
+        "family": "entity",
+        "name": "rename",
+        "split": "post_result_diagnostic",
+        "state": {
+          "left": "Memo renamed Garden; repo a/garden",
+          "right": "Garden formerly Memo; repo a/garden"
+        },
+        "expected": {},
+        "policy": true,
+        "variant": "explicit_references",
+        "questions": {
+          "original": {
+            "type": "noul",
+            "instructions": "Does evidence establish individual identity, beyond a shared ambiguous name?"
+          },
+          "named": {
+            "type": "noul",
+            "instructions": "Do `left` and `right` denote the same individual entity? Require an explicit alias, rename or shared canonical identifier. Shared names alone do not establish identity. Components and independent forks are different."
+          },
+          "inline": {
+            "type": "noul",
+            "instructions": "Do these TWO supplied descriptions identify the same individual entity: LEFT 'Memo renamed Garden; repo a/garden'; RIGHT 'Garden formerly Memo; repo a/garden'? Explicit alias, rename or shared canonical identifier counts. Ambiguous names alone do not."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "original": {
+            "type": "noul",
+            "noul": 0.49
+          },
+          "named": {
+            "type": "noul",
+            "noul": 0.91
+          },
+          "inline": {
+            "type": "noul",
+            "noul": 0.98
+          }
+        },
+        "usage": {
+          "input_tokens": 418,
+          "output_tokens": 52,
+          "cost": 1.7556e-05
+        },
+        "id": "gen-dec-1790721761-jmNgT5LUFkIDpeVQ4xqS",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.8806867920211516,
+      "checks": {}
+    },
+    {
+      "case": {
+        "family": "entity",
+        "name": "component",
+        "split": "post_result_diagnostic",
+        "state": {
+          "left": "Garden importer module",
+          "right": "Garden complete application"
+        },
+        "expected": {},
+        "policy": false,
+        "variant": "explicit_references",
+        "questions": {
+          "original": {
+            "type": "noul",
+            "instructions": "Does evidence establish individual identity, beyond a shared ambiguous name?"
+          },
+          "named": {
+            "type": "noul",
+            "instructions": "Do `left` and `right` denote the same individual entity? Require an explicit alias, rename or shared canonical identifier. Shared names alone do not establish identity. Components and independent forks are different."
+          },
+          "inline": {
+            "type": "noul",
+            "instructions": "Do these TWO supplied descriptions identify the same individual entity: LEFT 'Garden importer module'; RIGHT 'Garden complete application'? Explicit alias, rename or shared canonical identifier counts. Ambiguous names alone do not."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "original": {
+            "type": "noul",
+            "noul": 0.25
+          },
+          "named": {
+            "type": "noul",
+            "noul": 0.05
+          },
+          "inline": {
+            "type": "noul",
+            "noul": 0.06
+          }
+        },
+        "usage": {
+          "input_tokens": 396,
+          "output_tokens": 52,
+          "cost": 1.6632e-05
+        },
+        "id": "gen-dec-1790721761-ytziDIpRhfQ4Yr93CJS4",
+        "provider": "TypeSafe"
+      },
+      "seconds": 1.0628931249957532,
+      "checks": {}
+    },
+    {
+      "case": {
+        "family": "entity",
+        "name": "fork",
+        "split": "post_result_diagnostic",
+        "state": {
+          "left": "a/garden independent fork",
+          "right": "b/garden upstream"
+        },
+        "expected": {},
+        "policy": false,
+        "variant": "explicit_references",
+        "questions": {
+          "original": {
+            "type": "noul",
+            "instructions": "Does evidence establish individual identity, beyond a shared ambiguous name?"
+          },
+          "named": {
+            "type": "noul",
+            "instructions": "Do `left` and `right` denote the same individual entity? Require an explicit alias, rename or shared canonical identifier. Shared names alone do not establish identity. Components and independent forks are different."
+          },
+          "inline": {
+            "type": "noul",
+            "instructions": "Do these TWO supplied descriptions identify the same individual entity: LEFT 'a/garden independent fork'; RIGHT 'b/garden upstream'? Explicit alias, rename or shared canonical identifier counts. Ambiguous names alone do not."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "original": {
+            "type": "noul",
+            "noul": 0.26
+          },
+          "named": {
+            "type": "noul",
+            "noul": 0.06
+          },
+          "inline": {
+            "type": "noul",
+            "noul": 0.18
+          }
+        },
+        "usage": {
+          "input_tokens": 402,
+          "output_tokens": 52,
+          "cost": 1.6884e-05
+        },
+        "id": "gen-dec-1790721761-trNjnPWCTj6FKse36olM",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.7209962499910034,
+      "checks": {}
+    },
+    {
+      "case": {
+        "family": "entity",
+        "name": "name",
+        "split": "post_result_diagnostic",
+        "state": {
+          "left": "Atlas project",
+          "right": "Atlas project"
+        },
+        "expected": {},
+        "policy": false,
+        "variant": "explicit_references",
+        "questions": {
+          "original": {
+            "type": "noul",
+            "instructions": "Does evidence establish individual identity, beyond a shared ambiguous name?"
+          },
+          "named": {
+            "type": "noul",
+            "instructions": "Do `left` and `right` denote the same individual entity? Require an explicit alias, rename or shared canonical identifier. Shared names alone do not establish identity. Components and independent forks are different."
+          },
+          "inline": {
+            "type": "noul",
+            "instructions": "Do these TWO supplied descriptions identify the same individual entity: LEFT 'Atlas project'; RIGHT 'Atlas project'? Explicit alias, rename or shared canonical identifier counts. Ambiguous names alone do not."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "original": {
+            "type": "noul",
+            "noul": 0.13
+          },
+          "named": {
+            "type": "noul",
+            "noul": 0.22
+          },
+          "inline": {
+            "type": "noul",
+            "noul": 0.92
+          }
+        },
+        "usage": {
+          "input_tokens": 388,
+          "output_tokens": 52,
+          "cost": 1.6296e-05
+        },
+        "id": "gen-dec-1790721762-jzqtW9npmYo1W36ptZkd",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.6488878749951255,
+      "checks": {}
+    },
+    {
+      "case": {
+        "family": "entity",
+        "name": "person",
+        "split": "post_result_diagnostic",
+        "state": {
+          "left": "Alex at Acme",
+          "right": "Alex at Acme"
+        },
+        "expected": {},
+        "policy": false,
+        "variant": "explicit_references",
+        "questions": {
+          "original": {
+            "type": "noul",
+            "instructions": "Does evidence establish individual identity, beyond a shared ambiguous name?"
+          },
+          "named": {
+            "type": "noul",
+            "instructions": "Do `left` and `right` denote the same individual entity? Require an explicit alias, rename or shared canonical identifier. Shared names alone do not establish identity. Components and independent forks are different."
+          },
+          "inline": {
+            "type": "noul",
+            "instructions": "Do these TWO supplied descriptions identify the same individual entity: LEFT 'Alex at Acme'; RIGHT 'Alex at Acme'? Explicit alias, rename or shared canonical identifier counts. Ambiguous names alone do not."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "original": {
+            "type": "noul",
+            "noul": 0.17
+          },
+          "named": {
+            "type": "noul",
+            "noul": 0.26
+          },
+          "inline": {
+            "type": "noul",
+            "noul": 0.95
+          }
+        },
+        "usage": {
+          "input_tokens": 396,
+          "output_tokens": 52,
+          "cost": 1.6632e-05
+        },
+        "id": "gen-dec-1790721762-xY4BNbCZBiymF7khcAFe",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.3505575000017416,
+      "checks": {}
+    },
+    {
+      "case": {
+        "family": "entity",
+        "name": "owner",
+        "split": "post_result_diagnostic",
+        "state": {
+          "left": "Atlas payments service owned by Finance",
+          "right": "Atlas hiking notebook owned by Lee"
+        },
+        "expected": {},
+        "policy": false,
+        "variant": "explicit_references",
+        "questions": {
+          "original": {
+            "type": "noul",
+            "instructions": "Does evidence establish individual identity, beyond a shared ambiguous name?"
+          },
+          "named": {
+            "type": "noul",
+            "instructions": "Do `left` and `right` denote the same individual entity? Require an explicit alias, rename or shared canonical identifier. Shared names alone do not establish identity. Components and independent forks are different."
+          },
+          "inline": {
+            "type": "noul",
+            "instructions": "Do these TWO supplied descriptions identify the same individual entity: LEFT 'Atlas payments service owned by Finance'; RIGHT 'Atlas hiking notebook owned by Lee'? Explicit alias, rename or shared canonical identifier counts. Ambiguous names alone do not."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "original": {
+            "type": "noul",
+            "noul": 0.53
+          },
+          "named": {
+            "type": "noul",
+            "noul": 0.02
+          },
+          "inline": {
+            "type": "noul",
+            "noul": 0.02
+          }
+        },
+        "usage": {
+          "input_tokens": 404,
+          "output_tokens": 52,
+          "cost": 1.6968e-05
+        },
+        "id": "gen-dec-1790721762-D00ZxLQPfPkfoJN52Cu5",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.24626750001334585,
+      "checks": {}
+    },
+    {
+      "case": {
+        "family": "entity",
+        "name": "id",
+        "split": "post_result_diagnostic",
+        "state": {
+          "left": "Repository github.com/a/garden",
+          "right": "Repo a/garden on GitHub"
+        },
+        "expected": {},
+        "policy": true,
+        "variant": "explicit_references",
+        "questions": {
+          "original": {
+            "type": "noul",
+            "instructions": "Does evidence establish individual identity, beyond a shared ambiguous name?"
+          },
+          "named": {
+            "type": "noul",
+            "instructions": "Do `left` and `right` denote the same individual entity? Require an explicit alias, rename or shared canonical identifier. Shared names alone do not establish identity. Components and independent forks are different."
+          },
+          "inline": {
+            "type": "noul",
+            "instructions": "Do these TWO supplied descriptions identify the same individual entity: LEFT 'Repository github.com/a/garden'; RIGHT 'Repo a/garden on GitHub'? Explicit alias, rename or shared canonical identifier counts. Ambiguous names alone do not."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "original": {
+            "type": "noul",
+            "noul": 0.24
+          },
+          "named": {
+            "type": "noul",
+            "noul": 0.79
+          },
+          "inline": {
+            "type": "noul",
+            "noul": 0.97
+          }
+        },
+        "usage": {
+          "input_tokens": 410,
+          "output_tokens": 52,
+          "cost": 1.722e-05
+        },
+        "id": "gen-dec-1790721762-niSx7Aq3jhROssQ4B5iX",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.30929470900446177,
+      "checks": {}
+    },
+    {
+      "case": {
+        "family": "entity",
+        "name": "family",
+        "split": "post_result_diagnostic",
+        "state": {
+          "left": "Jev model family",
+          "right": "Jev 1.13 model release"
+        },
+        "expected": {},
+        "policy": false,
+        "variant": "explicit_references",
+        "questions": {
+          "original": {
+            "type": "noul",
+            "instructions": "Does evidence establish individual identity, beyond a shared ambiguous name?"
+          },
+          "named": {
+            "type": "noul",
+            "instructions": "Do `left` and `right` denote the same individual entity? Require an explicit alias, rename or shared canonical identifier. Shared names alone do not establish identity. Components and independent forks are different."
+          },
+          "inline": {
+            "type": "noul",
+            "instructions": "Do these TWO supplied descriptions identify the same individual entity: LEFT 'Jev model family'; RIGHT 'Jev 1.13 model release'? Explicit alias, rename or shared canonical identifier counts. Ambiguous names alone do not."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "original": {
+            "type": "noul",
+            "noul": 0.24
+          },
+          "named": {
+            "type": "noul",
+            "noul": 0.14
+          },
+          "inline": {
+            "type": "noul",
+            "noul": 0.31
+          }
+        },
+        "usage": {
+          "input_tokens": 406,
+          "output_tokens": 52,
+          "cost": 1.7052e-05
+        },
+        "id": "gen-dec-1790721763-BZbaYDcFgU7wV1qcxikW",
+        "provider": "TypeSafe"
+      },
+      "seconds": 1.2968822499969974,
+      "checks": {}
+    },
+    {
+      "case": {
+        "family": "entity",
+        "name": "version",
+        "split": "post_result_diagnostic",
+        "state": {
+          "left": "Garden version 1 deployment",
+          "right": "Garden version 2 deployment"
+        },
+        "expected": {},
+        "policy": false,
+        "variant": "explicit_references",
+        "questions": {
+          "original": {
+            "type": "noul",
+            "instructions": "Does evidence establish individual identity, beyond a shared ambiguous name?"
+          },
+          "named": {
+            "type": "noul",
+            "instructions": "Do `left` and `right` denote the same individual entity? Require an explicit alias, rename or shared canonical identifier. Shared names alone do not establish identity. Components and independent forks are different."
+          },
+          "inline": {
+            "type": "noul",
+            "instructions": "Do these TWO supplied descriptions identify the same individual entity: LEFT 'Garden version 1 deployment'; RIGHT 'Garden version 2 deployment'? Explicit alias, rename or shared canonical identifier counts. Ambiguous names alone do not."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "original": {
+            "type": "noul",
+            "noul": 0.26
+          },
+          "named": {
+            "type": "noul",
+            "noul": 0.16
+          },
+          "inline": {
+            "type": "noul",
+            "noul": 0.15
+          }
+        },
+        "usage": {
+          "input_tokens": 404,
+          "output_tokens": 52,
+          "cost": 1.6968e-05
+        },
+        "id": "gen-dec-1790721762-95yrOKDR0LmtUkNYuOEh",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.3796806249883957,
+      "checks": {}
+    },
+    {
+      "case": {
+        "family": "entity",
+        "name": "ambig_bridge",
+        "split": "post_result_diagnostic",
+        "state": {
+          "left": "Nick, identity unspecified",
+          "right": "Nicolas, nicknamed Nick, at repo a/garden"
+        },
+        "expected": {},
+        "policy": false,
+        "variant": "explicit_references",
+        "questions": {
+          "original": {
+            "type": "noul",
+            "instructions": "Does evidence establish individual identity, beyond a shared ambiguous name?"
+          },
+          "named": {
+            "type": "noul",
+            "instructions": "Do `left` and `right` denote the same individual entity? Require an explicit alias, rename or shared canonical identifier. Shared names alone do not establish identity. Components and independent forks are different."
+          },
+          "inline": {
+            "type": "noul",
+            "instructions": "Do these TWO supplied descriptions identify the same individual entity: LEFT 'Nick, identity unspecified'; RIGHT 'Nicolas, nicknamed Nick, at repo a/garden'? Explicit alias, rename or shared canonical identifier counts. Ambiguous names alone do not."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "original": {
+            "type": "noul",
+            "noul": 0.52
+          },
+          "named": {
+            "type": "noul",
+            "noul": 0.57
+          },
+          "inline": {
+            "type": "noul",
+            "noul": 0.44
+          }
+        },
+        "usage": {
+          "input_tokens": 414,
+          "output_tokens": 52,
+          "cost": 1.7388e-05
+        },
+        "id": "gen-dec-1790721762-pXa8zoPhm59mAisnlDG8",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.3138767500058748,
+      "checks": {}
+    },
+    {
+      "case": {
+        "family": "entity",
+        "name": "contradiction",
+        "split": "post_result_diagnostic",
+        "state": {
+          "left": "Garden repo a/garden",
+          "right": "Garden repo b/garden explicitly separate"
+        },
+        "expected": {},
+        "policy": false,
+        "variant": "explicit_references",
+        "questions": {
+          "original": {
+            "type": "noul",
+            "instructions": "Does evidence establish individual identity, beyond a shared ambiguous name?"
+          },
+          "named": {
+            "type": "noul",
+            "instructions": "Do `left` and `right` denote the same individual entity? Require an explicit alias, rename or shared canonical identifier. Shared names alone do not establish identity. Components and independent forks are different."
+          },
+          "inline": {
+            "type": "noul",
+            "instructions": "Do these TWO supplied descriptions identify the same individual entity: LEFT 'Garden repo a/garden'; RIGHT 'Garden repo b/garden explicitly separate'? Explicit alias, rename or shared canonical identifier counts. Ambiguous names alone do not."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "original": {
+            "type": "noul",
+            "noul": 0.49
+          },
+          "named": {
+            "type": "noul",
+            "noul": 0.14
+          },
+          "inline": {
+            "type": "noul",
+            "noul": 0.15
+          }
+        },
+        "usage": {
+          "input_tokens": 412,
+          "output_tokens": 52,
+          "cost": 1.7304e-05
+        },
+        "id": "gen-dec-1790721762-jRsLIhZYdTvr1ZwkUEY5",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.35336616600397974,
+      "checks": {}
+    },
+    {
+      "case": {
+        "family": "entity",
+        "name": "holdout_alias",
+        "split": "post_result_diagnostic",
+        "state": {
+          "left": "Metropolitan Museum, also called the Met in New York",
+          "right": "The Met, Metropolitan Museum in New York"
+        },
+        "expected": {},
+        "policy": true,
+        "variant": "explicit_references",
+        "questions": {
+          "original": {
+            "type": "noul",
+            "instructions": "Does evidence establish individual identity, beyond a shared ambiguous name?"
+          },
+          "named": {
+            "type": "noul",
+            "instructions": "Do `left` and `right` denote the same individual entity? Require an explicit alias, rename or shared canonical identifier. Shared names alone do not establish identity. Components and independent forks are different."
+          },
+          "inline": {
+            "type": "noul",
+            "instructions": "Do these TWO supplied descriptions identify the same individual entity: LEFT 'Metropolitan Museum, also called the Met in New York'; RIGHT 'The Met, Metropolitan Museum in New York'? Explicit alias, rename or shared canonical identifier counts. Ambiguous names alone do not."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "original": {
+            "type": "noul",
+            "noul": 0.69
+          },
+          "named": {
+            "type": "noul",
+            "noul": 0.95
+          },
+          "inline": {
+            "type": "noul",
+            "noul": 0.98
+          }
+        },
+        "usage": {
+          "input_tokens": 422,
+          "output_tokens": 52,
+          "cost": 1.7724e-05
+        },
+        "id": "gen-dec-1790721762-LeeNQSYIo3YOLgXcb5bt",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.28854325000429526,
+      "checks": {}
+    },
+    {
+      "case": {
+        "family": "entity",
+        "name": "holdout_homonym",
+        "split": "post_result_diagnostic",
+        "state": {
+          "left": "The Met museum in New York",
+          "right": "The Met theater in another town"
+        },
+        "expected": {},
+        "policy": false,
+        "variant": "explicit_references",
+        "questions": {
+          "original": {
+            "type": "noul",
+            "instructions": "Does evidence establish individual identity, beyond a shared ambiguous name?"
+          },
+          "named": {
+            "type": "noul",
+            "instructions": "Do `left` and `right` denote the same individual entity? Require an explicit alias, rename or shared canonical identifier. Shared names alone do not establish identity. Components and independent forks are different."
+          },
+          "inline": {
+            "type": "noul",
+            "instructions": "Do these TWO supplied descriptions identify the same individual entity: LEFT 'The Met museum in New York'; RIGHT 'The Met theater in another town'? Explicit alias, rename or shared canonical identifier counts. Ambiguous names alone do not."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "original": {
+            "type": "noul",
+            "noul": 0.16
+          },
+          "named": {
+            "type": "noul",
+            "noul": 0.04
+          },
+          "inline": {
+            "type": "noul",
+            "noul": 0.03
+          }
+        },
+        "usage": {
+          "input_tokens": 404,
+          "output_tokens": 52,
+          "cost": 1.6968e-05
+        },
+        "id": "gen-dec-1790721763-y01nWh17anQDxb9PAL33",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.7401503750006668,
+      "checks": {}
+    },
+    {
+      "case": {
+        "family": "entity",
+        "name": "holdout_component",
+        "split": "post_result_diagnostic",
+        "state": {
+          "left": "Museum archive department",
+          "right": "Museum institution"
+        },
+        "expected": {},
+        "policy": false,
+        "variant": "explicit_references",
+        "questions": {
+          "original": {
+            "type": "noul",
+            "instructions": "Does evidence establish individual identity, beyond a shared ambiguous name?"
+          },
+          "named": {
+            "type": "noul",
+            "instructions": "Do `left` and `right` denote the same individual entity? Require an explicit alias, rename or shared canonical identifier. Shared names alone do not establish identity. Components and independent forks are different."
+          },
+          "inline": {
+            "type": "noul",
+            "instructions": "Do these TWO supplied descriptions identify the same individual entity: LEFT 'Museum archive department'; RIGHT 'Museum institution'? Explicit alias, rename or shared canonical identifier counts. Ambiguous names alone do not."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "original": {
+            "type": "noul",
+            "noul": 0.3
+          },
+          "named": {
+            "type": "noul",
+            "noul": 0.09
+          },
+          "inline": {
+            "type": "noul",
+            "noul": 0.08
+          }
+        },
+        "usage": {
+          "input_tokens": 394,
+          "output_tokens": 52,
+          "cost": 1.6548e-05
+        },
+        "id": "gen-dec-1790721763-vuxzUix804Un1TsRiv0J",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.9425399590109009,
+      "checks": {}
+    },
+    {
+      "case": {
+        "family": "entity",
+        "name": "holdout_unknown",
+        "split": "post_result_diagnostic",
+        "state": {
+          "left": "Jordan, archivist",
+          "right": "Jordan, archivist"
+        },
+        "expected": {},
+        "policy": false,
+        "variant": "explicit_references",
+        "questions": {
+          "original": {
+            "type": "noul",
+            "instructions": "Does evidence establish individual identity, beyond a shared ambiguous name?"
+          },
+          "named": {
+            "type": "noul",
+            "instructions": "Do `left` and `right` denote the same individual entity? Require an explicit alias, rename or shared canonical identifier. Shared names alone do not establish identity. Components and independent forks are different."
+          },
+          "inline": {
+            "type": "noul",
+            "instructions": "Do these TWO supplied descriptions identify the same individual entity: LEFT 'Jordan, archivist'; RIGHT 'Jordan, archivist'? Explicit alias, rename or shared canonical identifier counts. Ambiguous names alone do not."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "original": {
+            "type": "noul",
+            "noul": 0.16
+          },
+          "named": {
+            "type": "noul",
+            "noul": 0.18
+          },
+          "inline": {
+            "type": "noul",
+            "noul": 0.75
+          }
+        },
+        "usage": {
+          "input_tokens": 400,
+          "output_tokens": 52,
+          "cost": 1.68e-05
+        },
+        "id": "gen-dec-1790721763-SN0fK7avUurGccbfjj1G",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.5253117920074146,
+      "checks": {}
+    }
+  ]
+}

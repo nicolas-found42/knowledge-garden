@@ -1,0 +1,75 @@
+{
+  "id": "a6-verify",
+  "role": "answer-verifier",
+  "request": {
+    "model": "typesafe/jev-1.13",
+    "state": {
+      "sentences": [
+        {
+          "text": "The video count at two seconds is a sampled consecutive-frame changed-pixel count, not an interval aggregate or accuracy score.",
+          "sourceIds": [
+            "video"
+          ],
+          "quote": "At two seconds, 11566 is a sampled consecutive-frame changed-pixel count, not an interval aggregate or accuracy score."
+        }
+      ],
+      "sources": [
+        {
+          "id": "video",
+          "title": "Motion difference demonstration",
+          "kind": "file",
+          "format": "MP4",
+          "body": "Reused executed demonstration built from public OpenCV video. At two seconds, 11566 is a sampled consecutive-frame changed-pixel count, not an interval aggregate or accuracy score.",
+          "origin": "controlled over public video",
+          "epistemic": "recorded",
+          "acquisition": "captured"
+        },
+        {
+          "id": "code",
+          "title": "Motion demonstration source",
+          "kind": "file",
+          "format": "Python",
+          "body": "Executed controlled code: grayscale, blur and threshold 35. It produces masks; better accuracy was not established.",
+          "origin": "controlled",
+          "epistemic": "recorded",
+          "acquisition": "captured"
+        }
+      ]
+    },
+    "questions": {
+      "0": {
+        "type": "choice",
+        "instructions": "Does source context support sentence 0 including its uncertainty and scope? Valid IDs or exact quote alone are insufficient.",
+        "criteria": {
+          "supported": "Faithful to source context with relevant limits preserved.",
+          "qualified": "Main idea related but essential qualification omitted or overstated.",
+          "unsupported": "Contradicted, invented or not established."
+        }
+      }
+    }
+  },
+  "started": "2026-09-30T00:48:24.044508+00:00",
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "0": {
+        "type": "choice",
+        "choice": "supported",
+        "probabilities": {
+          "supported": 0.97,
+          "qualified": 0.02,
+          "unsupported": 0.01
+        },
+        "confidence": 0.96
+      }
+    },
+    "usage": {
+      "input_tokens": 675,
+      "output_tokens": 38,
+      "cost": 2.835e-05
+    },
+    "id": "gen-dec-1790729304-oWBrXkfYx0cAeN29Zt4d",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.5203957080084365
+}

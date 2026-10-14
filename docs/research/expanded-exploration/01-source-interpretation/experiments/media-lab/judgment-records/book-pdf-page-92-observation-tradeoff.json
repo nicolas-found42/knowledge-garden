@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "book-pdf-page-92-observation-tradeoff",
+    "family": "claim",
+    "source": "book-pdf-page-92",
+    "representation": "observation",
+    "claim": "The swifter wolves have the best chance only provided they retain strength to master prey.",
+    "source_truth": "supported",
+    "state": {
+      "source": "book-pdf-page-92",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"the fleetest prey, a deer for instance, had from any change in the country increased in numbers, or that other prey had decreased in numbers, during that season of the year when the wolf is hardest pressed for food.\",\n      \"anchor\": [\n        119,\n        119,\n        918,\n        199\n      ],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"I can under such circumstances see no reason to doubt that the swiftest and slimmest wolves would have the best chance of surviving, and so be preserved or selected,\u2014provided always that they retained strength to master their prey at this or at some other period of the year, when they might be compelled to prey on other animals.\",\n      \"anchor\": [\n        119,\n        199,\n        918,\n        320\n      ],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"I can see no more reason to doubt this, than that man can improve the fleetness of his greyhounds by careful and methodical selection, or by that unconscious selection which results from each man trying to keep the best dogs without any thought of modifying the breed.\",\n      \"anchor\": [\n        119,\n        320,\n        918,\n        420\n      ],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"Even without any change in the proportional numbers of the animals on which our wolf preyed, a cub might be born with an innate tendency to pursue certain kinds of prey.\",\n      \"anchor\": [\n        119,\n        420,\n        918,\n        480\n      ],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"Nor can this be thought very improbable; for we often observe great differences in the natural tendencies of our domestic animals; one cat, for instance, taking to catch rats, another mice; one cat, according to Mr. St. John, bringing home winged game, another hares or rabbits, and another hunting on marshy ground and almost nightly catching woodcocks or snipes.\",\n      \"anchor\": [\n        119,\n        480,\n        918,\n        620\n      ],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"The tendency to catch rats rather than mice is known to be inherited.\",\n      \"anchor\": [\n        119,\n        620,\n        918,\n        640\n      ],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"Now, if any slight innate change of habit or of structure benefited an individual wolf, it would have the best chance of surviving and of leaving offspring.\",\n      \"anchor\": [\n        119,\n        640,\n        918,\n        699\n      ],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"Some of its young would probably inherit the same habits or structure, and by the repetition of this process, a new variety might be formed which would either supplant or coexist with the parent form of wolf.\",\n      \"anchor\": [\n        119,\n        699,\n        918,\n        779\n      ],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"Or, again, the wolves inhabiting a mountainous district, and those frequenting the lowlands, would naturally be forced to hunt different prey; and from the continued preservation of the individuals best fitted for the two sites, two varieties might slowly be formed.\",\n      \"anchor\": [\n        119,\n        779,\n        918,\n        859\n      ],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"These varieties would cross and blend where they met; but to this subject of inter-crossing we shall soon have to return.\",\n      \"anchor\": [\n        119,\n        859,\n        918,\n        919\n      ],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"I may add, that,\",\n      \"anchor\": [\n        659,\n        919,\n        918,\n        939\n      ],\n      \"uncertainty\": \"none\"\n    }\n  ],\n  \"exact_visible_text\": \"86 NATURAL SELECTION. [CHAP. IV.\\nthe fleetest prey, a deer for instance, had from any change\\nin the country increased in numbers, or that other prey\\nhad decreased in numbers, during that season of the year\\nwhen the wolf is hardest pressed for food. I can under\\nsuch circumstances see no reason to doubt that the swift-\\nest and slimmest wolves would have the best chance of\\nsurviving, and so be preserved or selected,\u2014provided\\nalways that they retained strength to master their prey\\nat this or at some other period of the year, when they\\nmight be compelled to prey on other animals. I can see\\nno more reason to doubt this, than that man can improve\\nthe fleetness of his greyhounds by careful and methodical\\nselection, or by that unconscious selection which results\\nfrom each man trying to keep the best dogs without any\\nthought of modifying the breed.\\nEven without any change in the proportional numbers\\nof the animals on which our wolf preyed, a cub might\\nbe born with an innate tendency to pursue certain kinds\\nof prey. Nor can this be thought very improbable; for\\nwe often observe great differences in the natural tenden-\\ncies of our domestic animals; one cat, for instance, taking\\nto catch rats, another mice; one cat, according to Mr. St.\\nJohn, bringing home winged game, another hares or rab-\\nbits, and another hunting on marshy ground and almost\\nnightly catching woodcocks or snipes. The tendency to\\ncatch rats rather than mice is known to be inherited.\\nNow, if any slight innate change of habit or of structure\\nbenefited an individual wolf, it would have the best\\nchance of surviving and of leaving offspring. Some of\\nits young would probably inherit the same habits or\\nstructure, and by the repetition of this process, a new\\nvariety might be formed which would either supplant or\\ncoexist with the parent form of wolf. Or, again, the\\nwolves inhabiting a mountainous district, and those fre-\\nquenting the lowlands, would naturally be forced to hunt\\ndifferent prey; and from the continued preservation of\\nthe individuals best fitted for the two sites, two varieties\\nmight slowly be formed. These varieties would cross\\nand blend where they met; but to this subject of inter-\\ncrossing we shall soon have to return. I may add, that,\",\n  \"limitations\": [\n    \"The image is a scan of a book page and may contain artifacts or distortions.\",\n    \"The text is in black and white, making it difficult to discern subtle details.\",\n    \"The resolution of the image is not high enough to read very small print or fine details.\"\n  ]\n}\n```",
+      "claim": "The swifter wolves have the best chance only provided they retain strength to master prey."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "supported",
+        "probabilities": {
+          "unknown": 0.01,
+          "supported": 0.99,
+          "contradicted": 0
+        },
+        "confidence": 0.99
+      }
+    },
+    "usage": {
+      "input_tokens": 2074,
+      "output_tokens": 41,
+      "cost": 8.7108e-05
+    },
+    "id": "gen-dec-1790725834-d02AiNiFgiqjzKzzMCUU",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.26427120799780823
+}

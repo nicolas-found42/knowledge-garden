@@ -1,0 +1,337 @@
+{
+  "source_record": "../../../01-knowledge-formation/experiments/baseline-jev-wiki/results-refined.json",
+  "recorded_at": "2026-09-29T22:26:13.213262+00:00",
+  "model_note": "Historical retrieval subset; no new requests were made to split these records. Full original retained intact.",
+  "results": [
+    {
+      "family": "retrieval",
+      "name": "absent_query",
+      "request": {
+        "model": "typesafe/jev-1.13",
+        "state": {
+          "query": "Which embedding model did we choose?",
+          "passages": {
+            "p0": "We discussed SQLite, search, a server, indexes and Markdown many times.",
+            "p1": "We selected an embedded database so the laptop app would not require operating another service.",
+            "p2": "The gardening notebook reminds us to water basil weekly.",
+            "p3": "SQLite installation succeeded."
+          }
+        },
+        "questions": {
+          "best": {
+            "type": "choice",
+            "instructions": "Which passage answers `query`? Pick none if no passage actually answers it; keyword overlap is insufficient.",
+            "criteria": {
+              "p0": "We discussed SQLite, search, a server, indexes and Markdown many times.",
+              "p1": "We selected an embedded database so the laptop app would not require operating another service.",
+              "p2": "The gardening notebook reminds us to water basil weekly.",
+              "p3": "SQLite installation succeeded.",
+              "none": "None answers the query."
+            }
+          },
+          "exists": {
+            "type": "noul",
+            "instructions": "Does any passage answer `query` with evidence rather than just related keywords?"
+          },
+          "score_p0": {
+            "type": "score",
+            "instructions": "How well does `passages.p0` answer `query`?",
+            "criteria": [
+              "Unrelated to the question.",
+              "Related topic but does not answer the question.",
+              "Directly answers the question with evidence."
+            ]
+          },
+          "score_p1": {
+            "type": "score",
+            "instructions": "How well does `passages.p1` answer `query`?",
+            "criteria": [
+              "Unrelated to the question.",
+              "Related topic but does not answer the question.",
+              "Directly answers the question with evidence."
+            ]
+          },
+          "score_p2": {
+            "type": "score",
+            "instructions": "How well does `passages.p2` answer `query`?",
+            "criteria": [
+              "Unrelated to the question.",
+              "Related topic but does not answer the question.",
+              "Directly answers the question with evidence."
+            ]
+          },
+          "score_p3": {
+            "type": "score",
+            "instructions": "How well does `passages.p3` answer `query`?",
+            "criteria": [
+              "Unrelated to the question.",
+              "Related topic but does not answer the question.",
+              "Directly answers the question with evidence."
+            ]
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "best": {
+            "type": "choice",
+            "choice": "none",
+            "probabilities": {
+              "p0": 0,
+              "p1": 0.02,
+              "p2": 0,
+              "p3": 0,
+              "none": 0.98
+            },
+            "confidence": 0.98
+          },
+          "exists": {
+            "type": "noul",
+            "noul": 0.03
+          },
+          "score_p0": {
+            "type": "score",
+            "score": 0.67,
+            "legend": {
+              "0": "Unrelated to the question.",
+              "1": "Related topic but does not answer the question.",
+              "2": "Directly answers the question with evidence."
+            },
+            "probabilities": {
+              "0": 0.33,
+              "1": 0.67,
+              "2": 0
+            },
+            "confidence": 0.5
+          },
+          "score_p1": {
+            "type": "score",
+            "score": 0.56,
+            "legend": {
+              "0": "Unrelated to the question.",
+              "1": "Related topic but does not answer the question.",
+              "2": "Directly answers the question with evidence."
+            },
+            "probabilities": {
+              "0": 0.44,
+              "1": 0.56,
+              "2": 0
+            },
+            "confidence": 0.33
+          },
+          "score_p2": {
+            "type": "score",
+            "score": 0.01,
+            "legend": {
+              "0": "Unrelated to the question.",
+              "1": "Related topic but does not answer the question.",
+              "2": "Directly answers the question with evidence."
+            },
+            "probabilities": {
+              "0": 0.99,
+              "1": 0.01,
+              "2": 0
+            },
+            "confidence": 0.99
+          },
+          "score_p3": {
+            "type": "score",
+            "score": 0.26,
+            "legend": {
+              "0": "Unrelated to the question.",
+              "1": "Related topic but does not answer the question.",
+              "2": "Directly answers the question with evidence."
+            },
+            "probabilities": {
+              "0": 0.74,
+              "1": 0.26,
+              "2": 0
+            },
+            "confidence": 0.61
+          }
+        },
+        "usage": {
+          "input_tokens": 793,
+          "output_tokens": 133,
+          "cost": 3.3306e-05
+        },
+        "id": "gen-dec-1790720772-xeg4QUwCgHOss6TcDTPU",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.2737109580193646,
+      "checks": {
+        "best": {
+          "expected": "none",
+          "actual": "none",
+          "correct": true
+        }
+      }
+    },
+    {
+      "family": "retrieval",
+      "name": "paraphrase_query",
+      "request": {
+        "model": "typesafe/jev-1.13",
+        "state": {
+          "query": "Why did we choose SQLite rather than a database server?",
+          "passages": {
+            "p0": "We discussed SQLite, search, a server, indexes and Markdown many times.",
+            "p1": "We selected an embedded database so the laptop app would not require operating another service.",
+            "p2": "The gardening notebook reminds us to water basil weekly.",
+            "p3": "SQLite installation succeeded."
+          }
+        },
+        "questions": {
+          "best": {
+            "type": "choice",
+            "instructions": "Which passage answers `query`? Pick none if no passage actually answers it; keyword overlap is insufficient.",
+            "criteria": {
+              "p0": "We discussed SQLite, search, a server, indexes and Markdown many times.",
+              "p1": "We selected an embedded database so the laptop app would not require operating another service.",
+              "p2": "The gardening notebook reminds us to water basil weekly.",
+              "p3": "SQLite installation succeeded.",
+              "none": "None answers the query."
+            }
+          },
+          "exists": {
+            "type": "noul",
+            "instructions": "Does any passage answer `query` with evidence rather than just related keywords?"
+          },
+          "score_p0": {
+            "type": "score",
+            "instructions": "How well does `passages.p0` answer `query`?",
+            "criteria": [
+              "Unrelated to the question.",
+              "Related topic but does not answer the question.",
+              "Directly answers the question with evidence."
+            ]
+          },
+          "score_p1": {
+            "type": "score",
+            "instructions": "How well does `passages.p1` answer `query`?",
+            "criteria": [
+              "Unrelated to the question.",
+              "Related topic but does not answer the question.",
+              "Directly answers the question with evidence."
+            ]
+          },
+          "score_p2": {
+            "type": "score",
+            "instructions": "How well does `passages.p2` answer `query`?",
+            "criteria": [
+              "Unrelated to the question.",
+              "Related topic but does not answer the question.",
+              "Directly answers the question with evidence."
+            ]
+          },
+          "score_p3": {
+            "type": "score",
+            "instructions": "How well does `passages.p3` answer `query`?",
+            "criteria": [
+              "Unrelated to the question.",
+              "Related topic but does not answer the question.",
+              "Directly answers the question with evidence."
+            ]
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "best": {
+            "type": "choice",
+            "choice": "p1",
+            "probabilities": {
+              "none": 0,
+              "p2": 0,
+              "p0": 0,
+              "p1": 1,
+              "p3": 0
+            },
+            "confidence": 1
+          },
+          "exists": {
+            "type": "noul",
+            "noul": 0.93
+          },
+          "score_p0": {
+            "type": "score",
+            "score": 0.98,
+            "legend": {
+              "0": "Unrelated to the question.",
+              "1": "Related topic but does not answer the question.",
+              "2": "Directly answers the question with evidence."
+            },
+            "probabilities": {
+              "0": 0.02,
+              "1": 0.98,
+              "2": 0
+            },
+            "confidence": 0.97
+          },
+          "score_p1": {
+            "type": "score",
+            "score": 2,
+            "legend": {
+              "0": "Unrelated to the question.",
+              "1": "Related topic but does not answer the question.",
+              "2": "Directly answers the question with evidence."
+            },
+            "probabilities": {
+              "0": 0,
+              "1": 0,
+              "2": 1
+            },
+            "confidence": 1
+          },
+          "score_p2": {
+            "type": "score",
+            "score": 0.01,
+            "legend": {
+              "0": "Unrelated to the question.",
+              "1": "Related topic but does not answer the question.",
+              "2": "Directly answers the question with evidence."
+            },
+            "probabilities": {
+              "0": 0.99,
+              "1": 0.01,
+              "2": 0
+            },
+            "confidence": 0.98
+          },
+          "score_p3": {
+            "type": "score",
+            "score": 0.79,
+            "legend": {
+              "0": "Unrelated to the question.",
+              "1": "Related topic but does not answer the question.",
+              "2": "Directly answers the question with evidence."
+            },
+            "probabilities": {
+              "0": 0.21,
+              "1": 0.79,
+              "2": 0
+            },
+            "confidence": 0.69
+          }
+        },
+        "usage": {
+          "input_tokens": 797,
+          "output_tokens": 134,
+          "cost": 3.3474e-05
+        },
+        "id": "gen-dec-1790720772-85UhDU7rKc2GgrUc1xaF",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.22029575001215562,
+      "checks": {
+        "best": {
+          "expected": "p1",
+          "actual": "p1",
+          "correct": true
+        }
+      }
+    }
+  ]
+}

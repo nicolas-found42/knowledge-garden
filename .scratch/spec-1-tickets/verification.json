@@ -1,0 +1,19 @@
+{
+  "tickets": 35,
+  "native_blocking_edges": 62,
+  "mapped_user_stories": 70,
+  "parent_unchanged_fields": [
+    "title",
+    "body",
+    "comments",
+    "labels",
+    "state",
+    "updatedAt",
+    "assignees",
+    "subIssues"
+  ],
+  "all_published_bodies_labels_and_dependencies_verified": true,
+  "browser_rendered_issue_checks": 35,
+  "attachments": 0,
+  "unresolved_publication_issues": []
+}

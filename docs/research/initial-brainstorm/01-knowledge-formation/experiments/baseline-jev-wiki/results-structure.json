@@ -1,0 +1,380 @@
+{
+  "recorded_at": "2026-09-29T22:26:57.102143+00:00",
+  "sdk_version": "0.7.2",
+  "dataset": "synthetic hand-labeled development probes, not a held-out evaluation",
+  "summary": {
+    "requests": 2,
+    "successful": 2,
+    "labeled_checks": 10,
+    "correct": 10,
+    "wall_seconds": 0.3807772910222411,
+    "median_request_seconds": 0.3272641874937108,
+    "input_tokens": 1958,
+    "output_tokens": 508,
+    "reported_cost_usd": 8.2236e-05,
+    "cost_available": true
+  },
+  "results": [
+    {
+      "family": "structure_followup",
+      "name": "explicit_text",
+      "request": {
+        "model": "typesafe/jev-1.13",
+        "state": {
+          "blocks": {
+            "title": "Knowledge Garden Import Guide",
+            "first_step": "First, select the conversations you want to import.",
+            "shell_command": "python import_chats.py --dry-run",
+            "explanation": "The preview contains proposed changes and links to their source messages.",
+            "caution": "Warning: these changes are only proposals until reviewed."
+          }
+        },
+        "questions": {
+          "title": {
+            "type": "choice",
+            "instructions": {
+              "question": "What role does this exact target block play in the import guide?",
+              "target_block": "Knowledge Garden Import Guide"
+            },
+            "criteria": {
+              "heading": "Section or document title.",
+              "instruction": "A step the reader should perform.",
+              "code": "A literal command or program fragment.",
+              "paragraph": "Explanatory prose.",
+              "warning": "A caution or warning."
+            }
+          },
+          "first_step": {
+            "type": "choice",
+            "instructions": {
+              "question": "What role does this exact target block play in the import guide?",
+              "target_block": "First, select the conversations you want to import."
+            },
+            "criteria": {
+              "heading": "Section or document title.",
+              "instruction": "A step the reader should perform.",
+              "code": "A literal command or program fragment.",
+              "paragraph": "Explanatory prose.",
+              "warning": "A caution or warning."
+            }
+          },
+          "shell_command": {
+            "type": "choice",
+            "instructions": {
+              "question": "What role does this exact target block play in the import guide?",
+              "target_block": "python import_chats.py --dry-run"
+            },
+            "criteria": {
+              "heading": "Section or document title.",
+              "instruction": "A step the reader should perform.",
+              "code": "A literal command or program fragment.",
+              "paragraph": "Explanatory prose.",
+              "warning": "A caution or warning."
+            }
+          },
+          "explanation": {
+            "type": "choice",
+            "instructions": {
+              "question": "What role does this exact target block play in the import guide?",
+              "target_block": "The preview contains proposed changes and links to their source messages."
+            },
+            "criteria": {
+              "heading": "Section or document title.",
+              "instruction": "A step the reader should perform.",
+              "code": "A literal command or program fragment.",
+              "paragraph": "Explanatory prose.",
+              "warning": "A caution or warning."
+            }
+          },
+          "caution": {
+            "type": "choice",
+            "instructions": {
+              "question": "What role does this exact target block play in the import guide?",
+              "target_block": "Warning: these changes are only proposals until reviewed."
+            },
+            "criteria": {
+              "heading": "Section or document title.",
+              "instruction": "A step the reader should perform.",
+              "code": "A literal command or program fragment.",
+              "paragraph": "Explanatory prose.",
+              "warning": "A caution or warning."
+            }
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "title": {
+            "type": "choice",
+            "choice": "heading",
+            "probabilities": {
+              "paragraph": 0,
+              "code": 0,
+              "heading": 1,
+              "warning": 0,
+              "instruction": 0
+            },
+            "confidence": 1
+          },
+          "first_step": {
+            "type": "choice",
+            "choice": "instruction",
+            "probabilities": {
+              "paragraph": 0,
+              "code": 0,
+              "heading": 0,
+              "warning": 0,
+              "instruction": 1
+            },
+            "confidence": 1
+          },
+          "shell_command": {
+            "type": "choice",
+            "choice": "code",
+            "probabilities": {
+              "paragraph": 0,
+              "code": 0.96,
+              "heading": 0,
+              "warning": 0,
+              "instruction": 0.04
+            },
+            "confidence": 0.95
+          },
+          "explanation": {
+            "type": "choice",
+            "choice": "paragraph",
+            "probabilities": {
+              "paragraph": 1,
+              "code": 0,
+              "heading": 0,
+              "instruction": 0,
+              "warning": 0
+            },
+            "confidence": 1
+          },
+          "caution": {
+            "type": "choice",
+            "choice": "warning",
+            "probabilities": {
+              "paragraph": 0,
+              "code": 0,
+              "heading": 0,
+              "warning": 1,
+              "instruction": 0
+            },
+            "confidence": 1
+          }
+        },
+        "usage": {
+          "input_tokens": 1033,
+          "output_tokens": 254,
+          "cost": 4.3386e-05
+        },
+        "id": "gen-dec-1790720816-E2rzjaUg4oKN5I8c2Ser",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.37759774998994544,
+      "checks": {
+        "title": {
+          "expected": "heading",
+          "actual": "heading",
+          "correct": true
+        },
+        "first_step": {
+          "expected": "instruction",
+          "actual": "instruction",
+          "correct": true
+        },
+        "shell_command": {
+          "expected": "code",
+          "actual": "code",
+          "correct": true
+        },
+        "explanation": {
+          "expected": "paragraph",
+          "actual": "paragraph",
+          "correct": true
+        },
+        "caution": {
+          "expected": "warning",
+          "actual": "warning",
+          "correct": true
+        }
+      }
+    },
+    {
+      "family": "structure_followup",
+      "name": "named_paths",
+      "request": {
+        "model": "typesafe/jev-1.13",
+        "state": {
+          "blocks": {
+            "title": "Knowledge Garden Import Guide",
+            "first_step": "First, select the conversations you want to import.",
+            "shell_command": "python import_chats.py --dry-run",
+            "explanation": "The preview contains proposed changes and links to their source messages.",
+            "caution": "Warning: these changes are only proposals until reviewed."
+          }
+        },
+        "questions": {
+          "title": {
+            "type": "choice",
+            "instructions": "What role does `blocks.title` play in this import guide?",
+            "criteria": {
+              "heading": "Section or document title.",
+              "instruction": "A step the reader should perform.",
+              "code": "A literal command or program fragment.",
+              "paragraph": "Explanatory prose.",
+              "warning": "A caution or warning."
+            }
+          },
+          "first_step": {
+            "type": "choice",
+            "instructions": "What role does `blocks.first_step` play in this import guide?",
+            "criteria": {
+              "heading": "Section or document title.",
+              "instruction": "A step the reader should perform.",
+              "code": "A literal command or program fragment.",
+              "paragraph": "Explanatory prose.",
+              "warning": "A caution or warning."
+            }
+          },
+          "shell_command": {
+            "type": "choice",
+            "instructions": "What role does `blocks.shell_command` play in this import guide?",
+            "criteria": {
+              "heading": "Section or document title.",
+              "instruction": "A step the reader should perform.",
+              "code": "A literal command or program fragment.",
+              "paragraph": "Explanatory prose.",
+              "warning": "A caution or warning."
+            }
+          },
+          "explanation": {
+            "type": "choice",
+            "instructions": "What role does `blocks.explanation` play in this import guide?",
+            "criteria": {
+              "heading": "Section or document title.",
+              "instruction": "A step the reader should perform.",
+              "code": "A literal command or program fragment.",
+              "paragraph": "Explanatory prose.",
+              "warning": "A caution or warning."
+            }
+          },
+          "caution": {
+            "type": "choice",
+            "instructions": "What role does `blocks.caution` play in this import guide?",
+            "criteria": {
+              "heading": "Section or document title.",
+              "instruction": "A step the reader should perform.",
+              "code": "A literal command or program fragment.",
+              "paragraph": "Explanatory prose.",
+              "warning": "A caution or warning."
+            }
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "title": {
+            "type": "choice",
+            "choice": "heading",
+            "probabilities": {
+              "code": 0,
+              "heading": 1,
+              "warning": 0,
+              "instruction": 0,
+              "paragraph": 0
+            },
+            "confidence": 1
+          },
+          "first_step": {
+            "type": "choice",
+            "choice": "instruction",
+            "probabilities": {
+              "code": 0,
+              "heading": 0,
+              "warning": 0,
+              "paragraph": 0,
+              "instruction": 1
+            },
+            "confidence": 1
+          },
+          "shell_command": {
+            "type": "choice",
+            "choice": "code",
+            "probabilities": {
+              "code": 0.97,
+              "heading": 0,
+              "warning": 0,
+              "paragraph": 0,
+              "instruction": 0.03
+            },
+            "confidence": 0.97
+          },
+          "explanation": {
+            "type": "choice",
+            "choice": "paragraph",
+            "probabilities": {
+              "code": 0,
+              "heading": 0,
+              "warning": 0,
+              "paragraph": 1,
+              "instruction": 0
+            },
+            "confidence": 1
+          },
+          "caution": {
+            "type": "choice",
+            "choice": "warning",
+            "probabilities": {
+              "code": 0,
+              "heading": 0,
+              "warning": 1,
+              "paragraph": 0,
+              "instruction": 0
+            },
+            "confidence": 1
+          }
+        },
+        "usage": {
+          "input_tokens": 925,
+          "output_tokens": 254,
+          "cost": 3.885e-05
+        },
+        "id": "gen-dec-1790720816-4FTBu307FekTieVwlfSh",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.2769306249974761,
+      "checks": {
+        "title": {
+          "expected": "heading",
+          "actual": "heading",
+          "correct": true
+        },
+        "first_step": {
+          "expected": "instruction",
+          "actual": "instruction",
+          "correct": true
+        },
+        "shell_command": {
+          "expected": "code",
+          "actual": "code",
+          "correct": true
+        },
+        "explanation": {
+          "expected": "paragraph",
+          "actual": "paragraph",
+          "correct": true
+        },
+        "caution": {
+          "expected": "warning",
+          "actual": "warning",
+          "correct": true
+        }
+      }
+    }
+  ]
+}

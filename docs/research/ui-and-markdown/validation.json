@@ -1,0 +1,30 @@
+{
+  "recordedAt": "2026-09-30T01:07:42.979603+00:00",
+  "checks": {
+    "jsonParsed": 84,
+    "localLinksChecked": 132,
+    "pythonParsed": 12,
+    "javascriptChecked": 5,
+    "corpusItems": 27,
+    "relations": 30,
+    "assetHashes": 21
+  },
+  "failures": [],
+  "status": "pass",
+  "actualBrowser": "03-interface-concepts/browser-results.md",
+  "assertionEvidence": {
+    "durableMarkdown": "26/26 retained original run",
+    "macWatcher": "7/7 retained strengthened run",
+    "timeline": "9/9",
+    "publicAssets": "8/8"
+  },
+  "notEstablished": [
+    "actual Obsidian interoperability",
+    "human usability",
+    "WCAG conformance",
+    "production native runtime",
+    "end-to-end large-collection navigation",
+    "atomic multiwriter safety",
+    "general extraction/model accuracy"
+  ]
+}

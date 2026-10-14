@@ -1,0 +1,16 @@
+{
+  "original_labels_unchanged": true,
+  "issues": [
+    {
+      "case": "procedure/unsafe_generalization",
+      "type": "label ambiguity",
+      "detail": "Expected evidence, but there are only two completed sessions and policy minimum is three. none is defensible. Retain original scoring; do not count a post-hoc relabel as measured improvement."
+    },
+    {
+      "case": "context/correction",
+      "type": "query ambiguity",
+      "detail": "Was the first architecture abandoned? can be answered by Actually, revert that choice if abandonment alone is asked. Named architecture identity requires predecessor. Clarify scope in a new evaluation rather than relabel after seeing results."
+    }
+  ],
+  "development_not_heldout": true
+}

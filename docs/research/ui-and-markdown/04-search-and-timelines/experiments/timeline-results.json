@@ -1,0 +1,153 @@
+{
+  "checks": [
+    {
+      "id": "import-is-not-event",
+      "passed": true,
+      "detail": "2024 event, 2026 import remain separate"
+    },
+    {
+      "id": "unknown-last-False",
+      "passed": true,
+      "detail": "Unknown dates stay a separate group regardless of direction"
+    },
+    {
+      "id": "unknown-last-True",
+      "passed": true,
+      "detail": "Unknown dates stay a separate group regardless of direction"
+    },
+    {
+      "id": "month-interval-overlap",
+      "passed": true,
+      "detail": "Cannot order month-only caption relative to May 17"
+    },
+    {
+      "id": "known-before",
+      "passed": true,
+      "detail": "May 16 transaction before May 17 visit"
+    },
+    {
+      "id": "offset-normalization",
+      "passed": true,
+      "detail": "UTC instants normalize across zones"
+    },
+    {
+      "id": "reasoning-sequence",
+      "passed": true,
+      "detail": "Order is explicitly recorded; not inferred from file modification time"
+    },
+    {
+      "id": "undated-causal-claim",
+      "passed": true,
+      "detail": "A concept or undated claim does not gain event time from source import"
+    },
+    {
+      "id": "filter-preserves-date",
+      "passed": true,
+      "detail": "Format filtering preserves date semantics"
+    }
+  ],
+  "passed": 9,
+  "total": 9,
+  "seconds": 4.441701457835734e-05,
+  "platform": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
+  "eventAscending": [
+    "caption",
+    "receipt",
+    "event-visit",
+    "notes",
+    "report",
+    "table",
+    "plan-1",
+    "reasoning",
+    "plan-2",
+    "slides",
+    "audio",
+    "book",
+    "chat",
+    "claim-rain",
+    "claim-rate",
+    "code",
+    "concept-sampling",
+    "download",
+    "homework",
+    "linked",
+    "person-maya",
+    "photo-fruit",
+    "photo-missing",
+    "place-river",
+    "question-rain",
+    "trail",
+    "video"
+  ],
+  "activityAscending": [
+    "receipt",
+    "audio",
+    "book",
+    "caption",
+    "chat",
+    "claim-rain",
+    "claim-rate",
+    "code",
+    "concept-sampling",
+    "download",
+    "event-visit",
+    "homework",
+    "linked",
+    "notes",
+    "person-maya",
+    "photo-fruit",
+    "photo-missing",
+    "place-river",
+    "plan-1",
+    "plan-2",
+    "question-rain",
+    "reasoning",
+    "report",
+    "slides",
+    "table",
+    "trail",
+    "video"
+  ],
+  "reasoning": [
+    {
+      "id": "reason-1",
+      "time": "2024-05-18T09:00:00Z",
+      "type": "proposal",
+      "itemId": "plan-1",
+      "label": "Propose noon-only visits",
+      "evidence": [
+        {
+          "itemId": "reasoning",
+          "selector": "line 2"
+        }
+      ]
+    },
+    {
+      "id": "reason-2",
+      "time": "2024-05-19T11:00:00Z",
+      "type": "observation",
+      "itemId": "reasoning",
+      "label": "Rain interrupts a visit",
+      "evidence": [
+        {
+          "itemId": "reasoning",
+          "selector": "line 3"
+        }
+      ]
+    },
+    {
+      "id": "reason-3",
+      "time": "2024-05-20T08:00:00Z",
+      "type": "revision",
+      "itemId": "plan-2",
+      "label": "Adopt morning and noon",
+      "evidence": [
+        {
+          "itemId": "reasoning",
+          "selector": "line 4"
+        }
+      ]
+    }
+  ],
+  "limitation": "Earliest-bound display order is not a claim that overlapping intervals are chronologically ordered; UI must expose uncertainty. No natural-language date extraction tested."
+}

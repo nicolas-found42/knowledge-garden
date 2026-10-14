@@ -1,0 +1,1187 @@
+{
+  "research_date": "2026-09-29",
+  "source_documents": 3,
+  "controlled_mutations_per_source": 11,
+  "observations": 33,
+  "independent_narrative_cases": false,
+  "model_calls": 0,
+  "api_cost_usd": 0,
+  "metrics": {
+    "position_only": {
+      "correct": 6,
+      "wrong_attachment": 27,
+      "abstained": 0,
+      "recoverable_missed": 0
+    },
+    "first_exact_quote": {
+      "correct": 27,
+      "wrong_attachment": 6,
+      "abstained": 9,
+      "recoverable_missed": 0
+    },
+    "unique_quote_and_context": {
+      "correct": 27,
+      "wrong_attachment": 0,
+      "abstained": 18,
+      "recoverable_missed": 6
+    }
+  },
+  "immutable_original_recovered": 33,
+  "changed_revisions_requiring_revalidation": 30,
+  "anchors": [
+    {
+      "source_id": "typesafe-state",
+      "source_text_sha256": "e4ac4ff9d615fee3f19dc3d828e073a6bd77100761b40823c0753a0afeb91d95",
+      "quote": "Jev accepts text only.",
+      "start": 2221,
+      "end": 2243,
+      "prefix_sha256": "660cf6b91a42b4be3fe6e77e392c0b506ece2129eea832b69313388c6edcfae8",
+      "suffix_sha256": "6923befa4c93168d659617fc84cd7e2855df3ad515f3b5cf8e4ce7c28a3d1be4",
+      "units": "Python Unicode code points in VisibleText/v1 extraction"
+    },
+    {
+      "source_id": "w3c-prov",
+      "source_text_sha256": "9ff0f8e15d74ce2f9c8fc28b54a10a544adb14b3008c85b9ac8a067e8291335a",
+      "quote": "A derivation is a transformation of one entity into another.",
+      "start": 14767,
+      "end": 14827,
+      "prefix_sha256": "0f0a9cf350d92ad0c35e1cfc965070bb53183defaa94941303dffa95480fa535",
+      "suffix_sha256": "644f65758cb57835f901ad2760cf3c6fe5e81a1156fd3b158450a11fcc911b4b",
+      "units": "Python Unicode code points in VisibleText/v1 extraction"
+    },
+    {
+      "source_id": "iiif-presentation",
+      "source_text_sha256": "542cb8d6df15c7b8767f672834acfab5000f079335c172b04ccd404141565111",
+      "quote": "An ordered list of Canvases, and/or further Ranges.",
+      "start": 8312,
+      "end": 8363,
+      "prefix_sha256": "dc7f281b44a3b56789d187416d8668773ad6b30d6b73db8ea60418679c85d5a7",
+      "suffix_sha256": "4f03f24b6461bc3a504cae09b6fe84a432dc34c49baf512d2199b892a08cf2a9",
+      "units": "Python Unicode code points in VisibleText/v1 extraction"
+    }
+  ],
+  "rows": [
+    {
+      "source": "typesafe-state",
+      "mutation": "unchanged",
+      "original_text_sha256": "e4ac4ff9d615fee3f19dc3d828e073a6bd77100761b40823c0753a0afeb91d95",
+      "current_text_sha256": "e4ac4ff9d615fee3f19dc3d828e073a6bd77100761b40823c0753a0afeb91d95",
+      "gold_current_start": 2221,
+      "changed": false,
+      "methods": {
+        "position_only": {
+          "actual_start": 2221,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 2221,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": 2221,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": null,
+      "current_version_policy": "same_revision"
+    },
+    {
+      "source": "typesafe-state",
+      "mutation": "prepend",
+      "original_text_sha256": "e4ac4ff9d615fee3f19dc3d828e073a6bd77100761b40823c0753a0afeb91d95",
+      "current_text_sha256": "01b92f7517856a9ed1b6bc30911e9f2edd72b398b1bf6956cb7c1e6319bee805",
+      "gold_current_start": 2242,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 2221,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 2242,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": 2242,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "typesafe-state",
+      "mutation": "append",
+      "original_text_sha256": "e4ac4ff9d615fee3f19dc3d828e073a6bd77100761b40823c0753a0afeb91d95",
+      "current_text_sha256": "549b879b78e87c32f651a30014f66e7759eb19111aef777401ce004d01371125",
+      "gold_current_start": 2221,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 2221,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 2221,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": 2221,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "typesafe-state",
+      "mutation": "insert_before_quote",
+      "original_text_sha256": "e4ac4ff9d615fee3f19dc3d828e073a6bd77100761b40823c0753a0afeb91d95",
+      "current_text_sha256": "71b2a8fe6d790769380b418fbd0fbb9af608da94eb838505714f525197c1ad07",
+      "gold_current_start": 2237,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 2221,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 2237,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": false,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": true
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "typesafe-state",
+      "mutation": "insert_emoji_before",
+      "original_text_sha256": "e4ac4ff9d615fee3f19dc3d828e073a6bd77100761b40823c0753a0afeb91d95",
+      "current_text_sha256": "59e00b5419c4a7d20038b81e334a63415f93365ca8d5e6af238384aeb8f7eb9b",
+      "gold_current_start": 2223,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 2221,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 2223,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": 2223,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "typesafe-state",
+      "mutation": "duplicate_quote_before",
+      "original_text_sha256": "e4ac4ff9d615fee3f19dc3d828e073a6bd77100761b40823c0753a0afeb91d95",
+      "current_text_sha256": "39fc39c36406d595ab3d1e70374e3164dffcc1cff84f3279aed473c8d3a5dcd4",
+      "gold_current_start": 2265,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 2221,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 21,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": 2265,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "typesafe-state",
+      "mutation": "duplicate_whole_document",
+      "original_text_sha256": "e4ac4ff9d615fee3f19dc3d828e073a6bd77100761b40823c0753a0afeb91d95",
+      "current_text_sha256": "f40f10a8bd73b587f9eaa2fdab4c13dbfd759cfb367c7982419ca862b1a2dca6",
+      "gold_current_start": -1,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 2221,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 2221,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "typesafe-state",
+      "mutation": "delete_quote",
+      "original_text_sha256": "e4ac4ff9d615fee3f19dc3d828e073a6bd77100761b40823c0753a0afeb91d95",
+      "current_text_sha256": "61f3773e71a62d6eec57fa848028869471469fca6c1ddaa4cebfa57562e4ccab",
+      "gold_current_start": -1,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 2221,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "typesafe-state",
+      "mutation": "replace_quote",
+      "original_text_sha256": "e4ac4ff9d615fee3f19dc3d828e073a6bd77100761b40823c0753a0afeb91d95",
+      "current_text_sha256": "e5ac76daf85aaf27c1d5b109385e45e2db777741ecaf5f691f3358b28b4112d1",
+      "gold_current_start": -1,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 2221,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "typesafe-state",
+      "mutation": "internal_whitespace",
+      "original_text_sha256": "e4ac4ff9d615fee3f19dc3d828e073a6bd77100761b40823c0753a0afeb91d95",
+      "current_text_sha256": "38db0accb4753eca634932b1978653d0a5bc1b1b0486cbcfb056daf1d11b9388",
+      "gold_current_start": -1,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 2221,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "typesafe-state",
+      "mutation": "context_reversal",
+      "original_text_sha256": "e4ac4ff9d615fee3f19dc3d828e073a6bd77100761b40823c0753a0afeb91d95",
+      "current_text_sha256": "9f3c5d30bf346dc20ea092b2c51cd4ddd80fcc4c83698202726d98aa6c6973ed",
+      "gold_current_start": 2260,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 2221,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 2260,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": false,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": true
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "w3c-prov",
+      "mutation": "unchanged",
+      "original_text_sha256": "9ff0f8e15d74ce2f9c8fc28b54a10a544adb14b3008c85b9ac8a067e8291335a",
+      "current_text_sha256": "9ff0f8e15d74ce2f9c8fc28b54a10a544adb14b3008c85b9ac8a067e8291335a",
+      "gold_current_start": 14767,
+      "changed": false,
+      "methods": {
+        "position_only": {
+          "actual_start": 14767,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 14767,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": 14767,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": null,
+      "current_version_policy": "same_revision"
+    },
+    {
+      "source": "w3c-prov",
+      "mutation": "prepend",
+      "original_text_sha256": "9ff0f8e15d74ce2f9c8fc28b54a10a544adb14b3008c85b9ac8a067e8291335a",
+      "current_text_sha256": "2e47a351dd3c4b87e576c023a9693ce183ee8779f8a95b31b87d069c09668f6a",
+      "gold_current_start": 14788,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 14767,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 14788,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": 14788,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "w3c-prov",
+      "mutation": "append",
+      "original_text_sha256": "9ff0f8e15d74ce2f9c8fc28b54a10a544adb14b3008c85b9ac8a067e8291335a",
+      "current_text_sha256": "98c3a58c9547e199d9593e0c91e744654d146ba6b8f3e47dcd132153c8ece425",
+      "gold_current_start": 14767,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 14767,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 14767,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": 14767,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "w3c-prov",
+      "mutation": "insert_before_quote",
+      "original_text_sha256": "9ff0f8e15d74ce2f9c8fc28b54a10a544adb14b3008c85b9ac8a067e8291335a",
+      "current_text_sha256": "53ad8f6a978fdc1940a1a31469f8fc8b14128d1d63fa705c24fb01a08dd9a9a8",
+      "gold_current_start": 14783,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 14767,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 14783,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": false,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": true
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "w3c-prov",
+      "mutation": "insert_emoji_before",
+      "original_text_sha256": "9ff0f8e15d74ce2f9c8fc28b54a10a544adb14b3008c85b9ac8a067e8291335a",
+      "current_text_sha256": "56d211dc59aea536846993e5f16b5120849aea2f204623314ea828485fc9832c",
+      "gold_current_start": 14769,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 14767,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 14769,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": 14769,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "w3c-prov",
+      "mutation": "duplicate_quote_before",
+      "original_text_sha256": "9ff0f8e15d74ce2f9c8fc28b54a10a544adb14b3008c85b9ac8a067e8291335a",
+      "current_text_sha256": "ec3973901a13e11e0f78c46719f84bb7a7239a0dbea8920aced8aad93511a594",
+      "gold_current_start": 14849,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 14767,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 21,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": 14849,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "w3c-prov",
+      "mutation": "duplicate_whole_document",
+      "original_text_sha256": "9ff0f8e15d74ce2f9c8fc28b54a10a544adb14b3008c85b9ac8a067e8291335a",
+      "current_text_sha256": "42ccc6755963a8041e877eb763c635d45f1c1076a422acb213550884fbce635b",
+      "gold_current_start": -1,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 14767,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 14767,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "w3c-prov",
+      "mutation": "delete_quote",
+      "original_text_sha256": "9ff0f8e15d74ce2f9c8fc28b54a10a544adb14b3008c85b9ac8a067e8291335a",
+      "current_text_sha256": "1c3707188f6a364330d263bd91d6e4ffcbf250727e9e36306fe284cc46417b71",
+      "gold_current_start": -1,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 14767,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "w3c-prov",
+      "mutation": "replace_quote",
+      "original_text_sha256": "9ff0f8e15d74ce2f9c8fc28b54a10a544adb14b3008c85b9ac8a067e8291335a",
+      "current_text_sha256": "bea171ade86b9857f39f0aaa40cc25c4829517aa2892429348a6c624454ffbe0",
+      "gold_current_start": -1,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 14767,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "w3c-prov",
+      "mutation": "internal_whitespace",
+      "original_text_sha256": "9ff0f8e15d74ce2f9c8fc28b54a10a544adb14b3008c85b9ac8a067e8291335a",
+      "current_text_sha256": "a5cccfb6b34643eb176b785e70d10efa1fd87fe66c2012a5a55b40223e961f4f",
+      "gold_current_start": -1,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 14767,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "w3c-prov",
+      "mutation": "context_reversal",
+      "original_text_sha256": "9ff0f8e15d74ce2f9c8fc28b54a10a544adb14b3008c85b9ac8a067e8291335a",
+      "current_text_sha256": "ff39b866fa025a989b94810e88206bd286e105a2519a3c94b661e969cfd26282",
+      "gold_current_start": 14806,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 14767,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 14806,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": false,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": true
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "iiif-presentation",
+      "mutation": "unchanged",
+      "original_text_sha256": "542cb8d6df15c7b8767f672834acfab5000f079335c172b04ccd404141565111",
+      "current_text_sha256": "542cb8d6df15c7b8767f672834acfab5000f079335c172b04ccd404141565111",
+      "gold_current_start": 8312,
+      "changed": false,
+      "methods": {
+        "position_only": {
+          "actual_start": 8312,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 8312,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": 8312,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": null,
+      "current_version_policy": "same_revision"
+    },
+    {
+      "source": "iiif-presentation",
+      "mutation": "prepend",
+      "original_text_sha256": "542cb8d6df15c7b8767f672834acfab5000f079335c172b04ccd404141565111",
+      "current_text_sha256": "797ee570f2014b812af9c5e5aba95a84df1c9eda1c2608d17f06b41737f70fee",
+      "gold_current_start": 8333,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 8312,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 8333,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": 8333,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "iiif-presentation",
+      "mutation": "append",
+      "original_text_sha256": "542cb8d6df15c7b8767f672834acfab5000f079335c172b04ccd404141565111",
+      "current_text_sha256": "bdb19218d36dbdab9ec205897ec9e0e863da1eec77b5d407739d9bc6fe115d78",
+      "gold_current_start": 8312,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 8312,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 8312,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": 8312,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "iiif-presentation",
+      "mutation": "insert_before_quote",
+      "original_text_sha256": "542cb8d6df15c7b8767f672834acfab5000f079335c172b04ccd404141565111",
+      "current_text_sha256": "900148e21d8a69707b005d81f84e4f66db9c273a493d2e837635fe1131d0825a",
+      "gold_current_start": 8328,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 8312,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 8328,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": false,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": true
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "iiif-presentation",
+      "mutation": "insert_emoji_before",
+      "original_text_sha256": "542cb8d6df15c7b8767f672834acfab5000f079335c172b04ccd404141565111",
+      "current_text_sha256": "a0ea22b601e00b57f11ff24108e8cc6f5590d70c02f9baf53514a2c033dee974",
+      "gold_current_start": 8314,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 8312,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 8314,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": 8314,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "iiif-presentation",
+      "mutation": "duplicate_quote_before",
+      "original_text_sha256": "542cb8d6df15c7b8767f672834acfab5000f079335c172b04ccd404141565111",
+      "current_text_sha256": "477d928028056f752eb572d6e61ab391f7267019039b16372a08c2010f0197e4",
+      "gold_current_start": 8385,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 8312,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 21,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": 8385,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "iiif-presentation",
+      "mutation": "duplicate_whole_document",
+      "original_text_sha256": "542cb8d6df15c7b8767f672834acfab5000f079335c172b04ccd404141565111",
+      "current_text_sha256": "3d7cbb7c04ad70090b44025689cc181328ab42ae1ed2cd09081bb0ac0cf04c81",
+      "gold_current_start": -1,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 8312,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 8312,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "iiif-presentation",
+      "mutation": "delete_quote",
+      "original_text_sha256": "542cb8d6df15c7b8767f672834acfab5000f079335c172b04ccd404141565111",
+      "current_text_sha256": "0742b0c2accad7bcaa1c05b5eb0364a2397fd86f8ae499994e2f003da549da28",
+      "gold_current_start": -1,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 8312,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "iiif-presentation",
+      "mutation": "replace_quote",
+      "original_text_sha256": "542cb8d6df15c7b8767f672834acfab5000f079335c172b04ccd404141565111",
+      "current_text_sha256": "15a70740378c069ed3134918c88c592f9229239c35f774be8cf8f658ea1e07b1",
+      "gold_current_start": -1,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 8312,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "iiif-presentation",
+      "mutation": "internal_whitespace",
+      "original_text_sha256": "542cb8d6df15c7b8767f672834acfab5000f079335c172b04ccd404141565111",
+      "current_text_sha256": "daaf45c6c39192abace746687f37b25796a6b5db56d704c781ef565a6639735d",
+      "gold_current_start": -1,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 8312,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": false
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    },
+    {
+      "source": "iiif-presentation",
+      "mutation": "context_reversal",
+      "original_text_sha256": "542cb8d6df15c7b8767f672834acfab5000f079335c172b04ccd404141565111",
+      "current_text_sha256": "4f3ed4645d4251638690bfca2f46dc41610c4ec30ea2780c2602702ad2953c74",
+      "gold_current_start": 8351,
+      "changed": true,
+      "methods": {
+        "position_only": {
+          "actual_start": 8312,
+          "correct": false,
+          "wrong_attachment": true,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "first_exact_quote": {
+          "actual_start": 8351,
+          "correct": true,
+          "wrong_attachment": false,
+          "abstained": false,
+          "recoverable_missed": false
+        },
+        "unique_quote_and_context": {
+          "actual_start": -1,
+          "correct": false,
+          "wrong_attachment": false,
+          "abstained": true,
+          "recoverable_missed": true
+        }
+      },
+      "immutable_original_recovered": true,
+      "original_recovery_is_current_support": false,
+      "current_version_policy": "revalidate"
+    }
+  ]
+}

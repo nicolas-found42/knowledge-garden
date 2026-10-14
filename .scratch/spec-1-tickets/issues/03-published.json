@@ -1,0 +1,32 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPMmA",
+        "number": 3,
+        "state": "OPEN",
+        "title": "Turn a text source into evidence-grounded facts and linked pages with Jev",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/3"
+      }
+    ],
+    "totalCount": 1
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 46, 47, 48, 49, 52, 53; **Automatic ingestion and current knowledge**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nLet a newer complete source replacement update the current wiki without duplicate revisions, obsolete fact values, or deletion of independently supported knowledge. Show the change throughout the existing reader and queryable collection.\n\n## Acceptance criteria\n\n- [ ] Complete revision 2 of V17 changes 12 visits to 15 and removes its omitted 10-minute duration when the old source was the duration\u2019s only support; unchanged observer, place, and event date remain.\n- [ ] A duration independently supported by another acquired source survives omission from the replaced source, with accurate surviving provenance.\n- [ ] Reliable source version/date evidence takes precedence over arrival order. Importing revision 1 after revision 2 does not restore 12 visits or removed old-only facts.\n- [ ] When reliable ordering is unavailable, newly received changes win and the uncertainty remains inspectable; do not invent a source date from import time.\n- [ ] Identical previously seen content causes no new revision or duplicate knowledge; genuinely different acquisition contexts retain their provenance.\n- [ ] Affected pages, relations, tags, and existing indexes converge to one current fact value; unrelated records are not unnecessarily rewritten. Obsolete values do not become ordinary results or a user-facing revision replay.\n- [ ] Interrupting replacement publication leaves either the prior coherent state or the complete new state, and resumed work converges without duplicate operations.\n\n## Blocked by\n\n- [#3 \u2014 Turn a text source into evidence-grounded facts and linked pages with Jev](https://github.com/nicolas-found42/knowledge-garden/issues/3)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nThis ticket handles confirmed complete replacements and ordering. Targeted corrections/separate events are \u201cApply targeted corrections while keeping distinct observations separate\u201d, incomplete extraction is \u201cRecover incomplete source updates without deleting unextracted facts\u201d, and external authoritative edits are \u201cPreserve external manual corrections while other facts refresh automatically\u201d. Preserve support dependencies in durable knowledge so later rebuilds cannot resurrect removed values. Downstream features must consume this change boundary rather than invent a second current-state policy.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nStart from revision 1 dated May 18, 2024: V17 occurred May 17, observer Maya, Riverside, 12 visits, duration 10 minutes. Import complete revision 2 dated May 20 explicitly replacing revision 1, stating Maya, Riverside, V17, May 17, and 15 visits, with duration omitted. Check results; reimport revision 1 and then the same revision 2 bytes. Repeat with an independent duration source and with two undated, explicitly same-record revisions.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Reconcile complete source replacements using version order and independent support",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/4"
+}

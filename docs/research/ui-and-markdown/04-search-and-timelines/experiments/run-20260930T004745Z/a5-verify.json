@@ -1,0 +1,173 @@
+{
+  "id": "a5-verify",
+  "role": "answer-verifier",
+  "request": {
+    "model": "typesafe/jev-1.13",
+    "state": {
+      "sentences": [
+        {
+          "text": "The data show 12 pollinator visits on 17 May 2024 and 8 visits on 18 May 2024, but the rows do not attribute the difference to rain.",
+          "sourceIds": [
+            "table"
+          ],
+          "quote": "Controlled rows: 17 May 2024, Maya, Riverside, 12 visits, 10 minutes; 18 May, 8 visits, 10 minutes. Rows do not attribute a difference to rain."
+        },
+        {
+          "text": "It is unknown whether rain caused the lower pollinator count because current notes do not resolve if rain changed pollinator activity or only prevented observation.",
+          "sourceIds": [
+            "question-rain"
+          ],
+          "quote": "Did rain change pollinator activity or only prevent observation? Current notes do not resolve this causal question."
+        },
+        {
+          "text": "The claim that rain reduced pollinator activity is speculative and not established by the interrupted visit or the two rows of data.",
+          "sourceIds": [
+            "claim-rain"
+          ],
+          "quote": "Speculative causal explanation, not established by the interrupted visit or the two rows. Distinguish missing observations from fewer insects."
+        },
+        {
+          "text": "One observation of 12 visits on 17 May 2024 does not establish a trend, and a later wet visit was interrupted, limiting evidence.",
+          "sourceIds": [
+            "report"
+          ],
+          "quote": "Maya recorded 12 pollinator visits in ten minutes on 17 May 2024 at Riverside. One observation does not establish a trend. A later wet visit was interrupted."
+        }
+      ],
+      "sources": [
+        {
+          "id": "table",
+          "title": "Two pollinator counts",
+          "kind": "file",
+          "format": "CSV",
+          "body": "Controlled rows: 17 May 2024, Maya, Riverside, 12 visits, 10 minutes; 18 May, 8 visits, 10 minutes. Rows do not attribute a difference to rain.",
+          "origin": "controlled",
+          "epistemic": "recorded",
+          "acquisition": "captured"
+        },
+        {
+          "id": "question-rain",
+          "title": "Did rain affect activity or observation?",
+          "kind": "question",
+          "format": "Markdown",
+          "body": "# Open question\nDid rain change pollinator activity or only prevent observation? Current notes do not resolve this causal question.\n",
+          "origin": "controlled",
+          "epistemic": "recorded",
+          "acquisition": "captured"
+        },
+        {
+          "id": "claim-rain",
+          "title": "Rain reduced pollinator activity",
+          "kind": "claim",
+          "format": "Markdown",
+          "body": "Speculative causal explanation, not established by the interrupted visit or the two rows. Distinguish missing observations from fewer insects.",
+          "origin": "controlled",
+          "epistemic": "speculative",
+          "acquisition": "captured"
+        },
+        {
+          "id": "report",
+          "title": "Riverside field report",
+          "kind": "file",
+          "format": "PDF",
+          "body": "Maya recorded 12 pollinator visits in ten minutes on 17 May 2024 at Riverside. One observation does not establish a trend. A later wet visit was interrupted.",
+          "origin": "controlled",
+          "epistemic": "recorded",
+          "acquisition": "captured"
+        }
+      ]
+    },
+    "questions": {
+      "0": {
+        "type": "choice",
+        "instructions": "Does source context support sentence 0 including its uncertainty and scope? Valid IDs or exact quote alone are insufficient.",
+        "criteria": {
+          "supported": "Faithful to source context with relevant limits preserved.",
+          "qualified": "Main idea related but essential qualification omitted or overstated.",
+          "unsupported": "Contradicted, invented or not established."
+        }
+      },
+      "1": {
+        "type": "choice",
+        "instructions": "Does source context support sentence 1 including its uncertainty and scope? Valid IDs or exact quote alone are insufficient.",
+        "criteria": {
+          "supported": "Faithful to source context with relevant limits preserved.",
+          "qualified": "Main idea related but essential qualification omitted or overstated.",
+          "unsupported": "Contradicted, invented or not established."
+        }
+      },
+      "2": {
+        "type": "choice",
+        "instructions": "Does source context support sentence 2 including its uncertainty and scope? Valid IDs or exact quote alone are insufficient.",
+        "criteria": {
+          "supported": "Faithful to source context with relevant limits preserved.",
+          "qualified": "Main idea related but essential qualification omitted or overstated.",
+          "unsupported": "Contradicted, invented or not established."
+        }
+      },
+      "3": {
+        "type": "choice",
+        "instructions": "Does source context support sentence 3 including its uncertainty and scope? Valid IDs or exact quote alone are insufficient.",
+        "criteria": {
+          "supported": "Faithful to source context with relevant limits preserved.",
+          "qualified": "Main idea related but essential qualification omitted or overstated.",
+          "unsupported": "Contradicted, invented or not established."
+        }
+      }
+    }
+  },
+  "started": "2026-09-30T00:48:22.194155+00:00",
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "0": {
+        "type": "choice",
+        "choice": "supported",
+        "probabilities": {
+          "qualified": 0.02,
+          "unsupported": 0.01,
+          "supported": 0.97
+        },
+        "confidence": 0.95
+      },
+      "1": {
+        "type": "choice",
+        "choice": "supported",
+        "probabilities": {
+          "qualified": 0.02,
+          "unsupported": 0.01,
+          "supported": 0.97
+        },
+        "confidence": 0.95
+      },
+      "2": {
+        "type": "choice",
+        "choice": "supported",
+        "probabilities": {
+          "qualified": 0.01,
+          "unsupported": 0.01,
+          "supported": 0.98
+        },
+        "confidence": 0.97
+      },
+      "3": {
+        "type": "choice",
+        "choice": "supported",
+        "probabilities": {
+          "qualified": 0.01,
+          "unsupported": 0.01,
+          "supported": 0.98
+        },
+        "confidence": 0.98
+      }
+    },
+    "usage": {
+      "input_tokens": 1541,
+      "output_tokens": 143,
+      "cost": 6.4722e-05
+    },
+    "id": "gen-dec-1790729302-1LTxChAPHlHAcKZkgYEK",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.2994031249836553
+}
