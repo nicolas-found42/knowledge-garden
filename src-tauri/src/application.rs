@@ -1580,8 +1580,52 @@ impl Application {
                 "Invalid knowledge page identity.".into(),
             ));
         }
-        let path = self.root.join("pages").join(format!("{page_id}.md"));
+        let path = self.knowledge_path(page_id)?;
         read_knowledge_page(&path)
+    }
+
+    fn knowledge_paths(&self) -> Result<Vec<PathBuf>> {
+        let mut pending = vec![self.root.join("pages")];
+        let mut paths = Vec::new();
+        let mut identities = HashMap::<String, Vec<PathBuf>>::new();
+        while let Some(directory) = pending.pop() {
+            if !directory.is_dir() {
+                continue;
+            }
+            for entry in fs::read_dir(directory)? {
+                let entry = entry?;
+                let kind = entry.file_type()?;
+                if kind.is_dir() {
+                    pending.push(entry.path());
+                } else if kind.is_file() && entry.path().extension().is_some_and(|ext| ext == "md")
+                {
+                    let path = entry.path();
+                    if let Ok(header) = read_knowledge_header(&path) {
+                        identities.entry(header.page_id).or_default().push(path);
+                    }
+                }
+            }
+        }
+        for (_, candidates) in identities {
+            if candidates.len() == 1 {
+                paths.extend(candidates);
+            }
+        }
+        paths.sort();
+        Ok(paths)
+    }
+
+    fn knowledge_path(&self, page_id: &str) -> Result<PathBuf> {
+        for path in self.knowledge_paths()? {
+            if read_knowledge_header(&path)?.page_id == page_id {
+                return Ok(path);
+            }
+        }
+        let canonical = self.root.join("pages").join(format!("{page_id}.md"));
+        if canonical.exists() {
+            return Err(GardenError::Invalid(format!("Knowledge identity {page_id} is malformed or ambiguous; original files remain preserved.")));
+        }
+        Ok(canonical)
     }
 
     /// Cheap freshness check; reads one index row rather than restarting traversal.
@@ -2446,8 +2490,7 @@ impl Application {
         }
         for label in labels {
             let mut matching_events = Vec::new();
-            for entry in fs::read_dir(&pages_dir)? {
-                let path = entry?.path();
+            for path in self.knowledge_paths()? {
                 if path.extension().and_then(|value| value.to_str()) != Some("md") {
                     continue;
                 }
@@ -2626,8 +2669,7 @@ impl Application {
             return Ok(None);
         }
         let mut targets = Vec::new();
-        for entry in fs::read_dir(pages_dir)? {
-            let path = entry?.path();
+        for path in self.knowledge_paths()? {
             if path.extension().and_then(|value| value.to_str()) != Some("md") {
                 continue;
             }
@@ -2718,8 +2760,7 @@ impl Application {
             }
 
             let mut matching_pages = Vec::<(String, SourceVersion)>::new();
-            for entry in fs::read_dir(&pages_dir)? {
-                let path = entry?.path();
+            for path in self.knowledge_paths()? {
                 if path.extension().and_then(|value| value.to_str()) != Some("md") {
                     continue;
                 }
@@ -3900,7 +3941,7 @@ impl Application {
             if contents.contains_key(&page.page_id) {
                 continue;
             }
-            let path = pages_dir.join(format!("{}.md", page.page_id));
+            let path = self.knowledge_path(&page.page_id)?;
             if !path.exists() {
                 continue;
             }
@@ -3930,7 +3971,7 @@ impl Application {
             .map(|(_, page, _)| (page.page_id.clone(), page.title.clone()))
             .collect::<std::collections::HashMap<_, _>>();
         for (page_id, markdown) in &mut contents {
-            let path = pages_dir.join(format!("{page_id}.md"));
+            let path = self.knowledge_path(page_id)?;
             let mut header = parse_knowledge_header(markdown)?;
             if path.exists() {
                 let mut old = read_knowledge_header(&path)?;
@@ -3973,7 +4014,7 @@ impl Application {
                 if contents.contains_key(&summary.page_id) {
                     continue;
                 }
-                let page_path = self.root.join(&summary.path);
+                let page_path = self.knowledge_path(&summary.page_id)?;
                 if !page_path.exists() {
                     continue;
                 }
@@ -4008,7 +4049,7 @@ impl Application {
                 let markdown = if let Some(markdown) = contents.get(&summary.page_id) {
                     markdown.clone()
                 } else {
-                    let page_path = self.root.join(&summary.path);
+                    let page_path = self.knowledge_path(&summary.page_id)?;
                     match read_bounded_text(&page_path, MAX_PAGE_BYTES) {
                         Ok(markdown) => markdown,
                         Err(_) => {
@@ -4050,10 +4091,8 @@ impl Application {
                 .push((path, replaced_source.markdown.into_bytes()));
         }
         for (page_id, markdown) in contents {
-            self.staged_publication.push((
-                pages_dir.join(format!("{page_id}.md")),
-                markdown.into_bytes(),
-            ));
+            self.staged_publication
+                .push((self.knowledge_path(&page_id)?, markdown.into_bytes()));
         }
         for tag in &draft.tags {
             let _ = page_for(&tag.subject)?;
@@ -4911,11 +4950,7 @@ impl Application {
         if !pages_dir.is_dir() {
             return Ok(());
         }
-        let paths = fs::read_dir(&pages_dir)?
-            .filter_map(std::result::Result::ok)
-            .map(|entry| entry.path())
-            .filter(|path| path.extension().is_some_and(|extension| extension == "md"))
-            .collect::<Vec<_>>();
+        let paths = self.knowledge_paths()?;
         // Capture one fresh snapshot for this operation. Each page render borrows
         // it, avoiding a complete label-file scan for every retained page.
         let labels = self.knowledge_page_labels()?;
@@ -4935,13 +4970,12 @@ impl Application {
     }
 
     fn knowledge_page_labels(&self) -> Result<std::collections::HashMap<String, String>> {
-        let pages_dir = self.root.join("pages");
-        Ok(fs::read_dir(&pages_dir)?
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "md"))
-            .filter_map(|entry| read_knowledge_page(&entry.path()).ok())
+        Ok(self
+            .knowledge_paths()?
+            .into_iter()
+            .filter_map(|path| read_knowledge_page(&path).ok())
             .map(|page| (page.page_id, page.title))
-            .collect::<std::collections::HashMap<_, _>>())
+            .collect())
     }
 
     fn render_knowledge_page(
@@ -5758,8 +5792,7 @@ impl Application {
         }
         let pages_dir = self.root.join("pages");
         if pages_dir.is_dir() {
-            for entry in fs::read_dir(&pages_dir)? {
-                let path = entry?.path();
+            for path in self.knowledge_paths()? {
                 if path.extension().and_then(|extension| extension.to_str()) != Some("md") {
                     continue;
                 }
@@ -5989,7 +6022,7 @@ impl Application {
         let source_page = read_page(&self.page_path(&info.source_id)?)?;
         let mut knowledge = Vec::new();
         for summary in &source_page.info.knowledge_pages {
-            let path = self.root.join(&summary.path);
+            let path = self.knowledge_path(&summary.page_id)?;
             let markdown = match read_bounded_text(&path, MAX_PAGE_BYTES) {
                 Ok(markdown) => markdown,
                 Err(_) => continue,
