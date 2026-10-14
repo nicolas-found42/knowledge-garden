@@ -471,6 +471,10 @@ it("explores imported typed paths with keyboard and pointer and returns from int
   let imported: SourcePage | undefined;
   let original: string | undefined;
   const api: GardenApi = {
+    chooseRepositoryDirectory: async () => null,
+    importRepository: async () => {
+      throw new Error("Fixture supplies a local file");
+    },
     chooseFile: async () => source,
     importSource: async (path) => {
       imported = call<SourcePage>("path-recorded-import", path);
@@ -615,6 +619,10 @@ it("uses the mounted Boolean builder with the real native collection and retains
   const imported = call<SourcePage>("boolean-recorded-import", source);
   let openedOriginal: string | null = null;
   const api: GardenApi = {
+    chooseRepositoryDirectory: async () => null,
+    importRepository: async () => {
+      throw new Error("Fixture supplies a local file");
+    },
     chooseFile: async () => source,
     importSource: async () => imported,
     importUrl: async () => {

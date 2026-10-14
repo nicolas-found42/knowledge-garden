@@ -63,16 +63,14 @@ function testApi(): GardenApi {
       available_formats: [],
       available_statuses: [],
     } satisfies PageSearchResults),
-    queryPages: vi
-      .fn()
-      .mockResolvedValue({
-        results: [],
-        graph_revision: "revision-1",
-        next_cursor: null,
-        complete: true,
-        work_units: 0,
-        diagnostics: [],
-      }),
+    queryPages: vi.fn().mockResolvedValue({
+      results: [],
+      graph_revision: "revision-1",
+      next_cursor: null,
+      complete: true,
+      work_units: 0,
+      diagnostics: [],
+    }),
     cancelQuery: vi.fn().mockResolvedValue(undefined),
     pathGraphRevision: vi.fn().mockResolvedValue("revision-1"),
     explorePaths: vi.fn().mockResolvedValue({
@@ -184,16 +182,14 @@ it("restores the selected timeline date meaning, sort, filters and keyboard focu
     ],
     next_offset: null,
   });
-  api.openKnowledgePage = vi
-    .fn()
-    .mockResolvedValue({
-      page_id: "page-v17",
-      source_id: "source-riverside",
-      title: "Observation V17",
-      kind: "event",
-      markdown:
-        "# Observation V17\n\n[Supporting source](../sources/source-riverside/index.md)\n\nOccurred May 17, 2024.",
-    });
+  api.openKnowledgePage = vi.fn().mockResolvedValue({
+    page_id: "page-v17",
+    source_id: "source-riverside",
+    title: "Observation V17",
+    kind: "event",
+    markdown:
+      "# Observation V17\n\n[Supporting source](../sources/source-riverside/index.md)\n\nOccurred May 17, 2024.",
+  });
   const root = document.createElement("div");
   document.body.append(root);
   dispose = await mountReader(root, api);
@@ -315,8 +311,6 @@ it("offers distinct timeline date meanings and user-controlled sorting", async (
     }),
   );
 });
-
-
 
 it("loads a photo preview only on request and keeps its region guidance beside the image", async () => {
   const api = testApi();
@@ -1692,21 +1686,17 @@ it("retires displayed paths after a source update without loading another neighb
 
 it("constructs a grouped typed Boolean query through keyboard controls with explicit constraint scope", async () => {
   const api = testApi();
-  api.importSource = vi
-    .fn()
-    .mockResolvedValue({
-      ...riverside,
-      body: "# Notes\n\n[Maya](pages/page-maya.md)",
-    });
-  api.openKnowledgePage = vi
-    .fn()
-    .mockResolvedValue({
-      page_id: "page-maya",
-      source_id: "source-riverside",
-      title: "Maya",
-      kind: "person",
-      markdown: "# Maya",
-    });
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    body: "# Notes\n\n[Maya](pages/page-maya.md)",
+  });
+  api.openKnowledgePage = vi.fn().mockResolvedValue({
+    page_id: "page-maya",
+    source_id: "source-riverside",
+    title: "Maya",
+    kind: "person",
+    markdown: "# Maya",
+  });
   const root = document.createElement("div");
   document.body.append(root);
   dispose = await mountReader(root, api);
@@ -1758,43 +1748,37 @@ it("runs current Boolean clauses, clears stale results, cancels old work and res
     kind: "person",
     markdown: "# Maya",
   };
-  api.importSource = vi
-    .fn()
-    .mockResolvedValue({
-      ...riverside,
-      body: "# Notes\n\n[Maya](pages/page-maya.md)",
-    });
-  api.openKnowledgePage = vi
-    .fn()
-    .mockImplementation(async (id) =>
-      id === "page-maya"
-        ? maya
-        : {
-            ...maya,
-            page_id: "page-paris",
-            title: "Paris",
-            markdown: "# Paris",
-          },
-    );
-  const query = vi
-    .fn()
-    .mockResolvedValue({
-      results: [
-        {
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    body: "# Notes\n\n[Maya](pages/page-maya.md)",
+  });
+  api.openKnowledgePage = vi.fn().mockImplementation(async (id) =>
+    id === "page-maya"
+      ? maya
+      : {
+          ...maya,
           page_id: "page-paris",
-          source_id: "source-riverside",
-          page_type: "knowledge",
           title: "Paris",
-          kind: "place",
-          paths: [],
+          markdown: "# Paris",
         },
-      ],
-      graph_revision: "revision-1",
-      next_cursor: null,
-      complete: true,
-      work_units: 8,
-      diagnostics: [],
-    });
+  );
+  const query = vi.fn().mockResolvedValue({
+    results: [
+      {
+        page_id: "page-paris",
+        source_id: "source-riverside",
+        page_type: "knowledge",
+        title: "Paris",
+        kind: "place",
+        paths: [],
+      },
+    ],
+    graph_revision: "revision-1",
+    next_cursor: null,
+    complete: true,
+    work_units: 8,
+    diagnostics: [],
+  });
   api.queryPages = query;
   const root = document.createElement("div");
   document.body.append(root);

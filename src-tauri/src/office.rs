@@ -457,6 +457,7 @@ fn finish(
 
 fn coverage_scope_label(scope: CoverageScope) -> &'static str {
     match scope {
+        CoverageScope::PdfPages => "PDF page text",
         CoverageScope::MainDocument => "main document",
         CoverageScope::ConversationMessages => "conversation messages",
         CoverageScope::Tables => "tables",

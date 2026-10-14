@@ -51,7 +51,10 @@ impl OpenRouterSystemOneTransport {
     /// Inject the external HTTP boundary for deterministic adapter qualification.
     /// The application continues to use the pinned OpenRouter endpoint by default.
     pub fn with_endpoint(endpoint: String) -> Self {
-        Self { endpoint, ..Self::default() }
+        Self {
+            endpoint,
+            ..Self::default()
+        }
     }
 }
 

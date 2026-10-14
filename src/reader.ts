@@ -110,7 +110,13 @@ export async function mountReader(
   let currentKnowledgePageId: string | null = null;
   let currentSourceId: string | null = null;
   let currentView:
-    "empty" | "source" | "knowledge" | "search" | "paths" | "query" | "timeline" = "empty";
+    | "empty"
+    | "source"
+    | "knowledge"
+    | "search"
+    | "paths"
+    | "query"
+    | "timeline" = "empty";
   type PathExploreUiState = {
     startPageId: string;
     startTitle: string;

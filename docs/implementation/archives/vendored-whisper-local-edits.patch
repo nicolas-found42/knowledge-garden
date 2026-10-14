@@ -1,0 +1,12 @@
+diff --git a/bindings/javascript/package.json b/bindings/javascript/package.json
+index ce9bb54b..4b768dca 100644
+--- a/bindings/javascript/package.json
++++ b/bindings/javascript/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "whisper.cpp",
+-  "version": "1.9.3",
++  "version": "1.9.3-dev",
+   "description": "Whisper speech recognition",
+   "main": "whisper.js",
+   "scripts": {
