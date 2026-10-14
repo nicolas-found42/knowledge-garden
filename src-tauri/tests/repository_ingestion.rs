@@ -887,3 +887,36 @@ fn repository_explicit_open_question_is_navigable_with_its_exact_source_span() {
         document.as_bytes()
     );
 }
+
+#[test]
+fn repository_adr_decision_preserves_its_multiline_scope_qualification() {
+    let workspace = tempdir().unwrap();
+    let repository = workspace.path().join("qualified-repository");
+    fs::create_dir_all(repository.join("docs/adr")).unwrap();
+    let adr = "# ADR-0001: Keep query plans local\n\n## Decision\nKeep parsed query plans local to each process.\nOnly temporary test processes use this policy; production processes keep plans remotely.\n\n## Consequences\nTests remain isolated.\n";
+    fs::write(repository.join("docs/adr/0001-cache.md"), adr).unwrap();
+    let provider = Arc::new(JevSemanticProvider::with_transport(
+        "repository-fixture-credential".into(),
+        Arc::new(RepositoryDecisionTransport),
+    ));
+    let mut app =
+        Application::open_with_semantic_provider(workspace.path().join("collection"), provider)
+            .unwrap();
+    let imported = app.import_repository(&repository).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let source = app.open_source(&imported.sources[0].source_id).unwrap();
+    assert_eq!(source.info.semantic_state, "complete", "{source:?}");
+    let decision = source
+        .knowledge_pages
+        .iter()
+        .find(|page| page.kind == "decision")
+        .unwrap();
+    let page = app.open_knowledge_page(&decision.page_id).unwrap();
+    assert!(page.markdown.contains("Only temporary test processes use this policy; production processes keep plans remotely."), "the source's scope qualification must survive: {}", page.markdown);
+    assert!(
+        page.markdown.contains("source lines 4–5"),
+        "{}",
+        page.markdown
+    );
+    assert!(!page.markdown.contains("Tests remain isolated."));
+}
