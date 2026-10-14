@@ -475,7 +475,7 @@ impl SemanticProvider for JevSemanticProvider {
                 .map(|(i, candidate)| {
                     (
                         format!("date_{i}"),
-                        json!({"value":candidate.value,"span":candidate.quote}),
+                        json!({"value":candidate.value,"span":candidate.quote,"qualification":candidate.qualifier}),
                     )
                 })
                 .collect::<serde_json::Map<String, Value>>();
@@ -489,7 +489,7 @@ impl SemanticProvider for JevSemanticProvider {
             );
             questions.insert("event_date".into(), json!({
                 "type":"choice",
-                "instructions":"Which candidate date, if any, is the date of the described observation event? A report revision date is not an event date. Choose none when the source does not state an event date.",
+                "instructions":"Which candidate date, if any, is supplied for the described observation event? A month and year, a year alone, or a stated interval is an event date with limited precision: choose its literal candidate as supplied, retaining the qualification, without inventing a day. Absence of an exact day does not mean no event date is supplied. A report revision or publication date is not an event date. Choose none only when no candidate describes a supplied event date.",
                 "criteria":criteria
             }));
         }
@@ -2224,10 +2224,12 @@ fn candidates(text: &str) -> Vec<Candidate> {
         });
     }
     let date_re = regex(
-        r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+[0-9]{1,2},?\s+[0-9]{4}\b",
+        r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(?:[0-9]{1,2},?\s+[0-9]{4}|[0-9]{4})\b",
     );
     for m in date_re.find_iter(text) {
         let value = m.as_str().to_owned();
+        let qualifier = (value.split_whitespace().count() == 2)
+            .then(|| "Source supplies month precision; day is not supplied.".to_owned());
         let origin = origin_for(text, m.start(), m.end());
         let (start, end) = sentence_bounds(text, m.start(), m.end());
         let quote = text[start..end].to_owned();
@@ -2237,7 +2239,7 @@ fn candidates(text: &str) -> Vec<Candidate> {
             quote,
             start,
             end,
-            qualifier: None,
+            qualifier,
             origin,
         });
     }
