@@ -1,2 +1,13 @@
 pub mod application;
+pub mod conversation;
 pub mod desktop;
+pub mod extraction;
+pub mod meaning;
+pub mod media;
+pub mod office;
+pub mod pdf;
+pub mod photo;
+pub mod providers;
+pub mod semantic;
+pub mod timeline;
+pub mod web;

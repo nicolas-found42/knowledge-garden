@@ -1,0 +1,1807 @@
+{
+  "summary": {
+    "requests": 192,
+    "successful": 192,
+    "checks": 256,
+    "correct": 225,
+    "wall_seconds": 15.857718708983157,
+    "median_seconds": 0.3638824790104991,
+    "input_tokens": 121824,
+    "output_tokens": 21344,
+    "cost_usd": 0.005116608
+  },
+  "by_family_split_variant": {
+    "coverage/development/clean": {
+      "requests": 12,
+      "correct": 12,
+      "checks": 12,
+      "exact_case": 12
+    },
+    "coverage/development/distractor_order": {
+      "requests": 12,
+      "correct": 11,
+      "checks": 12,
+      "exact_case": 11
+    },
+    "coverage/holdout/clean": {
+      "requests": 4,
+      "correct": 4,
+      "checks": 4,
+      "exact_case": 4
+    },
+    "coverage/holdout/distractor_order": {
+      "requests": 4,
+      "correct": 4,
+      "checks": 4,
+      "exact_case": 4
+    },
+    "entity/development/clean": {
+      "requests": 12,
+      "correct": 11,
+      "checks": 12,
+      "exact_case": 11
+    },
+    "entity/development/distractor_order": {
+      "requests": 12,
+      "correct": 11,
+      "checks": 12,
+      "exact_case": 11
+    },
+    "entity/holdout/clean": {
+      "requests": 4,
+      "correct": 4,
+      "checks": 4,
+      "exact_case": 4
+    },
+    "entity/holdout/distractor_order": {
+      "requests": 4,
+      "correct": 4,
+      "checks": 4,
+      "exact_case": 4
+    },
+    "episode/development/clean": {
+      "requests": 12,
+      "correct": 21,
+      "checks": 24,
+      "exact_case": 9
+    },
+    "episode/development/distractor_order": {
+      "requests": 12,
+      "correct": 21,
+      "checks": 24,
+      "exact_case": 9
+    },
+    "episode/holdout/clean": {
+      "requests": 4,
+      "correct": 8,
+      "checks": 8,
+      "exact_case": 4
+    },
+    "episode/holdout/distractor_order": {
+      "requests": 4,
+      "correct": 8,
+      "checks": 8,
+      "exact_case": 4
+    },
+    "lifecycle/development/clean": {
+      "requests": 12,
+      "correct": 10,
+      "checks": 12,
+      "exact_case": 10
+    },
+    "lifecycle/development/distractor_order": {
+      "requests": 12,
+      "correct": 10,
+      "checks": 12,
+      "exact_case": 10
+    },
+    "lifecycle/holdout/clean": {
+      "requests": 4,
+      "correct": 3,
+      "checks": 4,
+      "exact_case": 3
+    },
+    "lifecycle/holdout/distractor_order": {
+      "requests": 4,
+      "correct": 3,
+      "checks": 4,
+      "exact_case": 3
+    },
+    "ontology/development/clean": {
+      "requests": 12,
+      "correct": 12,
+      "checks": 12,
+      "exact_case": 12
+    },
+    "ontology/development/distractor_order": {
+      "requests": 12,
+      "correct": 12,
+      "checks": 12,
+      "exact_case": 12
+    },
+    "ontology/holdout/clean": {
+      "requests": 4,
+      "correct": 4,
+      "checks": 4,
+      "exact_case": 4
+    },
+    "ontology/holdout/distractor_order": {
+      "requests": 4,
+      "correct": 4,
+      "checks": 4,
+      "exact_case": 4
+    },
+    "spans/development/clean": {
+      "requests": 12,
+      "correct": 19,
+      "checks": 24,
+      "exact_case": 7
+    },
+    "spans/development/distractor_order": {
+      "requests": 12,
+      "correct": 19,
+      "checks": 24,
+      "exact_case": 7
+    },
+    "spans/holdout/clean": {
+      "requests": 4,
+      "correct": 5,
+      "checks": 8,
+      "exact_case": 2
+    },
+    "spans/holdout/distractor_order": {
+      "requests": 4,
+      "correct": 5,
+      "checks": 8,
+      "exact_case": 2
+    }
+  },
+  "policy": [
+    {
+      "family": "coverage",
+      "split": "development",
+      "threshold": 0.5,
+      "n": 24,
+      "actions": 5,
+      "false_actions": 1,
+      "missed_actions": 0
+    },
+    {
+      "family": "coverage",
+      "split": "development",
+      "threshold": 0.8,
+      "n": 24,
+      "actions": 2,
+      "false_actions": 0,
+      "missed_actions": 2
+    },
+    {
+      "family": "coverage",
+      "split": "development",
+      "threshold": 0.9,
+      "n": 24,
+      "actions": 1,
+      "false_actions": 0,
+      "missed_actions": 3
+    },
+    {
+      "family": "coverage",
+      "split": "development",
+      "threshold": 0.99,
+      "n": 24,
+      "actions": 0,
+      "false_actions": 0,
+      "missed_actions": 4
+    },
+    {
+      "family": "coverage",
+      "split": "holdout",
+      "threshold": 0.5,
+      "n": 8,
+      "actions": 2,
+      "false_actions": 0,
+      "missed_actions": 0
+    },
+    {
+      "family": "coverage",
+      "split": "holdout",
+      "threshold": 0.8,
+      "n": 8,
+      "actions": 0,
+      "false_actions": 0,
+      "missed_actions": 2
+    },
+    {
+      "family": "coverage",
+      "split": "holdout",
+      "threshold": 0.9,
+      "n": 8,
+      "actions": 0,
+      "false_actions": 0,
+      "missed_actions": 2
+    },
+    {
+      "family": "coverage",
+      "split": "holdout",
+      "threshold": 0.99,
+      "n": 8,
+      "actions": 0,
+      "false_actions": 0,
+      "missed_actions": 2
+    },
+    {
+      "family": "entity",
+      "split": "development",
+      "threshold": 0.5,
+      "n": 24,
+      "actions": 2,
+      "false_actions": 2,
+      "missed_actions": 6
+    },
+    {
+      "family": "entity",
+      "split": "development",
+      "threshold": 0.8,
+      "n": 24,
+      "actions": 0,
+      "false_actions": 0,
+      "missed_actions": 6
+    },
+    {
+      "family": "entity",
+      "split": "development",
+      "threshold": 0.9,
+      "n": 24,
+      "actions": 0,
+      "false_actions": 0,
+      "missed_actions": 6
+    },
+    {
+      "family": "entity",
+      "split": "development",
+      "threshold": 0.99,
+      "n": 24,
+      "actions": 0,
+      "false_actions": 0,
+      "missed_actions": 6
+    },
+    {
+      "family": "entity",
+      "split": "holdout",
+      "threshold": 0.5,
+      "n": 8,
+      "actions": 1,
+      "false_actions": 0,
+      "missed_actions": 1
+    },
+    {
+      "family": "entity",
+      "split": "holdout",
+      "threshold": 0.8,
+      "n": 8,
+      "actions": 0,
+      "false_actions": 0,
+      "missed_actions": 2
+    },
+    {
+      "family": "entity",
+      "split": "holdout",
+      "threshold": 0.9,
+      "n": 8,
+      "actions": 0,
+      "false_actions": 0,
+      "missed_actions": 2
+    },
+    {
+      "family": "entity",
+      "split": "holdout",
+      "threshold": 0.99,
+      "n": 8,
+      "actions": 0,
+      "false_actions": 0,
+      "missed_actions": 2
+    },
+    {
+      "family": "lifecycle",
+      "split": "development",
+      "threshold": 0.5,
+      "n": 24,
+      "actions": 4,
+      "false_actions": 0,
+      "missed_actions": 0
+    },
+    {
+      "family": "lifecycle",
+      "split": "development",
+      "threshold": 0.8,
+      "n": 24,
+      "actions": 4,
+      "false_actions": 0,
+      "missed_actions": 0
+    },
+    {
+      "family": "lifecycle",
+      "split": "development",
+      "threshold": 0.9,
+      "n": 24,
+      "actions": 4,
+      "false_actions": 0,
+      "missed_actions": 0
+    },
+    {
+      "family": "lifecycle",
+      "split": "development",
+      "threshold": 0.99,
+      "n": 24,
+      "actions": 0,
+      "false_actions": 0,
+      "missed_actions": 4
+    },
+    {
+      "family": "lifecycle",
+      "split": "holdout",
+      "threshold": 0.5,
+      "n": 8,
+      "actions": 4,
+      "false_actions": 0,
+      "missed_actions": 0
+    },
+    {
+      "family": "lifecycle",
+      "split": "holdout",
+      "threshold": 0.8,
+      "n": 8,
+      "actions": 4,
+      "false_actions": 0,
+      "missed_actions": 0
+    },
+    {
+      "family": "lifecycle",
+      "split": "holdout",
+      "threshold": 0.9,
+      "n": 8,
+      "actions": 2,
+      "false_actions": 0,
+      "missed_actions": 2
+    },
+    {
+      "family": "lifecycle",
+      "split": "holdout",
+      "threshold": 0.99,
+      "n": 8,
+      "actions": 0,
+      "false_actions": 0,
+      "missed_actions": 4
+    }
+  ],
+  "failures": [
+    {
+      "family": "coverage",
+      "name": "quoted",
+      "variant": "distractor_order",
+      "checks": {
+        "coverage": {
+          "expected": "unsupported",
+          "actual": "supports",
+          "correct": false
+        }
+      },
+      "answers": {
+        "coverage": {
+          "type": "choice",
+          "choice": "supports",
+          "probabilities": {
+            "unsupported": 0.37,
+            "contradicts": 0,
+            "supports": 0.62,
+            "mixed": 0.01
+          },
+          "confidence": 0.49
+        },
+        "complete": {
+          "type": "noul",
+          "noul": 0.6
+        },
+        "quality": {
+          "type": "score",
+          "score": 1.73,
+          "legend": {
+            "0": "No evidence or relevance.",
+            "1": "Partial or indirect evidence.",
+            "2": "Direct complete evidence."
+          },
+          "probabilities": {
+            "0": 0.01,
+            "1": 0.26,
+            "2": 0.73
+          },
+          "confidence": 0.59
+        },
+        "use_s0": {
+          "type": "noul",
+          "noul": 0.65
+        }
+      }
+    },
+    {
+      "family": "entity",
+      "name": "ambig_bridge",
+      "variant": "clean",
+      "checks": {
+        "identity": {
+          "expected": "uncertain",
+          "actual": "same",
+          "correct": false
+        }
+      },
+      "answers": {
+        "identity": {
+          "type": "choice",
+          "choice": "same",
+          "probabilities": {
+            "uncertain": 0.49,
+            "same": 0.5,
+            "different": 0.01
+          },
+          "confidence": 0.26
+        },
+        "same": {
+          "type": "noul",
+          "noul": 0.54
+        },
+        "strength": {
+          "type": "score",
+          "score": 1.19,
+          "legend": {
+            "0": "No evidence or relevance.",
+            "1": "Partial or indirect evidence.",
+            "2": "Direct complete evidence."
+          },
+          "probabilities": {
+            "0": 0.01,
+            "1": 0.79,
+            "2": 0.2
+          },
+          "confidence": 0.68
+        }
+      }
+    },
+    {
+      "family": "entity",
+      "name": "ambig_bridge",
+      "variant": "distractor_order",
+      "checks": {
+        "identity": {
+          "expected": "uncertain",
+          "actual": "same",
+          "correct": false
+        }
+      },
+      "answers": {
+        "identity": {
+          "type": "choice",
+          "choice": "same",
+          "probabilities": {
+            "uncertain": 0.4,
+            "same": 0.59,
+            "different": 0.01
+          },
+          "confidence": 0.39
+        },
+        "same": {
+          "type": "noul",
+          "noul": 0.53
+        },
+        "strength": {
+          "type": "score",
+          "score": 1.36,
+          "legend": {
+            "0": "No evidence or relevance.",
+            "1": "Partial or indirect evidence.",
+            "2": "Direct complete evidence."
+          },
+          "probabilities": {
+            "0": 0.01,
+            "1": 0.62,
+            "2": 0.37
+          },
+          "confidence": 0.43
+        }
+      }
+    },
+    {
+      "family": "episode",
+      "name": "negation",
+      "variant": "clean",
+      "checks": {
+        "boundary": {
+          "expected": "same",
+          "actual": "same",
+          "correct": true
+        },
+        "antecedent": {
+          "expected": "left",
+          "actual": "none",
+          "correct": false
+        }
+      },
+      "answers": {
+        "boundary": {
+          "type": "choice",
+          "choice": "same",
+          "probabilities": {
+            "same": 0.96,
+            "new": 0.01,
+            "unknown": 0.03
+          },
+          "confidence": 0.95
+        },
+        "antecedent": {
+          "type": "choice",
+          "choice": "none",
+          "probabilities": {
+            "left": 0.33,
+            "none": 0.67
+          },
+          "confidence": 0.34
+        },
+        "grounded": {
+          "type": "noul",
+          "noul": 0.87
+        }
+      }
+    },
+    {
+      "family": "episode",
+      "name": "negation",
+      "variant": "distractor_order",
+      "checks": {
+        "boundary": {
+          "expected": "same",
+          "actual": "same",
+          "correct": true
+        },
+        "antecedent": {
+          "expected": "left",
+          "actual": "none",
+          "correct": false
+        }
+      },
+      "answers": {
+        "boundary": {
+          "type": "choice",
+          "choice": "same",
+          "probabilities": {
+            "same": 0.99,
+            "new": 0.01,
+            "unknown": 0
+          },
+          "confidence": 0.98
+        },
+        "antecedent": {
+          "type": "choice",
+          "choice": "none",
+          "probabilities": {
+            "none": 0.56,
+            "left": 0.44
+          },
+          "confidence": 0.11
+        },
+        "grounded": {
+          "type": "noul",
+          "noul": 0.86
+        }
+      }
+    },
+    {
+      "family": "episode",
+      "name": "scope",
+      "variant": "clean",
+      "checks": {
+        "boundary": {
+          "expected": "new",
+          "actual": "same",
+          "correct": false
+        },
+        "antecedent": {
+          "expected": "none",
+          "actual": "none",
+          "correct": true
+        }
+      },
+      "answers": {
+        "boundary": {
+          "type": "choice",
+          "choice": "same",
+          "probabilities": {
+            "same": 0.52,
+            "unknown": 0.02,
+            "new": 0.46
+          },
+          "confidence": 0.28
+        },
+        "antecedent": {
+          "type": "choice",
+          "choice": "none",
+          "probabilities": {
+            "left": 0.04,
+            "none": 0.96
+          },
+          "confidence": 0.91
+        },
+        "grounded": {
+          "type": "noul",
+          "noul": 0.09
+        }
+      }
+    },
+    {
+      "family": "episode",
+      "name": "scope",
+      "variant": "distractor_order",
+      "checks": {
+        "boundary": {
+          "expected": "new",
+          "actual": "same",
+          "correct": false
+        },
+        "antecedent": {
+          "expected": "none",
+          "actual": "none",
+          "correct": true
+        }
+      },
+      "answers": {
+        "boundary": {
+          "type": "choice",
+          "choice": "same",
+          "probabilities": {
+            "new": 0.37,
+            "unknown": 0.01,
+            "same": 0.62
+          },
+          "confidence": 0.44
+        },
+        "antecedent": {
+          "type": "choice",
+          "choice": "none",
+          "probabilities": {
+            "none": 0.95,
+            "left": 0.05
+          },
+          "confidence": 0.9
+        },
+        "grounded": {
+          "type": "noul",
+          "noul": 0.08
+        }
+      }
+    },
+    {
+      "family": "episode",
+      "name": "wrong",
+      "variant": "clean",
+      "checks": {
+        "boundary": {
+          "expected": "same",
+          "actual": "new",
+          "correct": false
+        },
+        "antecedent": {
+          "expected": "none",
+          "actual": "none",
+          "correct": true
+        }
+      },
+      "answers": {
+        "boundary": {
+          "type": "choice",
+          "choice": "new",
+          "probabilities": {
+            "same": 0.18,
+            "unknown": 0.06,
+            "new": 0.76
+          },
+          "confidence": 0.64
+        },
+        "antecedent": {
+          "type": "choice",
+          "choice": "none",
+          "probabilities": {
+            "none": 0.75,
+            "left": 0.25
+          },
+          "confidence": 0.5
+        },
+        "grounded": {
+          "type": "noul",
+          "noul": 0.18
+        }
+      }
+    },
+    {
+      "family": "episode",
+      "name": "wrong",
+      "variant": "distractor_order",
+      "checks": {
+        "boundary": {
+          "expected": "same",
+          "actual": "new",
+          "correct": false
+        },
+        "antecedent": {
+          "expected": "none",
+          "actual": "none",
+          "correct": true
+        }
+      },
+      "answers": {
+        "boundary": {
+          "type": "choice",
+          "choice": "new",
+          "probabilities": {
+            "same": 0.29,
+            "new": 0.65,
+            "unknown": 0.06
+          },
+          "confidence": 0.47
+        },
+        "antecedent": {
+          "type": "choice",
+          "choice": "none",
+          "probabilities": {
+            "left": 0.43,
+            "none": 0.57
+          },
+          "confidence": 0.14
+        },
+        "grounded": {
+          "type": "noul",
+          "noul": 0.19
+        }
+      }
+    },
+    {
+      "family": "lifecycle",
+      "name": "holdout_other",
+      "variant": "clean",
+      "checks": {
+        "relation": {
+          "expected": "compatible",
+          "actual": "unrelated",
+          "correct": false
+        }
+      },
+      "answers": {
+        "relation": {
+          "type": "choice",
+          "choice": "unrelated",
+          "probabilities": {
+            "equivalent": 0,
+            "retract": 0,
+            "unrelated": 0.8,
+            "compatible": 0.03,
+            "replace": 0.17
+          },
+          "confidence": 0.74
+        },
+        "explicit": {
+          "type": "noul",
+          "noul": 0.22
+        }
+      }
+    },
+    {
+      "family": "lifecycle",
+      "name": "holdout_other",
+      "variant": "distractor_order",
+      "checks": {
+        "relation": {
+          "expected": "compatible",
+          "actual": "unrelated",
+          "correct": false
+        }
+      },
+      "answers": {
+        "relation": {
+          "type": "choice",
+          "choice": "unrelated",
+          "probabilities": {
+            "retract": 0,
+            "equivalent": 0,
+            "replace": 0.15,
+            "compatible": 0.07,
+            "unrelated": 0.78
+          },
+          "confidence": 0.71
+        },
+        "explicit": {
+          "type": "noul",
+          "noul": 0.29
+        }
+      }
+    },
+    {
+      "family": "lifecycle",
+      "name": "index",
+      "variant": "clean",
+      "checks": {
+        "relation": {
+          "expected": "compatible",
+          "actual": "unrelated",
+          "correct": false
+        }
+      },
+      "answers": {
+        "relation": {
+          "type": "choice",
+          "choice": "unrelated",
+          "probabilities": {
+            "retract": 0.01,
+            "unrelated": 0.78,
+            "compatible": 0.01,
+            "equivalent": 0,
+            "replace": 0.2
+          },
+          "confidence": 0.73
+        },
+        "explicit": {
+          "type": "noul",
+          "noul": 0.23
+        }
+      }
+    },
+    {
+      "family": "lifecycle",
+      "name": "index",
+      "variant": "distractor_order",
+      "checks": {
+        "relation": {
+          "expected": "compatible",
+          "actual": "unrelated",
+          "correct": false
+        }
+      },
+      "answers": {
+        "relation": {
+          "type": "choice",
+          "choice": "unrelated",
+          "probabilities": {
+            "compatible": 0.06,
+            "replace": 0.18,
+            "unrelated": 0.75,
+            "retract": 0.01,
+            "equivalent": 0
+          },
+          "confidence": 0.68
+        },
+        "explicit": {
+          "type": "noul",
+          "noul": 0.3
+        }
+      }
+    },
+    {
+      "family": "lifecycle",
+      "name": "scope",
+      "variant": "clean",
+      "checks": {
+        "relation": {
+          "expected": "compatible",
+          "actual": "unrelated",
+          "correct": false
+        }
+      },
+      "answers": {
+        "relation": {
+          "type": "choice",
+          "choice": "unrelated",
+          "probabilities": {
+            "replace": 0.08,
+            "compatible": 0.04,
+            "retract": 0,
+            "equivalent": 0,
+            "unrelated": 0.88
+          },
+          "confidence": 0.84
+        },
+        "explicit": {
+          "type": "noul",
+          "noul": 0.18
+        }
+      }
+    },
+    {
+      "family": "lifecycle",
+      "name": "scope",
+      "variant": "distractor_order",
+      "checks": {
+        "relation": {
+          "expected": "compatible",
+          "actual": "unrelated",
+          "correct": false
+        }
+      },
+      "answers": {
+        "relation": {
+          "type": "choice",
+          "choice": "unrelated",
+          "probabilities": {
+            "replace": 0.25,
+            "unrelated": 0.65,
+            "equivalent": 0,
+            "retract": 0,
+            "compatible": 0.1
+          },
+          "confidence": 0.56
+        },
+        "explicit": {
+          "type": "noul",
+          "noul": 0.26
+        }
+      }
+    },
+    {
+      "family": "spans",
+      "name": "attack",
+      "variant": "clean",
+      "checks": {
+        "role_p0": {
+          "expected": "quotation",
+          "actual": "quotation",
+          "correct": true
+        },
+        "role_p1": {
+          "expected": "none",
+          "actual": "quotation",
+          "correct": false
+        }
+      },
+      "answers": {
+        "role_p0": {
+          "type": "choice",
+          "choice": "quotation",
+          "probabilities": {
+            "observation": 0,
+            "none": 0.01,
+            "decision_reason": 0,
+            "quotation": 0.76,
+            "reason": 0,
+            "proposal": 0,
+            "task": 0.02,
+            "decision": 0.21
+          },
+          "confidence": 0.72
+        },
+        "role_p1": {
+          "type": "choice",
+          "choice": "quotation",
+          "probabilities": {
+            "observation": 0.01,
+            "none": 0,
+            "decision_reason": 0,
+            "quotation": 0.99,
+            "reason": 0,
+            "proposal": 0,
+            "task": 0,
+            "decision": 0
+          },
+          "confidence": 0.98
+        },
+        "decision_p0": {
+          "type": "noul",
+          "noul": 0.15
+        },
+        "decision_p1": {
+          "type": "noul",
+          "noul": 0.1
+        }
+      }
+    },
+    {
+      "family": "spans",
+      "name": "attack",
+      "variant": "distractor_order",
+      "checks": {
+        "role_p0": {
+          "expected": "quotation",
+          "actual": "quotation",
+          "correct": true
+        },
+        "role_p1": {
+          "expected": "none",
+          "actual": "quotation",
+          "correct": false
+        }
+      },
+      "answers": {
+        "role_p0": {
+          "type": "choice",
+          "choice": "quotation",
+          "probabilities": {
+            "decision": 0.06,
+            "proposal": 0,
+            "reason": 0,
+            "decision_reason": 0,
+            "quotation": 0.92,
+            "observation": 0,
+            "task": 0.01,
+            "none": 0.01
+          },
+          "confidence": 0.91
+        },
+        "role_p1": {
+          "type": "choice",
+          "choice": "quotation",
+          "probabilities": {
+            "decision": 0,
+            "proposal": 0,
+            "reason": 0,
+            "decision_reason": 0,
+            "quotation": 0.97,
+            "observation": 0.02,
+            "task": 0,
+            "none": 0.01
+          },
+          "confidence": 0.96
+        },
+        "decision_p0": {
+          "type": "noul",
+          "noul": 0.15
+        },
+        "decision_p1": {
+          "type": "noul",
+          "noul": 0.09
+        }
+      }
+    },
+    {
+      "family": "spans",
+      "name": "decision",
+      "variant": "clean",
+      "checks": {
+        "role_p0": {
+          "expected": "decision",
+          "actual": "decision",
+          "correct": true
+        },
+        "role_p1": {
+          "expected": "none",
+          "actual": "observation",
+          "correct": false
+        }
+      },
+      "answers": {
+        "role_p0": {
+          "type": "choice",
+          "choice": "decision",
+          "probabilities": {
+            "quotation": 0,
+            "reason": 0,
+            "decision_reason": 0,
+            "decision": 0.9,
+            "none": 0,
+            "observation": 0,
+            "task": 0.01,
+            "proposal": 0.09
+          },
+          "confidence": 0.88
+        },
+        "role_p1": {
+          "type": "choice",
+          "choice": "observation",
+          "probabilities": {
+            "quotation": 0,
+            "reason": 0,
+            "decision_reason": 0,
+            "decision": 0,
+            "observation": 0.92,
+            "none": 0.08,
+            "task": 0,
+            "proposal": 0
+          },
+          "confidence": 0.91
+        },
+        "decision_p0": {
+          "type": "noul",
+          "noul": 0.73
+        },
+        "decision_p1": {
+          "type": "noul",
+          "noul": 0.06
+        }
+      }
+    },
+    {
+      "family": "spans",
+      "name": "decision",
+      "variant": "distractor_order",
+      "checks": {
+        "role_p0": {
+          "expected": "decision",
+          "actual": "decision",
+          "correct": true
+        },
+        "role_p1": {
+          "expected": "none",
+          "actual": "observation",
+          "correct": false
+        }
+      },
+      "answers": {
+        "role_p0": {
+          "type": "choice",
+          "choice": "decision",
+          "probabilities": {
+            "decision_reason": 0,
+            "none": 0.01,
+            "observation": 0,
+            "quotation": 0.02,
+            "reason": 0,
+            "proposal": 0.07,
+            "task": 0.04,
+            "decision": 0.86
+          },
+          "confidence": 0.84
+        },
+        "role_p1": {
+          "type": "choice",
+          "choice": "observation",
+          "probabilities": {
+            "observation": 0.96,
+            "none": 0.04,
+            "decision_reason": 0,
+            "quotation": 0,
+            "reason": 0,
+            "proposal": 0,
+            "task": 0,
+            "decision": 0
+          },
+          "confidence": 0.95
+        },
+        "decision_p0": {
+          "type": "noul",
+          "noul": 0.71
+        },
+        "decision_p1": {
+          "type": "noul",
+          "noul": 0.13
+        }
+      }
+    },
+    {
+      "family": "spans",
+      "name": "holdout_decision",
+      "variant": "clean",
+      "checks": {
+        "role_p0": {
+          "expected": "decision",
+          "actual": "decision",
+          "correct": true
+        },
+        "role_p1": {
+          "expected": "none",
+          "actual": "observation",
+          "correct": false
+        }
+      },
+      "answers": {
+        "role_p0": {
+          "type": "choice",
+          "choice": "decision",
+          "probabilities": {
+            "decision": 0.97,
+            "quotation": 0,
+            "decision_reason": 0,
+            "proposal": 0.01,
+            "observation": 0,
+            "none": 0.01,
+            "reason": 0,
+            "task": 0.01
+          },
+          "confidence": 0.97
+        },
+        "role_p1": {
+          "type": "choice",
+          "choice": "observation",
+          "probabilities": {
+            "decision": 0,
+            "quotation": 0,
+            "proposal": 0,
+            "decision_reason": 0,
+            "observation": 0.96,
+            "none": 0.04,
+            "reason": 0,
+            "task": 0
+          },
+          "confidence": 0.95
+        },
+        "decision_p0": {
+          "type": "noul",
+          "noul": 0.67
+        },
+        "decision_p1": {
+          "type": "noul",
+          "noul": 0.17
+        }
+      }
+    },
+    {
+      "family": "spans",
+      "name": "holdout_decision",
+      "variant": "distractor_order",
+      "checks": {
+        "role_p0": {
+          "expected": "decision",
+          "actual": "decision",
+          "correct": true
+        },
+        "role_p1": {
+          "expected": "none",
+          "actual": "observation",
+          "correct": false
+        }
+      },
+      "answers": {
+        "role_p0": {
+          "type": "choice",
+          "choice": "decision",
+          "probabilities": {
+            "decision": 0.97,
+            "proposal": 0,
+            "none": 0.01,
+            "observation": 0,
+            "task": 0.01,
+            "quotation": 0.01,
+            "reason": 0,
+            "decision_reason": 0
+          },
+          "confidence": 0.96
+        },
+        "role_p1": {
+          "type": "choice",
+          "choice": "observation",
+          "probabilities": {
+            "decision_reason": 0,
+            "proposal": 0,
+            "none": 0.02,
+            "observation": 0.98,
+            "task": 0,
+            "quotation": 0,
+            "decision": 0,
+            "reason": 0
+          },
+          "confidence": 0.97
+        },
+        "decision_p0": {
+          "type": "noul",
+          "noul": 0.73
+        },
+        "decision_p1": {
+          "type": "noul",
+          "noul": 0.25
+        }
+      }
+    },
+    {
+      "family": "spans",
+      "name": "holdout_quote",
+      "variant": "clean",
+      "checks": {
+        "role_p0": {
+          "expected": "quotation",
+          "actual": "proposal",
+          "correct": false
+        },
+        "role_p1": {
+          "expected": "none",
+          "actual": "observation",
+          "correct": false
+        }
+      },
+      "answers": {
+        "role_p0": {
+          "type": "choice",
+          "choice": "proposal",
+          "probabilities": {
+            "quotation": 0.02,
+            "reason": 0,
+            "decision": 0,
+            "proposal": 0.96,
+            "observation": 0.02,
+            "task": 0,
+            "none": 0,
+            "decision_reason": 0
+          },
+          "confidence": 0.94
+        },
+        "role_p1": {
+          "type": "choice",
+          "choice": "observation",
+          "probabilities": {
+            "quotation": 0,
+            "reason": 0,
+            "decision": 0.12,
+            "proposal": 0.05,
+            "observation": 0.8,
+            "task": 0,
+            "none": 0.03,
+            "decision_reason": 0
+          },
+          "confidence": 0.76
+        },
+        "decision_p0": {
+          "type": "noul",
+          "noul": 0.16
+        },
+        "decision_p1": {
+          "type": "noul",
+          "noul": 0.17
+        }
+      }
+    },
+    {
+      "family": "spans",
+      "name": "holdout_quote",
+      "variant": "distractor_order",
+      "checks": {
+        "role_p0": {
+          "expected": "quotation",
+          "actual": "proposal",
+          "correct": false
+        },
+        "role_p1": {
+          "expected": "none",
+          "actual": "observation",
+          "correct": false
+        }
+      },
+      "answers": {
+        "role_p0": {
+          "type": "choice",
+          "choice": "proposal",
+          "probabilities": {
+            "decision": 0,
+            "proposal": 0.99,
+            "observation": 0.01,
+            "decision_reason": 0,
+            "reason": 0,
+            "quotation": 0,
+            "none": 0,
+            "task": 0
+          },
+          "confidence": 0.98
+        },
+        "role_p1": {
+          "type": "choice",
+          "choice": "observation",
+          "probabilities": {
+            "decision": 0.34,
+            "proposal": 0.01,
+            "observation": 0.61,
+            "decision_reason": 0,
+            "reason": 0,
+            "quotation": 0,
+            "none": 0.04,
+            "task": 0
+          },
+          "confidence": 0.54
+        },
+        "decision_p0": {
+          "type": "noul",
+          "noul": 0.09
+        },
+        "decision_p1": {
+          "type": "noul",
+          "noul": 0.21
+        }
+      }
+    },
+    {
+      "family": "spans",
+      "name": "quote",
+      "variant": "clean",
+      "checks": {
+        "role_p0": {
+          "expected": "quotation",
+          "actual": "quotation",
+          "correct": true
+        },
+        "role_p1": {
+          "expected": "none",
+          "actual": "observation",
+          "correct": false
+        }
+      },
+      "answers": {
+        "role_p0": {
+          "type": "choice",
+          "choice": "quotation",
+          "probabilities": {
+            "decision_reason": 0,
+            "observation": 0.01,
+            "quotation": 0.83,
+            "none": 0,
+            "proposal": 0.15,
+            "reason": 0,
+            "task": 0,
+            "decision": 0.01
+          },
+          "confidence": 0.8
+        },
+        "role_p1": {
+          "type": "choice",
+          "choice": "observation",
+          "probabilities": {
+            "decision_reason": 0,
+            "observation": 0.75,
+            "decision": 0.11,
+            "proposal": 0.06,
+            "none": 0.06,
+            "reason": 0,
+            "task": 0.02,
+            "quotation": 0
+          },
+          "confidence": 0.7
+        },
+        "decision_p0": {
+          "type": "noul",
+          "noul": 0.08
+        },
+        "decision_p1": {
+          "type": "noul",
+          "noul": 0.05
+        }
+      }
+    },
+    {
+      "family": "spans",
+      "name": "quote",
+      "variant": "distractor_order",
+      "checks": {
+        "role_p0": {
+          "expected": "quotation",
+          "actual": "quotation",
+          "correct": true
+        },
+        "role_p1": {
+          "expected": "none",
+          "actual": "observation",
+          "correct": false
+        }
+      },
+      "answers": {
+        "role_p0": {
+          "type": "choice",
+          "choice": "quotation",
+          "probabilities": {
+            "decision_reason": 0,
+            "none": 0,
+            "reason": 0.05,
+            "decision": 0.01,
+            "observation": 0.08,
+            "quotation": 0.71,
+            "proposal": 0.15,
+            "task": 0
+          },
+          "confidence": 0.66
+        },
+        "role_p1": {
+          "type": "choice",
+          "choice": "observation",
+          "probabilities": {
+            "decision_reason": 0,
+            "none": 0.1,
+            "reason": 0,
+            "decision": 0.19,
+            "observation": 0.66,
+            "task": 0.02,
+            "proposal": 0.02,
+            "quotation": 0.01
+          },
+          "confidence": 0.6
+        },
+        "decision_p0": {
+          "type": "noul",
+          "noul": 0.08
+        },
+        "decision_p1": {
+          "type": "noul",
+          "noul": 0.05
+        }
+      }
+    },
+    {
+      "family": "spans",
+      "name": "todo",
+      "variant": "clean",
+      "checks": {
+        "role_p0": {
+          "expected": "task",
+          "actual": "task",
+          "correct": true
+        },
+        "role_p1": {
+          "expected": "none",
+          "actual": "observation",
+          "correct": false
+        }
+      },
+      "answers": {
+        "role_p0": {
+          "type": "choice",
+          "choice": "task",
+          "probabilities": {
+            "decision": 0.01,
+            "proposal": 0,
+            "reason": 0,
+            "decision_reason": 0,
+            "quotation": 0,
+            "observation": 0,
+            "task": 0.99,
+            "none": 0
+          },
+          "confidence": 0.99
+        },
+        "role_p1": {
+          "type": "choice",
+          "choice": "observation",
+          "probabilities": {
+            "decision": 0,
+            "proposal": 0,
+            "reason": 0,
+            "decision_reason": 0,
+            "quotation": 0,
+            "observation": 0.97,
+            "task": 0.01,
+            "none": 0.02
+          },
+          "confidence": 0.97
+        },
+        "decision_p0": {
+          "type": "noul",
+          "noul": 0.11
+        },
+        "decision_p1": {
+          "type": "noul",
+          "noul": 0.05
+        }
+      }
+    },
+    {
+      "family": "spans",
+      "name": "todo",
+      "variant": "distractor_order",
+      "checks": {
+        "role_p0": {
+          "expected": "task",
+          "actual": "task",
+          "correct": true
+        },
+        "role_p1": {
+          "expected": "none",
+          "actual": "observation",
+          "correct": false
+        }
+      },
+      "answers": {
+        "role_p0": {
+          "type": "choice",
+          "choice": "task",
+          "probabilities": {
+            "task": 0.99,
+            "quotation": 0,
+            "observation": 0,
+            "decision": 0.01,
+            "decision_reason": 0,
+            "none": 0,
+            "reason": 0,
+            "proposal": 0
+          },
+          "confidence": 0.99
+        },
+        "role_p1": {
+          "type": "choice",
+          "choice": "observation",
+          "probabilities": {
+            "task": 0.01,
+            "decision": 0,
+            "observation": 0.95,
+            "quotation": 0,
+            "decision_reason": 0,
+            "none": 0.04,
+            "reason": 0,
+            "proposal": 0
+          },
+          "confidence": 0.94
+        },
+        "decision_p0": {
+          "type": "noul",
+          "noul": 0.16
+        },
+        "decision_p1": {
+          "type": "noul",
+          "noul": 0.04
+        }
+      }
+    },
+    {
+      "family": "spans",
+      "name": "uncertain",
+      "variant": "clean",
+      "checks": {
+        "role_p0": {
+          "expected": "proposal",
+          "actual": "proposal",
+          "correct": true
+        },
+        "role_p1": {
+          "expected": "none",
+          "actual": "observation",
+          "correct": false
+        }
+      },
+      "answers": {
+        "role_p0": {
+          "type": "choice",
+          "choice": "proposal",
+          "probabilities": {
+            "decision": 0,
+            "proposal": 1,
+            "reason": 0,
+            "decision_reason": 0,
+            "quotation": 0,
+            "observation": 0,
+            "task": 0,
+            "none": 0
+          },
+          "confidence": 1
+        },
+        "role_p1": {
+          "type": "choice",
+          "choice": "observation",
+          "probabilities": {
+            "decision": 0.4,
+            "proposal": 0.02,
+            "reason": 0,
+            "decision_reason": 0.01,
+            "quotation": 0,
+            "observation": 0.39999999999999997,
+            "task": 0.01,
+            "none": 0.16
+          },
+          "confidence": 0.33
+        },
+        "decision_p0": {
+          "type": "noul",
+          "noul": 0.05
+        },
+        "decision_p1": {
+          "type": "noul",
+          "noul": 0.06
+        }
+      }
+    },
+    {
+      "family": "spans",
+      "name": "uncertain",
+      "variant": "distractor_order",
+      "checks": {
+        "role_p0": {
+          "expected": "proposal",
+          "actual": "proposal",
+          "correct": true
+        },
+        "role_p1": {
+          "expected": "none",
+          "actual": "decision",
+          "correct": false
+        }
+      },
+      "answers": {
+        "role_p0": {
+          "type": "choice",
+          "choice": "proposal",
+          "probabilities": {
+            "decision": 0,
+            "proposal": 1,
+            "reason": 0,
+            "decision_reason": 0,
+            "quotation": 0,
+            "observation": 0,
+            "task": 0,
+            "none": 0
+          },
+          "confidence": 0.99
+        },
+        "role_p1": {
+          "type": "choice",
+          "choice": "decision",
+          "probabilities": {
+            "decision": 0.38,
+            "proposal": 0.01,
+            "reason": 0,
+            "decision_reason": 0,
+            "quotation": 0.01,
+            "observation": 0.34,
+            "task": 0.01,
+            "none": 0.25
+          },
+          "confidence": 0.29
+        },
+        "decision_p0": {
+          "type": "noul",
+          "noul": 0.04
+        },
+        "decision_p1": {
+          "type": "noul",
+          "noul": 0.07
+        }
+      }
+    }
+  ],
+  "lexical_baselines": [
+    {
+      "family": "coverage",
+      "n": 16,
+      "correct": 10
+    },
+    {
+      "family": "entity",
+      "n": 16,
+      "correct": 8
+    },
+    {
+      "family": "ontology",
+      "n": 16,
+      "correct": 13
+    }
+  ],
+  "offline_views_no_new_inference": {
+    "(1, 0)": [
+      "single",
+      "distributed",
+      "holdout_multi",
+      "quoted",
+      "conflict"
+    ],
+    "(0, 1)": [
+      "distributed",
+      "single",
+      "holdout_multi",
+      "quoted",
+      "reason_only"
+    ],
+    "(0.7, 0.3)": [
+      "distributed",
+      "single",
+      "holdout_multi",
+      "quoted",
+      "conflict"
+    ],
+    "(0.3, 0.7)": [
+      "distributed",
+      "single",
+      "holdout_multi",
+      "quoted",
+      "conditional"
+    ]
+  },
+  "invariants": {
+    "checks": 7,
+    "bridge_probabilities": {
+      "('A', 'B')": 0.99,
+      "('B', 'C')": 0.99,
+      "('A', 'C')": 0.1
+    },
+    "bridge_groups": [
+      [
+        "A",
+        "B"
+      ],
+      [
+        "C"
+      ]
+    ]
+  }
+}

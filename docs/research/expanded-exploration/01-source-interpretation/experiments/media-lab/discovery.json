@@ -1,0 +1,41 @@
+[
+  {
+    "url": "https://docs.typesafe.ai/llms.txt",
+    "bytes": 16019,
+    "file": "discovery-0.txt"
+  },
+  {
+    "url": "https://docs.typesafe.ai/concepts/state.md",
+    "bytes": 3556,
+    "file": "discovery-1.txt"
+  },
+  {
+    "url": "https://docs.typesafe.ai/api.md",
+    "bytes": 11231,
+    "file": "discovery-2.txt"
+  },
+  {
+    "url": "https://docs.typesafe.ai/cookbooks/pre_parsed_value_extraction_cookbook.md",
+    "bytes": 12542,
+    "file": "discovery-3.txt"
+  },
+  {
+    "url": "https://docs.manim.community/en/stable/examples.html",
+    "error": "HTTP Error 403: Forbidden"
+  },
+  {
+    "url": "https://archive.org/metadata/originofspecies00darw_1",
+    "bytes": 2,
+    "file": "discovery-5.txt"
+  },
+  {
+    "url": "https://raw.githubusercontent.com/tesseract-ocr/test/master/testing/phototest.tif",
+    "bytes": 38668,
+    "file": "phototest.tif"
+  },
+  {
+    "url": "https://openrouter.ai/api/v1/models",
+    "bytes": 760430,
+    "file": "discovery-7.txt"
+  }
+]

@@ -1,0 +1,32 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPlSA",
+        "number": 18,
+        "state": "OPEN",
+        "title": "Find pages by title, tag, keyword, and visible filters",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/18"
+      }
+    ],
+    "totalCount": 1
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 12, 22, 23, 32; **Reading, search, and navigation**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nStarting from a page, find material within a chosen number of relationships and inspect why each reachable page is connected, then return to the starting reading context.\n\n## Acceptance criteria\n\n- [ ] The owner can select a starting page and hop limit and receive reachable pages with visible scope, bounded/paginated results, and no full-graph load.\n- [ ] Each chosen result can expose a connecting path with readable endpoints, relationship types, direction where meaningful, qualifications, and supporting evidence.\n- [ ] Typed/directed relationships are traversed according to their actual meaning; similarity alone is not promoted to identity, causation, or another stronger edge.\n- [ ] Cycles, self-links, repeated paths, unknown endpoints, and disconnected pages have defined behavior without infinite expansion or duplicate result clutter.\n- [ ] Opening a path stop, supporting evidence, or an item outside the current displayed neighborhood remains possible; Back restores page, hop scope, selection, and focus.\n- [ ] Source updates/removals refresh paths and results so obsolete relationships are not ordinary navigation options.\n- [ ] A fixed small graph fixture proves one-hop versus multi-hop reachability, direction, uncertainty, cycles, and evidence access through both keyboard and pointer interaction.\n\n## Blocked by\n\n- [#18 \u2014 Find pages by title, tag, keyword, and visible filters](https://github.com/nicolas-found42/knowledge-garden/issues/18)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nThe source-derived relation model and basic inspector already exist. This slice adds user-controlled traversal and path explanation, not a whole-collection renderer. Deterministic graph operations run locally; Jev may select useful existing connections without inventing new evidence.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nImport sources supporting Maya \u2192 observed \u2192 V17 \u2192 occurred at \u2192 Riverside, plus a similarly named unrelated place and an uncertain relation. From Maya request one then two hops, inspect the route to Riverside and its original support, follow a stop, and return. Remove one support source and verify the resulting path changes.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Explore degrees of separation and inspect evidence for connecting paths",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/20"
+}

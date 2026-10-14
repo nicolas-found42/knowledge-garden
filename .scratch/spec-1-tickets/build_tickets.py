@@ -1,0 +1,566 @@
+import json
+from pathlib import Path
+
+ROOT = Path(__file__).parent
+TICKETS = []
+
+def add(key, title, blockers, stories, build, criteria, scenario, notes, section):
+    TICKETS.append(dict(key=key, title=title, blockers=blockers, stories=stories,
+                        build=build, criteria=criteria, scenario=scenario,
+                        notes=notes, section=section))
+
+add('01', 'Import a local text source into a durable Markdown reader', [], [3,7,8,10],
+    'Give the owner the first complete collection workflow: choose or drop a UTF-8 text or Markdown file, retain the original, and open a readable source page in the Mac application. Establish the Tauri 2, Rust background engine, TypeScript interface, and disk-backed collection through this working behavior.',
+    [
+      'File selection and drag/drop both accept a text source and open its source page without a terminal import command or semantic approval step.',
+      'The copied original preserves its bytes and format; opening the original resolves to that retained asset. Import does not modify the supplied file.',
+      'A readable Markdown source page records stable source/page identities, acquisition context, an ordinary link to the asset, and source-located text. It remains readable independently of the app.',
+      'An unsupported or damaged input still has an inspectable retained original and an explicit extraction state; it is not silently discarded or described as fully processed.',
+      'Restarting preserves the imported source and page. Repeating the same input does not create duplicate source pages or facts merely because a new import was requested.',
+      'The default reader exposes source information and processing state on demand, has usable keyboard focus, and introduces no in-app Markdown editor, chat, or generated search answer.',
+      'A public application-level test imports a temporary file and verifies the visible page, Markdown, asset bytes, and restart behavior. The same source page can be reconstructed after deleting its initial derived lookup index.'
+    ],
+    'Start with an empty temporary collection. Create a UTF-8 source named Riverside notes containing “Observation V17 took place at Riverside on May 17, 2024.” Import by file picker, open its page and original, restart, then drop the same bytes again. Repeat with an intentionally unsupported binary file and inspect its original and coverage state.',
+    'This slice preserves and displays source text; semantic fact extraction belongs to 02. Define the minimum extensible durable page/source contract while implementing the path, without a separate schema-only ticket. There is no production code to prefactor. Use bounded operations and atomic writes from the outset; later tickets extend reconciliation, formats, and lifecycle.',
+    'Markdown, original assets, and external editors')
+
+add('02', 'Turn a text source into evidence-grounded facts and linked pages with Jev', ['01'], [9,30,32,66,67,68,69],
+    'After importing an ordinary text report, automatically form navigable knowledge about its entities and events, with granular facts, qualified relationships, and links back to acquired evidence. Exercise the selected semantic services through this first real source-to-knowledge path.',
+    [
+      'The V17 example creates source-grounded pages and facts for the observation, observer, place, date, count, and duration, with stable identities and readable links; no curation queue is required.',
+      'Facts and relationships persist inside the relevant Markdown pages with value/endpoints, meaningful type, direction when relevant, qualifiers, support, origin, and source location. A database is not their only record.',
+      'The reader can open a fact or relationship’s evidence at the supporting original location, or clearly disclose a location fallback. Source uncertainty, exceptions, and quoted versus observed origin survive formation.',
+      'Jev choices/scores/judgments are assessed and used for span selection, candidate facts, entity matching, relations, and support. Code owns exact copying, arithmetic, identities, workflow control, and writes.',
+      'When generative help is necessary, use only the selected OpenCode Go DeepSeek v4.1 and GPT-6 Luna route. Validate actual service suitability, current model identifiers, and required text capabilities before enabling autonomous live processing; missing capability becomes an explicit recoverable state.',
+      'Provider outages, quotas, malformed output, and unavailable models leave a valid source page and pending/failed semantic state, with resumable work and backoff. There is no application spending cap, per-file approval, undisclosed provider substitution, or separate paid fallback.',
+      'A deliberately unsupported fact, a qualified statement, and two same-name distinct people do not become unqualified truth or an identity merge solely through model confidence or a positive whole-record verifier.',
+      'Deterministic provider recordings test integrity and recovery separately from a labeled live sample. Record which semantic decisions were exercised and which service/capability validations remain unsuccessful.'
+    ],
+    'Import a complete report: revision 1 dated May 18, 2024; observation V17 on May 17; observer Maya; location Riverside; 12 visits; duration 10 minutes. Add a second text about another Maya and a statement qualified as “possibly.” Inspect pages, typed relations, evidence, and the durable records. Repeat with quota and malformed-response recordings, then allow the queued work to resume.',
+    'Scope is formation from text, including a minimal relation/evidence inspector. Use selection plus code assembly when source wording suffices. Do not adopt throwaway research parsers or prompts as accepted production components. The specification reports false positive verifier decisions; a typed response is not proof. Each later semantic workflow must extend this provider and evidence discipline.',
+    'Jev and supporting models')
+
+add('03', 'Reconcile complete source replacements using version order and independent support', ['02'], [46,47,48,49,52,53],
+    'Let a newer complete source replacement update the current wiki without duplicate revisions, obsolete fact values, or deletion of independently supported knowledge. Show the change throughout the existing reader and queryable collection.',
+    [
+      'Complete revision 2 of V17 changes 12 visits to 15 and removes its omitted 10-minute duration when the old source was the duration’s only support; unchanged observer, place, and event date remain.',
+      'A duration independently supported by another acquired source survives omission from the replaced source, with accurate surviving provenance.',
+      'Reliable source version/date evidence takes precedence over arrival order. Importing revision 1 after revision 2 does not restore 12 visits or removed old-only facts.',
+      'When reliable ordering is unavailable, newly received changes win and the uncertainty remains inspectable; do not invent a source date from import time.',
+      'Identical previously seen content causes no new revision or duplicate knowledge; genuinely different acquisition contexts retain their provenance.',
+      'Affected pages, relations, tags, and existing indexes converge to one current fact value; unrelated records are not unnecessarily rewritten. Obsolete values do not become ordinary results or a user-facing revision replay.',
+      'Interrupting replacement publication leaves either the prior coherent state or the complete new state, and resumed work converges without duplicate operations.'
+    ],
+    'Start from revision 1 dated May 18, 2024: V17 occurred May 17, observer Maya, Riverside, 12 visits, duration 10 minutes. Import complete revision 2 dated May 20 explicitly replacing revision 1, stating Maya, Riverside, V17, May 17, and 15 visits, with duration omitted. Check results; reimport revision 1 and then the same revision 2 bytes. Repeat with an independent duration source and with two undated, explicitly same-record revisions.',
+    'This ticket handles confirmed complete replacements and ordering. Targeted corrections/separate events are 04, incomplete extraction is 05, and external authoritative edits are 06. Preserve support dependencies in durable knowledge so later rebuilds cannot resurrect removed values. Downstream features must consume this change boundary rather than invent a second current-state policy.',
+    'Automatic ingestion and current knowledge')
+
+add('04', 'Apply targeted corrections while keeping distinct observations separate', ['03'], [50,51],
+    'Automatically distinguish a narrow correction from a new real event so that a count-only correction changes only that fact and a later observation gets its own knowledge.',
+    [
+      'The explicit V17 count-only correction changes 12 visits to 15 while retaining Maya, Riverside, May 17, and the 10-minute duration.',
+      'A separate observation V18 on May 18 with 8 visits receives its own event identity and count; V17 retains its own current value.',
+      'Matching names, field shapes, or similar wording alone do not collapse separate people, observations, or reasoning events.',
+      'Jev-guided source-role and field alignment decisions are grounded in acquired text and reliable ordering, with code applying only the affected operations.',
+      'Unclear identity or source role remains inspectably uncertain and recoverable; normal processing does not assign the owner a semantic merge decision or invent certainty.',
+      'Changed dependent pages, relationships, and current query results agree after corrections; unaffected facts and genuinely distinct events remain available.',
+      'Application-level scenarios cover explicit correction, targeted supplement, separate event, misleading similarity, and interrupted/replayed processing with fixed expected outcomes.'
+    ],
+    'Use independent collections beginning with V17 on May 17, 2024: Maya, Riverside, 12 visits, duration 10 minutes. In one, import a newer note referring explicitly to V17: “The visit total should read 15, not 12. This note corrects the count only.” In another, import a report explicitly describing separate observation V18 on May 18 with 8 visits. Inspect event pages, facts, links, and support.',
+    'Build on the version-aware publication boundary from 03. Keep same-fact current value separate from real historical events. Do not infer a replacement merely because an incoming source contains fewer fields. These authored examples are required golden scenarios, not a general semantic accuracy estimate.',
+    'Testing Decisions')
+
+add('05', 'Recover incomplete source updates without deleting unextracted facts', ['03'], [54,57],
+    'Keep the last successfully processed knowledge usable when a replacement is only partly extracted or cannot be processed, then recover automatically and publish a coherent update.',
+    [
+      'Extraction reports known coverage and missing/unreadable regions; missing extracted text is never treated as proof that a complete source omitted a fact.',
+      'A partially extracted replacement whose missing region contains duration does not remove duration. Omission-based removals wait for recovered evidence of the relevant coverage.',
+      'The app automatically chooses a bounded recovery route, such as re-extraction or reading another supported region; retries that add no evidence do not spin indefinitely.',
+      'During pending or failed recovery, the prior successful content remains readable with an accurate small update-pending/update-failed state and accessible original; it is not silently labeled current.',
+      'Once recovery succeeds, changed facts and supported omission removals publish coherently through the normal update path, without duplicate facts or owner review.',
+      'Restart, repeated provider failures, unsupported recovery capability, and out-of-order retry completion cannot roll back a newer successful version.',
+      'Tests inject incomplete coverage, extraction errors, quota failures, and restart using deterministic responses; a narrow evidence check plus deterministic invariants rejects a deliberately bad duration deletion even if a broad verifier accepts it.'
+    ],
+    'Begin with V17 containing 12 visits and a 10-minute duration. Supply a complete newer report with 15 visits and duration still present in a second region, but make the first extraction return only region one and an explicit coverage gap. Inspect the retained duration and pending state, interrupt the app, then make the missing region available. Separately exercise a truly complete report with duration omitted and verify that removal occurs only in that case.',
+    'This is a source-update recovery path, not a universal parser implementation. Format tickets integrate their concrete coverage/recovery signals. The parent’s recovery experiment exposed prewritten text and did not establish production PDF recovery. Failed live capabilities remain visible gates; do not hide gaps or require manual editing.',
+    'Deletions and failures')
+
+add('06', 'Preserve external manual corrections while other facts refresh automatically', ['04'], [43,44],
+    'Let the owner optionally correct a fact in an ordinary external Markdown editor, preserve that correction as authoritative, and continue automatic updates to all unedited facts.',
+    [
+      'An external change to a fact is detected, represented durably as an authoritative manual correction, and reflected in the app without an in-app authoring step.',
+      'A later source update to the corrected fact does not overwrite the correction; a different unedited fact on the same page still updates.',
+      'The correction’s target identity and support/authority survive app restart and reconstruction of the relevant derived index.',
+      'Owner changes to prose, wording, and metadata are preserved; edit interpretation does not mark an entire page frozen because one value changed.',
+      'When an edit cannot be interpreted safely, preserve the exact owner content and expose the uncertain state instead of discarding it or silently claiming every edit was understood.',
+      'Source removal or support changes cannot erase an authoritative correction merely because its previous source disappeared.',
+      'Application-level tests edit the actual Markdown, trigger source updates and rescans, and verify both protected and still-refreshing facts using plain-editor and atomic-save fixtures.'
+    ],
+    'Import V17 with Maya, Riverside, 12 visits, and duration 10 minutes. Externally correct duration to 11 minutes in the readable record. Supply a newer count-only correction to 15 and then a complete replacement containing a different duration. Reopen the page: count refreshes while duration stays 11. Also edit a sentence and a property without changing a fact, then check preservation and continued updates.',
+    'The exact external-edit grammar and detection strategy are implementation decisions to validate and document. Supporting a narrow parser case must not be reported as arbitrary edit compatibility. Concurrent multi-writer recovery and identity repair are extended in 07; actual Obsidian testing is a later release gate.',
+    'Markdown, original assets, and external editors')
+
+add('07', 'Keep external moves, renames, and concurrent edits safe and navigable', ['06'], [45],
+    'Allow the owner to reorganize and edit the Markdown collection externally while app updates continue, retaining identities, resolvable ordinary links, and every intentional edit through crashes and ambiguous metadata.',
+    [
+      'A page move or rename preserves its durable identity and repairs resolvable ordinary links and app navigation; a changed display name is not a new knowledge item.',
+      'Atomic editor saves, folder replacement, and watcher event loss are reconciled by bounded rescan without duplicating or losing pages.',
+      'Concurrent external and app saves preserve the owner’s content and manual corrections; no silent last-writer overwrite is accepted.',
+      'A crash between related writes or an interrupted reconciliation cannot expose permanently partial knowledge; restart recovers a coherent state and pending work.',
+      'Duplicate identities, malformed metadata, and unresolved targets remain inspectable with original content preserved. Ambiguous identities are not silently merged or assigned arbitrarily.',
+      'Recovery is automatic wherever evidence permits, with explicit residual uncertainty and no required semantic approval queue. Temporary recovery data does not become obsolete-value history in ordinary search.',
+      'Public application tests exercise move, rename, conflicting saves, malformed files, duplicate identities, directory replacement, and injected crash boundaries, verifying Markdown and visible navigation after recovery.'
+    ],
+    'Create two linked pages and a manually corrected fact. Move/rename one page externally, open its incoming link, then atomically save an owner edit while a source update is publishing. Repeat with a duplicated identity and malformed metadata, interrupt during reconciliation, and restart. Check preserved bytes/intent, stable targets, explicit ambiguous states, and eventual coherent app results.',
+    'Keep the supported durable contract readable and document its safe recovery behavior. Do not silently rewrite malformed owner files merely to satisfy the parser. This ticket extends the existing writer/edit path; it is not a wide refactor or a request to introduce an application database as the authoritative store.',
+    'Markdown, original assets, and external editors')
+
+add('08', 'Ingest watched directories and distinguish deletion from disconnection', ['03','06'], [4,55,56,62],
+    'Let the owner select a directory once, then automatically import new files, reconcile changes, and remove actual deleted sources without treating an unavailable directory as an empty one.',
+    [
+      'A selected directory is initially scanned and then watched; new and changed supported files enter the existing import/update path without classification or per-file approval.',
+      'A confirmed file removal deletes the imported copy and knowledge supported solely by that source, while retaining independently supported facts and authoritative manual corrections.',
+      'Disconnected volumes, permission errors, unreadable directories, and temporary absence preserve retained originals and knowledge and expose source unavailability.',
+      'Reconnect/restart/sleep recovery reconciles actual directory contents, including missed events and atomic replacements, without false deletion or duplicate imports.',
+      'Version ordering and identical-content behavior remain correct for watcher-delivered updates; arrival order alone cannot roll back reliable newer source versions.',
+      'Large directory discovery is progressive and resumable; already processed pages remain openable while pending files are discovered and processed.',
+      'An integration fixture verifies disconnect, reconnect, actual deletion, independent support, manual authority, missed watcher events, and interrupted initial scanning through visible state and retained assets.'
+    ],
+    'Watch a temporary directory containing V17 and a second independently supporting source. Import both, disconnect or make the whole directory unreadable, reconnect, then actually delete the V17 file. Repeat with an externally corrected fact. Check that only confirmed deletion removes the retained copy and only solely supported uncorrected facts disappear.',
+    'The application owns retained copies, not personal originals outside its collection. Do not make filesystem event delivery the sole truth: use safe reconciliation with availability evidence. The background menu-bar/login lifecycle and high-volume scheduling have separate tickets.',
+    'Automatic ingestion and current knowledge')
+
+add('09', 'Ingest explicitly supplied URLs while preserving uncrawled link references', ['02'], [5,6],
+    'Let the owner explicitly supply a web page or document URL and obtain retained source material, navigable knowledge, and faithful origin information, while links merely encountered inside any source remain searchable references.',
+    [
+      'An explicitly entered URL is acquired as a source, retains its original downloaded representation/asset and acquisition origin, and enters the normal source-page and evidence path.',
+      'Text or supported documents from the acquired response yield source-located knowledge; unsupported responses still expose the retained original and extraction state.',
+      'Links embedded in imported text, web content, documents, repositories, or conversations are stored as references without automatic destination acquisition.',
+      'An unacquired destination contributes no factual support about its contents. Repeated linked occurrences retain their actual occurrence context.',
+      'A previously linked-only URL can later be supplied explicitly and acquired, with a clear distinction between link-occurrence evidence and destination-content evidence.',
+      'Unavailable, access-restricted, redirected, or non-document responses produce accurate acquisition states, preserve prior successful material where relevant, and resume eligible work without inventing content.',
+      'A controlled HTTP fixture proves explicit acquisition, no embedded-link crawl, faithful final/original origin, retained asset access, repeated import behavior, and recoverable failure.'
+    ],
+    'Use a controlled page A linking to page B whose text contains a unique marker. Import A by explicit URL and search for B’s marker: its unseen contents must not appear. Inspect the searchable B link occurrence. Then explicitly import B and verify that its source-grounded content becomes available. Repeat with a downloadable document and a failed response.',
+    'No broad crawler, private research asset publication, or implicit expansion of historical research access is authorized. Current remote content and source versions use the common ordering rules as those become available. Avoid claims that a returned URL or generated caption authenticates a source.',
+    'Inputs and source access')
+
+add('10', 'Read PDFs and scanned documents with located evidence and coverage recovery', ['02','05'], [1,8,31],
+    'Import a PDF, including a difficult scanned document or homework sheet, and read its knowledge with support tied to the actual page or region while incomplete extraction remains visible and recoverable.',
+    [
+      'Text PDFs and image/scanned PDFs produce navigable source and knowledge pages while retaining the original PDF bytes and format.',
+      'Facts and excerpts retain page/region locations, reading context, source qualifications, and explicit coverage; opening evidence targets the supporting page or discloses a fallback.',
+      'OCR and layout recovery are validated against representative multi-column, rotated, low-quality, and mixed text/image pages; unreadable regions are marked rather than silently omitted.',
+      'A replacement PDF with incomplete page coverage cannot remove facts by omission until the relevant missing content has been recovered through the common update path.',
+      'Encrypted, damaged, or unsupported PDFs keep inspectable originals and accurate processing states, with bounded automatic recovery where supported.',
+      'Searchable fine spans open in their PDF context instead of forcing every span into a permanent visible node.',
+      'An application-level corpus with independently labeled text, locations, qualifications, and missing regions verifies import, evidence opening, interruption, and incomplete replacement behavior.'
+    ],
+    'Create equivalent two-page text and scanned reports: page one contains V17 and 15 visits; page two contains duration 10 minutes and a qualification. Include a rotated scan and a deliberately unreadable region. Import, locate each fact’s evidence, then replay a partial extraction during a replacement and verify preservation/recovery.',
+    'Choose and validate decoding/OCR helpers through this path; do not assume the selected generative endpoint accepts PDF/images. Local extraction is a supporting capability, with semantic judgments governed by the shared Jev/model policy. Record actual format/coverage limits without treating them as a reduction of the parent’s release scope.',
+    'Prior evidence and remaining gates')
+
+add('11', 'Turn documents and presentations into knowledge with passage and slide provenance', ['02'], [1,7,31],
+    'Make ordinary office documents and presentations readable and searchable as knowledge while preserving meaningful structure, original assets, and the passage or slide supporting each fact.',
+    [
+      'Representative modern word-processing documents and presentation files import through file selection and the common acquisition path, with their originals preserved unchanged.',
+      'Headings, paragraphs, tables, slide text, and available speaker notes retain enough structure to identify source meaning and distinguish visible slide content from notes.',
+      'Evidence opens the actual passage/slide where supported or clearly identifies the original plus location fallback; notes and inferred descriptions are not mislabeled as visible slide evidence.',
+      'Embedded links remain uncrawled references, and unavailable embedded objects/media produce coverage gaps without discarding the whole original.',
+      'Generated pages preserve qualifications and source ordering/context rather than flattening tables or slide sequence into unsupported assertions.',
+      'Damaged, unsupported, or partly extracted containers remain inspectable with explicit processing state; omission-based updates honor common coverage rules.',
+      'A labeled document/presentation corpus exercises tables, notes, embedded objects, links, and interrupted processing through public import and evidence navigation.'
+    ],
+    'Prepare a document with a qualified table entry and a presentation whose visible slide says “12 visits” while a speaker note describes an unconfirmed correction. Import both, inspect the extracted knowledge and each origin/location, and open the retained originals. Repeat with an unreadable embedded object.',
+    'Establish a documented supported-format matrix using actual owner-relevant samples, with concrete modern document and presentation formats included. Do not create a general conversion service or claim legacy/container support that was not tested. Other media extractors can extend embedded coverage later without changing the provenance contract.',
+    'Prior evidence and remaining gates')
+
+add('12', 'Form photo knowledge without confusing pixels, metadata, and captions', ['02'], [1,7,31],
+    'Import ordinary photos, inspect the original, and navigate supported visual details while keeping observed pixels, file metadata, supplied captions, and uncertain inferences distinct.',
+    [
+      'Representative ordinary photo formats from the target Mac workflow retain originals and produce readable source pages with on-demand image previews.',
+      'Image metadata, supplied textual captions, OCR text, actual visual observations, and generated interpretations retain distinct origins in the durable evidence record.',
+      'A caption claiming a photo date does not become a verified pixel observation or authenticated capture date; absent/ambiguous dates remain unknown or qualified.',
+      'Useful image details and regions are searchable and open in context, with region evidence or a disclosed whole-image fallback.',
+      'Allowed image-processing capabilities are validated with real requests before use; unsupported selected-provider capabilities leave a recoverable gap rather than triggering an unselected generative service.',
+      'Unreadable images and uncertain identities retain originals and inspectable states without fabricated details or a user review queue.',
+      'Independent fixtures include misleading captions, stripped/conflicting metadata, uncertain entities, and OCR errors; tests verify source origin and qualification preservation.'
+    ],
+    'Import a synthetic photo fixture with no capture date, alongside a supplied caption claiming “May 17, 2024,” then a version with conflicting metadata. Inspect date evidence and origin. Search a visible detail, open the supporting image region, and repeat with an unsupported image/capability response.',
+    'The parent records a prior false-provenance failure in which a constructed caption became a photograph date. Treat this as a required negative fixture, not permission to publish private photos. Supporting decoders/OCR do not replace the selected semantic/generative policy.',
+    'Research evidence boundaries')
+
+add('13', 'Ingest audio recordings with time-located transcripts and qualified knowledge', ['02'], [1,7,31],
+    'Let a supplied recording become navigable knowledge and searchable passages whose evidence opens the relevant moment in the retained audio.',
+    [
+      'Representative recording formats import with original audio retained and an inspectable source page; playback is available without rewriting the original.',
+      'Transcribed passages preserve timestamps, source origin, uncertainty, and speaker uncertainty; unidentified speakers are not silently authenticated as known people.',
+      'Facts, questions, decisions, and reasoning events extracted from speech link to the supporting segment, with a disclosed fallback if precise seek is unavailable.',
+      'Silent, overlapping, noisy, partly decoded, or unsupported segments create explicit coverage/confidence limits; transcription guesses do not become unqualified facts.',
+      'Long recordings process in bounded resumable segments, preserving stable segment identities and avoiding duplicate knowledge after restart.',
+      'Actual transcription/media capabilities are validated through allowed supporting tools and model routes; remote failure leaves resumable work and access to the original.',
+      'A labeled recording fixture verifies passage retrieval, seek accuracy, uncertain wording/speakers, interruption/resumption, and partial coverage.'
+    ],
+    'Use a consented or synthetic short recording with a known statement, an uncertain correction, a quiet segment, and two distinguishable but unnamed speakers. Import it, find the statement, open its evidence timestamp, interrupt processing, and resume. Confirm uncertainty and identities against independently authored labels.',
+    'Do not assume OpenCode Go provides audio support; establish the actual supported route. Audio decoding/transcription are supporting capabilities. This slice does not implement video frames or invent source-event dates from recording import time.',
+    'Prior evidence and remaining gates')
+
+add('14', 'Ingest video with synchronized visual and spoken evidence', ['12','13'], [1,7,31],
+    'Make a saved video’s spoken and visual content navigable together, with every fact tied to the appropriate frame, interval, transcript, or supplied metadata in the original video.',
+    [
+      'Representative saved-video formats retain the original file and produce a source page with playback and bounded on-demand previews.',
+      'Speech and visual details retain synchronized time locations and distinct origins; a narrated statement is not automatically treated as visually observed evidence.',
+      'A search result or fact opens the relevant segment/frame and surrounding context, or discloses the precise limitation of its fallback.',
+      'Silent videos, absent audio tracks, changing frame rates, and partly decoded tracks have accurate coverage states; missing a track does not discard supported content from another.',
+      'Long videos resume bounded segment work without duplicate facts or requiring all frames/audio in memory.',
+      'Qualifications, uncertain identities, captions, and metadata use the photo/audio evidence discipline and selected provider policy.',
+      'An application-level fixture with mismatched narration and visuals, a silent section, and a damaged segment verifies origin, synchronization, partial recovery, and retained-original access.'
+    ],
+    'Use a synthetic video showing a river while narration explicitly says the location is uncertain; include a later title card with a date and a silent segment. Retrieve both spoken and visual details, inspect where each originated, and resume after an interrupted segment. Verify no title-card date is promoted to authenticated capture time.',
+    'The blockers supply working image and audio evidence paths; this ticket composes them into one complete video workflow. It does not crawl streaming links found inside another source. Explicitly supplied downloadable URLs use the URL acquisition path when available.',
+    'Inputs and source access')
+
+add('15', 'Import repositories as connected source material with precise code and document evidence', ['02'], [2,31],
+    'Let the owner supply a local repository and navigate its documents, code concepts, questions, and decisions as knowledge with evidence tied to actual acquired files and revisions.',
+    [
+      'A supplied local repository/folder is ingested through the common source boundary with relevant originals retained in their formats and repository context preserved.',
+      'Supported text/code/document content yields navigable source and concept pages with file/revision and line/span evidence where reliable.',
+      'Repository identity, source version, and file location are not conflated with inferred semantic identity; similar names in different repositories remain distinguishable.',
+      'Links and repository references are recorded without implicitly cloning remote repositories, fetching dependencies, or acquiring linked destinations.',
+      'Binary, generated, large, or unreadable members remain represented by their actual coverage/original-access state; any extraction exclusion is visible rather than a silent loss of supplied material.',
+      'Repository content is processed as source data; scripts, build hooks, and instructions in imported files are not executed as part of knowledge extraction.',
+      'A small synthetic repository with code, documentation, an ADR-like decision, repeated symbol names, and a linked remote target verifies navigation, evidence, partial coverage, and repeat import.'
+    ],
+    'Import a disposable repository containing a documented decision, two different concepts with the same short name, a code reference, and a README link to an unacquired remote destination. Open the resulting pages and supporting spans. Confirm the remote destination contributes no unseen content and no repository command ran.',
+    'This is an owner-supplied repository ingestion path, not a code execution agent or automatic repository discovery product. Integrate common source-version updates when available, keeping the acquisition and evidence contract shared with ordinary files.',
+    'Inputs and source access')
+
+add('16', 'Ingest agent conversations with message provenance and separate reasoning events', ['02'], [2,6,31],
+    'Turn supplied agent conversation exports into readable knowledge while retaining message context, speaker/tool origin, reasoning-event identity, and linked-only URL occurrences.',
+    [
+      'Representative supplied conversation exports retain original data and expose conversations plus individual messages in context.',
+      'Message identity/order, available dates, author/tool role, quoted content, and tool outputs remain distinguishable in durable evidence; a model claim is not automatically an observed external fact.',
+      'Meaningful questions, decisions, claims, and reasoning events become navigable targets with support back to the relevant message or message range.',
+      'Similar wording across turns or sessions does not merge distinct events or convert an abandoned suggestion into the current accepted decision without evidence.',
+      'URLs in messages stay searchable linked occurrences; destinations are not acquired unless explicitly supplied through the app’s URL ingestion workflow.',
+      'Partial/malformed exports and missing timestamps expose coverage and date uncertainty without inventing chronology, losing originals, or requiring curation.',
+      'Synthetic or authorized sanitized exports verify role distinctions, quoted/tool-origin evidence, event separation, link boundaries, and message-context retrieval.'
+    ],
+    'Import a synthetic conversation where a user proposes a plan, an assistant suggests an alternative, a tool reports a failure, and the user later records a decision; include an unknown timestamp and a URL whose destination was not supplied. Navigate the decision and reasoning events to their messages and inspect the origin of each assertion.',
+    'Validate concrete export adapters rather than claiming every provider’s history is supported. Private raw histories and exact source mappings are not publication fixtures. A reasoning event’s source date is separate from the date the collection imported the conversation.',
+    'Collection organization and granularity')
+
+add('17', 'Find pages by title, tag, keyword, and visible filters', ['02'], [15,16,17,19,20,21,25],
+    'Give the owner a usable local search-to-reader path over existing pages, with useful excerpts and explicit active scope instead of generated answers.',
+    [
+      'Title lookup, tag selection, and SQLite-backed keyword search return navigable pages with useful existing metadata and source/page excerpts.',
+      'Search supports combinations of the available date, format, and processing-status filters, with all active scope and constraints visible and removable.',
+      'Searching Riverside and selecting #fieldwork produces the expected labeled page set; empty and no-match states are explicit.',
+      'Opening a result or an ordinary page link preserves enough query, selection, scroll/focus, and scope context for Back to restore the previous view.',
+      'Fine-span/message matches lead to the owning page and relevant context rather than requiring every detail to be a permanent navigation node.',
+      'Results exclude superseded/removed facts as later updates arrive, while clearly labeling pending/failed source states. No search action generates an answer, new explanation, or chat.',
+      'The complete title/tag/keyword workflow works offline over processed content and supports keyboard navigation and bounded result pagination.'
+    ],
+    'Import several text reports with known titles, dates, formats, and tags including Riverside and #fieldwork. Search by each mode, combine and clear filters, open a result and an in-page link, then navigate Back. Disconnect networking and repeat; verify exact expected matches and a deliberate no-match query.',
+    'Tags are automatically maintained knowledge under the semantic path, not a required manual tagging chore. Use existing excerpts rather than generating search summaries. Meaning search and typed multi-hop querying extend this result contract in their own tickets.',
+    'Search returns pages')
+
+add('19', 'Explore degrees of separation and inspect evidence for connecting paths', ['17'], [12,22,23,32],
+    'Starting from a page, find material within a chosen number of relationships and inspect why each reachable page is connected, then return to the starting reading context.',
+    [
+      'The owner can select a starting page and hop limit and receive reachable pages with visible scope, bounded/paginated results, and no full-graph load.',
+      'Each chosen result can expose a connecting path with readable endpoints, relationship types, direction where meaningful, qualifications, and supporting evidence.',
+      'Typed/directed relationships are traversed according to their actual meaning; similarity alone is not promoted to identity, causation, or another stronger edge.',
+      'Cycles, self-links, repeated paths, unknown endpoints, and disconnected pages have defined behavior without infinite expansion or duplicate result clutter.',
+      'Opening a path stop, supporting evidence, or an item outside the current displayed neighborhood remains possible; Back restores page, hop scope, selection, and focus.',
+      'Source updates/removals refresh paths and results so obsolete relationships are not ordinary navigation options.',
+      'A fixed small graph fixture proves one-hop versus multi-hop reachability, direction, uncertainty, cycles, and evidence access through both keyboard and pointer interaction.'
+    ],
+    'Import sources supporting Maya → observed → V17 → occurred at → Riverside, plus a similarly named unrelated place and an uncertain relation. From Maya request one then two hops, inspect the route to Riverside and its original support, follow a stop, and return. Remove one support source and verify the resulting path changes.',
+    'The source-derived relation model and basic inspector already exist. This slice adds user-controlled traversal and path explanation, not a whole-collection renderer. Deterministic graph operations run locally; Jev may select useful existing connections without inventing new evidence.',
+    'Reading, search, and navigation')
+
+add('20', 'Compose visual multi-hop relationship queries with Boolean constraints', ['19'], [24,25],
+    'Let the owner express precise relationship explorations visually, combining typed hops with AND, OR, NOT and date/format/status constraints, and inspect both matching pages and the paths that justify them.',
+    [
+      'The interface can construct and edit multiple typed/directed hops and grouped AND/OR/NOT conditions with an unambiguous visible query representation.',
+      'Date, format, and processing-status constraints can be applied with documented scope; the UI makes clear whether a constraint applies to endpoints, intermediate nodes, or the returned page set.',
+      'Results agree with a deterministic expected set for conjunction, disjunction, negation, nested grouping, cycles, and no-match queries.',
+      'Every result exposes its relevant connecting paths and evidence; excluded/nonmatching items remain reachable through normal navigation outside the current query.',
+      'Changing or clearing a clause updates results, visible scope, and counts without silently retaining stale filters.',
+      'Queries execute locally over bounded indexed work, can be canceled/superseded, and preserve selection and Back behavior. Keyboard controls provide equivalent query construction.',
+      'The public query/UI tests cover mixed Boolean/hop expressions and incomplete or uncertain relations without generating an answer or treating absence of evidence as a fabricated fact.'
+    ],
+    'Use a labeled fixture with people, observations, places, dates, formats, and one pending source. Build a two-hop person-to-observation-to-place query, constrain the event date, OR in a second place, and exclude the pending status. Compare exact page IDs with the authored expected set, inspect a path, then clear the exclusion and verify the delta.',
+    'Define NOT as a precise query operation over the collection’s known indexed data; it must not assert that an unsupported real-world relationship is false. This ticket extends the working traversal/result path and does not require a global canvas.',
+    'Search returns pages')
+
+add('21', 'Browse automatic collection groups and expand a whole-collection canvas', ['19'], [13,26,27,28,29],
+    'Orient the owner with an automatically grouped view of the whole collection and expandable local neighborhoods, while preserving access to every item and the current reading context.',
+    [
+      'Automatic topic groups provide the primary overview, with person, place, date, and format views over the same collection.',
+      'An item can belong to multiple relevant groups; unclassified/uncertain items remain discoverable instead of disappearing outside the grouping scheme.',
+      'Groups expand to bounded member lists/neighborhoods and collapse without losing access to any collection item; large groups support continuation rather than permanent truncation.',
+      'Reading, research, and canvas presentations retain selected item, active scope/filters, navigation context, and Back behavior when switching.',
+      'Jev-assisted topic/membership/related-page choices preserve uncertainty and source support; changing sources refreshes organization incrementally.',
+      'Canvas previews and labels load lazily from bounded disk-backed queries; a full in-memory graph is not required.',
+      'Keyboard and assistive-technology users can reach equivalent groups, members, and details through a structured alternative to spatial interaction.',
+      'Fixtures prove overlapping membership, unclassified items, expansion/collapse, outside-view navigation, and context preservation. Renderer choice is validated against these tasks, not a synthetic drawing number alone.'
+    ],
+    'Import sources sharing a river topic but differing in people, places, dates, and formats, plus an unrelated/uncertain item. Expand a topic, open a member, switch through reader/research/canvas, change to a place view, and navigate Back. Confirm the overlapping item appears in each relevant group and every item remains reachable.',
+    'This is the orientation path; advanced Boolean query construction is independent. Keep the reader quiet and expose the canvas on demand. The parent’s 50,000-node drawing fixture does not establish integrated application scale.',
+    'Collection organization and granularity')
+
+add('22', 'Compare current sources and relevant passages side by side', ['19'], [33],
+    'Allow the owner to compare selected current sources and their supporting passages without losing reading context or presenting obsolete wiki values as competing current knowledge.',
+    [
+      'From a page or evidence path, select two current sources/passages and open an on-demand side-by-side comparison with clear source identity and context.',
+      'Each side opens its actual retained original/location, exposes qualifications and coverage, and keeps independently supported differences visible.',
+      'A current-knowledge change refreshes or explicitly invalidates a stale comparison selection; removed/superseded facts do not become ordinary historical replay.',
+      'Comparisons support useful textual passages initially and a consistent source-preview/evidence handoff for other formats as their importers land.',
+      'Unavailable sources or missing passages remain clearly identified; no generated text is offered as a substitute for missing evidence.',
+      'Back and closing comparison restore selection, scope, scroll/focus, and navigation state; both sides are usable from the keyboard.',
+      'Application-level tests compare qualified differing reports, update one source, and exercise a missing-evidence side without auto-saving a permanent view.'
+    ],
+    'Import two independently supported reports that describe related observations with different counts and qualifications. Compare the relevant passages, open both originals, then replace one report while comparison is open. Verify current selections/state and return to the previous page.',
+    'Compare acquired current sources and distinct real events; do not implement revision playback. No permanent comparison artifact is created unless the later explicit saved-view workflow is used.',
+    'The eight purposes')
+
+add('23', 'Inspect knowledge gaps without creating review chores', ['05','19'], [36],
+    'Give the owner an on-demand explanation of unavailable sources, missing extraction, unresolved identities, and uncertain or unsupported connections while automatic recovery continues.',
+    [
+      'Page, relationship, and source details distinguish unavailable source, incomplete extraction, pending/failed update, ambiguous identity, and insufficient support rather than one generic warning.',
+      'Each state shows what is known, the affected scope, accessible original/evidence, and automatic recovery status without inventing missing knowledge.',
+      'The default reader stays focused; gap inspection is available on demand and never becomes a required approval, tagging, or semantic conflict-resolution queue.',
+      'Uncertain links are visually and accessibly distinguishable from supported relations and retain their qualifications when opened through a path.',
+      'Successful recovery clears or narrows the relevant gap while unrelated gaps remain; failed recovery does not silently relabel old content as current.',
+      'A gap does not make the entire page/source inaccessible, and status filters expose affected material consistently with ordinary search.',
+      'Fixtures exercise each gap category, a recovery transition, and a still-unresolved state through reader, search, and evidence inspection with keyboard access.'
+    ],
+    'Use a collection with an unavailable original, a partly extracted replacement, two ambiguous same-name entities, and an unsupported proposed connection. Inspect each state, recover the extraction, and compare before/after status. Verify that existing readable content remains available and no user action is required to approve semantic output.',
+    'The underlying recovery and evidence states come from existing paths. This ticket provides a coherent inspection experience and does not require the owner to repair model output. Some capabilities can remain unavailable; the UI must accurately distinguish that from a successful update.',
+    'The eight purposes')
+
+add('24', 'Navigate distinct source-event, reasoning, and collection-activity timelines', ['04','16'], [34,35],
+    'Let the owner explore actual events over time while switching explicitly among event dates, reasoning dates, and collection activity, without inventing dates or replaying obsolete facts.',
+    [
+      'The timeline offers distinct source-described event, reasoning-event, and collection-activity date meanings with user-controlled ascending/descending sorting.',
+      'Source event dates remain separate from acquisition/processing timestamps; unknown event dates are not filled from import time.',
+      'Approximate dates retain their precision/interval/uncertainty visibly and accessibly, with documented deterministic sorting for approximate and unknown values.',
+      'Separate observations such as V17 and V18 remain separate events even when imported out of chronological order; corrections do not manufacture a new real observation.',
+      'Selecting an event opens its page and supporting source/message context, and Back restores selected date meaning, sort, filters, and position.',
+      'The timeline includes actual past events and collection activity without surfacing superseded/removed wiki facts as historical alternatives.',
+      'Fixtures verify exact, approximate, missing, and conflicting dates; reasoning messages; out-of-order imports; corrections; and keyboard navigation.'
+    ],
+    'Import V17 on May 17, V18 on May 18, an approximately dated event described as “May 2024,” and an undated event, deliberately receiving V18 first. Add a conversation with a dated decision. Switch all three date meanings, reverse sort, open an event’s evidence, and return.',
+    'Persist genuine event/date qualifications as knowledge; presentation sorting is derived. Conversation ingestion supplies real reasoning-event provenance rather than forcing the timeline to fabricate such records.',
+    'The eight purposes')
+
+add('18', 'Search remembered meaning locally while offline', ['17'], [18,58],
+    'Let the owner retrieve pages from a remembered description even without network access, using a rebuildable local meaning-search index integrated with ordinary page results and filters.',
+    [
+      'A query such as “notes about the river trip” returns relevant existing pages even when their wording differs, using a locally usable query-embedding/retrieval path.',
+      'Processed material remains searchable by meaning after a fresh app restart with networking disabled; a live Jev request is not required for usable results.',
+      'Results preserve the shared page/excerpt, filter, scope, keyboard, open-in-context, and Back contract; no generated answer or chat appears.',
+      'Newly processed pages and source updates incrementally refresh the derived meaning index; removed/superseded knowledge does not linger as a normal result.',
+      'Missing model assets or an incomplete index have explicit recoverable states; required local assets are available in the installed/offline workflow and not fetched silently at query time.',
+      'Optional online Jev intent interpretation or ranking improves candidates without removing offline operation or changing unacquired content into evidence.',
+      'A fixed independently labeled corpus measures useful and irrelevant candidates, missed matches, no-result cases, and local latency separately from online refinement; index rebuild preserves retrieval identity.'
+    ],
+    'Import pages describing a river visit without the words “river trip,” plus plausible distractors. Process and restart offline, query “notes about the river trip,” combine a date/tag filter, open a match, and return. Update/remove a source and rebuild the meaning index, checking current results against the fixed labels.',
+    'Choose the concrete local vector/embedding implementation through a bounded working retrieval path. A remote-only stored vector index is insufficient if the query itself needs a network call. Do not report a small fixture as collection-scale or general semantic accuracy.',
+    'Search returns pages')
+
+add('25', 'Save named views in Markdown and reopen them against current knowledge', ['20','21','24'], [38,39,40],
+    'Let the owner explicitly save a named search or navigation arrangement, then reopen its criteria against the current collection without archiving every transient exploration.',
+    [
+      'Save view explicitly persists a named definition covering search terms, active filters, typed relationship scope, selected presentation, and relevant navigation/timeline arrangement.',
+      'The durable definition is readable Markdown with stable references and meaningful names; no application database is its only record.',
+      'Reopening evaluates the stored criteria against current knowledge rather than replaying an old result snapshot, including new matches and excluding removed/obsolete ones.',
+      'Unsaved searches, comparisons, navigation, and timeline changes create no permanent saved-view item; last-session restoration remains a separate automatic behavior.',
+      'Missing/renamed targets or changed scope are disclosed and resolvable where identity permits; broken references do not silently broaden or replace the intended query.',
+      'The owner can find, open, rename, and remove a saved view without a Markdown authoring UI; these actions update the durable definition safely.',
+      'Tests save a composite view, restart, change source knowledge, rebuild its derived lookup, and reopen it with exact expected criteria and current results.'
+    ],
+    'Construct a Riverside relationship query with date/status filters, a chosen presentation, and timeline sorting. Save it as “River fieldwork,” restart, then add a matching source and remove a former match. Reopen the saved view and verify current membership plus preserved criteria. Run several unsaved queries and verify no extra durable views appear.',
+    'The blockers provide the actual query, presentation, and timeline states being serialized, avoiding a speculative generic state format. Durable saved definitions are distinct from replaceable session position and derived result caches. Comparison selections can use the same explicit arrangement contract when that surface is present.',
+    'Saved views')
+
+add('26', 'Assemble mixed-material trails and persist them only when explicitly saved', ['19','25'], [37,40],
+    'Let the owner follow and assemble an ordered route through existing material, adjust its stops, return to source context, and optionally retain that chosen trail in Markdown.',
+    [
+      'A trail can contain existing pages, events, source spans, messages, and media locations using their stable contextual references.',
+      'The owner can add, remove, and reorder stops and move forward/back through the route without losing the originating page or source context.',
+      'Suggested routes use relevant existing material, with Jev assessed for connection/stop selection; suggestions do not generate unsupported facts or search answers.',
+      'Transient trails do not create permanent Markdown items. An explicit save persists the ordered route and readable links in the established durable saved-navigation contract.',
+      'Saved trails survive restart/rebuild and resolve against current identities. A removed or unavailable stop is identified rather than silently replaced with different material or obsolete knowledge.',
+      'Keyboard and assistive-technology controls support ordering and traversal with clear position and focus return.',
+      'A fixture traverses mixed stops, reorders/removes them, saves/reopens, then moves or removes a target and verifies honest current resolution.'
+    ],
+    'Build a route from a Riverside page to a related observation, a supporting passage, and a conversation/media location when those importers are available. Reorder the stops, follow the route, and return to source context. Save, restart, remove one target, and reopen to verify remaining order and the explicit unavailable stop.',
+    'The trail behavior can be implemented against existing contextual target references; it need not wait for every media decoder. Full mixed-format verification is included in later interoperability/release gates. Do not automatically archive every followed route.',
+    'The eight purposes')
+
+add('27', 'Continue ingestion through menu-bar, login, close, Quit, and sleep lifecycles', ['08'], [60,61,62],
+    'Make supplying a watched directory sufficient for continued maintenance: processing survives window close and resumes at login or wake, while an explicit Quit stops the application.',
+    [
+      'Closing the last window leaves the Rust processing engine running with a quiet menu-bar presence; imports and watcher updates continue.',
+      'The app starts at login using the supported Mac mechanism and resumes pending work without a terminal or manual per-job restart.',
+      'Explicit Quit stops background processing and leaves resumable state; reopening reconciles safely without duplicate work.',
+      'Sleep/wake, process crash, system restart, and transient source-volume absence preserve completed knowledge and recover pending ingestion.',
+      'Opening the reader from the menu bar reconnects to the same collection/work state rather than starting a competing writer.',
+      'Lifecycle transitions expose accurate processing state and never interpret an unavailable watched directory during startup/wake as confirmed deletion.',
+      'An installed local build on Apple Silicon is exercised through close, menu-bar reopen, Quit, login startup, sleep/wake, and crash recovery, recording actual outcomes.'
+    ],
+    'Install a local build with a watched temporary directory and a multi-item pending import. Close the window, add a source, reopen from the menu bar, and verify progress. Quit and add another source, then reopen and verify reconciliation. Repeat across sleep/wake and a real login-startup check.',
+    'Use Tauri 2 with the selected Rust/TypeScript foundation. Keep implementation details out of normal product flows. Packaging this local lifecycle path does not by itself establish the final complete release’s bundled dependency or scale gates.',
+    'Application architecture')
+
+add('28', 'Accept new sources offline and resume remote processing automatically', ['02','18'], [58,59,69],
+    'Keep the collection useful without connectivity: imported material receives available local processing and becomes searchable, while remote semantic work resumes automatically when service access returns.',
+    [
+      'Offline imports retain originals, perform available local extraction, and expose locally extracted text through page/keyword search without waiting for remote models.',
+      'Copied, partially processed, pending remote, failed, and fully processed states remain distinguishable without an approval queue.',
+      'Already processed pages remain readable and searchable by meaning after offline restart; source/evidence navigation uses retained local assets.',
+      'Connectivity restoration automatically resumes queued Jev/allowed-helper work with bounded backoff, stable identities, and no duplicate pages or stale-version overwrite.',
+      'Provider quotas, model unavailability, and capability failures are handled distinctly from network loss but remain recoverable; no hidden provider substitution or application-budget prompt appears.',
+      'Repeated offline/online transitions and process interruption preserve both completed knowledge and pending source reconciliation; losing an acceleration cache cannot permanently forget unfinished input.',
+      'A deterministic outage/recovery test covers import, local search, queued semantic work, restart, reconnection, and eventual current knowledge. A small real connectivity check verifies installed behavior.'
+    ],
+    'Fully process a small collection, restart with networking disabled, and run a remembered-meaning search. Add a new text report offline and find its extracted words. Interrupt/restart, reconnect, then let remote processing finish. Repeat with a quota response and newer incoming source before an older queued job completes.',
+    'Remote quality and service suitability remain separate gates. New-source semantic completion can wait for connectivity, but available local work and existing meaning search cannot. Do not treat “no application spending cap” as unlimited provider throughput.',
+    'Inputs and source access')
+
+add('29', 'Rebuild all derived stores from Markdown and retained assets without knowledge loss', ['07','18','26'], [40,65],
+    'Prove the collection can discard every derived database, graph/vector index, thumbnail, and work cache, then recover its full lasting knowledge and resume needed reconciliation from Markdown and retained originals.',
+    [
+      'A documented cold rebuild reconstructs page/fact/relation identities, qualifiers, annotations, source versions, evidence origins/locations, manual corrections, saved views, and trails without the old derived stores.',
+      'Lexical, relational, and local meaning-search behavior returns with the same current knowledge and stable navigation references; stale removed/superseded values are not resurrected.',
+      'Authoritative corrections remain protected after rebuild, and later source updates still refresh only unedited facts.',
+      'Loss of operational job state cannot permanently forget copied/partially processed sources or source changes requiring reconciliation; pending work is rediscovered safely.',
+      'Malformed or ambiguous durable records preserve original content and expose precise recovery gaps instead of silently disappearing from the rebuilt collection.',
+      'Rebuild is resumable and bounded; interruption does not alter original assets or leave durable knowledge dependent on a half-built index.',
+      'A destructive-to-caches-only integration fixture snapshots externally observable knowledge, removes all derived stores, rebuilds, and compares complete identities/support/corrections/saved criteria plus search/navigation outcomes.'
+    ],
+    'Prepare a temporary collection containing a replaced source, a targeted correction, two independent supports, an external manual correction, a moved page, a saved view, a saved trail, and unfinished remote work. Delete every derived store and job cache, rebuild offline where possible, reconnect, and exercise the same knowledge and update outcomes.',
+    'This ticket audits and closes the full durability contract after saved navigation and external-edit recovery exist. Each earlier slice must already store its lasting data durably. Format adapters use the same evidence contract; the later full release corpus checks all of them. Never run cache-destruction tests on the owner’s personal collection.',
+    'Markdown, original assets, and external editors')
+
+add('30', 'Verify real plugin-free Obsidian reading, edits, media, moves, and originals', ['07','10','11','14','15','16','26'], [41,42],
+    'Make the produced collection independently usable in ordinary Obsidian, and verify actual app-to-editor round trips across representative knowledge and media without requiring a custom plugin.',
+    [
+      'A real ordinary Obsidian installation opens a disposable app-produced collection and reads pages, structured properties, granular records, and human-readable names without a custom plugin.',
+      'Ordinary links/backlinks, supported media, and source references work; opening an original reaches the retained asset and supporting location or clearly disclosed fallback.',
+      'An actual external correction made in Obsidian remains authoritative after an automatic source update while unedited facts continue refreshing.',
+      'An Obsidian internal rename and an external filesystem move preserve page identity and repair resolvable links in both Obsidian and the app.',
+      'Saved views/trails and qualified facts/relationships remain independently readable even where Obsidian does not provide an equivalent interactive feature.',
+      'Round-trip validation does not reduce application search, graph, media, or query capability merely to match Obsidian’s UI.',
+      'Record actual UI evidence and outcomes for reading, properties, links/backlinks, image/audio/video handling, original opening, edits, rename, and move; fix failures before marking the compatibility gate complete.'
+    ],
+    'Generate a disposable mixed-format collection through the application. Open it in ordinary Obsidian with no custom plugin, follow a backlink, inspect properties and supported media, open a PDF/media original, change one fact, rename a linked page internally, and move another externally. Return to the app, update an unrelated fact, and verify both applications’ current navigation and correction behavior.',
+    'The specification explicitly says no real Obsidian UI test was completed in research. Markdown round trips or mocked editor events do not satisfy this ticket. Record the tested Obsidian/macOS versions and actual limitations; do not publish private source material in evidence.',
+    'Prior evidence and remaining gates')
+
+add('31', 'Preserve navigation context and accessible reading across every presentation', ['20','21','22','23','24','26'], [11,12,13,14,63,70],
+    'Close the cross-surface reader experience: resume where the owner left off, explore and return without losing context, and complete the same tasks using keyboard and assistive technology.',
+    [
+      'Reopening restores the last page, scope, filters, selected item, and navigation context without requiring an explicitly saved view.',
+      'Switching reader/research/canvas, opening evidence/comparison/timeline/trail surfaces, and Back preserve the relevant selection, scroll/focus, and scope with predictable return paths.',
+      'Stale or removed restored targets are explained with a recoverable nearby context rather than silently resetting scope or reopening obsolete knowledge.',
+      'Keyboard-only users can import, search, construct relationship queries, expand groups, inspect evidence/gaps, compare, use timelines, and edit/follow saved views/trails without a focus trap.',
+      'Real macOS assistive-technology checks verify names, roles, reading order, state announcements, and an equivalent nonspatial route through the canvas’s useful content.',
+      'The quiet reader remains the default; optional research tools do not become eight mandatory permanent panels, and large background work does not block navigation.',
+      'Record and fix failures from actual task scripts in the packaged UI, distinguishing automated checks, real screen-reader use, and any human usability observations.'
+    ],
+    'Start at a filtered Riverside search, open an observation, inspect a relationship and its evidence, compare a passage, switch to canvas and timeline, follow a trail, then navigate Back through the path. Quit/reopen midway. Repeat core tasks using keyboard only and VoiceOver while a background import runs.',
+    'Each feature ticket already owns basic keyboard and context behavior. This is integration work on cross-surface failures and real assistive-technology access, not permission to postpone accessibility until the end. Automated scripts are not evidence of a human usability study.',
+    'Reading, search, and navigation')
+
+add('32', 'Keep large watched imports progressive, resumable, and responsive', ['08','17'], [62,63,64],
+    'Let the owner begin using processed material during a large watched-directory import, with bounded disk-based work that prioritizes active navigation and recent source changes.',
+    [
+      'Discovery, copying, extraction, semantic work, and indexing proceed in bounded batches without loading every source or the full relationship graph into memory.',
+      'Already processed pages and title/keyword search remain usable while bulk work continues, with honest progress and processing states.',
+      'User navigation and recent source changes receive responsive service alongside bulk work; neither older queued work nor recent arrivals starve indefinitely.',
+      'Pause-by-Quit/crash/restart and interrupted discovery resume from durable source state without requiring a full reimport or duplicating knowledge.',
+      'Provider backpressure and large/damaged files do not block unrelated local work; retries are bounded and eligible work continues.',
+      'A repeatable representative bulk workload records import throughput, search/navigation end-to-end latency, and peak memory separately, with explicit workload/hardware details and a documented regression budget.',
+      'Tests and an instrumented run demonstrate bounded growth, interruption recovery, usable concurrent navigation, and correct recent-version priority; exact throughput is measured rather than promised from a synthetic drawing test.'
+    ],
+    'Import a generated mixed-size directory through the actual watched workflow. During ingestion, repeatedly search/open already processed pages, add a newer revision of a processed source, introduce a slow/failing item, and restart. Compare final identities/current facts with an uninterrupted run and report user-visible latency plus peak memory.',
+    'This is the scheduling and progressive-use behavior, not the final 250,000-source integrated qualification. Establish workload-based engineering budgets and report evidence; the parent did not specify a numeric latency SLA or full-import duration. Keep operational queues replaceable by reconciliation.',
+    'Application architecture')
+
+add('33', 'Qualify semantic workflows with independently fixed labels and failure cases', ['04','05','09','10','11','14','15','16','18','20','21','23','26','28'], [66,67,69],
+    'Demonstrate that the implemented semantic workflows preserve source meaning, current facts, identity, and provenance across representative real-format inputs, using independent expected outcomes rather than model self-approval.',
+    [
+      'Before each evaluation, freeze an independently authored/sanitized corpus and expected labels for retrieval, source support, qualifications, identity, update scope, and provenance; do not let the evaluated model grade its own truth.',
+      'Exercise Jev’s actual role in interpretation, facts, matching/relations, updates, organization, retrieval, route selection, recovery, and helper routing; document justified non-Jev work and code-owned deterministic operations.',
+      'Run required V17/V18, older/duplicate import, partial extraction, independent support, caption-origin, misleading identity, and deliberately bad deletion cases; fix violations of these specified invariants before this gate passes.',
+      'Report missed and inappropriate retrieval candidates, wrong additions/removals/merges, qualification loss, and provenance errors with denominators and representative failure examples; repeated authored examples are not advertised as broad accuracy.',
+      'Separate deterministic replay/integrity results from authorized live provider results, record actual model/service capabilities and versions, and verify only selected general-purpose models are used.',
+      'Validate autonomous knowledge-processing suitability and real text/media routes, quotas, retry behavior, allowed helper selection, and unavailable-capability recovery without paid fallback or silent substitution.',
+      'Capture remaining uncertainty and workload-specific quality thresholds explicitly. Unsupported capabilities or unresolved violations remain release gates; passing a typed response or whole-record verifier alone cannot close them.'
+    ],
+    'Use newly labeled source documents across text, PDFs/scans, office files, photos, audio/video, repositories, and conversations. Freeze expected facts, relationships, scope changes, and evidence locations before running the app. Include a whole-record verifier recording that accepts a wrong deletion, then verify deterministic/support safeguards reject it. Compare live and replay runs separately.',
+    'This is an executable quality qualification path through the finished workflows, not a horizontal unit-test project or permission to replace implementation with a report. Each earlier ticket supplies its own focused tests. Use synthetic/public or expressly authorized sanitized material; raw personal histories and private mappings stay unpublished.',
+    'Research evidence boundaries')
+
+add('34', 'Qualify integrated search, updates, navigation, and rebuild at target collection scale', ['18','20','21','27','28','29','32'], [64,65],
+    'Prove the integrated application can serve 250,000 source files and several million granular facts/relationships on the owner’s 16 GB Apple Silicon Mac while importing, updating, exploring, and rebuilding.',
+    [
+      'A reproducible corpus reaches at least 250,000 distinct source files and a documented several-million count of facts/relationships through valid durable records and real application/index paths; disclose synthetic versus representative content.',
+      'Measure first import, incremental update, cold rebuild, normal startup, local search, optional online refinement, and graph interaction separately on the target machine.',
+      'Record end-to-end latency, throughput where meaningful, peak memory, disk footprint, and actual hardware/macOS/build details; drawing-submission time alone is insufficient.',
+      'During active import/update, title/meaning/relational search, group expansion/collapse, label/media handling, page/evidence navigation, and access to distant items remain usable without a full in-memory graph.',
+      'Restart and interrupted rebuild recover correctly; sampled and invariant-based checks confirm identities, manual corrections, source support, saved views, and current results without obsolete-value resurrection.',
+      'Measure against the documented representative workload budgets, investigate bottlenecks, and rerun failed scenarios after fixes; do not silently shrink the collection or drop required behaviors to obtain a pass.',
+      'Publish a reproducible result record and unresolved limitations. A successful synthetic render or small standalone index benchmark cannot be labeled target-scale qualification.'
+    ],
+    'Build the specified corpus in a disposable collection, run the integrated benchmark suite on the target 16 GB Apple Silicon Mac, and simultaneously explore a recently updated neighborhood plus unrelated older material. Interrupt a cold rebuild and restart, then verify the same current knowledge and navigation tasks.',
+    'The exact latency/throughput thresholds require representative measurements and were not fixed by the parent interview. Preserve that distinction: report measured behavior and declared workload budgets, not invented historical promises. The full release ticket adds complete format and installability gates to this performance result.',
+    'Prior evidence and remaining gates')
+
+add('35', 'Deliver and verify the complete installable personal Mac release', ['30','31','33','34'], [1,2,42,58,60,61,64,70],
+    'Provide a normally installable personal Mac application that completes the specification’s source-to-current-knowledge and reading/navigation journeys using bundled, validated dependencies and the selected services.',
+    [
+      'The Apple Silicon package installs and launches normally on the target 16 GB Mac without requiring a development terminal, separate helper startup, or undeclared runtime dependencies.',
+      'Required local extraction, preview, search/embedding, and background helpers/assets are packaged or provisioned through a verified install path; offline processed-material navigation/search works after restart.',
+      'A fresh disposable collection exercises direct file/drop, watched directory, explicit URL, every required media/file class, retained originals, source-located evidence, and recoverable unsupported/partial states.',
+      'Run the concrete replacement, correction, separate-event, older-import, duplicate-import, partial-extraction, external-correction, and disconnect/deletion scenarios in the packaged app with expected current results.',
+      'Reading, title/tag/keyword/meaning/relationship search, groups/canvas, comparison, timelines, gaps, saved views, trails, restoration, keyboard/assistive access, and Obsidian interoperability pass their linked gates.',
+      'Menu-bar close/login/Quit/sleep behavior, provider limits/offline recovery, full cache rebuild, independent quality evaluation, and target-scale qualification have verified outcomes for the release build or justified unchanged components.',
+      'A final requirement-to-evidence checklist accounts for all 70 parent user stories and every observable acceptance criterion; unresolved failures prevent claiming the release complete rather than silently reducing scope.',
+      'Release notes give install/start/quit/recovery guidance and actual tested environment/capability limitations. No chat/generated search answers, in-app authoring requirement, curation queue, obsolete-fact replay, implicit crawling, or app spending cap is introduced.'
+    ],
+    'Install the candidate as an ordinary Mac app and run a fresh-collection smoke journey: import representative files, watch a folder, explicitly add a controlled URL, inspect evidence, update V17, correct one fact externally, search offline, save/reopen a view and trail, close/reopen via menu bar, Quit, and rebuild disposable caches. Link the deeper quality, accessibility, Obsidian, and scale evidence for the same candidate.',
+    'This is the personal Mac release selected in the parent, not broad distribution, mobile, collaboration, or remote access. No existing production build was claimed at ticket creation. Keep the parent specification open and unchanged; completing this ticket records implementation evidence without rewriting the agreed product contract.',
+    'Observable acceptance criteria')
+
+TICKETS.sort(key=lambda item: item['key'])
+
+# Keep only genuine direct gates; ancestors remain represented by native edges.
+BY_KEY = {t['key']: t for t in TICKETS}
+def ancestors(key):
+    result = set(BY_KEY[key]['blockers'])
+    for blocker in BY_KEY[key]['blockers']:
+        result.update(ancestors(blocker))
+    return result
+for ticket in TICKETS:
+    ticket['blockers'] = [b for b in ticket['blockers']
+                          if not any(b in ancestors(other)
+                                     for other in ticket['blockers'] if other != b)]
+
+if __name__ == '__main__':
+    assert len({t['key'] for t in TICKETS}) == len(TICKETS)
+    seen = set()
+    for t in TICKETS:
+        assert set(t['blockers']) <= seen, (t['key'], t['blockers'])
+        assert len(t['criteria']) >= 6
+        seen.add(t['key'])
+    covered = {s for t in TICKETS for s in t['stories']}
+    assert covered == set(range(1, 71)), sorted(set(range(1, 71))-covered)
+    (ROOT/'tickets.json').write_text(json.dumps(TICKETS, indent=2, ensure_ascii=False)+'\n')
+    print(f'{len(TICKETS)} tickets; all 70 user stories mapped; dependency graph is acyclic and ordered.')
+    for t in TICKETS:
+        print(t['key'], t['title'], 'BLOCKED BY', ','.join(t['blockers']) or 'none')

@@ -1,0 +1,33 @@
+{
+  "environment": {
+    "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]",
+    "platform": "macOS-26.4.1-arm64-arm-64bit-Mach-O"
+  },
+  "results": [
+    {
+      "file": "A-flat-relationship-note.md",
+      "bytes": 389,
+      "exact_recovery": true,
+      "elapsed_ms": 0.020208011846989393,
+      "sha256": "58a9e2c19681278717bb62778ab963e795c9d5e1fd12f476153774a641c9e0bd",
+      "external_prose_preserved": true
+    },
+    {
+      "file": "B-inline-record.md",
+      "bytes": 469,
+      "exact_recovery": true,
+      "elapsed_ms": 0.05366699770092964,
+      "sha256": "e18e508b3ca01798a2def9bad7aef1c03717aaad90d605aefc14b2362eacd970",
+      "external_prose_preserved": true
+    },
+    {
+      "file": "C-table-ledger.md",
+      "bytes": 446,
+      "exact_recovery": true,
+      "elapsed_ms": 0.011583993909880519,
+      "sha256": "eafe406d99c629cdd1c2b5c8b2dbf3686a62cf168b7199c2e6b269b022abccb0",
+      "external_prose_preserved": true
+    }
+  ],
+  "limitations": "Minimal parsers for frozen fixture shapes, not arbitrary Markdown. Append preservation tests bytes, not GUI edits."
+}

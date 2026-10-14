@@ -1,0 +1,362 @@
+{
+  "records": 44,
+  "metrics": {
+    "answer-verifier": {
+      "requests": 6,
+      "successful": 6,
+      "inputTokens": 5943,
+      "outputTokens": 473,
+      "reportedCostUSD": 0.000249606,
+      "medianSeconds": 0.27797614598239306
+    },
+    "cited-answer": {
+      "requests": 6,
+      "successful": 6,
+      "inputTokens": 1996,
+      "outputTokens": 1052,
+      "reportedCostUSD": 0.002456784,
+      "medianSeconds": 1.8846800624887692
+    },
+    "retrieval-broad": {
+      "requests": 16,
+      "successful": 16,
+      "inputTokens": 59138,
+      "outputTokens": 3438,
+      "reportedCostUSD": 0.002483796,
+      "medianSeconds": 2.093586104005226
+    },
+    "retrieval-shortlist": {
+      "requests": 16,
+      "successful": 16,
+      "inputTokens": 13900,
+      "outputTokens": 841,
+      "reportedCostUSD": 0.0005838,
+      "medianSeconds": 0.6147738955041859
+    }
+  },
+  "evaluation": [
+    {
+      "query": "q1",
+      "mode": "broad",
+      "choice": "slides",
+      "confidence": 0.9,
+      "acceptable": [
+        "slides"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q1",
+      "mode": "shortlist",
+      "choice": "slides",
+      "confidence": 0.87,
+      "acceptable": [
+        "slides"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q2",
+      "mode": "broad",
+      "choice": "slides",
+      "confidence": 0.97,
+      "acceptable": [
+        "slides"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q2",
+      "mode": "shortlist",
+      "choice": "none",
+      "confidence": 0.53,
+      "acceptable": [
+        "slides"
+      ],
+      "correct": false
+    },
+    {
+      "query": "q3",
+      "mode": "broad",
+      "choice": "photo-fruit",
+      "confidence": 0.98,
+      "acceptable": [
+        "photo-fruit"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q3",
+      "mode": "shortlist",
+      "choice": "photo-fruit",
+      "confidence": 0.98,
+      "acceptable": [
+        "photo-fruit"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q4",
+      "mode": "broad",
+      "choice": "none",
+      "confidence": 0.96,
+      "acceptable": [
+        "none"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q4",
+      "mode": "shortlist",
+      "choice": "none",
+      "confidence": 0.99,
+      "acceptable": [
+        "none"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q5",
+      "mode": "broad",
+      "choice": "reasoning",
+      "confidence": 0.94,
+      "acceptable": [
+        "reasoning",
+        "plan-2"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q5",
+      "mode": "shortlist",
+      "choice": "reasoning",
+      "confidence": 0.81,
+      "acceptable": [
+        "reasoning",
+        "plan-2"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q6",
+      "mode": "broad",
+      "choice": "plan-1",
+      "confidence": 0.98,
+      "acceptable": [
+        "plan-1"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q6",
+      "mode": "shortlist",
+      "choice": "plan-1",
+      "confidence": 0.97,
+      "acceptable": [
+        "plan-1"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q7",
+      "mode": "broad",
+      "choice": "receipt",
+      "confidence": 0.99,
+      "acceptable": [
+        "receipt"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q7",
+      "mode": "shortlist",
+      "choice": "receipt",
+      "confidence": 0.9,
+      "acceptable": [
+        "receipt"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q8",
+      "mode": "broad",
+      "choice": "photo-missing",
+      "confidence": 0.97,
+      "acceptable": [
+        "photo-missing"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q8",
+      "mode": "shortlist",
+      "choice": "photo-missing",
+      "confidence": 0.84,
+      "acceptable": [
+        "photo-missing"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q9",
+      "mode": "broad",
+      "choice": "none",
+      "confidence": 0.9,
+      "acceptable": [
+        "none"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q9",
+      "mode": "shortlist",
+      "choice": "none",
+      "confidence": 0.97,
+      "acceptable": [
+        "none"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q10",
+      "mode": "broad",
+      "choice": "question-rain",
+      "confidence": 0.89,
+      "acceptable": [
+        "question-rain"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q10",
+      "mode": "shortlist",
+      "choice": "question-rain",
+      "confidence": 0.84,
+      "acceptable": [
+        "question-rain"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q11",
+      "mode": "broad",
+      "choice": "audio",
+      "confidence": 0.99,
+      "acceptable": [
+        "audio"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q11",
+      "mode": "shortlist",
+      "choice": "audio",
+      "confidence": 0.99,
+      "acceptable": [
+        "audio"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q12",
+      "mode": "broad",
+      "choice": "homework",
+      "confidence": 0.6,
+      "acceptable": [
+        "homework"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q12",
+      "mode": "shortlist",
+      "choice": "claim-rate",
+      "confidence": 0.87,
+      "acceptable": [
+        "homework"
+      ],
+      "correct": false
+    },
+    {
+      "query": "q13",
+      "mode": "broad",
+      "choice": "linked",
+      "confidence": 0.5,
+      "acceptable": [
+        "none"
+      ],
+      "correct": false
+    },
+    {
+      "query": "q13",
+      "mode": "shortlist",
+      "choice": "none",
+      "confidence": 0.74,
+      "acceptable": [
+        "none"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q14",
+      "mode": "broad",
+      "choice": "video",
+      "confidence": 0.99,
+      "acceptable": [
+        "video"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q14",
+      "mode": "shortlist",
+      "choice": "video",
+      "confidence": 0.97,
+      "acceptable": [
+        "video"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q15",
+      "mode": "broad",
+      "choice": "trail",
+      "confidence": 0.97,
+      "acceptable": [
+        "trail"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q15",
+      "mode": "shortlist",
+      "choice": "trail",
+      "confidence": 0.98,
+      "acceptable": [
+        "trail"
+      ],
+      "correct": true
+    },
+    {
+      "query": "q16",
+      "mode": "broad",
+      "choice": "person-maya",
+      "confidence": 0.56,
+      "acceptable": [
+        "none"
+      ],
+      "correct": false
+    },
+    {
+      "query": "q16",
+      "mode": "shortlist",
+      "choice": "none",
+      "confidence": 0.78,
+      "acceptable": [
+        "none"
+      ],
+      "correct": true
+    }
+  ],
+  "boundary": "Public controlled development fixtures. Costs are reported router usage, exclude coding agent, browser chooser, local extraction and unknown failed-call charges. No total billing claim."
+}

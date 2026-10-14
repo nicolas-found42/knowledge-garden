@@ -1,0 +1,25 @@
+  browser: our own Chrome (pid=98036, port=57678, throwaway profile) — closed on exit
+  tick  1     346 ms  actions=1  status=ready  last=click
+  loop error RuntimeError: no close frame received or sent
+  could not read the live document: RuntimeError
+
+Traceback (most recent call last):
+  File "/Users/Nicolas/.hermes/skills/jev/jev-browser-use/scripts/jev_browser_agent.py", line 453, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/Users/Nicolas/.hermes/skills/jev/jev-browser-use/scripts/jev_browser_agent.py", line 399, in main
+    with Agent(args.url, args.goal) as agent:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/Nicolas/Documents/github/hermes/jev-ultrafast/jev_ultrafast/agent.py", line 174, in __exit__
+    self.close()
+  File "/Users/Nicolas/Documents/github/hermes/jev-ultrafast/jev_ultrafast/agent.py", line 168, in close
+    self.browser.close()
+  File "/Users/Nicolas/Documents/github/hermes/jev-ultrafast/jev_ultrafast/browser.py", line 111, in close
+    cdp("Target.closeTarget", targetId=self.target)
+  File "/Users/Nicolas/Documents/github/hermes/jev-ultrafast/.venv/lib/python3.12/site-packages/browser_harness/helpers.py", line 74, in cdp
+    return _send(
+           ^^^^^^
+  File "/Users/Nicolas/Documents/github/hermes/jev-ultrafast/.venv/lib/python3.12/site-packages/browser_harness/helpers.py", line 68, in _send
+    if "error" in r: raise RuntimeError(r["error"])
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: no close frame received or sent

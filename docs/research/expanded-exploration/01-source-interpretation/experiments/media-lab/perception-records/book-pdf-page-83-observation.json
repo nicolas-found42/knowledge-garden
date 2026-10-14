@@ -1,0 +1,59 @@
+{
+  "task": {
+    "id": "book-pdf-page-83-observation",
+    "file": "/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/01-source-interpretation/experiments/media-lab/book-pdf-page-83.png",
+    "mode": "observation",
+    "media": "image"
+  },
+  "model_requested": "google/gemini-2.5-flash-lite",
+  "prompt": "Return concise JSON with observations:[{claim,anchor,uncertainty}], exact_visible_text, and limitations. Describe only what the supplied image/video directly shows. Separate uncertain interpretations. Anchor image claims by approximate normalized top-left bounding box [x,y,w,h]; video claims by seconds. Never infer author motives, historical links, exact weights, medical facts, identity, or security intent from appearances. Preserve qualifications and negations in book text. Do not normalize familiar phrases into a different sentence.\n",
+  "media_sha256": "a453dab1991caf25e6795eb2f946c6bd8ddfe96f7c4b8f5e4048e97b49421110",
+  "media_bytes": 323702,
+  "response": {
+    "id": "gen-1790725748-a6EZyBdEREBVcDBy8pgN",
+    "object": "chat.completion",
+    "created": 1790725748,
+    "model": "google/gemini-2.5-flash-lite",
+    "provider": "Google AI Studio",
+    "system_fingerprint": null,
+    "service_tier": "default",
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "STOP",
+        "message": {
+          "role": "assistant",
+          "content": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"CHAP. IV.\",\n      \"anchor\": [80, 79, 160, 93],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"NATURAL SELECTION.\",\n      \"anchor\": [326, 79, 604, 93],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"77\",\n      \"anchor\": [847, 80, 890, 94],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"CHAPTER IV.\",\n      \"anchor\": [317, 237, 612, 254],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"NATURAL SELECTION.\",\n      \"anchor\": [286, 286, 642, 299],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"Natural Selection\u2014Its power compared with man's selection\u2014its power on characters of trifling importance\u2014its power at all ages and on both sexes\u2014Sexual Selection\u2014On the generality of intercrosses between individuals of the same species\u2014Circumstances favourable and unfavourable to Natural Selection, namely, intercrossing, isolation, number of individuals\u2014Slow action\u2014Extinction caused by Natural Selection\u2014Divergence of Character, related to the diversity of inhabitants of any small area, and to naturalisation\u2014Action of Natural Selection, through Divergence of Character and Extinction, on the descendants from a common parent\u2014Explains the Grouping of all organic beings.\",\n      \"anchor\": [71, 323, 890, 462],\n      \"uncertainty\": \"none\"\n    },\n    {\n      \"claim\": \"How will the struggle for existence, discussed too briefly in the last chapter, act in regard to variation? Can the principle of selection, which we have seen is so potent in the hands of man, apply in nature? I think we shall see that it can act most effectually. Let it be borne in mind in what an endless number of strange peculiarities our domestic productions, and, in a lesser degree, those under nature, vary; and how strong the hereditary tendency is. Under domestication, it may be truly said that the whole organisation becomes in some degree plastic. Let it be borne in mind how infinitely complex and close-fitting are the mutual relations of all organic beings to each other and to their physical conditions of life. Can it, then, be thought improbable, seeing that variations useful to man have undoubtedly occurred, that other variations useful in some way to each being in the great and complex battle of life, should sometimes occur in the course of thousands of generations? If such do occur, can we doubt (remembering that many more individuals are born than can possibly survive) that individuals having any advantage, however slight, over others, would have the best chance of surviving and of procreating their kind?\",\n      \"anchor\": [71, 483, 890, 918],\n      \"uncertainty\": \"none\"\n    }\n  ],\n  \"exact_visible_text\": \"CHAP. IV.] NATURAL SELECTION. 77\\nCHAPTER IV.\\nNATURAL SELECTION.\\nNatural Selection\u2014Its power compared with man's selection\u2014its power on characters\\nof trifling importance\u2014its power at all ages and on both sexes\u2014Sexual Selection\u2014\\nOn the generality of intercrosses between individuals of the same species\u2014Cir-\\ncumstances favourable and unfavourable to Natural Selection, namely, intercross-\\ning, isolation, number of individuals\u2014Slow action\u2014Extinction caused by Natural\\nSelection\u2014Divergence of Character, related to the diversity of inhabitants of any\\nsmall area, and to naturalisation\u2014Action of Natural Selection, through Divergence\\nof Character and Extinction, on the descendants from a common parent\u2014Explains\\nthe Grouping of all organic beings.\\nHow will the struggle for existence, discussed too briefly\\nin the last chapter, act in regard to variation? Can the\\nprinciple of selection, which we have seen is so potent in\\nthe hands of man, apply in nature? I think we shall see\\nthat it can act most effectually. Let it be borne in mind\\nin what an endless number of strange peculiarities our\\ndomestic productions, and, in a lesser degree, those under\\nnature, vary; and how strong the hereditary tendency is.\\nUnder domestication, it may be truly said that the whole\\norganisation becomes in some degree plastic. Let it be\\nborne in mind how infinitely complex and close-fitting\\nare the mutual relations of all organic beings to each\\nother and to their physical conditions of life. Can it,\\nthen, be thought improbable, seeing that variations useful\\nto man have undoubtedly occurred, that other variations\\nuseful in some way to each being in the great and com-\\nplex battle of life, should sometimes occur in the course\\nof thousands of generations? If such do occur, can we\\ndoubt (remembering that many more individuals are born\\nthan can possibly survive) that individuals having any\\nadvantage, however slight, over others, would have the\\nbest chance of surviving and of procreating their kind?\",\n  \"limitations\": \"The image is a scan of a book page and may contain artifacts or distortions. Text recognition may be imperfect, especially for small or faded print. The image does not provide context beyond the visible text and layout.\"\n}\n```",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 363,
+      "completion_tokens": 1229,
+      "total_tokens": 1592,
+      "cost": 0,
+      "is_byok": true,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0005279,
+        "upstream_inference_prompt_cost": 3.63e-05,
+        "upstream_inference_completions_cost": 0.0004916
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  "seconds": 5.108776833018055
+}

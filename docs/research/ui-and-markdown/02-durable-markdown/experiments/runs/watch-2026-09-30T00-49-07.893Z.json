@@ -1,0 +1,812 @@
+{
+  "timestamp_utc": "2026-09-30T00:49:07.893Z",
+  "environment": {
+    "node": "v26.9.0",
+    "platform": "darwin",
+    "release": "25.4.0",
+    "arch": "arm64"
+  },
+  "expected_sha256": "42667a4fd2defff197b2e22eb395fca71d4d840e1a8ce938aad551ae91c3875c",
+  "operations": [
+    {
+      "operation": "append",
+      "elapsed_ms": 307.926834,
+      "mutation_ms": 0.28391700000003084
+    },
+    {
+      "operation": "atomic-save rename-over",
+      "elapsed_ms": 910.925042,
+      "mutation_ms": 1.0181249999999409
+    },
+    {
+      "operation": "post-save append",
+      "elapsed_ms": 1513.1542920000002,
+      "mutation_ms": 1.9806250000001455
+    },
+    {
+      "operation": "external rename",
+      "elapsed_ms": 2114.9469999999997,
+      "mutation_ms": 0.7399999999997817
+    },
+    {
+      "operation": "burst create 40 notes",
+      "elapsed_ms": 2724.063709,
+      "mutation_ms": 8.09429100000034
+    },
+    {
+      "operation": "remove",
+      "elapsed_ms": 3325.3085419999998,
+      "mutation_ms": 0.2892500000002656
+    },
+    {
+      "operation": "rebuild scan",
+      "elapsed_ms": 3930.200084,
+      "scan_ms": 3.4338749999997162
+    }
+  ],
+  "events": [
+    {
+      "kind": "single-file-inode",
+      "phase": "append",
+      "eventType": "change",
+      "filename": "Flower study.md",
+      "elapsed_ms": 308.04975,
+      "timestamp_utc": "2026-09-30T00:49:04.267Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "append",
+      "eventType": "rename",
+      "filename": "Pages/Flower study.md",
+      "elapsed_ms": 318.72783400000003,
+      "timestamp_utc": "2026-09-30T00:49:04.278Z"
+    },
+    {
+      "kind": "single-file-inode",
+      "phase": "atomic-save rename-over",
+      "eventType": "rename",
+      "filename": "Flower study.md",
+      "elapsed_ms": 911.088459,
+      "timestamp_utc": "2026-09-30T00:49:04.870Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "atomic-save rename-over",
+      "eventType": "rename",
+      "filename": "Pages/Flower study.md.save",
+      "elapsed_ms": 921.837084,
+      "timestamp_utc": "2026-09-30T00:49:04.881Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "atomic-save rename-over",
+      "eventType": "rename",
+      "filename": "Pages/Flower study.md",
+      "elapsed_ms": 921.923875,
+      "timestamp_utc": "2026-09-30T00:49:04.881Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "atomic-save rename-over",
+      "eventType": "rename",
+      "filename": "Pages/Flower study.md",
+      "elapsed_ms": 921.99975,
+      "timestamp_utc": "2026-09-30T00:49:04.881Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "post-save append",
+      "eventType": "rename",
+      "filename": "Pages/Flower study.md",
+      "elapsed_ms": 1523.1899170000002,
+      "timestamp_utc": "2026-09-30T00:49:05.482Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "external rename",
+      "eventType": "rename",
+      "filename": "Pages/Mira.md",
+      "elapsed_ms": 2126.381625,
+      "timestamp_utc": "2026-09-30T00:49:06.085Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "external rename",
+      "eventType": "rename",
+      "filename": "Pages/Observer.md",
+      "elapsed_ms": 2126.4874999999997,
+      "timestamp_utc": "2026-09-30T00:49:06.085Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-0.md",
+      "elapsed_ms": 2724.140417,
+      "timestamp_utc": "2026-09-30T00:49:06.683Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-1.md",
+      "elapsed_ms": 2724.1809169999997,
+      "timestamp_utc": "2026-09-30T00:49:06.683Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-2.md",
+      "elapsed_ms": 2724.199292,
+      "timestamp_utc": "2026-09-30T00:49:06.683Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-3.md",
+      "elapsed_ms": 2724.216584,
+      "timestamp_utc": "2026-09-30T00:49:06.683Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-4.md",
+      "elapsed_ms": 2724.2326249999996,
+      "timestamp_utc": "2026-09-30T00:49:06.683Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-5.md",
+      "elapsed_ms": 2724.239584,
+      "timestamp_utc": "2026-09-30T00:49:06.683Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-5.md",
+      "elapsed_ms": 2770.4262919999996,
+      "timestamp_utc": "2026-09-30T00:49:06.729Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-6.md",
+      "elapsed_ms": 2770.541625,
+      "timestamp_utc": "2026-09-30T00:49:06.729Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-7.md",
+      "elapsed_ms": 2770.5644589999997,
+      "timestamp_utc": "2026-09-30T00:49:06.729Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-8.md",
+      "elapsed_ms": 2770.5764169999998,
+      "timestamp_utc": "2026-09-30T00:49:06.729Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-9.md",
+      "elapsed_ms": 2770.5852919999998,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-10.md",
+      "elapsed_ms": 2770.5957089999997,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-11.md",
+      "elapsed_ms": 2770.612959,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-12.md",
+      "elapsed_ms": 2770.622417,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-13.md",
+      "elapsed_ms": 2770.631,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-14.md",
+      "elapsed_ms": 2770.639834,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-15.md",
+      "elapsed_ms": 2770.648209,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-16.md",
+      "elapsed_ms": 2770.6567919999998,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-17.md",
+      "elapsed_ms": 2770.665334,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-18.md",
+      "elapsed_ms": 2770.6741669999997,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-19.md",
+      "elapsed_ms": 2770.682792,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-20.md",
+      "elapsed_ms": 2770.6915839999997,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-21.md",
+      "elapsed_ms": 2770.700625,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-22.md",
+      "elapsed_ms": 2770.709875,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-23.md",
+      "elapsed_ms": 2770.718625,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-24.md",
+      "elapsed_ms": 2770.7275839999998,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-25.md",
+      "elapsed_ms": 2770.7363339999997,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-26.md",
+      "elapsed_ms": 2770.74525,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-27.md",
+      "elapsed_ms": 2770.757334,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-28.md",
+      "elapsed_ms": 2770.7664999999997,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-29.md",
+      "elapsed_ms": 2770.7751249999997,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-30.md",
+      "elapsed_ms": 2770.7841249999997,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-31.md",
+      "elapsed_ms": 2770.793042,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-32.md",
+      "elapsed_ms": 2770.80175,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-33.md",
+      "elapsed_ms": 2770.810334,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-34.md",
+      "elapsed_ms": 2770.8196669999998,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-35.md",
+      "elapsed_ms": 2770.828375,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-36.md",
+      "elapsed_ms": 2770.8374169999997,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-37.md",
+      "elapsed_ms": 2770.851875,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-38.md",
+      "elapsed_ms": 2770.862292,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "burst create 40 notes",
+      "eventType": "rename",
+      "filename": "Pages/burst-39.md",
+      "elapsed_ms": 2770.871209,
+      "timestamp_utc": "2026-09-30T00:49:06.730Z"
+    },
+    {
+      "kind": "directory",
+      "phase": "remove",
+      "eventType": "rename",
+      "filename": "Annotations/Identification gap.md",
+      "elapsed_ms": 3335.898875,
+      "timestamp_utc": "2026-09-30T00:49:07.295Z"
+    }
+  ],
+  "counts": {
+    "single-file-inode/append": 1,
+    "directory/append": 1,
+    "single-file-inode/atomic-save rename-over": 1,
+    "directory/atomic-save rename-over": 3,
+    "directory/post-save append": 1,
+    "directory/external rename": 2,
+    "directory/burst create 40 notes": 41,
+    "directory/remove": 1
+  },
+  "errors": [],
+  "debounced_rescans": [
+    {
+      "reason": "debounced-directory-event",
+      "elapsed_ms": 399.898875,
+      "hashes": {
+        "Annotations/Identification gap.md": "28244a22de27678f22c70001efcdbbcfd840f0bfe650cbce6cc013950ce8fe29",
+        "Assets/field-notes-copy.txt": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+        "Assets/field-notes-revision.txt": "841877cd37d704f215a105eb7defe6cb2704445fc01b904ab2ea4cc85f564e4e",
+        "Assets/field-notes.txt": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+        "Assets/flower.png": "b4c4b3627841f6dca69a3e932bf23151c5f8d018990d5b4e49bdb0e0a6b8e597",
+        "Pages/Flower study.md": "96046997b2510acd76c2976422198baa50b2d80868a33220ff3db2ac9c828f17",
+        "Pages/Mira.md": "4b37a5dc5b554c3fdf99129f0c79793a56a8217e9378d6b8ff7eb7541250e6e3",
+        "Pages/Riverside.md": "8c8e1d93fdf9e63966c82380483448fa32f9c663977b041d3b8d1246e9811022",
+        "Relationships/Mira observed flowers.md": "c1c03eee6f10f05761af4c6ec34e8cf2be7861f806035e204f9098804d4d1a85",
+        "Sources/Field observation revision 2.md": "e677fa4ed3347b3ead120276c5deabe7ac925d5044bf67566e8adff287cff33a",
+        "Sources/Field observation.md": "089af262694b8b339446382363ec45b918be76d82f6dc9e79109353c88ea68ce",
+        "Sources/Second acquisition.md": "7c9c42948177ba708e2d1aecc9d10aa9134bcd284447819b1b0eb554ee3ab8a1",
+        "START HERE.md": "1f97731c1f7ddfb43c334eae375bd51b09c0dc8f481346db735feaa26ab25454",
+        "Views/Red-flower search.md": "94dbe152c62afe04f3724a7a2bccfcb0766ede6857a60f04ab1bd02a880ae867",
+        "Views/Research workspace.md": "cc48bfb723f7663adc3e1505768b492e3ae6c90cbb1fdaaeb6c954fb0b0fdf44",
+        "Views/Study trail.md": "1511a20f621d16bb4f5d96a5c6dc298a3a6a16564299e67258a3cfa190c37b51"
+      }
+    },
+    {
+      "reason": "debounced-directory-event",
+      "elapsed_ms": 1003.1242920000001,
+      "hashes": {
+        "Annotations/Identification gap.md": "28244a22de27678f22c70001efcdbbcfd840f0bfe650cbce6cc013950ce8fe29",
+        "Assets/field-notes-copy.txt": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+        "Assets/field-notes-revision.txt": "841877cd37d704f215a105eb7defe6cb2704445fc01b904ab2ea4cc85f564e4e",
+        "Assets/field-notes.txt": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+        "Assets/flower.png": "b4c4b3627841f6dca69a3e932bf23151c5f8d018990d5b4e49bdb0e0a6b8e597",
+        "Pages/Flower study.md": "eb3792bca0dc36907697950e9772da7190c0c0b2253126eac8c5e60b0d3d8106",
+        "Pages/Mira.md": "4b37a5dc5b554c3fdf99129f0c79793a56a8217e9378d6b8ff7eb7541250e6e3",
+        "Pages/Riverside.md": "8c8e1d93fdf9e63966c82380483448fa32f9c663977b041d3b8d1246e9811022",
+        "Relationships/Mira observed flowers.md": "c1c03eee6f10f05761af4c6ec34e8cf2be7861f806035e204f9098804d4d1a85",
+        "Sources/Field observation revision 2.md": "e677fa4ed3347b3ead120276c5deabe7ac925d5044bf67566e8adff287cff33a",
+        "Sources/Field observation.md": "089af262694b8b339446382363ec45b918be76d82f6dc9e79109353c88ea68ce",
+        "Sources/Second acquisition.md": "7c9c42948177ba708e2d1aecc9d10aa9134bcd284447819b1b0eb554ee3ab8a1",
+        "START HERE.md": "1f97731c1f7ddfb43c334eae375bd51b09c0dc8f481346db735feaa26ab25454",
+        "Views/Red-flower search.md": "94dbe152c62afe04f3724a7a2bccfcb0766ede6857a60f04ab1bd02a880ae867",
+        "Views/Research workspace.md": "cc48bfb723f7663adc3e1505768b492e3ae6c90cbb1fdaaeb6c954fb0b0fdf44",
+        "Views/Study trail.md": "1511a20f621d16bb4f5d96a5c6dc298a3a6a16564299e67258a3cfa190c37b51"
+      }
+    },
+    {
+      "reason": "debounced-directory-event",
+      "elapsed_ms": 1604.3807920000002,
+      "hashes": {
+        "Annotations/Identification gap.md": "28244a22de27678f22c70001efcdbbcfd840f0bfe650cbce6cc013950ce8fe29",
+        "Assets/field-notes-copy.txt": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+        "Assets/field-notes-revision.txt": "841877cd37d704f215a105eb7defe6cb2704445fc01b904ab2ea4cc85f564e4e",
+        "Assets/field-notes.txt": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+        "Assets/flower.png": "b4c4b3627841f6dca69a3e932bf23151c5f8d018990d5b4e49bdb0e0a6b8e597",
+        "Pages/Flower study.md": "403462376f9fd467478c5627c4a44b7556355e27235cb077a2e972bdf33501cd",
+        "Pages/Mira.md": "4b37a5dc5b554c3fdf99129f0c79793a56a8217e9378d6b8ff7eb7541250e6e3",
+        "Pages/Riverside.md": "8c8e1d93fdf9e63966c82380483448fa32f9c663977b041d3b8d1246e9811022",
+        "Relationships/Mira observed flowers.md": "c1c03eee6f10f05761af4c6ec34e8cf2be7861f806035e204f9098804d4d1a85",
+        "Sources/Field observation revision 2.md": "e677fa4ed3347b3ead120276c5deabe7ac925d5044bf67566e8adff287cff33a",
+        "Sources/Field observation.md": "089af262694b8b339446382363ec45b918be76d82f6dc9e79109353c88ea68ce",
+        "Sources/Second acquisition.md": "7c9c42948177ba708e2d1aecc9d10aa9134bcd284447819b1b0eb554ee3ab8a1",
+        "START HERE.md": "1f97731c1f7ddfb43c334eae375bd51b09c0dc8f481346db735feaa26ab25454",
+        "Views/Red-flower search.md": "94dbe152c62afe04f3724a7a2bccfcb0766ede6857a60f04ab1bd02a880ae867",
+        "Views/Research workspace.md": "cc48bfb723f7663adc3e1505768b492e3ae6c90cbb1fdaaeb6c954fb0b0fdf44",
+        "Views/Study trail.md": "1511a20f621d16bb4f5d96a5c6dc298a3a6a16564299e67258a3cfa190c37b51"
+      }
+    },
+    {
+      "reason": "debounced-directory-event",
+      "elapsed_ms": 2207.743917,
+      "hashes": {
+        "Annotations/Identification gap.md": "28244a22de27678f22c70001efcdbbcfd840f0bfe650cbce6cc013950ce8fe29",
+        "Assets/field-notes-copy.txt": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+        "Assets/field-notes-revision.txt": "841877cd37d704f215a105eb7defe6cb2704445fc01b904ab2ea4cc85f564e4e",
+        "Assets/field-notes.txt": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+        "Assets/flower.png": "b4c4b3627841f6dca69a3e932bf23151c5f8d018990d5b4e49bdb0e0a6b8e597",
+        "Pages/Flower study.md": "403462376f9fd467478c5627c4a44b7556355e27235cb077a2e972bdf33501cd",
+        "Pages/Observer.md": "4b37a5dc5b554c3fdf99129f0c79793a56a8217e9378d6b8ff7eb7541250e6e3",
+        "Pages/Riverside.md": "8c8e1d93fdf9e63966c82380483448fa32f9c663977b041d3b8d1246e9811022",
+        "Relationships/Mira observed flowers.md": "c1c03eee6f10f05761af4c6ec34e8cf2be7861f806035e204f9098804d4d1a85",
+        "Sources/Field observation revision 2.md": "e677fa4ed3347b3ead120276c5deabe7ac925d5044bf67566e8adff287cff33a",
+        "Sources/Field observation.md": "089af262694b8b339446382363ec45b918be76d82f6dc9e79109353c88ea68ce",
+        "Sources/Second acquisition.md": "7c9c42948177ba708e2d1aecc9d10aa9134bcd284447819b1b0eb554ee3ab8a1",
+        "START HERE.md": "1f97731c1f7ddfb43c334eae375bd51b09c0dc8f481346db735feaa26ab25454",
+        "Views/Red-flower search.md": "94dbe152c62afe04f3724a7a2bccfcb0766ede6857a60f04ab1bd02a880ae867",
+        "Views/Research workspace.md": "cc48bfb723f7663adc3e1505768b492e3ae6c90cbb1fdaaeb6c954fb0b0fdf44",
+        "Views/Study trail.md": "1511a20f621d16bb4f5d96a5c6dc298a3a6a16564299e67258a3cfa190c37b51"
+      }
+    },
+    {
+      "reason": "debounced-directory-event",
+      "elapsed_ms": 2852.557292,
+      "hashes": {
+        "Annotations/Identification gap.md": "28244a22de27678f22c70001efcdbbcfd840f0bfe650cbce6cc013950ce8fe29",
+        "Assets/field-notes-copy.txt": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+        "Assets/field-notes-revision.txt": "841877cd37d704f215a105eb7defe6cb2704445fc01b904ab2ea4cc85f564e4e",
+        "Assets/field-notes.txt": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+        "Assets/flower.png": "b4c4b3627841f6dca69a3e932bf23151c5f8d018990d5b4e49bdb0e0a6b8e597",
+        "Pages/burst-0.md": "6f287a32223a5584d33269f57999e7572ba3477b9d7ee6765e752c378832b5ee",
+        "Pages/burst-1.md": "72ba998badb496d3e835729b60719f202b86d67e51e2f2f49d7818a43aeea839",
+        "Pages/burst-10.md": "6da1aa8ead88ae1c07eaeebaba98ee396eb6c7db214f0b24b27a97511b0405c8",
+        "Pages/burst-11.md": "919b2fdbb56508672be87d07b39fd1b80cd64648d4103db7faab982e95acfc77",
+        "Pages/burst-12.md": "c9a19e0afadf8d98a9d06b07f7dcf0993220c0c062d0a40fce76c8b141fc41a7",
+        "Pages/burst-13.md": "ae2b0d89ead2f8630421ff4e9ce13af240e8ca7ecd9b9277905d345e9eec528b",
+        "Pages/burst-14.md": "d5bacec4fec0046163a720369a8eae655422ebf0fe9aeb1eec20507cdbafa509",
+        "Pages/burst-15.md": "a5160b66daeb56c98ca1b1d051af5795994298fe70dc51157737263a920b2e32",
+        "Pages/burst-16.md": "9dff0401698ba50b6c45e2b22fb4b44cd4733b8740baa289005fc24db3205338",
+        "Pages/burst-17.md": "f262e30cf17103d4c4d09d211d0b365ec299cde6891ece37ba7a1109d2914fe3",
+        "Pages/burst-18.md": "4cf13e26c143ec46b7953abb105cab83172ac41c7ecec1b04aed4edd76f68df2",
+        "Pages/burst-19.md": "8741a3fd4cdd50b053a674af5c01feefffe70119f5f0c56bd82f3221c8cd2da3",
+        "Pages/burst-2.md": "9958db27f9a35b519cb50077aa84fc1333e7c290262e1b12a64f43185d629326",
+        "Pages/burst-20.md": "e4d674cae4839b09e30004d85f0e97c2d7bc1ce6e9677c483aa07f7954b581e4",
+        "Pages/burst-21.md": "497af13c6aa8babc429cab597a7d068253bd82eccecd12525cead8bfd595366b",
+        "Pages/burst-22.md": "61709ec3873c768b4c256d12171ad6b5ef389e1081e98596d44a8d6aac0bbbfa",
+        "Pages/burst-23.md": "c23bdaab56271f0ec4e43c2d5aed9369a9992d999c20aff77e6acceb5bb1b4a3",
+        "Pages/burst-24.md": "ffa4efdaf31419d104380bb29c9237bde185a36605e2e6f48363203275690458",
+        "Pages/burst-25.md": "0f50c16a0bfd0c5a8524929b6ff32dbb0ced80bc63622e5dc8d9ca246991f567",
+        "Pages/burst-26.md": "4f66725a3d737c6130d6f3167d6f3f7e7acb2218af1a115a417b7e8da892b47e",
+        "Pages/burst-27.md": "9a672deb6f9ccb9664219303971ddb8267cb1ff6e9464bdfe749e1318164448e",
+        "Pages/burst-28.md": "bbf44aa1822f665d187fba8400ef7955272d0e99ba0ee1769e365431e3fb9eb8",
+        "Pages/burst-29.md": "caf7b49cfffe5eeebc2f736eca549abac924a93678d73d2aaef120feed567708",
+        "Pages/burst-3.md": "c0b46fd3c0bd2b609e18cabd62b7e04b089a3de23ab223b4a91079044529cdc0",
+        "Pages/burst-30.md": "9ad1d284cf2c43d5058d647a7d118d384eeb17914999043be6ba1fa586a1f8bc",
+        "Pages/burst-31.md": "d2c1f1f86b97b2d59f0aa33b07eb7280094c5b5f3cca2130592463a8e0561020",
+        "Pages/burst-32.md": "8d47a78e99512448724a1d5a6816444109af4b99b58cc42b06363453e40b8a00",
+        "Pages/burst-33.md": "6febd567d27adb892141ef539371f2b45de249c81369e8141cdf54b8e2cf8f87",
+        "Pages/burst-34.md": "830127cf0f50477b75318330152bd08ad2834ccc7a372f6b43c016dbb5ec21eb",
+        "Pages/burst-35.md": "d81d6c30d4351a523999128b3c1d3b48d953ab9fde490b2488230f2cada46ac1",
+        "Pages/burst-36.md": "10115e44fcb8dae7267d440c54de6dac2fdc908de5902e604226d783427904c0",
+        "Pages/burst-37.md": "f48d7a1b32f36c414ae9652b398ab52f227907a42cbc0cfaf39fa145bb5ea9b5",
+        "Pages/burst-38.md": "5b1a79a24f66cdabcdf444a7f4675cb07bdfe9f5373919bfe4379d8bef449dc6",
+        "Pages/burst-39.md": "fc0f79fc4eea14b49ade48be0210c9859820084e6cafc82689dc8f5e7ccc758e",
+        "Pages/burst-4.md": "f783152babd5227aeeaf3ddda7cf5c92f90043c155cb2de9a371e789ebdb3493",
+        "Pages/burst-5.md": "fd1c29f67a1260b016133fda052453051d0f6208e2dcf0326ebaaa4922c1e56d",
+        "Pages/burst-6.md": "b53536427f0e00135c1866145a5f2c7240488e19a47f0df6699d59da5b493245",
+        "Pages/burst-7.md": "e92b3b0a68bf0eaf84ac1a531ed46cb4907d193cecc1d284e88ac334df2f73c5",
+        "Pages/burst-8.md": "9e8d05b356232a849593b7a6cf8ee3965b0344aeb1ec1d11e907fcd3a4a8cae0",
+        "Pages/burst-9.md": "399d6d0b4e5b8de33f59d4172ddc1b629073811dd40a464b15846fa5a87806ea",
+        "Pages/Flower study.md": "403462376f9fd467478c5627c4a44b7556355e27235cb077a2e972bdf33501cd",
+        "Pages/Observer.md": "4b37a5dc5b554c3fdf99129f0c79793a56a8217e9378d6b8ff7eb7541250e6e3",
+        "Pages/Riverside.md": "8c8e1d93fdf9e63966c82380483448fa32f9c663977b041d3b8d1246e9811022",
+        "Relationships/Mira observed flowers.md": "c1c03eee6f10f05761af4c6ec34e8cf2be7861f806035e204f9098804d4d1a85",
+        "Sources/Field observation revision 2.md": "e677fa4ed3347b3ead120276c5deabe7ac925d5044bf67566e8adff287cff33a",
+        "Sources/Field observation.md": "089af262694b8b339446382363ec45b918be76d82f6dc9e79109353c88ea68ce",
+        "Sources/Second acquisition.md": "7c9c42948177ba708e2d1aecc9d10aa9134bcd284447819b1b0eb554ee3ab8a1",
+        "START HERE.md": "1f97731c1f7ddfb43c334eae375bd51b09c0dc8f481346db735feaa26ab25454",
+        "Views/Red-flower search.md": "94dbe152c62afe04f3724a7a2bccfcb0766ede6857a60f04ab1bd02a880ae867",
+        "Views/Research workspace.md": "cc48bfb723f7663adc3e1505768b492e3ae6c90cbb1fdaaeb6c954fb0b0fdf44",
+        "Views/Study trail.md": "1511a20f621d16bb4f5d96a5c6dc298a3a6a16564299e67258a3cfa190c37b51"
+      }
+    },
+    {
+      "reason": "debounced-directory-event",
+      "elapsed_ms": 3417.047959,
+      "hashes": {
+        "Assets/field-notes-copy.txt": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+        "Assets/field-notes-revision.txt": "841877cd37d704f215a105eb7defe6cb2704445fc01b904ab2ea4cc85f564e4e",
+        "Assets/field-notes.txt": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+        "Assets/flower.png": "b4c4b3627841f6dca69a3e932bf23151c5f8d018990d5b4e49bdb0e0a6b8e597",
+        "Pages/burst-0.md": "6f287a32223a5584d33269f57999e7572ba3477b9d7ee6765e752c378832b5ee",
+        "Pages/burst-1.md": "72ba998badb496d3e835729b60719f202b86d67e51e2f2f49d7818a43aeea839",
+        "Pages/burst-10.md": "6da1aa8ead88ae1c07eaeebaba98ee396eb6c7db214f0b24b27a97511b0405c8",
+        "Pages/burst-11.md": "919b2fdbb56508672be87d07b39fd1b80cd64648d4103db7faab982e95acfc77",
+        "Pages/burst-12.md": "c9a19e0afadf8d98a9d06b07f7dcf0993220c0c062d0a40fce76c8b141fc41a7",
+        "Pages/burst-13.md": "ae2b0d89ead2f8630421ff4e9ce13af240e8ca7ecd9b9277905d345e9eec528b",
+        "Pages/burst-14.md": "d5bacec4fec0046163a720369a8eae655422ebf0fe9aeb1eec20507cdbafa509",
+        "Pages/burst-15.md": "a5160b66daeb56c98ca1b1d051af5795994298fe70dc51157737263a920b2e32",
+        "Pages/burst-16.md": "9dff0401698ba50b6c45e2b22fb4b44cd4733b8740baa289005fc24db3205338",
+        "Pages/burst-17.md": "f262e30cf17103d4c4d09d211d0b365ec299cde6891ece37ba7a1109d2914fe3",
+        "Pages/burst-18.md": "4cf13e26c143ec46b7953abb105cab83172ac41c7ecec1b04aed4edd76f68df2",
+        "Pages/burst-19.md": "8741a3fd4cdd50b053a674af5c01feefffe70119f5f0c56bd82f3221c8cd2da3",
+        "Pages/burst-2.md": "9958db27f9a35b519cb50077aa84fc1333e7c290262e1b12a64f43185d629326",
+        "Pages/burst-20.md": "e4d674cae4839b09e30004d85f0e97c2d7bc1ce6e9677c483aa07f7954b581e4",
+        "Pages/burst-21.md": "497af13c6aa8babc429cab597a7d068253bd82eccecd12525cead8bfd595366b",
+        "Pages/burst-22.md": "61709ec3873c768b4c256d12171ad6b5ef389e1081e98596d44a8d6aac0bbbfa",
+        "Pages/burst-23.md": "c23bdaab56271f0ec4e43c2d5aed9369a9992d999c20aff77e6acceb5bb1b4a3",
+        "Pages/burst-24.md": "ffa4efdaf31419d104380bb29c9237bde185a36605e2e6f48363203275690458",
+        "Pages/burst-25.md": "0f50c16a0bfd0c5a8524929b6ff32dbb0ced80bc63622e5dc8d9ca246991f567",
+        "Pages/burst-26.md": "4f66725a3d737c6130d6f3167d6f3f7e7acb2218af1a115a417b7e8da892b47e",
+        "Pages/burst-27.md": "9a672deb6f9ccb9664219303971ddb8267cb1ff6e9464bdfe749e1318164448e",
+        "Pages/burst-28.md": "bbf44aa1822f665d187fba8400ef7955272d0e99ba0ee1769e365431e3fb9eb8",
+        "Pages/burst-29.md": "caf7b49cfffe5eeebc2f736eca549abac924a93678d73d2aaef120feed567708",
+        "Pages/burst-3.md": "c0b46fd3c0bd2b609e18cabd62b7e04b089a3de23ab223b4a91079044529cdc0",
+        "Pages/burst-30.md": "9ad1d284cf2c43d5058d647a7d118d384eeb17914999043be6ba1fa586a1f8bc",
+        "Pages/burst-31.md": "d2c1f1f86b97b2d59f0aa33b07eb7280094c5b5f3cca2130592463a8e0561020",
+        "Pages/burst-32.md": "8d47a78e99512448724a1d5a6816444109af4b99b58cc42b06363453e40b8a00",
+        "Pages/burst-33.md": "6febd567d27adb892141ef539371f2b45de249c81369e8141cdf54b8e2cf8f87",
+        "Pages/burst-34.md": "830127cf0f50477b75318330152bd08ad2834ccc7a372f6b43c016dbb5ec21eb",
+        "Pages/burst-35.md": "d81d6c30d4351a523999128b3c1d3b48d953ab9fde490b2488230f2cada46ac1",
+        "Pages/burst-36.md": "10115e44fcb8dae7267d440c54de6dac2fdc908de5902e604226d783427904c0",
+        "Pages/burst-37.md": "f48d7a1b32f36c414ae9652b398ab52f227907a42cbc0cfaf39fa145bb5ea9b5",
+        "Pages/burst-38.md": "5b1a79a24f66cdabcdf444a7f4675cb07bdfe9f5373919bfe4379d8bef449dc6",
+        "Pages/burst-39.md": "fc0f79fc4eea14b49ade48be0210c9859820084e6cafc82689dc8f5e7ccc758e",
+        "Pages/burst-4.md": "f783152babd5227aeeaf3ddda7cf5c92f90043c155cb2de9a371e789ebdb3493",
+        "Pages/burst-5.md": "fd1c29f67a1260b016133fda052453051d0f6208e2dcf0326ebaaa4922c1e56d",
+        "Pages/burst-6.md": "b53536427f0e00135c1866145a5f2c7240488e19a47f0df6699d59da5b493245",
+        "Pages/burst-7.md": "e92b3b0a68bf0eaf84ac1a531ed46cb4907d193cecc1d284e88ac334df2f73c5",
+        "Pages/burst-8.md": "9e8d05b356232a849593b7a6cf8ee3965b0344aeb1ec1d11e907fcd3a4a8cae0",
+        "Pages/burst-9.md": "399d6d0b4e5b8de33f59d4172ddc1b629073811dd40a464b15846fa5a87806ea",
+        "Pages/Flower study.md": "403462376f9fd467478c5627c4a44b7556355e27235cb077a2e972bdf33501cd",
+        "Pages/Observer.md": "4b37a5dc5b554c3fdf99129f0c79793a56a8217e9378d6b8ff7eb7541250e6e3",
+        "Pages/Riverside.md": "8c8e1d93fdf9e63966c82380483448fa32f9c663977b041d3b8d1246e9811022",
+        "Relationships/Mira observed flowers.md": "c1c03eee6f10f05761af4c6ec34e8cf2be7861f806035e204f9098804d4d1a85",
+        "Sources/Field observation revision 2.md": "e677fa4ed3347b3ead120276c5deabe7ac925d5044bf67566e8adff287cff33a",
+        "Sources/Field observation.md": "089af262694b8b339446382363ec45b918be76d82f6dc9e79109353c88ea68ce",
+        "Sources/Second acquisition.md": "7c9c42948177ba708e2d1aecc9d10aa9134bcd284447819b1b0eb554ee3ab8a1",
+        "START HERE.md": "1f97731c1f7ddfb43c334eae375bd51b09c0dc8f481346db735feaa26ab25454",
+        "Views/Red-flower search.md": "94dbe152c62afe04f3724a7a2bccfcb0766ede6857a60f04ab1bd02a880ae867",
+        "Views/Research workspace.md": "cc48bfb723f7663adc3e1505768b492e3ae6c90cbb1fdaaeb6c954fb0b0fdf44",
+        "Views/Study trail.md": "1511a20f621d16bb4f5d96a5c6dc298a3a6a16564299e67258a3cfa190c37b51"
+      }
+    }
+  ],
+  "intended_hashes": {
+    "Assets/field-notes-copy.txt": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+    "Assets/field-notes-revision.txt": "841877cd37d704f215a105eb7defe6cb2704445fc01b904ab2ea4cc85f564e4e",
+    "Assets/field-notes.txt": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+    "Assets/flower.png": "b4c4b3627841f6dca69a3e932bf23151c5f8d018990d5b4e49bdb0e0a6b8e597",
+    "Pages/Flower study.md": "403462376f9fd467478c5627c4a44b7556355e27235cb077a2e972bdf33501cd",
+    "Pages/Riverside.md": "8c8e1d93fdf9e63966c82380483448fa32f9c663977b041d3b8d1246e9811022",
+    "Relationships/Mira observed flowers.md": "c1c03eee6f10f05761af4c6ec34e8cf2be7861f806035e204f9098804d4d1a85",
+    "Sources/Field observation revision 2.md": "e677fa4ed3347b3ead120276c5deabe7ac925d5044bf67566e8adff287cff33a",
+    "Sources/Field observation.md": "089af262694b8b339446382363ec45b918be76d82f6dc9e79109353c88ea68ce",
+    "Sources/Second acquisition.md": "7c9c42948177ba708e2d1aecc9d10aa9134bcd284447819b1b0eb554ee3ab8a1",
+    "START HERE.md": "1f97731c1f7ddfb43c334eae375bd51b09c0dc8f481346db735feaa26ab25454",
+    "Views/Red-flower search.md": "94dbe152c62afe04f3724a7a2bccfcb0766ede6857a60f04ab1bd02a880ae867",
+    "Views/Research workspace.md": "cc48bfb723f7663adc3e1505768b492e3ae6c90cbb1fdaaeb6c954fb0b0fdf44",
+    "Views/Study trail.md": "1511a20f621d16bb4f5d96a5c6dc298a3a6a16564299e67258a3cfa190c37b51",
+    "Pages/Observer.md": "4b37a5dc5b554c3fdf99129f0c79793a56a8217e9378d6b8ff7eb7541250e6e3",
+    "Pages/burst-0.md": "6f287a32223a5584d33269f57999e7572ba3477b9d7ee6765e752c378832b5ee",
+    "Pages/burst-1.md": "72ba998badb496d3e835729b60719f202b86d67e51e2f2f49d7818a43aeea839",
+    "Pages/burst-2.md": "9958db27f9a35b519cb50077aa84fc1333e7c290262e1b12a64f43185d629326",
+    "Pages/burst-3.md": "c0b46fd3c0bd2b609e18cabd62b7e04b089a3de23ab223b4a91079044529cdc0",
+    "Pages/burst-4.md": "f783152babd5227aeeaf3ddda7cf5c92f90043c155cb2de9a371e789ebdb3493",
+    "Pages/burst-5.md": "fd1c29f67a1260b016133fda052453051d0f6208e2dcf0326ebaaa4922c1e56d",
+    "Pages/burst-6.md": "b53536427f0e00135c1866145a5f2c7240488e19a47f0df6699d59da5b493245",
+    "Pages/burst-7.md": "e92b3b0a68bf0eaf84ac1a531ed46cb4907d193cecc1d284e88ac334df2f73c5",
+    "Pages/burst-8.md": "9e8d05b356232a849593b7a6cf8ee3965b0344aeb1ec1d11e907fcd3a4a8cae0",
+    "Pages/burst-9.md": "399d6d0b4e5b8de33f59d4172ddc1b629073811dd40a464b15846fa5a87806ea",
+    "Pages/burst-10.md": "6da1aa8ead88ae1c07eaeebaba98ee396eb6c7db214f0b24b27a97511b0405c8",
+    "Pages/burst-11.md": "919b2fdbb56508672be87d07b39fd1b80cd64648d4103db7faab982e95acfc77",
+    "Pages/burst-12.md": "c9a19e0afadf8d98a9d06b07f7dcf0993220c0c062d0a40fce76c8b141fc41a7",
+    "Pages/burst-13.md": "ae2b0d89ead2f8630421ff4e9ce13af240e8ca7ecd9b9277905d345e9eec528b",
+    "Pages/burst-14.md": "d5bacec4fec0046163a720369a8eae655422ebf0fe9aeb1eec20507cdbafa509",
+    "Pages/burst-15.md": "a5160b66daeb56c98ca1b1d051af5795994298fe70dc51157737263a920b2e32",
+    "Pages/burst-16.md": "9dff0401698ba50b6c45e2b22fb4b44cd4733b8740baa289005fc24db3205338",
+    "Pages/burst-17.md": "f262e30cf17103d4c4d09d211d0b365ec299cde6891ece37ba7a1109d2914fe3",
+    "Pages/burst-18.md": "4cf13e26c143ec46b7953abb105cab83172ac41c7ecec1b04aed4edd76f68df2",
+    "Pages/burst-19.md": "8741a3fd4cdd50b053a674af5c01feefffe70119f5f0c56bd82f3221c8cd2da3",
+    "Pages/burst-20.md": "e4d674cae4839b09e30004d85f0e97c2d7bc1ce6e9677c483aa07f7954b581e4",
+    "Pages/burst-21.md": "497af13c6aa8babc429cab597a7d068253bd82eccecd12525cead8bfd595366b",
+    "Pages/burst-22.md": "61709ec3873c768b4c256d12171ad6b5ef389e1081e98596d44a8d6aac0bbbfa",
+    "Pages/burst-23.md": "c23bdaab56271f0ec4e43c2d5aed9369a9992d999c20aff77e6acceb5bb1b4a3",
+    "Pages/burst-24.md": "ffa4efdaf31419d104380bb29c9237bde185a36605e2e6f48363203275690458",
+    "Pages/burst-25.md": "0f50c16a0bfd0c5a8524929b6ff32dbb0ced80bc63622e5dc8d9ca246991f567",
+    "Pages/burst-26.md": "4f66725a3d737c6130d6f3167d6f3f7e7acb2218af1a115a417b7e8da892b47e",
+    "Pages/burst-27.md": "9a672deb6f9ccb9664219303971ddb8267cb1ff6e9464bdfe749e1318164448e",
+    "Pages/burst-28.md": "bbf44aa1822f665d187fba8400ef7955272d0e99ba0ee1769e365431e3fb9eb8",
+    "Pages/burst-29.md": "caf7b49cfffe5eeebc2f736eca549abac924a93678d73d2aaef120feed567708",
+    "Pages/burst-30.md": "9ad1d284cf2c43d5058d647a7d118d384eeb17914999043be6ba1fa586a1f8bc",
+    "Pages/burst-31.md": "d2c1f1f86b97b2d59f0aa33b07eb7280094c5b5f3cca2130592463a8e0561020",
+    "Pages/burst-32.md": "8d47a78e99512448724a1d5a6816444109af4b99b58cc42b06363453e40b8a00",
+    "Pages/burst-33.md": "6febd567d27adb892141ef539371f2b45de249c81369e8141cdf54b8e2cf8f87",
+    "Pages/burst-34.md": "830127cf0f50477b75318330152bd08ad2834ccc7a372f6b43c016dbb5ec21eb",
+    "Pages/burst-35.md": "d81d6c30d4351a523999128b3c1d3b48d953ab9fde490b2488230f2cada46ac1",
+    "Pages/burst-36.md": "10115e44fcb8dae7267d440c54de6dac2fdc908de5902e604226d783427904c0",
+    "Pages/burst-37.md": "f48d7a1b32f36c414ae9652b398ab52f227907a42cbc0cfaf39fa145bb5ea9b5",
+    "Pages/burst-38.md": "5b1a79a24f66cdabcdf444a7f4675cb07bdfe9f5373919bfe4379d8bef449dc6",
+    "Pages/burst-39.md": "fc0f79fc4eea14b49ade48be0210c9859820084e6cafc82689dc8f5e7ccc758e"
+  },
+  "final_hashes": {
+    "Assets/field-notes-copy.txt": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+    "Assets/field-notes-revision.txt": "841877cd37d704f215a105eb7defe6cb2704445fc01b904ab2ea4cc85f564e4e",
+    "Assets/field-notes.txt": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+    "Assets/flower.png": "b4c4b3627841f6dca69a3e932bf23151c5f8d018990d5b4e49bdb0e0a6b8e597",
+    "Pages/burst-0.md": "6f287a32223a5584d33269f57999e7572ba3477b9d7ee6765e752c378832b5ee",
+    "Pages/burst-1.md": "72ba998badb496d3e835729b60719f202b86d67e51e2f2f49d7818a43aeea839",
+    "Pages/burst-10.md": "6da1aa8ead88ae1c07eaeebaba98ee396eb6c7db214f0b24b27a97511b0405c8",
+    "Pages/burst-11.md": "919b2fdbb56508672be87d07b39fd1b80cd64648d4103db7faab982e95acfc77",
+    "Pages/burst-12.md": "c9a19e0afadf8d98a9d06b07f7dcf0993220c0c062d0a40fce76c8b141fc41a7",
+    "Pages/burst-13.md": "ae2b0d89ead2f8630421ff4e9ce13af240e8ca7ecd9b9277905d345e9eec528b",
+    "Pages/burst-14.md": "d5bacec4fec0046163a720369a8eae655422ebf0fe9aeb1eec20507cdbafa509",
+    "Pages/burst-15.md": "a5160b66daeb56c98ca1b1d051af5795994298fe70dc51157737263a920b2e32",
+    "Pages/burst-16.md": "9dff0401698ba50b6c45e2b22fb4b44cd4733b8740baa289005fc24db3205338",
+    "Pages/burst-17.md": "f262e30cf17103d4c4d09d211d0b365ec299cde6891ece37ba7a1109d2914fe3",
+    "Pages/burst-18.md": "4cf13e26c143ec46b7953abb105cab83172ac41c7ecec1b04aed4edd76f68df2",
+    "Pages/burst-19.md": "8741a3fd4cdd50b053a674af5c01feefffe70119f5f0c56bd82f3221c8cd2da3",
+    "Pages/burst-2.md": "9958db27f9a35b519cb50077aa84fc1333e7c290262e1b12a64f43185d629326",
+    "Pages/burst-20.md": "e4d674cae4839b09e30004d85f0e97c2d7bc1ce6e9677c483aa07f7954b581e4",
+    "Pages/burst-21.md": "497af13c6aa8babc429cab597a7d068253bd82eccecd12525cead8bfd595366b",
+    "Pages/burst-22.md": "61709ec3873c768b4c256d12171ad6b5ef389e1081e98596d44a8d6aac0bbbfa",
+    "Pages/burst-23.md": "c23bdaab56271f0ec4e43c2d5aed9369a9992d999c20aff77e6acceb5bb1b4a3",
+    "Pages/burst-24.md": "ffa4efdaf31419d104380bb29c9237bde185a36605e2e6f48363203275690458",
+    "Pages/burst-25.md": "0f50c16a0bfd0c5a8524929b6ff32dbb0ced80bc63622e5dc8d9ca246991f567",
+    "Pages/burst-26.md": "4f66725a3d737c6130d6f3167d6f3f7e7acb2218af1a115a417b7e8da892b47e",
+    "Pages/burst-27.md": "9a672deb6f9ccb9664219303971ddb8267cb1ff6e9464bdfe749e1318164448e",
+    "Pages/burst-28.md": "bbf44aa1822f665d187fba8400ef7955272d0e99ba0ee1769e365431e3fb9eb8",
+    "Pages/burst-29.md": "caf7b49cfffe5eeebc2f736eca549abac924a93678d73d2aaef120feed567708",
+    "Pages/burst-3.md": "c0b46fd3c0bd2b609e18cabd62b7e04b089a3de23ab223b4a91079044529cdc0",
+    "Pages/burst-30.md": "9ad1d284cf2c43d5058d647a7d118d384eeb17914999043be6ba1fa586a1f8bc",
+    "Pages/burst-31.md": "d2c1f1f86b97b2d59f0aa33b07eb7280094c5b5f3cca2130592463a8e0561020",
+    "Pages/burst-32.md": "8d47a78e99512448724a1d5a6816444109af4b99b58cc42b06363453e40b8a00",
+    "Pages/burst-33.md": "6febd567d27adb892141ef539371f2b45de249c81369e8141cdf54b8e2cf8f87",
+    "Pages/burst-34.md": "830127cf0f50477b75318330152bd08ad2834ccc7a372f6b43c016dbb5ec21eb",
+    "Pages/burst-35.md": "d81d6c30d4351a523999128b3c1d3b48d953ab9fde490b2488230f2cada46ac1",
+    "Pages/burst-36.md": "10115e44fcb8dae7267d440c54de6dac2fdc908de5902e604226d783427904c0",
+    "Pages/burst-37.md": "f48d7a1b32f36c414ae9652b398ab52f227907a42cbc0cfaf39fa145bb5ea9b5",
+    "Pages/burst-38.md": "5b1a79a24f66cdabcdf444a7f4675cb07bdfe9f5373919bfe4379d8bef449dc6",
+    "Pages/burst-39.md": "fc0f79fc4eea14b49ade48be0210c9859820084e6cafc82689dc8f5e7ccc758e",
+    "Pages/burst-4.md": "f783152babd5227aeeaf3ddda7cf5c92f90043c155cb2de9a371e789ebdb3493",
+    "Pages/burst-5.md": "fd1c29f67a1260b016133fda052453051d0f6208e2dcf0326ebaaa4922c1e56d",
+    "Pages/burst-6.md": "b53536427f0e00135c1866145a5f2c7240488e19a47f0df6699d59da5b493245",
+    "Pages/burst-7.md": "e92b3b0a68bf0eaf84ac1a531ed46cb4907d193cecc1d284e88ac334df2f73c5",
+    "Pages/burst-8.md": "9e8d05b356232a849593b7a6cf8ee3965b0344aeb1ec1d11e907fcd3a4a8cae0",
+    "Pages/burst-9.md": "399d6d0b4e5b8de33f59d4172ddc1b629073811dd40a464b15846fa5a87806ea",
+    "Pages/Flower study.md": "403462376f9fd467478c5627c4a44b7556355e27235cb077a2e972bdf33501cd",
+    "Pages/Observer.md": "4b37a5dc5b554c3fdf99129f0c79793a56a8217e9378d6b8ff7eb7541250e6e3",
+    "Pages/Riverside.md": "8c8e1d93fdf9e63966c82380483448fa32f9c663977b041d3b8d1246e9811022",
+    "Relationships/Mira observed flowers.md": "c1c03eee6f10f05761af4c6ec34e8cf2be7861f806035e204f9098804d4d1a85",
+    "Sources/Field observation revision 2.md": "e677fa4ed3347b3ead120276c5deabe7ac925d5044bf67566e8adff287cff33a",
+    "Sources/Field observation.md": "089af262694b8b339446382363ec45b918be76d82f6dc9e79109353c88ea68ce",
+    "Sources/Second acquisition.md": "7c9c42948177ba708e2d1aecc9d10aa9134bcd284447819b1b0eb554ee3ab8a1",
+    "START HERE.md": "1f97731c1f7ddfb43c334eae375bd51b09c0dc8f481346db735feaa26ab25454",
+    "Views/Red-flower search.md": "94dbe152c62afe04f3724a7a2bccfcb0766ede6857a60f04ab1bd02a880ae867",
+    "Views/Research workspace.md": "cc48bfb723f7663adc3e1505768b492e3ae6c90cbb1fdaaeb6c954fb0b0fdf44",
+    "Views/Study trail.md": "1511a20f621d16bb4f5d96a5c6dc298a3a6a16564299e67258a3cfa190c37b51"
+  },
+  "checks": {
+    "end_state_hashes_match_intended": true,
+    "observed_event_count_positive": true,
+    "removed_file_absent_after_rescan": true,
+    "rename_id_preserved_after_rescan": true,
+    "atomic_save_content_authoritative": true,
+    "burst_files_all_recovered": true,
+    "rescan_matches_after_event_thinning": true
+  },
+  "summary": {
+    "passed": 7,
+    "total": 7,
+    "events": 51,
+    "final_files": 55,
+    "thinned_events": 26
+  },
+  "scope": "Actual local macOS fs.watch event stream; one bounded run; controlled adapter-level event thinning; final reconciliation performed by independent full scan. Not Obsidian or production watcher reliability."
+}

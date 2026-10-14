@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "fruits-extractive-usage",
+    "family": "claim",
+    "source": "fruits",
+    "representation": "extractive",
+    "claim": "The fruit photograph was used by this user for crop planning.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "fruits",
+      "evidence_kind": "extractive",
+      "evidence": "",
+      "claim": "The fruit photograph was used by this user for crop planning."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "unknown",
+        "probabilities": {
+          "contradicted": 0,
+          "unknown": 1,
+          "supported": 0
+        },
+        "confidence": 1
+      }
+    },
+    "usage": {
+      "input_tokens": 442,
+      "output_tokens": 41,
+      "cost": 1.8564e-05
+    },
+    "id": "gen-dec-1790725835-iYiNteM9STG7gsnaXTV8",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.22040125000057742
+}

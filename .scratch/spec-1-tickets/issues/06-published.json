@@ -1,0 +1,32 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPQJA",
+        "number": 5,
+        "state": "OPEN",
+        "title": "Apply targeted corrections while keeping distinct observations separate",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/5"
+      }
+    ],
+    "totalCount": 1
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 43, 44; **Markdown, original assets, and external editors**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nLet the owner optionally correct a fact in an ordinary external Markdown editor, preserve that correction as authoritative, and continue automatic updates to all unedited facts.\n\n## Acceptance criteria\n\n- [ ] An external change to a fact is detected, represented durably as an authoritative manual correction, and reflected in the app without an in-app authoring step.\n- [ ] A later source update to the corrected fact does not overwrite the correction; a different unedited fact on the same page still updates.\n- [ ] The correction\u2019s target identity and support/authority survive app restart and reconstruction of the relevant derived index.\n- [ ] Owner changes to prose, wording, and metadata are preserved; edit interpretation does not mark an entire page frozen because one value changed.\n- [ ] When an edit cannot be interpreted safely, preserve the exact owner content and expose the uncertain state instead of discarding it or silently claiming every edit was understood.\n- [ ] Source removal or support changes cannot erase an authoritative correction merely because its previous source disappeared.\n- [ ] Application-level tests edit the actual Markdown, trigger source updates and rescans, and verify both protected and still-refreshing facts using plain-editor and atomic-save fixtures.\n\n## Blocked by\n\n- [#5 \u2014 Apply targeted corrections while keeping distinct observations separate](https://github.com/nicolas-found42/knowledge-garden/issues/5)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nThe exact external-edit grammar and detection strategy are implementation decisions to validate and document. Supporting a narrow parser case must not be reported as arbitrary edit compatibility. Concurrent multi-writer recovery and identity repair are extended in \u201cKeep external moves, renames, and concurrent edits safe and navigable\u201d; actual Obsidian testing is a later release gate.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nImport V17 with Maya, Riverside, 12 visits, and duration 10 minutes. Externally correct duration to 11 minutes in the readable record. Supply a newer count-only correction to 15 and then a complete replacement containing a different duration. Reopen the page: count refreshes while duration stays 11. Also edit a sentence and a property without changing a fact, then check preservation and continued updates.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Preserve external manual corrections while other facts refresh automatically",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/7"
+}

@@ -1,0 +1,82 @@
+[
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.053125008593749801,
+      0.74166666691666672,
+      0.85937499999999989,
+      0.066666666666666652
+    ],
+    "text" : "This is a lot of 12 point text to test the"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.05279850560492285,
+      0.6691406431472392,
+      0.9194613456726074,
+      0.080903851985931419
+    ],
+    "text" : "ocr code and see if it works on all types"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.05312500216517857,
+      0.60416666663690477,
+      0.30312499999999998,
+      0.0625
+    ],
+    "text" : "of file format."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.05624999543750011,
+      0.52916666737499995,
+      0.86250000000000004,
+      0.070833333333333304
+    ],
+    "text" : "The quick brown dog jumped over the"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.049999991375000087,
+      0.45833333404166665,
+      0.86875000000000002,
+      0.070833333333333304
+    ],
+    "text" : "lazy fox. The quick brown dog jumped"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.053124993683035804,
+      0.38749999982142858,
+      0.88437500000000002,
+      0.066666666666666652
+    ],
+    "text" : "over the lazy fox. The quick brown dog"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.059375008249999792,
+      0.31666666687499989,
+      0.82500000000000007,
+      0.070833333333333415
+    ],
+    "text" : "jumped over the lazy fox. The quick"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.0562500059375,
+      0.24583333330357138,
+      0.83125000000000016,
+      0.070833333333333415
+    ],
+    "text" : "brown dog jumped over the lazy fox."
+  }
+]

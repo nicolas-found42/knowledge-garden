@@ -1,0 +1,12 @@
+{
+  "schema": "jev.action_choice_v1",
+  "selected_id": "download",
+  "confidence": 1.0,
+  "reason": "chosen",
+  "observation_id": "scale-completed-01",
+  "probabilities": {
+    "download": 1.0,
+    "reobserve": 0.0,
+    "abstain": 0.0
+  }
+}

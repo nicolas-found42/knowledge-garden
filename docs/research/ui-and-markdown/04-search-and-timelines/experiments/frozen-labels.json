@@ -1,0 +1,222 @@
+{
+  "corpus_sha256": "136a9688ea3ff3afdce461ffd64a86c90bc972757afeecb067664f20ef0ece12",
+  "queries": [
+    {
+      "id": "q1",
+      "query": "Maya Riverside slides",
+      "acceptableSeedIds": [
+        "slides"
+      ],
+      "filters": {
+        "format": "PPTX"
+      }
+    },
+    {
+      "id": "q2",
+      "query": "presentation about the insect outing",
+      "acceptableSeedIds": [
+        "slides"
+      ],
+      "filters": {}
+    },
+    {
+      "id": "q3",
+      "query": "the photo of fruit",
+      "acceptableSeedIds": [
+        "photo-fruit"
+      ],
+      "filters": {
+        "format": "JPG"
+      }
+    },
+    {
+      "id": "q4",
+      "query": "the page proving noon is the most accurate observation time",
+      "acceptableSeedIds": [],
+      "filters": {}
+    },
+    {
+      "id": "q5",
+      "query": "why the schedule changed after bad weather",
+      "acceptableSeedIds": [
+        "reasoning",
+        "plan-2"
+      ],
+      "filters": {}
+    },
+    {
+      "id": "q6",
+      "query": "the actual old noon-only proposal",
+      "acceptableSeedIds": [
+        "plan-1"
+      ],
+      "filters": {}
+    },
+    {
+      "id": "q7",
+      "query": "download bought notebook before the outing",
+      "acceptableSeedIds": [
+        "receipt"
+      ],
+      "filters": {}
+    },
+    {
+      "id": "q8",
+      "query": "the missing picture with a blue boat",
+      "acceptableSeedIds": [
+        "photo-missing"
+      ],
+      "filters": {}
+    },
+    {
+      "id": "q9",
+      "query": "evidence that rain caused fewer insects",
+      "acceptableSeedIds": [],
+      "filters": {}
+    },
+    {
+      "id": "q10",
+      "query": "a question about rain and incomplete observations",
+      "acceptableSeedIds": [
+        "question-rain"
+      ],
+      "filters": {}
+    },
+    {
+      "id": "q11",
+      "query": "the short sound with no talking",
+      "acceptableSeedIds": [
+        "audio"
+      ],
+      "filters": {}
+    },
+    {
+      "id": "q12",
+      "query": "a lesson calculating a rate from a tiny sample",
+      "acceptableSeedIds": [
+        "homework"
+      ],
+      "filters": {}
+    },
+    {
+      "id": "q13",
+      "query": "what is inside the field-guide website",
+      "acceptableSeedIds": [],
+      "filters": {}
+    },
+    {
+      "id": "q14",
+      "query": "video demonstrating moving pixels",
+      "acceptableSeedIds": [
+        "video"
+      ],
+      "filters": {}
+    },
+    {
+      "id": "q15",
+      "query": "a study route through notes, counts, plans and a question",
+      "acceptableSeedIds": [
+        "trail"
+      ],
+      "filters": {}
+    },
+    {
+      "id": "q16",
+      "query": "Maya face in inspected pixels",
+      "acceptableSeedIds": [],
+      "filters": {}
+    }
+  ],
+  "answers": [
+    {
+      "id": "a1",
+      "query": "What rate was observed, and what does it establish?",
+      "sources": [
+        "table",
+        "homework",
+        "claim-rate"
+      ],
+      "must": [
+        "1.2",
+        "observation"
+      ],
+      "forbid": [
+        "daily estimate is 1.2"
+      ]
+    },
+    {
+      "id": "a2",
+      "query": "Why was the noon-only plan changed? Was better accuracy established?",
+      "sources": [
+        "plan-1",
+        "plan-2",
+        "reasoning"
+      ],
+      "must": [
+        "rain",
+        "not"
+      ],
+      "forbid": [
+        "proved more accurate"
+      ]
+    },
+    {
+      "id": "a3",
+      "query": "On exactly what day was the picnic photograph taken?",
+      "sources": [
+        "photo-fruit",
+        "caption"
+      ],
+      "must": [
+        "unknown"
+      ],
+      "forbid": [
+        "17 May"
+      ]
+    },
+    {
+      "id": "a4",
+      "query": "What does the field-guide website say?",
+      "sources": [
+        "linked"
+      ],
+      "must": [
+        "unknown"
+      ],
+      "forbid": [
+        "recommends"
+      ]
+    },
+    {
+      "id": "a5",
+      "query": "Did rain cause the lower pollinator count?",
+      "sources": [
+        "table",
+        "question-rain",
+        "claim-rain",
+        "report"
+      ],
+      "must": [
+        "not"
+      ],
+      "forbid": [
+        "rain caused the decrease"
+      ]
+    },
+    {
+      "id": "a6",
+      "query": "Does the video count at two seconds measure accuracy over a two-second interval?",
+      "sources": [
+        "video",
+        "code"
+      ],
+      "must": [
+        "not"
+      ],
+      "forbid": [
+        "accuracy over two seconds"
+      ]
+    }
+  ],
+  "policy": "Authored development tasks; exact top-one seed/abstention labels frozen before provider calls. No independent holdout or user labels."
+}

@@ -1,0 +1,16 @@
+{
+  "explicit_sdk_requests": 105,
+  "successful_responses": 100,
+  "initial_service_errors": 5,
+  "service_retry_successes": 5,
+  "unobserved_failure_cost": "unknown",
+  "successful_observed_cost_usd": 0.002213148,
+  "cached_only_epistemically_correct_unknown": 10,
+  "adaptive_fetches": 10,
+  "unnecessary_fetch_case": "supported",
+  "adaptive_answer_correct": 9,
+  "adaptive_action_correct": 8,
+  "branch_plan_whole_correct": 9,
+  "branch_plan_structurally_valid": 10,
+  "note": "Hidden truth agreement differs from supplied evidence correctness. Raw records and original labels remain unchanged."
+}

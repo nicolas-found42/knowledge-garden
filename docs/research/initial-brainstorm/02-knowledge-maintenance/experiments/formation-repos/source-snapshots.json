@@ -1,0 +1,153 @@
+[
+  {
+    "repo": "zilliztech/memsearch",
+    "sha": "2a4652fa086fbd45e92bfd8da7781ebe1642baa7",
+    "branch": "main",
+    "path": "/tmp/kg-formation-code/zilliztech__memsearch",
+    "status": "ok",
+    "license_files": [
+      {
+        "name": "LICENSE",
+        "first_line": "MIT License"
+      }
+    ]
+  },
+  {
+    "repo": "vbcherepanov/total-agent-memory",
+    "sha": "de53c19b6ae650459c96f0d297c5d33fd77e77b4",
+    "branch": "main",
+    "path": "/tmp/kg-formation-code/vbcherepanov__total-agent-memory",
+    "status": "ok",
+    "license_files": [
+      {
+        "name": "LICENSE",
+        "first_line": "MIT License"
+      }
+    ]
+  },
+  {
+    "repo": "MarissaFamularo/citation-verifier",
+    "sha": "f9058642274033e62855d3066988418fefa2e272",
+    "branch": "main",
+    "path": "/tmp/kg-formation-code/MarissaFamularo__citation-verifier",
+    "status": "ok",
+    "license_files": [
+      {
+        "name": "LICENSE",
+        "first_line": "MIT License"
+      }
+    ]
+  },
+  {
+    "repo": "shinpr/jev-reranker",
+    "sha": "7bc72a1632a2c4048b2cf3ed47bb7e4701b82b27",
+    "branch": "main",
+    "path": "/tmp/kg-formation-code/shinpr__jev-reranker",
+    "status": "ok",
+    "license_files": [
+      {
+        "name": "LICENSE",
+        "first_line": "MIT License"
+      }
+    ]
+  },
+  {
+    "repo": "samdotmak/jev-recall",
+    "sha": "d3e4acfb45c7cf6231f1621b7dafb09d21e95862",
+    "branch": "main",
+    "path": "/tmp/kg-formation-code/samdotmak__jev-recall",
+    "status": "ok",
+    "license_files": [
+      {
+        "name": "LICENSE",
+        "first_line": "MIT License"
+      }
+    ]
+  },
+  {
+    "repo": "hotchpotch/jev-reranker",
+    "sha": "d58594b393b29b7ee6398cc9337dc5e9d6c6691e",
+    "branch": "main",
+    "path": "/tmp/kg-formation-code/hotchpotch__jev-reranker",
+    "status": "ok",
+    "license_files": [
+      {
+        "name": "LICENSE",
+        "first_line": "MIT License"
+      }
+    ]
+  },
+  {
+    "repo": "kylemclaren/jevsearch",
+    "sha": "1df37decb960b3c4826c71b41d3393c15a8f28d3",
+    "branch": "main",
+    "path": "/tmp/kg-formation-code/kylemclaren__jevsearch",
+    "status": "ok",
+    "license_files": [
+      {
+        "name": "LICENSE",
+        "first_line": "MIT License"
+      }
+    ]
+  },
+  {
+    "repo": "ReallyArtificial/jev-by-example",
+    "sha": "088ae72890be5855a054b1d367589b3977c16c24",
+    "branch": "main",
+    "path": "/tmp/kg-formation-code/ReallyArtificial__jev-by-example",
+    "status": "ok",
+    "license_files": [
+      {
+        "name": "LICENSE",
+        "first_line": "MIT License"
+      }
+    ]
+  },
+  {
+    "repo": "picaye/jev-compaction",
+    "sha": "ef5372d343eff22c1d5816d17d2742b16278dda3",
+    "branch": "main",
+    "path": "/tmp/kg-formation-code/picaye__jev-compaction",
+    "status": "ok",
+    "license_files": [
+      {
+        "name": "LICENSE",
+        "first_line": "MIT License"
+      }
+    ]
+  },
+  {
+    "repo": "libingzheren/Jev-Mem",
+    "sha": "7ab0c73c6d8f4f611ad252c1e6ba8083f8df0e44",
+    "branch": "main",
+    "status": "ok",
+    "path": "/tmp/kg-formation-code/libingzheren__Jev-Mem",
+    "license_files": [
+      {
+        "name": "LICENSE",
+        "first_line": "MIT License"
+      }
+    ]
+  },
+  {
+    "repo": "joonan-lab/byeori",
+    "sha": "30a3045bea2ad2546fc7e3da1f8ac81b0cbd5b83",
+    "branch": "main",
+    "path": "/tmp/kg-linked-research/code/joonan-lab__byeori",
+    "status": "selected pinned source bytes checked",
+    "verified_paths": [
+      "src/byeori/jev_client.py",
+      "src/byeori/promote.py",
+      "src/byeori/lab_policy.py",
+      "tests/test_jev_client.py",
+      "tests/test_promote.py",
+      "LICENSE"
+    ],
+    "license_files": [
+      {
+        "name": "LICENSE",
+        "first_line": ""
+      }
+    ]
+  }
+]

@@ -1,0 +1,47 @@
+[
+  {
+    "url": "https://docs.typesafe.ai/api.md",
+    "file": "sources/1-api.md",
+    "bytes": 11231,
+    "sha256": "0252c4126fdaa45c537fa83718f90d544890a878a12324690294dfeee9f0849e",
+    "status": "captured",
+    "accessed": "2026-09-30T00:44:45.179950+00:00"
+  },
+  {
+    "url": "https://docs.typesafe.ai/primitives/score.md",
+    "file": "sources/2-score.md",
+    "bytes": 43657,
+    "sha256": "ee6afe3494b816770e34df1551d0a64659f2682a42879de5349e76db11e5e018",
+    "status": "captured",
+    "accessed": "2026-09-30T00:44:45.442229+00:00"
+  },
+  {
+    "url": "https://docs.typesafe.ai/cookbooks/rerank_typesafe.md",
+    "file": "sources/3-rerank_typesafe.md",
+    "bytes": 26067,
+    "sha256": "5397e56dcdcff36dcba9f2200c0c494baed957eada0364db96075053af7eaa5c",
+    "status": "captured",
+    "accessed": "2026-09-30T00:44:47.120786+00:00"
+  },
+  {
+    "url": "https://docs.typesafe.ai/cookbooks/citation_check.md",
+    "file": "sources/4-citation_check.md",
+    "bytes": 15254,
+    "sha256": "2497e2c62a4c5fb2d1aca1c4031fb7bd39948d27b13f18e1db07d8c5777cd529",
+    "status": "captured",
+    "accessed": "2026-09-30T00:44:47.284550+00:00"
+  },
+  {
+    "url": "https://openrouter.ai/docs/guides/community/typesafe-sdk",
+    "status": "failed",
+    "error": "HTTPError"
+  },
+  {
+    "url": "https://www.sqlite.org/fts5.html",
+    "file": "sources/6-fts5.txt",
+    "bytes": 210915,
+    "sha256": "aa965064eb7d3f5c2040edfba900e7d96ce88412fdb672176f4b3dcc8d89089c",
+    "status": "captured",
+    "accessed": "2026-09-30T00:44:47.893839+00:00"
+  }
+]

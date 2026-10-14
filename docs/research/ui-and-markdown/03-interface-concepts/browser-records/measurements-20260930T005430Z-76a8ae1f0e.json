@@ -1,0 +1,261 @@
+{
+  "benchmark": "synthetic-points-and-hit-testing",
+  "recordedAt": "2026-09-30T00:54:30.107Z",
+  "runtime": {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "platform": "MacIntel",
+    "hardwareConcurrency": 10,
+    "devicePixelRatio": 2,
+    "canvasWidth": 1000,
+    "canvasHeight": 500
+  },
+  "method": {
+    "fixture": "deterministic multiplicative-hash positions; 12 display groups",
+    "renderer": "Canvas2D grouped point draw submission",
+    "hitTesting": "25px grid buckets; nearest within 16px; 100 deterministic probes",
+    "edgesDrawn": 0,
+    "itemDOMNodes": 0,
+    "warmupRunsPerSize": 1,
+    "measuredRunsPerSize": 5,
+    "boundary": "Next animation frame is not GPU completion. No force simulation, source loading, relationship-edge density, accessible 50k item DOM, ingestion or semantic search measured."
+  },
+  "results": [
+    {
+      "count": 1000,
+      "warmupsExcluded": 1,
+      "repeats": 5,
+      "metrics": {
+        "layoutMs": {
+          "minMs": 0,
+          "medianMs": 0,
+          "maxMs": 0.10000002384185791
+        },
+        "spatialIndexBuildMs": {
+          "minMs": 0.09999999403953552,
+          "medianMs": 0.09999999403953552,
+          "maxMs": 0.10000002384185791
+        },
+        "hundredHitTestsMs": {
+          "minMs": 0,
+          "medianMs": 0.09999999403953552,
+          "maxMs": 0.10000002384185791
+        },
+        "renderSubmissionMs": {
+          "minMs": 0.09999999403953552,
+          "medianMs": 0.10000002384185791,
+          "maxMs": 0.19999998807907104
+        },
+        "elapsedUntilNextAnimationFrameMs": {
+          "minMs": 16.400000005960464,
+          "medianMs": 16.5,
+          "maxMs": 16.5
+        }
+      },
+      "runs": [
+        {
+          "count": 1000,
+          "layoutMs": 0,
+          "spatialIndexBuildMs": 0.09999999403953552,
+          "hundredHitTestsMs": 0.10000002384185791,
+          "hitCount": 70,
+          "renderSubmissionMs": 0.19999998807907104,
+          "elapsedUntilNextAnimationFrameMs": 16.5
+        },
+        {
+          "count": 1000,
+          "layoutMs": 0,
+          "spatialIndexBuildMs": 0.09999999403953552,
+          "hundredHitTestsMs": 0,
+          "hitCount": 70,
+          "renderSubmissionMs": 0.10000002384185791,
+          "elapsedUntilNextAnimationFrameMs": 16.400000005960464
+        },
+        {
+          "count": 1000,
+          "layoutMs": 0.10000002384185791,
+          "spatialIndexBuildMs": 0.09999999403953552,
+          "hundredHitTestsMs": 0.09999999403953552,
+          "hitCount": 70,
+          "renderSubmissionMs": 0.09999999403953552,
+          "elapsedUntilNextAnimationFrameMs": 16.400000005960464
+        },
+        {
+          "count": 1000,
+          "layoutMs": 0,
+          "spatialIndexBuildMs": 0.10000002384185791,
+          "hundredHitTestsMs": 0,
+          "hitCount": 70,
+          "renderSubmissionMs": 0.19999998807907104,
+          "elapsedUntilNextAnimationFrameMs": 16.5
+        },
+        {
+          "count": 1000,
+          "layoutMs": 0,
+          "spatialIndexBuildMs": 0.09999999403953552,
+          "hundredHitTestsMs": 0.09999999403953552,
+          "hitCount": 70,
+          "renderSubmissionMs": 0.10000002384185791,
+          "elapsedUntilNextAnimationFrameMs": 16.5
+        }
+      ]
+    },
+    {
+      "count": 10000,
+      "warmupsExcluded": 1,
+      "repeats": 5,
+      "metrics": {
+        "layoutMs": {
+          "minMs": 0.19999998807907104,
+          "medianMs": 0.20000001788139343,
+          "maxMs": 0.30000001192092896
+        },
+        "spatialIndexBuildMs": {
+          "minMs": 0.5999999940395355,
+          "medianMs": 0.699999988079071,
+          "maxMs": 1
+        },
+        "hundredHitTestsMs": {
+          "minMs": 0.09999999403953552,
+          "medianMs": 0.10000002384185791,
+          "maxMs": 0.20000001788139343
+        },
+        "renderSubmissionMs": {
+          "minMs": 0.3999999761581421,
+          "medianMs": 0.5,
+          "maxMs": 0.699999988079071
+        },
+        "elapsedUntilNextAnimationFrameMs": {
+          "minMs": 14.399999976158142,
+          "medianMs": 15.5,
+          "maxMs": 16.399999976158142
+        }
+      },
+      "runs": [
+        {
+          "count": 10000,
+          "layoutMs": 0.29999998211860657,
+          "spatialIndexBuildMs": 1,
+          "hundredHitTestsMs": 0.10000002384185791,
+          "hitCount": 100,
+          "renderSubmissionMs": 0.699999988079071,
+          "elapsedUntilNextAnimationFrameMs": 16.399999976158142
+        },
+        {
+          "count": 10000,
+          "layoutMs": 0.30000001192092896,
+          "spatialIndexBuildMs": 0.7999999821186066,
+          "hundredHitTestsMs": 0.09999999403953552,
+          "hitCount": 100,
+          "renderSubmissionMs": 0.6000000238418579,
+          "elapsedUntilNextAnimationFrameMs": 15.400000005960464
+        },
+        {
+          "count": 10000,
+          "layoutMs": 0.19999998807907104,
+          "spatialIndexBuildMs": 0.699999988079071,
+          "hundredHitTestsMs": 0.20000001788139343,
+          "hitCount": 100,
+          "renderSubmissionMs": 0.5,
+          "elapsedUntilNextAnimationFrameMs": 15.5
+        },
+        {
+          "count": 10000,
+          "layoutMs": 0.20000001788139343,
+          "spatialIndexBuildMs": 0.5999999940395355,
+          "hundredHitTestsMs": 0.09999999403953552,
+          "hitCount": 100,
+          "renderSubmissionMs": 0.5,
+          "elapsedUntilNextAnimationFrameMs": 15.800000011920929
+        },
+        {
+          "count": 10000,
+          "layoutMs": 0.19999998807907104,
+          "spatialIndexBuildMs": 0.5999999940395355,
+          "hundredHitTestsMs": 0.10000002384185791,
+          "hitCount": 100,
+          "renderSubmissionMs": 0.3999999761581421,
+          "elapsedUntilNextAnimationFrameMs": 14.399999976158142
+        }
+      ]
+    },
+    {
+      "count": 50000,
+      "warmupsExcluded": 1,
+      "repeats": 5,
+      "metrics": {
+        "layoutMs": {
+          "minMs": 1,
+          "medianMs": 1,
+          "maxMs": 1.2000000178813934
+        },
+        "spatialIndexBuildMs": {
+          "minMs": 3,
+          "medianMs": 3.2999999821186066,
+          "maxMs": 4.4000000059604645
+        },
+        "hundredHitTestsMs": {
+          "minMs": 0.09999999403953552,
+          "medianMs": 0.19999998807907104,
+          "maxMs": 0.30000001192092896
+        },
+        "renderSubmissionMs": {
+          "minMs": 2.2999999821186066,
+          "medianMs": 2.4000000059604645,
+          "maxMs": 2.5999999940395355
+        },
+        "elapsedUntilNextAnimationFrameMs": {
+          "minMs": 10.199999988079071,
+          "medianMs": 11.5,
+          "maxMs": 12.400000005960464
+        }
+      },
+      "runs": [
+        {
+          "count": 50000,
+          "layoutMs": 1.2000000178813934,
+          "spatialIndexBuildMs": 3.2999999821186066,
+          "hundredHitTestsMs": 0.09999999403953552,
+          "hitCount": 100,
+          "renderSubmissionMs": 2.4000000059604645,
+          "elapsedUntilNextAnimationFrameMs": 12
+        },
+        {
+          "count": 50000,
+          "layoutMs": 1,
+          "spatialIndexBuildMs": 3.0999999940395355,
+          "hundredHitTestsMs": 0.30000001192092896,
+          "hitCount": 100,
+          "renderSubmissionMs": 2.5999999940395355,
+          "elapsedUntilNextAnimationFrameMs": 10.199999988079071
+        },
+        {
+          "count": 50000,
+          "layoutMs": 1.0999999940395355,
+          "spatialIndexBuildMs": 3.699999988079071,
+          "hundredHitTestsMs": 0.20000001788139343,
+          "hitCount": 100,
+          "renderSubmissionMs": 2.2999999821186066,
+          "elapsedUntilNextAnimationFrameMs": 11.5
+        },
+        {
+          "count": 50000,
+          "layoutMs": 1,
+          "spatialIndexBuildMs": 4.4000000059604645,
+          "hundredHitTestsMs": 0.09999999403953552,
+          "hitCount": 100,
+          "renderSubmissionMs": 2.5999999940395355,
+          "elapsedUntilNextAnimationFrameMs": 11.099999994039536
+        },
+        {
+          "count": 50000,
+          "layoutMs": 1,
+          "spatialIndexBuildMs": 3,
+          "hundredHitTestsMs": 0.19999998807907104,
+          "hitCount": 100,
+          "renderSubmissionMs": 2.300000011920929,
+          "elapsedUntilNextAnimationFrameMs": 12.400000005960464
+        }
+      ]
+    }
+  ]
+}

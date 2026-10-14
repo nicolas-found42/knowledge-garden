@@ -1,0 +1,104 @@
+{
+  "composition_only_no_asr": true,
+  "noise_bed": {
+    "color": "white",
+    "amplitude": 0.035,
+    "speech_gain": 1.0,
+    "auto_normalization": false
+  },
+  "overlap": {
+    "voices": [
+      "Aman",
+      "Daniel"
+    ],
+    "start_offsets_ms": [
+      0,
+      0
+    ],
+    "gain_each": 0.45,
+    "auto_normalization": false
+  },
+  "partial_crop_seconds": 2.5,
+  "outputs": [
+    {
+      "file": "accent-en-in.wav",
+      "sha256": "32461b2b99ee614050827aece2fbfee3946c21c8c269762e0a87a03bdd567b93",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "pcm_s16le",
+            "sample_rate": "16000",
+            "channels": 1,
+            "bits_per_sample": 16
+          }
+        ],
+        "format": {
+          "duration": "7.187688",
+          "size": "230084"
+        }
+      }
+    },
+    {
+      "file": "low-noise.wav",
+      "sha256": "eab163ff7be5a52dd5adc1e8e90a261bade81c7e6a0f857096891a1974af0672",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "pcm_s16le",
+            "sample_rate": "16000",
+            "channels": 1,
+            "bits_per_sample": 16
+          }
+        ],
+        "format": {
+          "duration": "3.109250",
+          "size": "99574"
+        }
+      }
+    },
+    {
+      "file": "overlap-two-voices.wav",
+      "sha256": "2f444a805239c032c76971224d6a45322a3d971dbfc9527b4e1b7087cbb92d0f",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "pcm_s16le",
+            "sample_rate": "16000",
+            "channels": 1,
+            "bits_per_sample": 16
+          }
+        ],
+        "format": {
+          "duration": "3.601375",
+          "size": "115322"
+        }
+      }
+    },
+    {
+      "file": "partial-final-sentence.wav",
+      "sha256": "e31f8edd834abba92c9e6f02b039e24f3ae74d04e8d63ddf4b51023a663d7f9e",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "pcm_s16le",
+            "sample_rate": "16000",
+            "channels": 1,
+            "bits_per_sample": 16
+          }
+        ],
+        "format": {
+          "duration": "2.500000",
+          "size": "80078"
+        }
+      }
+    }
+  ]
+}

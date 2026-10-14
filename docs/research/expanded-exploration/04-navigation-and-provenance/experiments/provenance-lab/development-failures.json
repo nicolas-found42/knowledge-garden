@@ -1,0 +1,10 @@
+[
+  {
+    "stage": "fixture generation before metrics or model evaluation",
+    "failure_kind": "workflow/implementation",
+    "observed": "AssertionError in typesafe-state/context_reversal: a hardcoded insertion length was off by one",
+    "repair": "Compute all inserted string lengths in code; preserve independent gold substring assertion",
+    "model_calls": 0,
+    "result_record_written": false
+  }
+]

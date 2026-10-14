@@ -1,0 +1,66 @@
+{
+  "id": "a3",
+  "role": "cited-answer",
+  "request": {
+    "model": "openai/gpt-4.1-mini",
+    "temperature": 0,
+    "max_tokens": 900,
+    "response_format": {
+      "type": "json_object"
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "{\"instruction\": \"Return JSON with sentences:[{text,sourceIds,quote}]. Each sentence must be supported by supplied source context; quote is exact source text. Explicitly state unknown, uncertainty, constructed origin and missing evidence. A valid citation is not proof of a claim. Do not fill gaps. This is one question, no follow-up conversation.\", \"question\": \"On exactly what day was the picnic photograph taken?\", \"sources\": [{\"id\": \"photo-fruit\", \"title\": \"Fruit on a picnic table\", \"kind\": \"file\", \"format\": \"JPG\", \"body\": \"A real public OpenCV fruit photograph. Controlled picnic caption is separate; pixels do not establish Maya, Riverside, a date, nutrition, or weight.\", \"origin\": \"public reused\", \"epistemic\": \"recorded\", \"acquisition\": \"captured\"}, {\"id\": \"caption\", \"title\": \"Picnic caption with an uncertain date\", \"kind\": \"annotation\", \"format\": \"Markdown\", \"body\": \"# Picnic photo caption\\nControlled metadata for the public fruit photograph, not its true provenance. Maya prepared fruit at Riverside on a day in May 2024. Photographer did not record the exact date. The photograph alone does not identify Maya or the location.\\n\", \"origin\": \"controlled\", \"epistemic\": \"recorded\", \"acquisition\": \"captured\"}]}"
+      }
+    ]
+  },
+  "started": "2026-09-30T00:48:10.760198+00:00",
+  "response": {
+    "id": "gen-1790729290-VZnzoqIBXmwZoCrpbY6H",
+    "object": "chat.completion",
+    "created": 1790729290,
+    "model": "openai/gpt-4.1-mini",
+    "provider": "OpenAI",
+    "system_fingerprint": null,
+    "service_tier": "default",
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "completed",
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"sentences\": [\n    {\n      \"text\": \"The exact day on which the picnic photograph was taken is unknown.\",\n      \"sourceIds\": [\"caption\"],\n      \"quote\": \"The photographer did not record the exact date.\"\n    },\n    {\n      \"text\": \"The photograph was taken on some day in May 2024, but the precise date is not specified.\",\n      \"sourceIds\": [\"caption\"],\n      \"quote\": \"Maya prepared fruit at Riverside on a day in May 2024.\"\n    },\n    {\n      \"text\": \"The photograph itself does not provide any information about the date it was taken.\",\n      \"sourceIds\": [\"photo-fruit\"],\n      \"quote\": \"pixels do not establish Maya, Riverside, a date, nutrition, or weight.\"\n    }\n  ]\n}",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 295,
+      "completion_tokens": 168,
+      "total_tokens": 463,
+      "cost": 0.000382932,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0003868,
+        "upstream_inference_prompt_cost": 0.000118,
+        "upstream_inference_completions_cost": 0.0002688
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  "seconds": 1.8981879579951055
+}

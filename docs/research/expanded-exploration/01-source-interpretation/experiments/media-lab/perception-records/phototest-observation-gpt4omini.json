@@ -1,0 +1,60 @@
+{
+  "task": {
+    "id": "phototest-observation-gpt4omini",
+    "file": "/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/01-source-interpretation/experiments/media-lab/phototest.png",
+    "mode": "observation",
+    "media": "image",
+    "extra": "Return at most 5 factual observations under 600 tokens. Preserve visible labels. For contact sheet distinguish panel timestamp from bounding box; for screenshot distinguish changed pixel overlays from detected human objects. For book preserve provided-always strength qualification."
+  },
+  "model_requested": "openai/gpt-4o-mini",
+  "prompt": "Return concise JSON with observations:[{claim,anchor,uncertainty}], exact_visible_text, and limitations. Describe only what the supplied image/video directly shows. Separate uncertain interpretations. Anchor image claims by approximate normalized top-left bounding box [x,y,w,h]; video claims by seconds. Never infer author motives, historical links, exact weights, medical facts, identity, or security intent from appearances. Preserve qualifications and negations in book text. Do not normalize familiar phrases into a different sentence.\nReturn at most 5 factual observations under 600 tokens. Preserve visible labels. For contact sheet distinguish panel timestamp from bounding box; for screenshot distinguish changed pixel overlays from detected human objects. For book preserve provided-always strength qualification.",
+  "media_sha256": "e8f478459b0802c57a9e2ec7e5c872262ca7b31bdaaeb60bf5a182014a28a25c",
+  "media_bytes": 5720,
+  "response": {
+    "id": "gen-1790725907-ze5lXmR8f7razCogkw6l",
+    "object": "chat.completion",
+    "created": 1790725907,
+    "model": "openai/gpt-4o-mini",
+    "provider": "Azure",
+    "system_fingerprint": "fp_99f88af1c5",
+    "service_tier": "default",
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"The text is in 12 point font.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text includes a repeated phrase about a quick brown dog and a lazy fox.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text is intended to test OCR code functionality.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text mentions various file formats.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text is displayed in a single block.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"This is a lot of 12 point text to test the ocr code and see if it works on  all types of file format.\\nThe quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox.\",\n  \"limitations\": \"The observations are based solely on the visible text and do not infer any additional context or meaning.\"\n}\n```",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 14318,
+      "completion_tokens": 335,
+      "total_tokens": 14653,
+      "cost": 0.002325213,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0023487,
+        "upstream_inference_prompt_cost": 0.0021477,
+        "upstream_inference_completions_cost": 0.000201
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  "seconds": 5.749734457989689
+}

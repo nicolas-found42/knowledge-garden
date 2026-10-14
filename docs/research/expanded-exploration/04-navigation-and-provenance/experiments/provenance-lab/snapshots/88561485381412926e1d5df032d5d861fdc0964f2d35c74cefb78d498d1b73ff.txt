@@ -1,0 +1,1 @@
+asDerivedFrom property. A derivation is a transformation of one entity into another. For example, if the Act

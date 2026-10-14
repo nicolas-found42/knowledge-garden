@@ -1,0 +1,30 @@
+{
+  "context": {
+    "baseline_correct": 0,
+    "baseline_checks": 10
+  },
+  "impact": {
+    "baseline_correct": 7,
+    "baseline_checks": 30
+  },
+  "maintenance": {
+    "baseline_correct": 6,
+    "baseline_checks": 10
+  },
+  "procedure": {
+    "baseline_correct": 4,
+    "baseline_checks": 10
+  },
+  "plain": {
+    "threshold_0_8_selected": 74,
+    "threshold_0_8_correct": 74,
+    "wrong_over_0_8": 0,
+    "all_checks": 120
+  },
+  "evidence_aware": {
+    "threshold_0_8_selected": 102,
+    "threshold_0_8_correct": 102,
+    "wrong_over_0_8": 0,
+    "all_checks": 120
+  }
+}

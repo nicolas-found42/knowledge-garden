@@ -1,0 +1,8 @@
+  browser: our own Chrome (pid=1601, port=58643, throwaway profile) — closed on exit
+  tick  1     602 ms  actions=1  status=ready  last=click
+  tick  2     860 ms  actions=1  status=done  last=click
+  final_url: http://127.0.0.1:8876/04-navigation-and-provenance/experiments/navigation-lab/index.html
+  title: 'Reasoning timeline · Knowledge Garden evidence'
+  independent check for 'Reasoning timeline': PASS
+{"schema": "hermes.browser_use_jev_run_v1", "goal": "Show the Reasoning timeline for the motion experiment; stay on the local page.", "final_url": "http://127.0.0.1:8876/04-navigation-and-provenance/experiments/navigation-lab/index.html", "title": "Reasoning timeline \u00b7 Knowledge Garden evidence", "heading": "One body of evidence. Five ways to explore it.", "steps": 1, "text_calls": 0, "ticks": 2, "left_allowlist": false, "expected": "Reasoning timeline", "verified": true, "browser": "owned"}
+

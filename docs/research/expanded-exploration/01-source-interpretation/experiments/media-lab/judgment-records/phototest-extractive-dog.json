@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "phototest-extractive-dog",
+    "family": "claim",
+    "source": "phototest",
+    "representation": "extractive",
+    "claim": "The text says a quick brown dog jumped over a lazy fox.",
+    "source_truth": "supported",
+    "state": {
+      "source": "phototest",
+      "evidence_kind": "extractive",
+      "evidence": "This is a lot of 12 point text to test the\nocr code and see if it works on all types\nof file format.\nThe quick brown dog jumped over the\nlazy fox. The quick brown dog jumped\nover the lazy fox. The quick brown dog\njumped over the lazy fox. The quick\nbrown dog jumped over the lazy fox.",
+      "claim": "The text says a quick brown dog jumped over a lazy fox."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "supported",
+        "probabilities": {
+          "unknown": 0,
+          "contradicted": 0,
+          "supported": 1
+        },
+        "confidence": 1
+      }
+    },
+    "usage": {
+      "input_tokens": 519,
+      "output_tokens": 41,
+      "cost": 2.1798e-05
+    },
+    "id": "gen-dec-1790725832-8LnIeyiUfjnFj64EzS61",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.3805958339944482
+}

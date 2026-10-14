@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "book-pdf-page-84-pdf-text-all",
+    "family": "claim",
+    "source": "book-pdf-page-84",
+    "representation": "pdf-text",
+    "claim": "Every variation is destroyed by natural selection.",
+    "source_truth": "contradicted",
+    "state": {
+      "source": "book-pdf-page-84",
+      "evidence_kind": "pdf-text",
+      "evidence": "78 \nNATURAL  SELECTION. \n\n[Chap.  IV \n\nOn  tlie  other  hand,  we  may  feel  sure  that  any  variation \nin  the  least  degree  injurious  would  be  rigidly  destroyed. \nThis  preservation  of  favourable  variations  and  the  rejec\u00ac \ntion  of  injurious  variations,  I  call  Natural  Selection. \nVariations  neither  useful  nor  injurious  would  not  be  affect\u00ac \ned  by  natural  selection,  and  would  be  left  a  fluctuating \nelement,  as  perhaps  we  see  in  the  species  called  polymor\u00ac \n\nphic. \nWe  shall  best  understand  the  probable  course  of  na\u00ac \ntural  selection  by  taking  the  case  of  a  country  undergo\u00ac \ning  some  physical  change,  for  instance,  of  climate.  The \nproportional  numbers  of  its  inhabitants  would  almost  im\u00ac \nmediately  undergo  a  change,  and  some  species  might  be\u00ac \ncome  extinct.  We  may  conclude,  from  what  we  have \n\nseen  of  the  intimate  and  complex  manner  in  which  the  in\u00ac \nhabitants  of  each  country  are  bound  together,  that  any \nchange  in  the  numerical  proportions  of  some  of  the  in\u00ac \nhabitants,  independently  of  the  change  of  climate  itself, \nwould  most  seriously  affect  many  of  the  others.  If  the \ncountry  were  open  on  its  borders,  new  forms  would  cer\u00ac \ntainly  immigrate,  and  this  also  would  seriously  disturb \nthe  relations  of  some  of  the  former  inhabitants.  Let  it  be \n\nremembered  how  powerful  the  influence  of  a  single  intro\u00ac \nduced  tree  or  rfiammal  has  been  shown  to  be.  But  in  the \n\ncase  of  an  island,  or  of  a  country  partly  surrounded  by \nbarriers,  into  which  new  and  better  adapted  forms  could \n\nnot  freely  enter,  we  should  then  have  places  in  the  econo\u00ac \nmy  of  nature  which  would  assuredly  be  better  filled  up, \nif  some  of  the  original  inhabitants  were  in  some  manner \nmodified ;  for,  had  the  area  been  open  to  immigration, \nthese  same  places  would  have  been  seized  on  by  intruders. \nIn  such  case,  every  slight  modification,  which  in  the  course \nof  ages  chanced  to  arise,  and  which  in  any  way  favoured \nthe  individuals  of  any  of  the  species,  by  better  adapting \nthem  to  their  altered  conditions,  would  tend  to  be  pre\u00ac \nserved  ;  and  natural  selection  would  thus  have  free  scope \nfor  the  work  of  improvement. \n\nWe  have  reason  to  believe,  as  stated  in  the  first  chap\u00ac \nter,  that  a  change  in  the  conditions  of  life,  by  specially \nacting  on  the  reproductive  system,  causes  or  increases \n",
+      "claim": "Every variation is destroyed by natural selection."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "contradicted",
+        "probabilities": {
+          "unknown": 0,
+          "contradicted": 1,
+          "supported": 0
+        },
+        "confidence": 1
+      }
+    },
+    "usage": {
+      "input_tokens": 1298,
+      "output_tokens": 44,
+      "cost": 5.4516e-05
+    },
+    "id": "gen-dec-1790725834-CBgTlLUeQncxYEWjmnOV",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.22156233302666806
+}

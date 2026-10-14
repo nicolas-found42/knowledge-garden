@@ -1,0 +1,82 @@
+{
+  "ledger": {
+    "jev": {
+      "requests": 53,
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "input_tokens": 27908,
+      "output_tokens": 3161,
+      "reported_cost_usd": 0.001172136,
+      "all_cost_available": true,
+      "median_seconds": 0.258532790991012,
+      "sum_request_seconds": 15.114440412900876,
+      "min_seconds": 0.1978036669897847,
+      "max_seconds": 0.7852720419759862
+    },
+    "generative": {
+      "requests": 5,
+      "models": [
+        "openai/gpt-4.1-mini"
+      ],
+      "input_tokens": 6328,
+      "output_tokens": 2673,
+      "reported_cost_usd": 0.00673992,
+      "all_cost_available": true,
+      "median_seconds": 4.271519582980545,
+      "sum_request_seconds": 24.137374583981,
+      "min_seconds": 2.51675887501915,
+      "max_seconds": 8.203514333989006
+    }
+  },
+  "provider_failures": [],
+  "code_failures": [
+    {
+      "stage": "diagnostic extraction",
+      "failure": "TypeError: required field lineno missing from stmt",
+      "kind": "experiment_code_error",
+      "provider_call_made": false,
+      "repair": "ast.fix_missing_locations before compile",
+      "not_model_error": true
+    }
+  ],
+  "label_audit": [
+    {
+      "id": "method-hold_boundary",
+      "original_expected": "shared_method",
+      "status": "ambiguous",
+      "reason": "No actual successful outcomes are supplied, yet shared_method criteria require bounded verified successes. Both models withholding that label may be justified. Preserve original label, exclude from any definitive accuracy claim."
+    },
+    {
+      "id": "identity-bare",
+      "field": "expected_useful",
+      "original_expected": true,
+      "status": "ambiguous",
+      "reason": "Bare duplicate Phoenix names lack an audit question; suppression can be useful clutter control rather than false negative."
+    }
+  ],
+  "candidate_audit": [
+    {
+      "index": 1,
+      "issue": "Homonyms labeled contradiction although texts assert distinct entities, not incompatible claims. Jev supported0.44/useful0.23 rejected at illustrative0.5."
+    },
+    {
+      "index": 2,
+      "issue": "Candidate assumes alice/garden fork has bob/garden as its parent. Source establishes independent fork and names separate upstream but does not explicitly identify parent. Jev0.82 support fails to reject this unproved target association."
+    },
+    {
+      "index": 9,
+      "issue": "type speculative but status tentative. Jev support0.87/useful0.53 does not enforce consistent source status; code must retain constructed provenance and speculation."
+    }
+  ],
+  "draft_audit": {
+    "all_generated_source_ids_exist": true,
+    "exceptions_preserved": true,
+    "authored_history_status_explicit_in_draft": false,
+    "issue": "Draft did not explicitly carry constructed history provenance despite instruction. Source links alone do not label actual user experience."
+  },
+  "generative_pair_exact_quotes": {
+    "exact": 30,
+    "total": 30
+  }
+}

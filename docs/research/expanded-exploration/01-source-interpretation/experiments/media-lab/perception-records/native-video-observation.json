@@ -1,0 +1,59 @@
+{
+  "task": {
+    "id": "native-video-observation",
+    "file": "/tmp/knowledge-garden-media-lab/source-10s.mp4",
+    "mode": "observation",
+    "media": "video"
+  },
+  "model_requested": "google/gemini-2.5-flash-lite",
+  "prompt": "Return concise JSON with observations:[{claim,anchor,uncertainty}], exact_visible_text, and limitations. Describe only what the supplied image/video directly shows. Separate uncertain interpretations. Anchor image claims by approximate normalized top-left bounding box [x,y,w,h]; video claims by seconds. Never infer author motives, historical links, exact weights, medical facts, identity, or security intent from appearances. Preserve qualifications and negations in book text. Do not normalize familiar phrases into a different sentence.\n",
+  "media_sha256": "6d46089f039b2c511b6cd8f83e93af743a310a1b84f355f55884586fbfa31395",
+  "media_bytes": 256403,
+  "response": {
+    "id": "gen-1790725769-0czH13WMTRwREfEvvcwR",
+    "object": "chat.completion",
+    "created": 1790725769,
+    "model": "google/gemini-2.5-flash-lite",
+    "provider": "Google AI Studio",
+    "system_fingerprint": null,
+    "service_tier": "default",
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "length",
+        "native_finish_reason": "MAX_TOKENS",
+        "message": {
+          "role": "assistant",
+          "content": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.36,\n        0.37,\n        0.07,\n        0.14\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.62,\n        0.41,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.36,\n        0.63,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.74,\n        0.43,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.65,\n        0.37,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.37,\n        0.47,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.65,\n        0.5,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.74,\n        0.5,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.37,\n        0.55,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.65,\n        0.57,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.74,\n        0.57,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.37,\n        0.63,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.65,\n        0.65,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.74,\n        0.65,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.37,\n        0.7,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.65,\n        0.72,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.74,\n        0.72,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.37,\n        0.77,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.65,\n        0.79,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.74,\n        0.79,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.37,\n        0.84,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.65,\n        0.86,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.74,\n        0.86,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.37,\n        0.91,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.65,\n        0.93,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.74,\n        0.93,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.37,\n        0.98,\n        0.06,\n        0.13\n      ],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A person walks across the pavement.\",\n      \"anchor\": [\n        0.65,\n        1.0,\n        0",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 3319,
+      "completion_tokens": 1765,
+      "total_tokens": 5084,
+      "cost": 0,
+      "is_byok": true,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 321,
+        "video_tokens": 2893
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0011021,
+        "upstream_inference_prompt_cost": 0.0003961,
+        "upstream_inference_completions_cost": 0.000706
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  "seconds": 5.988432082987856
+}

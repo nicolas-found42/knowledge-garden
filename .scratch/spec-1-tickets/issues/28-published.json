@@ -1,0 +1,32 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPm0Q",
+        "number": 19,
+        "state": "OPEN",
+        "title": "Search remembered meaning locally while offline",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/19"
+      }
+    ],
+    "totalCount": 1
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 58, 59, 69; **Inputs and source access**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nKeep the collection useful without connectivity: imported material receives available local processing and becomes searchable, while remote semantic work resumes automatically when service access returns.\n\n## Acceptance criteria\n\n- [ ] Offline imports retain originals, perform available local extraction, and expose locally extracted text through page/keyword search without waiting for remote models.\n- [ ] Copied, partially processed, pending remote, failed, and fully processed states remain distinguishable without an approval queue.\n- [ ] Already processed pages remain readable and searchable by meaning after offline restart; source/evidence navigation uses retained local assets.\n- [ ] Connectivity restoration automatically resumes queued Jev/allowed-helper work with bounded backoff, stable identities, and no duplicate pages or stale-version overwrite.\n- [ ] Provider quotas, model unavailability, and capability failures are handled distinctly from network loss but remain recoverable; no hidden provider substitution or application-budget prompt appears.\n- [ ] Repeated offline/online transitions and process interruption preserve both completed knowledge and pending source reconciliation; losing an acceleration cache cannot permanently forget unfinished input.\n- [ ] A deterministic outage/recovery test covers import, local search, queued semantic work, restart, reconnection, and eventual current knowledge. A small real connectivity check verifies installed behavior.\n\n## Blocked by\n\n- [#19 \u2014 Search remembered meaning locally while offline](https://github.com/nicolas-found42/knowledge-garden/issues/19)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nRemote quality and service suitability remain separate gates. New-source semantic completion can wait for connectivity, but available local work and existing meaning search cannot. Do not treat \u201cno application spending cap\u201d as unlimited provider throughput.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nFully process a small collection, restart with networking disabled, and run a remembered-meaning search. Add a new text report offline and find its extracted words. Interrupt/restart, reconnect, then let remote processing finish. Repeat with a quota response and newer incoming source before an older queued job completes.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Accept new sources offline and resume remote processing automatically",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/29"
+}

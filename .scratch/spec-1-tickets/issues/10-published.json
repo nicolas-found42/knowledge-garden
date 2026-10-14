@@ -1,0 +1,32 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPRRA",
+        "number": 6,
+        "state": "OPEN",
+        "title": "Recover incomplete source updates without deleting unextracted facts",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/6"
+      }
+    ],
+    "totalCount": 1
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 1, 8, 31; **Prior evidence and remaining gates**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nImport a PDF, including a difficult scanned document or homework sheet, and read its knowledge with support tied to the actual page or region while incomplete extraction remains visible and recoverable.\n\n## Acceptance criteria\n\n- [ ] Text PDFs and image/scanned PDFs produce navigable source and knowledge pages while retaining the original PDF bytes and format.\n- [ ] Facts and excerpts retain page/region locations, reading context, source qualifications, and explicit coverage; opening evidence targets the supporting page or discloses a fallback.\n- [ ] OCR and layout recovery are validated against representative multi-column, rotated, low-quality, and mixed text/image pages; unreadable regions are marked rather than silently omitted.\n- [ ] A replacement PDF with incomplete page coverage cannot remove facts by omission until the relevant missing content has been recovered through the common update path.\n- [ ] Encrypted, damaged, or unsupported PDFs keep inspectable originals and accurate processing states, with bounded automatic recovery where supported.\n- [ ] Searchable fine spans open in their PDF context instead of forcing every span into a permanent visible node.\n- [ ] An application-level corpus with independently labeled text, locations, qualifications, and missing regions verifies import, evidence opening, interruption, and incomplete replacement behavior.\n\n## Blocked by\n\n- [#6 \u2014 Recover incomplete source updates without deleting unextracted facts](https://github.com/nicolas-found42/knowledge-garden/issues/6)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nChoose and validate decoding/OCR helpers through this path; do not assume the selected generative endpoint accepts PDF/images. Local extraction is a supporting capability, with semantic judgments governed by the shared Jev/model policy. Record actual format/coverage limits without treating them as a reduction of the parent\u2019s release scope.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nCreate equivalent two-page text and scanned reports: page one contains V17 and 15 visits; page two contains duration 10 minutes and a qualification. Include a rotated scan and a deliberately unreadable region. Import, locate each fact\u2019s evidence, then replay a partial extraction during a replacement and verify preservation/recovery.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Read PDFs and scanned documents with located evidence and coverage recovery",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/11"
+}

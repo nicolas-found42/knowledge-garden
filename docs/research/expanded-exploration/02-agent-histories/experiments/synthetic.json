@@ -1,0 +1,358 @@
+[
+  {
+    "id": "adopted-pass",
+    "split": "development",
+    "messages": [
+      {
+        "role": "assistant",
+        "text": "Could use SQLite or Postgres."
+      },
+      {
+        "role": "user",
+        "text": "Choose SQLite; avoid administering a server."
+      },
+      {
+        "role": "tool",
+        "text": "SQLite smoke test: 12/12 pass."
+      },
+      {
+        "role": "assistant",
+        "text": "SQLite smoke tests pass; selected SQLite."
+      }
+    ],
+    "claim": "Use SQLite.",
+    "verification": "SQLite smoke tests pass.",
+    "adoption": {
+      "full_readable": "adopted",
+      "extractive_summary": "unknown",
+      "selected_evidence": "adopted"
+    },
+    "verified": {
+      "full_readable": "verified",
+      "extractive_summary": "unknown",
+      "selected_evidence": "unknown"
+    }
+  },
+  {
+    "id": "hypothetical-pass",
+    "split": "development",
+    "messages": [
+      {
+        "role": "user",
+        "text": "If SQLite passes tomorrow we might use it. No choice yet."
+      },
+      {
+        "role": "tool",
+        "text": "SQLite benchmark completed; 12/12 correctness cases pass."
+      },
+      {
+        "role": "assistant",
+        "text": "SQLite is the candidate."
+      }
+    ],
+    "claim": "Use SQLite.",
+    "verification": "SQLite correctness cases pass.",
+    "adoption": {
+      "full_readable": "not_adopted",
+      "extractive_summary": "unknown",
+      "selected_evidence": "not_adopted"
+    },
+    "verified": {
+      "full_readable": "verified",
+      "extractive_summary": "unknown",
+      "selected_evidence": "unknown"
+    }
+  },
+  {
+    "id": "quoted-imperative",
+    "split": "development",
+    "messages": [
+      {
+        "role": "user",
+        "text": "The example prompt says \"Use SQLite\". This is quoted; I have not selected storage."
+      },
+      {
+        "role": "assistant",
+        "text": "Here is a revised example prompt: Use SQLite."
+      }
+    ],
+    "claim": "Use SQLite.",
+    "verification": "SQLite was tested.",
+    "adoption": {
+      "full_readable": "not_adopted",
+      "extractive_summary": "unknown",
+      "selected_evidence": "not_adopted"
+    },
+    "verified": {
+      "full_readable": "unknown",
+      "extractive_summary": "unknown",
+      "selected_evidence": "unknown"
+    }
+  },
+  {
+    "id": "false-completion",
+    "split": "development",
+    "messages": [
+      {
+        "role": "user",
+        "text": "Use the new importer only if checks pass; choice is pending."
+      },
+      {
+        "role": "tool",
+        "text": "Importer test 4 failed: dropped source IDs."
+      },
+      {
+        "role": "assistant",
+        "text": "Importer is complete and tested."
+      }
+    ],
+    "claim": "Use new importer.",
+    "verification": "Importer checks pass.",
+    "adoption": {
+      "full_readable": "not_adopted",
+      "extractive_summary": "unknown",
+      "selected_evidence": "not_adopted"
+    },
+    "verified": {
+      "full_readable": "failed",
+      "extractive_summary": "unknown",
+      "selected_evidence": "unknown"
+    }
+  },
+  {
+    "id": "reversal",
+    "split": "development",
+    "messages": [
+      {
+        "role": "user",
+        "text": "Use SQLite for search."
+      },
+      {
+        "role": "tool",
+        "text": "Measured SQLite p95 120 ms."
+      },
+      {
+        "role": "user",
+        "text": "Withdraw SQLite decision. We need new measurements before any choice."
+      },
+      {
+        "role": "assistant",
+        "text": "The next benchmark is scheduled."
+      }
+    ],
+    "claim": "Use SQLite.",
+    "verification": "SQLite p95 was 120 ms.",
+    "adoption": {
+      "full_readable": "not_adopted",
+      "extractive_summary": "unknown",
+      "selected_evidence": "not_adopted"
+    },
+    "verified": {
+      "full_readable": "verified",
+      "extractive_summary": "unknown",
+      "selected_evidence": "unknown"
+    }
+  },
+  {
+    "id": "short-assent",
+    "split": "development",
+    "messages": [
+      {
+        "role": "assistant",
+        "text": "For this archive preserve originals and generate thumbnails?"
+      },
+      {
+        "role": "user",
+        "text": "Yes, keep originals."
+      },
+      {
+        "role": "assistant",
+        "text": "Understood."
+      }
+    ],
+    "claim": "Preserve original archive images.",
+    "verification": "Thumbnails were generated.",
+    "adoption": {
+      "full_readable": "adopted",
+      "extractive_summary": "unknown",
+      "selected_evidence": "adopted"
+    },
+    "verified": {
+      "full_readable": "unknown",
+      "extractive_summary": "unknown",
+      "selected_evidence": "unknown"
+    }
+  },
+  {
+    "id": "failure-method",
+    "split": "development",
+    "messages": [
+      {
+        "role": "user",
+        "text": "Do not retry until we know why it failed."
+      },
+      {
+        "role": "tool",
+        "text": "Run A: missing Content-Type; 415. Run B: add JSON Content-Type; 200."
+      },
+      {
+        "role": "assistant",
+        "text": "Retrying with Content-Type fixed the request."
+      }
+    ],
+    "claim": "Automatically retry failed requests.",
+    "verification": "Adding JSON Content-Type fixed this request.",
+    "adoption": {
+      "full_readable": "not_adopted",
+      "extractive_summary": "unknown",
+      "selected_evidence": "not_adopted"
+    },
+    "verified": {
+      "full_readable": "verified",
+      "extractive_summary": "unknown",
+      "selected_evidence": "unknown"
+    }
+  },
+  {
+    "id": "assistant-proposal",
+    "split": "development",
+    "messages": [
+      {
+        "role": "user",
+        "text": "Compare storage approaches; no implementation requested."
+      },
+      {
+        "role": "assistant",
+        "text": "I recommend SQLite; use SQLite for search."
+      }
+    ],
+    "claim": "Use SQLite.",
+    "verification": "SQLite has been benchmarked.",
+    "adoption": {
+      "full_readable": "not_adopted",
+      "extractive_summary": "unknown",
+      "selected_evidence": "not_adopted"
+    },
+    "verified": {
+      "full_readable": "unknown",
+      "extractive_summary": "unknown",
+      "selected_evidence": "unknown"
+    }
+  },
+  {
+    "id": "holdout-museum",
+    "split": "holdout",
+    "messages": [
+      {
+        "role": "user",
+        "text": "Keep lossless scans; delete only disposable thumbnails."
+      },
+      {
+        "role": "tool",
+        "text": "Retention check: all 18 original scans present."
+      },
+      {
+        "role": "assistant",
+        "text": "Retention verified."
+      }
+    ],
+    "claim": "Keep lossless original scans.",
+    "verification": "All 18 original scans are present.",
+    "adoption": {
+      "full_readable": "adopted",
+      "extractive_summary": "unknown",
+      "selected_evidence": "adopted"
+    },
+    "verified": {
+      "full_readable": "verified",
+      "extractive_summary": "unknown",
+      "selected_evidence": "unknown"
+    }
+  },
+  {
+    "id": "holdout-negative",
+    "split": "holdout",
+    "messages": [
+      {
+        "role": "user",
+        "text": "We rejected scheduled automatic publishing; manual publishing only."
+      },
+      {
+        "role": "tool",
+        "text": "Scheduler disabled=true."
+      },
+      {
+        "role": "assistant",
+        "text": "Publishing policy configured."
+      }
+    ],
+    "claim": "Use scheduled automatic publishing.",
+    "verification": "Scheduler is disabled.",
+    "adoption": {
+      "full_readable": "not_adopted",
+      "extractive_summary": "unknown",
+      "selected_evidence": "not_adopted"
+    },
+    "verified": {
+      "full_readable": "verified",
+      "extractive_summary": "unknown",
+      "selected_evidence": "unknown"
+    }
+  },
+  {
+    "id": "holdout-unfinished",
+    "split": "holdout",
+    "messages": [
+      {
+        "role": "user",
+        "text": "Investigate whether the archive can recover message-to-source offsets."
+      },
+      {
+        "role": "assistant",
+        "text": "I will investigate."
+      }
+    ],
+    "claim": "Offsets are recoverable.",
+    "verification": "Offsets successfully recovered.",
+    "adoption": {
+      "full_readable": "unknown",
+      "extractive_summary": "unknown",
+      "selected_evidence": "unknown"
+    },
+    "verified": {
+      "full_readable": "unknown",
+      "extractive_summary": "unknown",
+      "selected_evidence": "unknown"
+    }
+  },
+  {
+    "id": "holdout-interrupted",
+    "split": "holdout",
+    "messages": [
+      {
+        "role": "user",
+        "text": "Evaluate OCR before choosing it."
+      },
+      {
+        "role": "tool",
+        "text": "OCR lost 3 table columns in this photograph."
+      },
+      {
+        "role": "assistant",
+        "text": "Operation interrupted."
+      }
+    ],
+    "claim": "Use OCR for all photographs.",
+    "verification": "OCR preserved all table columns.",
+    "adoption": {
+      "full_readable": "not_adopted",
+      "extractive_summary": "unknown",
+      "selected_evidence": "not_adopted"
+    },
+    "verified": {
+      "full_readable": "failed",
+      "extractive_summary": "unknown",
+      "selected_evidence": "unknown"
+    }
+  }
+]

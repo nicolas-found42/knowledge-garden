@@ -8,7 +8,7 @@ UTF-8 `.txt`, `.text`, `.md`, `.markdown`, and extensionless files are supported
 
 ## Run and build
 
-On macOS, install Rust and Node.js 22.12 or later and the [Tauri macOS prerequisites](https://v2.tauri.app/start/prerequisites/#macos).
+On macOS, install Rust, Node.js 22.12 or later, CMake, and the [Tauri macOS prerequisites](https://v2.tauri.app/start/prerequisites/#macos). The first macOS build initializes the pinned Whisper source submodule, downloads the pinned large-v3-turbo model, verifies its SHA-256, and packages the model with a static Metal-enabled runner. Runtime transcription is local and makes no model download; the model and runner license details are bundled with the app.
 
 ```sh
 npm ci

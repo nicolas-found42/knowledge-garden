@@ -1,0 +1,19 @@
+{
+  "pressure-trial.docx": {
+    "title": "Pump pressure trial",
+    "table_measure": "Discharge pressure",
+    "value": "18 kPa (provisional; gauge calibration pending).",
+    "qualification_terms": [
+      "provisional",
+      "calibration pending"
+    ],
+    "context": "Nominal pressure remains unknown; this table reports an uncalibrated measurement."
+  },
+  "maintenance-briefing.pptx": {
+    "visible_title": "Maintenance briefing",
+    "visible_statement": "Valve setting: closed",
+    "note_statement": "Open only after an independent pressure gauge confirms less than 18 kPa. This instruction is conditional, not a record that the valve was opened.",
+    "origin_separation_required": true,
+    "must_not_assert": "Valve was opened"
+  }
+}

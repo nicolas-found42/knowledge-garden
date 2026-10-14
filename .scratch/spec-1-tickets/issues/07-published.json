@@ -1,0 +1,32 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPTDw",
+        "number": 7,
+        "state": "OPEN",
+        "title": "Preserve external manual corrections while other facts refresh automatically",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/7"
+      }
+    ],
+    "totalCount": 1
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 45; **Markdown, original assets, and external editors**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nAllow the owner to reorganize and edit the Markdown collection externally while app updates continue, retaining identities, resolvable ordinary links, and every intentional edit through crashes and ambiguous metadata.\n\n## Acceptance criteria\n\n- [ ] A page move or rename preserves its durable identity and repairs resolvable ordinary links and app navigation; a changed display name is not a new knowledge item.\n- [ ] Atomic editor saves, folder replacement, and watcher event loss are reconciled by bounded rescan without duplicating or losing pages.\n- [ ] Concurrent external and app saves preserve the owner\u2019s content and manual corrections; no silent last-writer overwrite is accepted.\n- [ ] A crash between related writes or an interrupted reconciliation cannot expose permanently partial knowledge; restart recovers a coherent state and pending work.\n- [ ] Duplicate identities, malformed metadata, and unresolved targets remain inspectable with original content preserved. Ambiguous identities are not silently merged or assigned arbitrarily.\n- [ ] Recovery is automatic wherever evidence permits, with explicit residual uncertainty and no required semantic approval queue. Temporary recovery data does not become obsolete-value history in ordinary search.\n- [ ] Public application tests exercise move, rename, conflicting saves, malformed files, duplicate identities, directory replacement, and injected crash boundaries, verifying Markdown and visible navigation after recovery.\n\n## Blocked by\n\n- [#7 \u2014 Preserve external manual corrections while other facts refresh automatically](https://github.com/nicolas-found42/knowledge-garden/issues/7)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nKeep the supported durable contract readable and document its safe recovery behavior. Do not silently rewrite malformed owner files merely to satisfy the parser. This ticket extends the existing writer/edit path; it is not a wide refactor or a request to introduce an application database as the authoritative store.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nCreate two linked pages and a manually corrected fact. Move/rename one page externally, open its incoming link, then atomically save an owner edit while a source update is publishing. Repeat with a duplicated identity and malformed metadata, interrupt during reconciliation, and restart. Check preserved bytes/intent, stable targets, explicit ambiguous states, and eventual coherent app results.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Keep external moves, renames, and concurrent edits safe and navigable",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/8"
+}

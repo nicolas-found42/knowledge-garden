@@ -1,0 +1,66 @@
+{
+  "id": "a1",
+  "role": "cited-answer",
+  "request": {
+    "model": "openai/gpt-4.1-mini",
+    "temperature": 0,
+    "max_tokens": 900,
+    "response_format": {
+      "type": "json_object"
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "{\"instruction\": \"Return JSON with sentences:[{text,sourceIds,quote}]. Each sentence must be supported by supplied source context; quote is exact source text. Explicitly state unknown, uncertainty, constructed origin and missing evidence. A valid citation is not proof of a claim. Do not fill gaps. This is one question, no follow-up conversation.\", \"question\": \"What rate was observed, and what does it establish?\", \"sources\": [{\"id\": \"table\", \"title\": \"Two pollinator counts\", \"kind\": \"file\", \"format\": \"CSV\", \"body\": \"Controlled rows: 17 May 2024, Maya, Riverside, 12 visits, 10 minutes; 18 May, 8 visits, 10 minutes. Rows do not attribute a difference to rain.\", \"origin\": \"controlled\", \"epistemic\": \"recorded\", \"acquisition\": \"captured\"}, {\"id\": \"homework\", \"title\": \"Sampling homework\", \"kind\": \"file\", \"format\": \"PDF\", \"body\": \"Controlled homework: 12 visits in ten minutes is 1.2 per minute. A short observation does not estimate all-day activity. Rain causality is not established.\", \"origin\": \"controlled\", \"epistemic\": \"recorded\", \"acquisition\": \"captured\"}, {\"id\": \"claim-rate\", \"title\": \"Observed rate: 1.2 visits per minute\", \"kind\": \"claim\", \"format\": \"Markdown\", \"body\": \"A calculation from 12 visits divided by ten minutes; bounded to the 17 May observation, not a daily estimate.\", \"origin\": \"controlled\", \"epistemic\": \"recorded\", \"acquisition\": \"captured\"}]}"
+      }
+    ]
+  },
+  "started": "2026-09-30T00:48:05.571930+00:00",
+  "response": {
+    "id": "gen-1790729286-iY1VLwpxapIu1GYzKRmD",
+    "object": "chat.completion",
+    "created": 1790729286,
+    "model": "openai/gpt-4.1-mini",
+    "provider": "OpenAI",
+    "system_fingerprint": null,
+    "service_tier": "default",
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "completed",
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"sentences\": [\n    {\n      \"text\": \"The observed rate was 1.2 visits per minute, calculated from 12 visits in ten minutes on 17 May 2024.\",\n      \"sourceIds\": [\"table\", \"homework\", \"claim-rate\"],\n      \"quote\": \"Controlled homework: 12 visits in ten minutes is 1.2 per minute. A calculation from 12 visits divided by ten minutes; bounded to the 17 May observation, not a daily estimate.\"\n    },\n    {\n      \"text\": \"This observed rate establishes a short-term pollinator visit rate but does not estimate all-day activity or establish causality related to rain.\",\n      \"sourceIds\": [\"homework\", \"table\"],\n      \"quote\": \"A short observation does not estimate all-day activity. Rain causality is not established.\"\n    }\n  ]\n}",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 367,
+      "completion_tokens": 179,
+      "total_tokens": 546,
+      "cost": 0.000428868,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0004332,
+        "upstream_inference_prompt_cost": 0.0001468,
+        "upstream_inference_completions_cost": 0.0002864
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  "seconds": 2.8663269999960903
+}

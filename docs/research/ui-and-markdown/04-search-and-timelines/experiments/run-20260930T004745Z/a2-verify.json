@@ -1,0 +1,113 @@
+{
+  "id": "a2-verify",
+  "role": "answer-verifier",
+  "request": {
+    "model": "typesafe/jev-1.13",
+    "state": {
+      "sentences": [
+        {
+          "text": "The noon-only plan was changed because rain disrupted the noon visit, leading to the adoption of morning and noon observations.",
+          "sourceIds": [
+            "plan-2",
+            "reasoning"
+          ],
+          "quote": "Use morning and noon observations after rain disrupted the noon visit. This replaces the noon-only plan; better sampling accuracy has not been measured.\n2024-05-19T11:00:00Z Rain interrupts the noon visit.\n2024-05-20T08:00:00Z Maya adopts morning and noon observations."
+        },
+        {
+          "text": "Better accuracy was not established when the plan changed from noon-only to morning and noon sampling.",
+          "sourceIds": [
+            "plan-2",
+            "reasoning"
+          ],
+          "quote": "Better sampling accuracy has not been measured.\nNo accuracy comparison was run."
+        }
+      ],
+      "sources": [
+        {
+          "id": "plan-1",
+          "title": "Noon-only sampling proposal",
+          "kind": "decision",
+          "format": "Markdown",
+          "body": "# Study plan, version 1\nControlled plan, 2024-05-18. Count visits at noon only. Maya proposed noon because the path is quieter. Proposal, not a measured best time.\n",
+          "origin": "controlled",
+          "epistemic": "tentative",
+          "acquisition": "captured"
+        },
+        {
+          "id": "plan-2",
+          "title": "Morning and noon sampling decision",
+          "kind": "decision",
+          "format": "Markdown",
+          "body": "# Study plan, version 2\nControlled decision, 2024-05-20. Use morning and noon observations after rain disrupted the noon visit. This replaces the noon-only plan; better sampling accuracy has not been measured.\n",
+          "origin": "controlled",
+          "epistemic": "recorded",
+          "acquisition": "captured"
+        },
+        {
+          "id": "reasoning",
+          "title": "Why the sampling plan changed",
+          "kind": "file",
+          "format": "Markdown",
+          "body": "# Controlled study reasoning\n2024-05-18T09:00:00Z Maya proposes noon-only visits.\n2024-05-19T11:00:00Z Rain interrupts the noon visit.\n2024-05-20T08:00:00Z Maya adopts morning and noon observations. No accuracy comparison was run.\n",
+          "origin": "controlled",
+          "epistemic": "recorded",
+          "acquisition": "captured"
+        }
+      ]
+    },
+    "questions": {
+      "0": {
+        "type": "choice",
+        "instructions": "Does source context support sentence 0 including its uncertainty and scope? Valid IDs or exact quote alone are insufficient.",
+        "criteria": {
+          "supported": "Faithful to source context with relevant limits preserved.",
+          "qualified": "Main idea related but essential qualification omitted or overstated.",
+          "unsupported": "Contradicted, invented or not established."
+        }
+      },
+      "1": {
+        "type": "choice",
+        "instructions": "Does source context support sentence 1 including its uncertainty and scope? Valid IDs or exact quote alone are insufficient.",
+        "criteria": {
+          "supported": "Faithful to source context with relevant limits preserved.",
+          "qualified": "Main idea related but essential qualification omitted or overstated.",
+          "unsupported": "Contradicted, invented or not established."
+        }
+      }
+    }
+  },
+  "started": "2026-09-30T00:48:10.530173+00:00",
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "0": {
+        "type": "choice",
+        "choice": "supported",
+        "probabilities": {
+          "qualified": 0.14,
+          "supported": 0.85,
+          "unsupported": 0.01
+        },
+        "confidence": 0.77
+      },
+      "1": {
+        "type": "choice",
+        "choice": "supported",
+        "probabilities": {
+          "qualified": 0.08,
+          "supported": 0.91,
+          "unsupported": 0.01
+        },
+        "confidence": 0.87
+      }
+    },
+    "usage": {
+      "input_tokens": 1114,
+      "output_tokens": 73,
+      "cost": 4.6788e-05
+    },
+    "id": "gen-dec-1790729290-3P82liaoOJo8DnRbcjw5",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.22923733302741311
+}

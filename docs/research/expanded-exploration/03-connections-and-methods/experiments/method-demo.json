@@ -1,0 +1,128 @@
+{
+  "id": "method-demo",
+  "threads": [
+    {
+      "id": "thread-csv_ids",
+      "status": "constructed_coding_history_with_actual_execution",
+      "project": "csv_ids",
+      "messages": [
+        {
+          "id": "csv_ids-m1",
+          "role": "user",
+          "text": "Preserve distinct source identities in the derived lookup key."
+        },
+        {
+          "id": "csv_ids-m2",
+          "role": "assistant",
+          "text": "A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup."
+        },
+        {
+          "id": "csv_ids-m3",
+          "role": "tool",
+          "text": "[{\"id\": \"csv_ids-failed\", \"file\": \"coding-demo/csv_ids/failed.py\", \"exit_code\": 1, \"stdout\": \"\", \"stderr\": \"Traceback (most recent call last):\\n  File \\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/csv_ids/failed.py\\\", line 2, in <module>\\n    assert key(\\\"007\\\") != key(\\\"7\\\"), \\\"distinct customer IDs collapsed\\\"\\n           ^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: distinct customer IDs collapsed\\n\"}, {\"id\": \"csv_ids-successful\", \"file\": \"coding-demo/csv_ids/successful.py\", \"exit_code\": 0, \"stdout\": \"invariants passed\\n\", \"stderr\": \"\"}]"
+        },
+        {
+          "id": "csv_ids-m4",
+          "role": "assistant",
+          "text": "Regression now passes for this bounded fixture. This does not establish arbitrary format coverage."
+        }
+      ],
+      "source_code": {
+        "failed": "def key(x): return str(int(x))",
+        "successful": "def key(x): return x",
+        "invariant": "assert key(\"007\") != key(\"7\"), \"distinct customer IDs collapsed\""
+      }
+    },
+    {
+      "id": "thread-url_keys",
+      "status": "constructed_coding_history_with_actual_execution",
+      "project": "url_keys",
+      "messages": [
+        {
+          "id": "url_keys-m1",
+          "role": "user",
+          "text": "Preserve distinct source identities in the derived lookup key."
+        },
+        {
+          "id": "url_keys-m2",
+          "role": "assistant",
+          "text": "A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup."
+        },
+        {
+          "id": "url_keys-m3",
+          "role": "tool",
+          "text": "[{\"id\": \"url_keys-failed\", \"file\": \"coding-demo/url_keys/failed.py\", \"exit_code\": 1, \"stdout\": \"\", \"stderr\": \"Traceback (most recent call last):\\n  File \\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/url_keys/failed.py\\\", line 4, in <module>\\n    assert key(\\\"https://example.invalid/a?view=all\\\") != key(\\\"https://example.invalid/a?view=mine\\\"), \\\"query destinations collapsed\\\"\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: query destinations collapsed\\n\"}, {\"id\": \"url_keys-successful\", \"file\": \"coding-demo/url_keys/successful.py\", \"exit_code\": 0, \"stdout\": \"invariants passed\\n\", \"stderr\": \"\"}]"
+        },
+        {
+          "id": "url_keys-m4",
+          "role": "assistant",
+          "text": "Regression now passes for this bounded fixture. This does not establish arbitrary format coverage."
+        }
+      ],
+      "source_code": {
+        "failed": "from urllib.parse import urlsplit\ndef key(x):\n p=urlsplit(x); return (p.scheme.lower(),p.netloc.lower(),p.path)",
+        "successful": "from urllib.parse import urlsplit\ndef key(x):\n p=urlsplit(x); return (p.scheme.lower(),p.netloc.lower(),p.path,p.query)",
+        "invariant": "assert key(\"https://example.invalid/a?view=all\") != key(\"https://example.invalid/a?view=mine\"), \"query destinations collapsed\""
+      }
+    },
+    {
+      "id": "thread-cache_scope",
+      "status": "constructed_coding_history_with_actual_execution",
+      "project": "cache_scope",
+      "messages": [
+        {
+          "id": "cache_scope-m1",
+          "role": "user",
+          "text": "Preserve distinct source identities in the derived lookup key."
+        },
+        {
+          "id": "cache_scope-m2",
+          "role": "assistant",
+          "text": "A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup."
+        },
+        {
+          "id": "cache_scope-m3",
+          "role": "tool",
+          "text": "[{\"id\": \"cache_scope-failed\", \"file\": \"coding-demo/cache_scope/failed.py\", \"exit_code\": 1, \"stdout\": \"\", \"stderr\": \"Traceback (most recent call last):\\n  File \\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/cache_scope/failed.py\\\", line 2, in <module>\\n    assert key(\\\"A\\\",\\\"v1\\\",\\\"hello\\\") != key(\\\"B\\\",\\\"v1\\\",\\\"HELLO\\\"), \\\"tenant isolation lost\\\"\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: tenant isolation lost\\n\"}, {\"id\": \"cache_scope-successful\", \"file\": \"coding-demo/cache_scope/successful.py\", \"exit_code\": 0, \"stdout\": \"invariants passed\\n\", \"stderr\": \"\"}]"
+        },
+        {
+          "id": "cache_scope-m4",
+          "role": "assistant",
+          "text": "Regression now passes for this bounded fixture. This does not establish arbitrary format coverage."
+        }
+      ],
+      "source_code": {
+        "failed": "def key(tenant,policy,text): return text.casefold()",
+        "successful": "def key(tenant,policy,text): return (tenant,policy,text.casefold())",
+        "invariant": "assert key(\"A\",\"v1\",\"hello\") != key(\"B\",\"v1\",\"HELLO\"), \"tenant isolation lost\"\nassert key(\"A\",\"v1\",\"hello\") != key(\"A\",\"v2\",\"hello\"), \"policy revision ignored\""
+      }
+    },
+    {
+      "id": "thread-unresolved",
+      "status": "constructed_counterexample",
+      "project": "signed_urls",
+      "messages": [
+        {
+          "id": "signed-m1",
+          "role": "user",
+          "text": "Can query parameters be sorted for signed URLs? The signature might cover exact bytes. No provider signing specification or verification run is available."
+        }
+      ]
+    }
+  ],
+  "candidates": {
+    "preserve_boundary": "Preserve exact identity/scope fields, reproduce collision, make bounded correction, run invariant regression, then use semantic judgments only where compatible.",
+    "normalize_everything": "Normalize every ID to integers and remove URL query strings globally.",
+    "increase_timeout": "Fix failures by increasing timeout.",
+    "sort_all_queries": "Always sort query parameters, even signed URLs."
+  },
+  "exceptions": [
+    "Source fields declared numeric may legitimately normalize padding.",
+    "Signed URL byte equivalence remains unresolved: preserve original bytes until provider semantics verified.",
+    "Tenant identity not applicable to genuinely public immutable resources."
+  ],
+  "public_implementation_refs": [
+    "sources/devagrawal09__stanley-code/src/workflows/triage-failures.ts",
+    "sources/shimo4228__jev-research-pipeline/src/jev_research_pipeline/jev/source_support.py"
+  ]
+}

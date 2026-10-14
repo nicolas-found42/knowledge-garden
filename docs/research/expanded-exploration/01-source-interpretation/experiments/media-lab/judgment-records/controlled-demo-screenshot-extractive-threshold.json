@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "controlled-demo-screenshot-extractive-threshold",
+    "family": "claim",
+    "source": "controlled-demo-screenshot",
+    "representation": "extractive",
+    "claim": "The screenshot independently establishes that the threshold equals 35.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "controlled-demo-screenshot",
+      "evidence_kind": "extractive",
+      "evidence": "CONTROLLED IMAGE LABEL: changed pixels, no intent inference; SOURCE t=2.0s. No other text extracted.",
+      "claim": "The screenshot independently establishes that the threshold equals 35."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "unknown",
+        "probabilities": {
+          "unknown": 0.97,
+          "contradicted": 0.03,
+          "supported": 0
+        },
+        "confidence": 0.95
+      }
+    },
+    "usage": {
+      "input_tokens": 472,
+      "output_tokens": 41,
+      "cost": 1.9824e-05
+    },
+    "id": "gen-dec-1790725836-csWUurG9YEPDe2BEfgkV",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.22131945900036953
+}

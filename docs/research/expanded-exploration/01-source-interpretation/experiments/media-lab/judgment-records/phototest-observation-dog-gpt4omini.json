@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "phototest-observation-dog-gpt4omini",
+    "family": "claim",
+    "source": "phototest",
+    "representation": "gpt4omini-observation",
+    "claim": "The text says a quick brown dog jumped over a lazy fox.",
+    "source_truth": "supported",
+    "state": {
+      "source": "phototest",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"The text is in 12 point font.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text includes a repeated phrase about a quick brown dog and a lazy fox.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text is intended to test OCR code functionality.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text mentions various file formats.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    },\n    {\n      \"claim\": \"The text is displayed in a single block.\",\n      \"anchor\": [0, 0, 640, 480],\n      \"uncertainty\": \"None\"\n    }\n  ],\n  \"exact_visible_text\": \"This is a lot of 12 point text to test the ocr code and see if it works on  all types of file format.\\nThe quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox.\",\n  \"limitations\": \"The observations are based solely on the visible text and do not infer any additional context or meaning.\"\n}\n```",
+      "claim": "The text says a quick brown dog jumped over a lazy fox."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "supported",
+        "probabilities": {
+          "contradicted": 0,
+          "supported": 1,
+          "unknown": 0
+        },
+        "confidence": 1
+      }
+    },
+    "usage": {
+      "input_tokens": 803,
+      "output_tokens": 41,
+      "cost": 3.3726e-05
+    },
+    "id": "gen-dec-1790725951-qmphzYzLhzaZ6Dwc4yna",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.3541482920118142
+}

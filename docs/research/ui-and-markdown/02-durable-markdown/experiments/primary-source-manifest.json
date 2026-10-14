@@ -1,0 +1,62 @@
+{
+  "repository": "https://github.com/obsidianmd/obsidian-help",
+  "commit": "9cf8c2913e56830e75c13f33ba198d7e70b6d9ef",
+  "access": "Official help URLs failed robots authorization; public official Git repository read successfully, no repository code executed.",
+  "sources": [
+    {
+      "path": "en/Linking notes and files/Internal links.md",
+      "url": "https://github.com/obsidianmd/obsidian-help/blob/9cf8c2913e56830e75c13f33ba198d7e70b6d9ef/en/Linking%20notes%20and%20files/Internal%20links.md",
+      "sha256": "a143a6c1e2aea49d2e9a443da319a3a0e086f41512978dadb73a294c977a3b0f"
+    },
+    {
+      "path": "en/Editing and formatting/Properties.md",
+      "url": "https://github.com/obsidianmd/obsidian-help/blob/9cf8c2913e56830e75c13f33ba198d7e70b6d9ef/en/Editing%20and%20formatting/Properties.md",
+      "sha256": "bd81f389b54d3d2c596465078c80f9c5769566aacdb4a83ee5d8b5ed882f5cf3"
+    },
+    {
+      "path": "en/Plugins/Search.md",
+      "url": "https://github.com/obsidianmd/obsidian-help/blob/9cf8c2913e56830e75c13f33ba198d7e70b6d9ef/en/Plugins/Search.md",
+      "sha256": "5a797fdbe551de35f662a64a02d0a275ebb9a65750b1a6f776860cf5c5e4b7f3"
+    },
+    {
+      "path": "en/Files and folders/Manage notes.md",
+      "url": "https://github.com/obsidianmd/obsidian-help/blob/9cf8c2913e56830e75c13f33ba198d7e70b6d9ef/en/Files%20and%20folders/Manage%20notes.md",
+      "sha256": "fdbf9ceee5331ed554824e807b22b8b106d0790d83871d706b52f9c90487dead"
+    },
+    {
+      "path": "en/Files and folders/Accepted file formats.md",
+      "url": "https://github.com/obsidianmd/obsidian-help/blob/9cf8c2913e56830e75c13f33ba198d7e70b6d9ef/en/Files%20and%20folders/Accepted%20file%20formats.md",
+      "sha256": "95ede78937600de68ad15ade8cf5044f05261eac9f72187c2880f6a7c71b517e"
+    },
+    {
+      "path": "en/Linking notes and files/Embed files.md",
+      "url": "https://github.com/obsidianmd/obsidian-help/blob/9cf8c2913e56830e75c13f33ba198d7e70b6d9ef/en/Linking%20notes%20and%20files/Embed%20files.md",
+      "sha256": "aec6d56537a105e07fc854851575f8f96616e4c528d7da9f16db5fe1bd6bd1ff"
+    },
+    {
+      "path": "en/Plugins/Backlinks.md",
+      "url": "https://github.com/obsidianmd/obsidian-help/blob/9cf8c2913e56830e75c13f33ba198d7e70b6d9ef/en/Plugins/Backlinks.md",
+      "sha256": "d6f71bc20352f1af0338cad780095d0c32c65af6bfffd0065f315b3a8685d928"
+    }
+  ],
+  "other": [
+    {
+      "url": "https://spec.commonmark.org/0.31.2/",
+      "version": "0.31.2",
+      "date": "2024-01-28"
+    },
+    {
+      "url": "https://nodejs.org/api/fs.html#fswatchfilename-options-listener",
+      "documentation_version": "v26.10.0",
+      "executed_runtime": "v26.9.0",
+      "read_sections": [
+        "fs.watch",
+        "Caveats",
+        "Availability",
+        "Inodes",
+        "Filename argument"
+      ],
+      "access": "Read current first-party web documentation before watcher experiment"
+    }
+  ]
+}

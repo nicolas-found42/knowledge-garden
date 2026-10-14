@@ -1,0 +1,54 @@
+{
+  "sentences": [
+    {
+      "text": "The data show 12 pollinator visits on 17 May 2024 and 8 visits on 18 May 2024, but the rows do not attribute the difference to rain.",
+      "sourceIds": [
+        "table"
+      ],
+      "quote": "Controlled rows: 17 May 2024, Maya, Riverside, 12 visits, 10 minutes; 18 May, 8 visits, 10 minutes. Rows do not attribute a difference to rain."
+    },
+    {
+      "text": "It is unknown whether rain caused the lower pollinator count because current notes do not resolve if rain changed pollinator activity or only prevented observation.",
+      "sourceIds": [
+        "question-rain"
+      ],
+      "quote": "Did rain change pollinator activity or only prevent observation? Current notes do not resolve this causal question."
+    },
+    {
+      "text": "The claim that rain reduced pollinator activity is speculative and not established by the interrupted visit or the two rows of data.",
+      "sourceIds": [
+        "claim-rain"
+      ],
+      "quote": "Speculative causal explanation, not established by the interrupted visit or the two rows. Distinguish missing observations from fewer insects."
+    },
+    {
+      "text": "One observation of 12 visits on 17 May 2024 does not establish a trend, and a later wet visit was interrupted, limiting evidence.",
+      "sourceIds": [
+        "report"
+      ],
+      "quote": "Maya recorded 12 pollinator visits in ten minutes on 17 May 2024 at Riverside. One observation does not establish a trend. A later wet visit was interrupted."
+    }
+  ],
+  "checks": [
+    {
+      "index": 0,
+      "idsValid": true,
+      "quoteExact": true
+    },
+    {
+      "index": 1,
+      "idsValid": true,
+      "quoteExact": true
+    },
+    {
+      "index": 2,
+      "idsValid": true,
+      "quoteExact": true
+    },
+    {
+      "index": 3,
+      "idsValid": true,
+      "quoteExact": true
+    }
+  ]
+}

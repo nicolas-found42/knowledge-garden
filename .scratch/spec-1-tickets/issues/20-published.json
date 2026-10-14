@@ -1,0 +1,32 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPoaA",
+        "number": 20,
+        "state": "OPEN",
+        "title": "Explore degrees of separation and inspect evidence for connecting paths",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/20"
+      }
+    ],
+    "totalCount": 1
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 24, 25; **Search returns pages**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nLet the owner express precise relationship explorations visually, combining typed hops with AND, OR, NOT and date/format/status constraints, and inspect both matching pages and the paths that justify them.\n\n## Acceptance criteria\n\n- [ ] The interface can construct and edit multiple typed/directed hops and grouped AND/OR/NOT conditions with an unambiguous visible query representation.\n- [ ] Date, format, and processing-status constraints can be applied with documented scope; the UI makes clear whether a constraint applies to endpoints, intermediate nodes, or the returned page set.\n- [ ] Results agree with a deterministic expected set for conjunction, disjunction, negation, nested grouping, cycles, and no-match queries.\n- [ ] Every result exposes its relevant connecting paths and evidence; excluded/nonmatching items remain reachable through normal navigation outside the current query.\n- [ ] Changing or clearing a clause updates results, visible scope, and counts without silently retaining stale filters.\n- [ ] Queries execute locally over bounded indexed work, can be canceled/superseded, and preserve selection and Back behavior. Keyboard controls provide equivalent query construction.\n- [ ] The public query/UI tests cover mixed Boolean/hop expressions and incomplete or uncertain relations without generating an answer or treating absence of evidence as a fabricated fact.\n\n## Blocked by\n\n- [#20 \u2014 Explore degrees of separation and inspect evidence for connecting paths](https://github.com/nicolas-found42/knowledge-garden/issues/20)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nDefine NOT as a precise query operation over the collection\u2019s known indexed data; it must not assert that an unsupported real-world relationship is false. This ticket extends the working traversal/result path and does not require a global canvas.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nUse a labeled fixture with people, observations, places, dates, formats, and one pending source. Build a two-hop person-to-observation-to-place query, constrain the event date, OR in a second place, and exclude the pending status. Compare exact page IDs with the authored expected set, inspect a path, then clear the exclusion and verify the delta.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Compose visual multi-hop relationship queries with Boolean constraints",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/21"
+}

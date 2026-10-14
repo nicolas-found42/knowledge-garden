@@ -1,0 +1,464 @@
+{
+  "timestamp_utc": "2026-09-30T00:47:08.876333+00:00",
+  "environment": {
+    "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]",
+    "platform": "macOS-26.4.1-arm64-arm-64bit-Mach-O"
+  },
+  "expected_sha256": "b0604f481fa43c440a2ede353dd99556b186549900878ba4d6c34eec6d707694",
+  "fixture_sha256": "b9e829bc4f19ae3dd8a4a4a65f513bf9bbaf32981b07c96cb0c29b38211291f1",
+  "results": [
+    {
+      "case": "baseline_durable_kinds",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.0038330035749822855,
+      "error": null
+    },
+    {
+      "case": "rebuild_identical_after_cache_deleted",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.8268339734058827,
+      "error": null
+    },
+    {
+      "case": "external_edit_authoritative",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.7138339860830456,
+      "error": null
+    },
+    {
+      "case": "move_stable_id_resolves",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.6412910006474704,
+      "error": null
+    },
+    {
+      "case": "external_move_breaks_path_link",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.01591601176187396,
+      "error": null
+    },
+    {
+      "case": "controlled_link_repair_preserves_anchor",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.033374992199242115,
+      "error": null
+    },
+    {
+      "case": "heading_rename_breaks_heading_selector",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.016166013665497303,
+      "error": null
+    },
+    {
+      "case": "block_anchor_survives_prose_edit",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.662000005831942,
+      "error": null
+    },
+    {
+      "case": "removed_anchor_is_unresolved",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.6308339943643659,
+      "error": null
+    },
+    {
+      "case": "duplicate_id_is_conflict",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.6593750149477273,
+      "error": null
+    },
+    {
+      "case": "duplicate_id_never_overwrites",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.6181670178193599,
+      "error": null
+    },
+    {
+      "case": "same_bytes_distinct_sources",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.0017079873941838741,
+      "error": null
+    },
+    {
+      "case": "revision_identity_is_distinct_from_blob",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.0007910130079835653,
+      "error": null
+    },
+    {
+      "case": "historical_relationship_revision_is_not_promoted",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.00045797787606716156,
+      "error": null
+    },
+    {
+      "case": "new_revision_distinct_hash",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.02737497561611235,
+      "error": null
+    },
+    {
+      "case": "missing_original_flagged",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.5691249971278012,
+      "error": null
+    },
+    {
+      "case": "corrupt_original_flagged",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.5868749867659062,
+      "error": null
+    },
+    {
+      "case": "proposal_durable_markdown",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.06925000343471766,
+      "error": null
+    },
+    {
+      "case": "proposal_does_not_mutate_page",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.015875004464760423,
+      "error": null
+    },
+    {
+      "case": "stale_page_proposal_rejected",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.8022499969229102,
+      "error": null
+    },
+    {
+      "case": "stale_source_proposal_rejected",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.801417016191408,
+      "error": null
+    },
+    {
+      "case": "fresh_review_accept_preserves_user_notes",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.80900001921691,
+      "error": null
+    },
+    {
+      "case": "rejected_proposal_retained",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.02012500772252679,
+      "error": null
+    },
+    {
+      "case": "malformed_properties_fail_closed",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 1.343250012723729,
+      "error": null
+    },
+    {
+      "case": "unknown_properties_preserved",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.6469580112025142,
+      "error": null
+    },
+    {
+      "case": "all_durable_knowledge_in_md",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "elapsed_ms": 0.6499580049421638,
+      "error": null
+    }
+  ],
+  "summary": {
+    "passed": 26,
+    "total": 26
+  },
+  "final_rebuilt_index": {
+    "records": {
+      "annotation-gap": {
+        "path": "Annotations/Identification gap.md",
+        "props": {
+          "id": "annotation-gap",
+          "kind": "annotation",
+          "target": "source-field",
+          "selector": "block:observation",
+          "status": "question"
+        },
+        "sha256": "28244a22de27678f22c70001efcdbbcfd840f0bfe650cbce6cc013950ce8fe29",
+        "anchors": []
+      },
+      "page-study": {
+        "path": "Pages/Flower study.md",
+        "props": {
+          "id": "page-study",
+          "kind": "page",
+          "version": 1
+        },
+        "sha256": "399ee7b686bf7133bb2715d5bdec5936b31f1b0dbdcf15ddf220eec710dd4211",
+        "anchors": []
+      },
+      "person-mira": {
+        "path": "Pages/Observer renamed.md",
+        "props": {
+          "id": "person-mira",
+          "kind": "person",
+          "external_custom": "keep me",
+          "aliases": [
+            "Observer Mira"
+          ]
+        },
+        "sha256": "1e13f441a3a23359aa9c3dd430e47761fa13e979f65adcdce74640e50e672eb8",
+        "anchors": []
+      },
+      "place-riverside": {
+        "path": "Pages/Riverside.md",
+        "props": {
+          "id": "place-riverside",
+          "kind": "place"
+        },
+        "sha256": "8c8e1d93fdf9e63966c82380483448fa32f9c663977b041d3b8d1246e9811022",
+        "anchors": []
+      },
+      "proposal-refresh": {
+        "path": "Proposals/Refresh study.md",
+        "props": {
+          "id": "proposal-refresh",
+          "kind": "proposal",
+          "state": "rejected",
+          "target": "page-study",
+          "base_page_sha256": "399ee7b686bf7133bb2715d5bdec5936b31f1b0dbdcf15ddf220eec710dd4211",
+          "source": "source-field",
+          "base_source_sha256": "089af262694b8b339446382363ec45b918be76d82f6dc9e79109353c88ea68ce"
+        },
+        "sha256": "6363c6fd7a24f36cbdc65ac89697eae4ad6d870f4ac73f0617e049df4664b034",
+        "anchors": []
+      },
+      "rel-observation": {
+        "path": "Relationships/Mira observed flowers.md",
+        "props": {
+          "id": "rel-observation",
+          "kind": "relationship",
+          "relation": "observed-at",
+          "subject": "person-mira",
+          "object": "place-riverside",
+          "status": "recorded",
+          "evidence_source": "source-field",
+          "evidence_revision": "r1",
+          "evidence_anchor": "observation"
+        },
+        "sha256": "c1c03eee6f10f05761af4c6ec34e8cf2be7861f806035e204f9098804d4d1a85",
+        "anchors": []
+      },
+      "start": {
+        "path": "START HERE.md",
+        "props": {
+          "id": "start",
+          "kind": "guide"
+        },
+        "sha256": "1f97731c1f7ddfb43c334eae375bd51b09c0dc8f481346db735feaa26ab25454",
+        "anchors": []
+      },
+      "source-field-r2": {
+        "path": "Sources/Field observation revision 2.md",
+        "props": {
+          "id": "source-field-r2",
+          "kind": "source-revision",
+          "source_identity": "source-field",
+          "revision": "r2",
+          "supersedes": "r1",
+          "asset": "Assets/field-notes-revision.txt",
+          "sha256": "841877cd37d704f215a105eb7defe6cb2704445fc01b904ab2ea4cc85f564e4e",
+          "origin": "controlled revised acquisition"
+        },
+        "sha256": "e677fa4ed3347b3ead120276c5deabe7ac925d5044bf67566e8adff287cff33a",
+        "anchors": []
+      },
+      "source-field": {
+        "path": "Sources/Field observation.md",
+        "props": {
+          "id": "source-field",
+          "kind": "source",
+          "revision": "r1",
+          "asset": "Assets/field-notes.txt",
+          "sha256": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+          "origin": "controlled fixture",
+          "acquisition": "captured"
+        },
+        "sha256": "089af262694b8b339446382363ec45b918be76d82f6dc9e79109353c88ea68ce",
+        "anchors": [
+          "observation"
+        ]
+      },
+      "source-second": {
+        "path": "Sources/Second acquisition.md",
+        "props": {
+          "id": "source-second",
+          "kind": "source",
+          "revision": "r1",
+          "asset": "Assets/field-notes-copy.txt",
+          "sha256": "559269ced9654e34e3dcbcc00e5fc79d5ab6b28856ceb95c869d528f2a392409",
+          "origin": "separate controlled acquisition"
+        },
+        "sha256": "7c9c42948177ba708e2d1aecc9d10aa9134bcd284447819b1b0eb554ee3ab8a1",
+        "anchors": []
+      },
+      "search-red": {
+        "path": "Views/Red-flower search.md",
+        "props": {
+          "id": "search-red",
+          "kind": "saved-search",
+          "query": "red flowers",
+          "filters": [
+            "kind:source",
+            "acquisition:captured"
+          ]
+        },
+        "sha256": "94dbe152c62afe04f3724a7a2bccfcb0766ede6857a60f04ab1bd02a880ae867",
+        "anchors": []
+      },
+      "view-workspace": {
+        "path": "Views/Research workspace.md",
+        "props": {
+          "id": "view-workspace",
+          "kind": "saved-view",
+          "selection": [
+            "page-study",
+            "source-field",
+            "rel-observation"
+          ],
+          "layout": "reading-with-evidence"
+        },
+        "sha256": "cc48bfb723f7663adc3e1505768b492e3ae6c90cbb1fdaaeb6c954fb0b0fdf44",
+        "anchors": []
+      },
+      "trail-study": {
+        "path": "Views/Study trail.md",
+        "props": {
+          "id": "trail-study",
+          "kind": "trail"
+        },
+        "sha256": "1511a20f621d16bb4f5d96a5c6dc298a3a6a16564299e67258a3cfa190c37b51",
+        "anchors": []
+      }
+    },
+    "conflicts": {},
+    "errors": [],
+    "assets": {
+      "source-field-r2": "ok",
+      "source-field": "ok",
+      "source-second": "ok"
+    },
+    "links": {
+      "Annotations/Identification gap.md": [
+        "Field observation#^observation"
+      ],
+      "Pages/Flower study.md": [
+        "Field observation#^observation",
+        "Observer renamed",
+        "Riverside",
+        "Mira observed flowers",
+        "Study trail",
+        "Red-flower search"
+      ],
+      "Pages/Observer renamed.md": [
+        "Field observation#^observation",
+        "Mira observed flowers"
+      ],
+      "Pages/Riverside.md": [
+        "Mira"
+      ],
+      "Proposals/Refresh study.md": [
+        "Field observation#^observation",
+        "Observer renamed",
+        "Riverside",
+        "Mira observed flowers",
+        "Study trail",
+        "Red-flower search"
+      ],
+      "Relationships/Mira observed flowers.md": [
+        "Mira",
+        "Riverside",
+        "Field observation#^observation"
+      ],
+      "START HERE.md": [
+        "Flower study",
+        "Mira observed flowers",
+        "Study trail",
+        "Red-flower search",
+        "Research workspace"
+      ],
+      "Sources/Field observation revision 2.md": [
+        "Mira observed flowers",
+        "Field observation",
+        "Assets/field-notes-revision.txt"
+      ],
+      "Sources/Field observation.md": [
+        "Assets/field-notes.txt",
+        "Assets/flower.png"
+      ],
+      "Sources/Second acquisition.md": [
+        "Field observation"
+      ],
+      "Views/Red-flower search.md": [],
+      "Views/Research workspace.md": [
+        "Flower study",
+        "Field observation",
+        "Mira observed flowers"
+      ],
+      "Views/Study trail.md": [
+        "Field observation#^observation",
+        "Mira observed flowers",
+        "Identification gap",
+        "Flower study"
+      ]
+    }
+  },
+  "scope": "Sequential isolated controlled disk test; not actual Obsidian, not general YAML parser, not atomic multiwriter CAS"
+}

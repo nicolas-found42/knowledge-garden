@@ -1,0 +1,737 @@
+{
+  "research_date": "2026-09-29",
+  "scope": "Public and explicitly constructed research evidence; no private history text or URL records.",
+  "nodes": [
+    {
+      "id": "motion-thread",
+      "title": "Why the detector changed",
+      "project": "Motion experiment",
+      "format": "JSON thread",
+      "person": "Controlled researcher",
+      "topic": "Pixel changes",
+      "text": "Four authored turns: request pixel-change evidence; propose grayscale and blur; explicitly adopt threshold 35; limit the interpretation to pixel changes.",
+      "status": "recorded",
+      "origin": "constructed conversation",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": "turns c1\u2013c4",
+      "event": {
+        "order": 1,
+        "kind": "proposal and adoption"
+      },
+      "href": "../../../01-source-interpretation/experiments/media-lab/controlled-coding-thread.json",
+      "sha256": "90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e"
+    },
+    {
+      "id": "motion-before",
+      "title": "Previous detector",
+      "project": "Motion experiment",
+      "format": "Python",
+      "person": "Controlled researcher",
+      "topic": "Pixel changes",
+      "text": "Before-version script. Its status as a prior attempt belongs to the controlled demonstration, not a recovered personal project.",
+      "status": "recorded",
+      "origin": "constructed code",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": null,
+      "event": {
+        "order": 0,
+        "kind": "prior implementation"
+      },
+      "href": "../../../01-source-interpretation/experiments/media-lab/controlled_demo.before.py",
+      "sha256": "4a29c25666ee4dd1419b0aa10dd82b2d99beee3860552e756a3ee949e1ff994c"
+    },
+    {
+      "id": "motion-after",
+      "title": "Changed detector",
+      "project": "Motion experiment",
+      "format": "Python",
+      "person": "Controlled researcher",
+      "topic": "Pixel changes",
+      "text": "Executed detector script. The change uses grayscale, blur and a threshold of 35; frame times remain available.",
+      "status": "recorded",
+      "origin": "executed constructed code",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": null,
+      "event": {
+        "order": 2,
+        "kind": "implementation"
+      },
+      "href": "../../../01-source-interpretation/experiments/media-lab/controlled_demo.py",
+      "sha256": "0252143111c601230860c15973fbaa1f75aaf07d838ffdb09dcdb24a4c523e14"
+    },
+    {
+      "id": "motion-metrics",
+      "title": "Measured changed pixels",
+      "project": "Motion experiment",
+      "format": "JSON measurements",
+      "person": "Controlled researcher",
+      "topic": "Pixel changes",
+      "text": "Actual per-frame measurements from the controlled run. Pixel counts do not establish object-tracking accuracy or suspicious behavior.",
+      "status": "recorded",
+      "origin": "measured output",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": "50 timed records",
+      "event": {
+        "order": 3,
+        "kind": "measurement"
+      },
+      "href": "../../../01-source-interpretation/experiments/media-lab/controlled-demo-metrics.json",
+      "sha256": "f22e4dc18a264c0597cd413add1f5c8d2f22dd65999e1434ab6606fab5bc24fe"
+    },
+    {
+      "id": "motion-image",
+      "title": "Rendered frame at 2 seconds",
+      "project": "Motion experiment",
+      "format": "PNG",
+      "person": "Controlled researcher",
+      "topic": "Pixel changes",
+      "text": "Actual output screenshot of the controlled detector; source time 2.0 seconds.",
+      "status": "recorded",
+      "origin": "rendered output",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": "source video t=2.0 s",
+      "event": {
+        "order": 4,
+        "kind": "demonstration"
+      },
+      "href": "../../../01-source-interpretation/experiments/media-lab/controlled-demo-screenshot.png",
+      "sha256": "f193631beabeb9f6fc0cb5f32b53b192a073784866d712c8e753bc967a0cdd31",
+      "image": "../../../01-source-interpretation/experiments/media-lab/controlled-demo-screenshot.png"
+    },
+    {
+      "id": "motion-video",
+      "title": "Demonstration video",
+      "project": "Motion experiment",
+      "format": "MP4",
+      "person": "Controlled researcher",
+      "topic": "Pixel changes",
+      "text": "Actual rendered detector output based on the separately acquired public OpenCV vtest sample.",
+      "status": "recorded",
+      "origin": "rendered output",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": "source interval 0\u201310 s",
+      "event": null,
+      "href": "../../../01-source-interpretation/experiments/media-lab/controlled-demo.mp4",
+      "sha256": "828f3a538f9ccbb5ddd81435c3a4b8ccd6d98d5313a15960a17f04ef039bf543",
+      "video": "../../../01-source-interpretation/experiments/media-lab/controlled-demo.mp4"
+    },
+    {
+      "id": "motion-source",
+      "title": "Original OpenCV video manifest",
+      "project": "Motion experiment",
+      "format": "AVI source record",
+      "person": "OpenCV",
+      "topic": "Pixel changes",
+      "text": "Pinned vtest.avi source; the manifest identifies the acquired original binary. Its original recording date is unknown here.",
+      "status": "recorded",
+      "origin": "public source",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": "vtest.avi / commit d21a05f1\u2026",
+      "event": null,
+      "href": "../../../01-source-interpretation/experiments/media-lab/sources.json",
+      "sha256": "27d9cccfadc357278752a4672ec153e737f51292d604618136c38b9685986077"
+    },
+    {
+      "id": "book-page",
+      "title": "Natural selection: printed page 78",
+      "project": "Selection and diversity",
+      "format": "Scanned PDF / PNG",
+      "person": "Charles Darwin",
+      "topic": "Selection",
+      "text": "Real 1860 scan: variation and selection depend on conditions. PDF page 84 corresponds to printed page 78; they are different coordinate systems.",
+      "status": "recorded",
+      "origin": "public source",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": "1860",
+      "anchor": "PDF page 84; printed page 78",
+      "event": null,
+      "href": "../../../01-source-interpretation/experiments/media-lab/book-pdf-page-84.png",
+      "sha256": "05a3b7221b9e0209bee6be16ef003bbfc18ca71cf693d319805adac112cafcb7",
+      "image": "../../../01-source-interpretation/experiments/media-lab/book-pdf-page-84.png"
+    },
+    {
+      "id": "book-ocr",
+      "title": "OCR linked to the page",
+      "project": "Selection and diversity",
+      "format": "OCR JSON",
+      "person": "Local OCR engine",
+      "topic": "Selection",
+      "text": "Derived OCR from the scan, with region observations. The scan remains the primary evidence.",
+      "status": "recorded",
+      "origin": "derived OCR",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": "PDF page 84",
+      "event": null,
+      "href": "../../../01-source-interpretation/experiments/media-lab/book-pdf-page-84-ocr.json",
+      "sha256": "aa1886cd8584e1bfda580e7bfa1c0e598733d0ec56c93a1d1ba844ad7f22cd79"
+    },
+    {
+      "id": "selection-article",
+      "title": "DEAP author tutorial",
+      "project": "Selection and diversity",
+      "format": "RST article",
+      "person": "DEAP maintainers",
+      "topic": "Selection",
+      "text": "The public tutorial describes operator behavior and warns that selection returns references rather than copied individuals.",
+      "status": "recorded",
+      "origin": "public source",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": "Selection section; pinned source",
+      "event": null,
+      "href": "../../../01-source-interpretation/experiments/media-lab/article-selection.rst",
+      "sha256": "94e2c8d2df9bf220fdae088d7d9e092e7e19e2877f905b171135a0e2cda1dde7"
+    },
+    {
+      "id": "selection-code",
+      "title": "Selection implementations",
+      "project": "Selection and diversity",
+      "format": "Python",
+      "person": "DEAP maintainers",
+      "topic": "Selection",
+      "text": "Pinned implementation from an established public project: several selection operators with different behavior. This is not one of the user\u2019s recovered old projects.",
+      "status": "recorded",
+      "origin": "public source",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": "commit 8a96fd3a\u2026 / selection.py",
+      "event": null,
+      "href": "../../../01-source-interpretation/experiments/media-lab/old-project-selection.py",
+      "sha256": "18fbb468f438dfb9c8eb2a161a48a869b80bdde52c173628d3330bc0e11e05a4"
+    },
+    {
+      "id": "selection-note",
+      "title": "A question about retaining alternatives",
+      "project": "Selection and diversity",
+      "format": "Markdown note",
+      "person": "Controlled researcher",
+      "topic": "Diversity",
+      "text": "CONTROLLED PERSONAL NOTE \u2014 authored for this experiment, not recovered user history.\n\nI once tried retaining only the fastest benchmark configuration in a toy search project. That lost alternatives useful under changed workloads. I want to revisit whether keeping diverse candidates improves adaptation. No relationship to Darwin or DEAP has been recorded in this note.",
+      "status": "tentative",
+      "origin": "constructed personal note",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": null,
+      "event": {
+        "order": 1,
+        "kind": "unresolved question"
+      },
+      "href": "../../../01-source-interpretation/experiments/media-lab/controlled-personal-note.md",
+      "sha256": "b4211909cc77f267323616af1fbd3f673f098b5358e494ce24163cc6fe987fcc"
+    },
+    {
+      "id": "selection-analogy",
+      "title": "Could diverse candidates help adaptation?",
+      "project": "Selection and diversity",
+      "format": "Connection proposal",
+      "person": "Research synthesis",
+      "topic": "Diversity",
+      "text": "Speculative connection among the book, selection operators and the controlled note. A changing-workload experiment could test whether retaining alternatives improves later outcomes. No personal influence or historical adoption is established.",
+      "status": "speculative",
+      "origin": "authored hypothesis",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": null,
+      "event": {
+        "order": 2,
+        "kind": "hypothesis"
+      },
+      "href": "../../../01-source-interpretation/experiments/media-lab/controlled-personal-note.md",
+      "sha256": "b4211909cc77f267323616af1fbd3f673f098b5358e494ce24163cc6fe987fcc"
+    },
+    {
+      "id": "selection-failed-link",
+      "title": "Rendered tutorial acquisition failed",
+      "project": "Selection and diversity",
+      "format": "URL record",
+      "person": "DEAP maintainers",
+      "topic": "Selection",
+      "text": "A separately chosen public documentation page returned HTTP 403. The captured RST source is an alternative acquisition. This failed fetch is distinct from an intentionally unfetched conversation URL.",
+      "status": "recorded",
+      "origin": "public source",
+      "acquisition": "could_not_retrieve",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": null,
+      "event": null,
+      "href": "../../../01-source-interpretation/experiments/media-lab/sources.json",
+      "sha256": "27d9cccfadc357278752a4672ec153e737f51292d604618136c38b9685986077"
+    },
+    {
+      "id": "thread-csv_ids",
+      "title": "Preserve leading-zero IDs",
+      "project": "Methods across projects",
+      "format": "JSON thread",
+      "person": "Controlled researcher",
+      "topic": "Identity boundaries",
+      "text": "Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.",
+      "status": "recorded",
+      "origin": "constructed_coding_history_with_actual_execution",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": "thread-csv_ids",
+      "event": {
+        "order": 0,
+        "order_kind": "source_group",
+        "kind": "failure then correction within this thread"
+      },
+      "href": "../../../03-connections-and-methods/experiments/method-demo.json",
+      "sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+    },
+    {
+      "id": "thread-url_keys",
+      "title": "Preserve URL query identity",
+      "project": "Methods across projects",
+      "format": "JSON thread",
+      "person": "Controlled researcher",
+      "topic": "Identity boundaries",
+      "text": "Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.",
+      "status": "recorded",
+      "origin": "constructed_coding_history_with_actual_execution",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": "thread-url_keys",
+      "event": {
+        "order": 1,
+        "order_kind": "source_group",
+        "kind": "failure then correction within this thread"
+      },
+      "href": "../../../03-connections-and-methods/experiments/method-demo.json",
+      "sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+    },
+    {
+      "id": "thread-cache_scope",
+      "title": "Preserve tenant and policy scope",
+      "project": "Methods across projects",
+      "format": "JSON thread",
+      "person": "Controlled researcher",
+      "topic": "Identity boundaries",
+      "text": "Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.",
+      "status": "recorded",
+      "origin": "constructed_coding_history_with_actual_execution",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": "thread-cache_scope",
+      "event": {
+        "order": 2,
+        "order_kind": "source_group",
+        "kind": "failure then correction within this thread"
+      },
+      "href": "../../../03-connections-and-methods/experiments/method-demo.json",
+      "sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+    },
+    {
+      "id": "thread-unresolved",
+      "title": "Signed URL sorting remains unresolved",
+      "project": "Methods across projects",
+      "format": "JSON thread",
+      "person": "Controlled researcher",
+      "topic": "Identity boundaries",
+      "text": "Can query parameters be sorted for signed URLs? The signature might cover exact bytes. No provider signing specification or verification run is available.",
+      "status": "tentative",
+      "origin": "constructed_counterexample",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": "thread-unresolved",
+      "event": {
+        "order": 3,
+        "order_kind": "source_group",
+        "kind": "unresolved exception"
+      },
+      "href": "../../../03-connections-and-methods/experiments/method-demo.json",
+      "sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+    },
+    {
+      "id": "method-proposal",
+      "title": "A reusable method with exceptions",
+      "project": "Methods across projects",
+      "format": "Method proposal",
+      "person": "Research synthesis",
+      "topic": "Identity boundaries",
+      "text": "Preserve exact identity/scope fields, reproduce collision, make bounded correction, run invariant regression, then use semantic judgments only where compatible. Exceptions: Source fields declared numeric may legitimately normalize padding. Signed URL byte equivalence remains unresolved: preserve original bytes until provider semantics verified. Tenant identity not applicable to genuinely public immutable resources.",
+      "status": "tentative",
+      "origin": "authored method candidate",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": null,
+      "event": null,
+      "href": "../../../03-connections-and-methods/experiments/method-demo.json",
+      "sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+    },
+    {
+      "id": "run-csv_ids",
+      "title": "Executed regression: csv_ids",
+      "project": "Methods across projects",
+      "format": "Python",
+      "person": "Experiment runner",
+      "topic": "Identity boundaries",
+      "text": "Code for a bounded invariant test. Use the separate execution record to inspect exit status; code alone is not proof of execution. The neighboring failed.py preserves the failing implementation.",
+      "status": "recorded",
+      "origin": "executed constructed code",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": null,
+      "event": null,
+      "href": "../../../03-connections-and-methods/experiments/coding-demo/csv_ids/successful.py",
+      "sha256": "144615e22593044c2498ca9a9e8feb42b14cd55adef17b660b598c2590310229"
+    },
+    {
+      "id": "run-url_keys",
+      "title": "Executed regression: url_keys",
+      "project": "Methods across projects",
+      "format": "Python",
+      "person": "Experiment runner",
+      "topic": "Identity boundaries",
+      "text": "Code for a bounded invariant test. Use the separate execution record to inspect exit status; code alone is not proof of execution. The neighboring failed.py preserves the failing implementation.",
+      "status": "recorded",
+      "origin": "executed constructed code",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": null,
+      "event": null,
+      "href": "../../../03-connections-and-methods/experiments/coding-demo/url_keys/successful.py",
+      "sha256": "82abb15e3cdb41c9b488a988ec15962a4564b7ad9e00e17cf76e0cbc5afdf66a"
+    },
+    {
+      "id": "run-cache_scope",
+      "title": "Executed regression: cache_scope",
+      "project": "Methods across projects",
+      "format": "Python",
+      "person": "Experiment runner",
+      "topic": "Identity boundaries",
+      "text": "Code for a bounded invariant test. Use the separate execution record to inspect exit status; code alone is not proof of execution. The neighboring failed.py preserves the failing implementation.",
+      "status": "recorded",
+      "origin": "executed constructed code",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": null,
+      "event": null,
+      "href": "../../../03-connections-and-methods/experiments/coding-demo/cache_scope/successful.py",
+      "sha256": "0e6b1cf9b0af635098e0fa991ae5de2a175b6822f9df1aa9326953f432d3b0fa"
+    },
+    {
+      "id": "anchor-results",
+      "title": "Source anchors after edits",
+      "project": "Provenance",
+      "format": "JSON experiment",
+      "person": "Experiment runner",
+      "topic": "Evidence recovery",
+      "text": "33 controlled mutations of three acquired public documents compare offsets, first exact quote, and unique quote with context. Three originals remain available during these mutations; recovery and abstention are reported separately. Current support still requires revalidation after changes.",
+      "status": "recorded",
+      "origin": "measured experiment",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": null,
+      "event": null,
+      "href": "../provenance-lab/results-initial.json",
+      "sha256": "f763f5c74a184052c5ad8a2c3e1e9a950985b443254d5b6e901fabb47ea1e096"
+    },
+    {
+      "id": "annotation-source",
+      "title": "Selectors and source state",
+      "project": "Provenance",
+      "format": "Public specification",
+      "person": "W3C",
+      "topic": "Evidence recovery",
+      "text": "Primary specification provides selectors and source states; pinned Hypothesis code demonstrates multiple selectors and quote validation. The experiment is an independent simplified resolver.",
+      "status": "recorded",
+      "origin": "public source",
+      "acquisition": "captured",
+      "observed_date": "2026-09-29",
+      "source_date": null,
+      "anchor": null,
+      "event": null,
+      "href": "../provenance-lab/source-manifest.json",
+      "sha256": "78f8a6691fc7f2afd9baf4c1f84710d99783fcbe638d1b64a6119180368eaf60"
+    }
+  ],
+  "edges": [
+    {
+      "source": "motion-thread",
+      "target": "motion-after",
+      "relation": "adopts change",
+      "status": "recorded"
+    },
+    {
+      "source": "motion-before",
+      "target": "motion-after",
+      "relation": "revised into",
+      "status": "recorded"
+    },
+    {
+      "source": "motion-after",
+      "target": "motion-metrics",
+      "relation": "produces",
+      "status": "recorded"
+    },
+    {
+      "source": "motion-after",
+      "target": "motion-image",
+      "relation": "produces",
+      "status": "recorded"
+    },
+    {
+      "source": "motion-after",
+      "target": "motion-video",
+      "relation": "produces",
+      "status": "recorded"
+    },
+    {
+      "source": "motion-source",
+      "target": "motion-video",
+      "relation": "source of",
+      "status": "recorded"
+    },
+    {
+      "source": "motion-source",
+      "target": "motion-image",
+      "relation": "source of",
+      "status": "recorded"
+    },
+    {
+      "source": "motion-video",
+      "target": "motion-image",
+      "relation": "time anchor",
+      "status": "recorded"
+    },
+    {
+      "source": "book-page",
+      "target": "book-ocr",
+      "relation": "transcribed into",
+      "status": "recorded"
+    },
+    {
+      "source": "selection-article",
+      "target": "selection-code",
+      "relation": "documents",
+      "status": "recorded"
+    },
+    {
+      "source": "annotation-source",
+      "target": "anchor-results",
+      "relation": "motivates experiment",
+      "status": "recorded"
+    },
+    {
+      "source": "selection-analogy",
+      "target": "book-page",
+      "relation": "candidate connection",
+      "status": "speculative"
+    },
+    {
+      "source": "selection-analogy",
+      "target": "selection-article",
+      "relation": "candidate connection",
+      "status": "speculative"
+    },
+    {
+      "source": "selection-analogy",
+      "target": "selection-code",
+      "relation": "candidate connection",
+      "status": "speculative"
+    },
+    {
+      "source": "selection-analogy",
+      "target": "selection-note",
+      "relation": "candidate connection",
+      "status": "speculative"
+    },
+    {
+      "source": "method-proposal",
+      "target": "thread-csv_ids",
+      "relation": "candidate shared method",
+      "status": "tentative"
+    },
+    {
+      "source": "thread-csv_ids",
+      "target": "run-csv_ids",
+      "relation": "executed outcome",
+      "status": "recorded"
+    },
+    {
+      "source": "method-proposal",
+      "target": "thread-url_keys",
+      "relation": "candidate shared method",
+      "status": "tentative"
+    },
+    {
+      "source": "thread-url_keys",
+      "target": "run-url_keys",
+      "relation": "executed outcome",
+      "status": "recorded"
+    },
+    {
+      "source": "method-proposal",
+      "target": "thread-cache_scope",
+      "relation": "candidate shared method",
+      "status": "tentative"
+    },
+    {
+      "source": "thread-cache_scope",
+      "target": "run-cache_scope",
+      "relation": "executed outcome",
+      "status": "recorded"
+    },
+    {
+      "source": "method-proposal",
+      "target": "thread-unresolved",
+      "relation": "exception",
+      "status": "tentative"
+    }
+  ],
+  "collections": [
+    {
+      "id": "motion",
+      "title": "What changed, why, and what does it show?",
+      "nodes": [
+        "motion-thread",
+        "motion-before",
+        "motion-after",
+        "motion-metrics",
+        "motion-image",
+        "motion-video",
+        "motion-source"
+      ],
+      "prose": "The controlled conversation adopts a bounded detector change. The changed code, measurements, screenshot and video make the change inspectable. They show pixel changes; the material does not establish motives, reliable tracking or a measured accuracy improvement."
+    },
+    {
+      "id": "selection",
+      "title": "Could keeping alternatives help a future workload?",
+      "nodes": [
+        "book-page",
+        "book-ocr",
+        "selection-article",
+        "selection-code",
+        "selection-note",
+        "selection-analogy",
+        "selection-failed-link"
+      ],
+      "prose": "A real book scan and a public implementation offer a candidate connection to an authored personal note. The unrecorded link is deliberately speculative. The rendered article failed to download; its pinned RST source was captured."
+    },
+    {
+      "id": "method",
+      "title": "Which method recurs, and where might it fail?",
+      "nodes": [
+        "thread-csv_ids",
+        "thread-url_keys",
+        "thread-cache_scope",
+        "thread-unresolved",
+        "method-proposal",
+        "run-csv_ids",
+        "run-url_keys",
+        "run-cache_scope"
+      ],
+      "prose": "Three constructed coding histories include actual failed and successful programs. They nominate preserving identity and scope before normalization. A fourth thread leaves signed-URL sorting unresolved. Nomination is not automatic promotion into a rule."
+    },
+    {
+      "id": "provenance",
+      "title": "Can a reader recover the original evidence?",
+      "nodes": [
+        "annotation-source",
+        "anchor-results"
+      ],
+      "prose": "Character offsets drift when text changes. Exact quotes help but can land on duplicates. Preserved original revisions permit historical recovery; current claim support remains a separate question."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "why-change",
+      "required": [
+        "motion-thread",
+        "motion-after",
+        "motion-before"
+      ],
+      "project": "Motion experiment"
+    },
+    {
+      "id": "inspect-result",
+      "required": [
+        "motion-image",
+        "motion-video",
+        "motion-metrics"
+      ],
+      "project": "Motion experiment"
+    },
+    {
+      "id": "check-original",
+      "required": [
+        "motion-source",
+        "motion-image"
+      ],
+      "project": "Motion experiment"
+    },
+    {
+      "id": "test-new-connection",
+      "required": [
+        "selection-analogy",
+        "selection-note",
+        "book-page",
+        "selection-code"
+      ],
+      "project": "Selection and diversity"
+    },
+    {
+      "id": "locate-ocr-evidence",
+      "required": [
+        "book-page",
+        "book-ocr"
+      ],
+      "project": "Selection and diversity"
+    },
+    {
+      "id": "separate-retrieval-failure",
+      "required": [
+        "selection-failed-link",
+        "selection-article"
+      ],
+      "project": "Selection and diversity"
+    },
+    {
+      "id": "method-and-exception",
+      "required": [
+        "method-proposal",
+        "thread-unresolved",
+        "run-url_keys"
+      ],
+      "project": "Methods across projects"
+    },
+    {
+      "id": "anchor-limitation",
+      "required": [
+        "anchor-results",
+        "annotation-source"
+      ],
+      "project": "Provenance"
+    }
+  ]
+}

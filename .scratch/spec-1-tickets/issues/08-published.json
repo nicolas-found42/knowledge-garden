@@ -1,0 +1,32 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPTDw",
+        "number": 7,
+        "state": "OPEN",
+        "title": "Preserve external manual corrections while other facts refresh automatically",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/7"
+      }
+    ],
+    "totalCount": 1
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 4, 55, 56, 62; **Automatic ingestion and current knowledge**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nLet the owner select a directory once, then automatically import new files, reconcile changes, and remove actual deleted sources without treating an unavailable directory as an empty one.\n\n## Acceptance criteria\n\n- [ ] A selected directory is initially scanned and then watched; new and changed supported files enter the existing import/update path without classification or per-file approval.\n- [ ] A confirmed file removal deletes the imported copy and knowledge supported solely by that source, while retaining independently supported facts and authoritative manual corrections.\n- [ ] Disconnected volumes, permission errors, unreadable directories, and temporary absence preserve retained originals and knowledge and expose source unavailability.\n- [ ] Reconnect/restart/sleep recovery reconciles actual directory contents, including missed events and atomic replacements, without false deletion or duplicate imports.\n- [ ] Version ordering and identical-content behavior remain correct for watcher-delivered updates; arrival order alone cannot roll back reliable newer source versions.\n- [ ] Large directory discovery is progressive and resumable; already processed pages remain openable while pending files are discovered and processed.\n- [ ] An integration fixture verifies disconnect, reconnect, actual deletion, independent support, manual authority, missed watcher events, and interrupted initial scanning through visible state and retained assets.\n\n## Blocked by\n\n- [#7 \u2014 Preserve external manual corrections while other facts refresh automatically](https://github.com/nicolas-found42/knowledge-garden/issues/7)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nThe application owns retained copies, not personal originals outside its collection. Do not make filesystem event delivery the sole truth: use safe reconciliation with availability evidence. The background menu-bar/login lifecycle and high-volume scheduling have separate tickets.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nWatch a temporary directory containing V17 and a second independently supporting source. Import both, disconnect or make the whole directory unreadable, reconnect, then actually delete the V17 file. Repeat with an externally corrected fact. Check that only confirmed deletion removes the retained copy and only solely supported uncorrected facts disappear.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Ingest watched directories and distinguish deletion from disconnection",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/9"
+}

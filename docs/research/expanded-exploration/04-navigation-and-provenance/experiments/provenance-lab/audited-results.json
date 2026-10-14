@@ -1,0 +1,182 @@
+{
+  "source_registry": [
+    {
+      "source_id": "typesafe-state",
+      "sha256": "59f45cfece7291374dc27e7656ab84947546e866f6c3f5db2c545203002e0c9b",
+      "start": 24,
+      "end": 46,
+      "quote": "Jev accepts text only."
+    },
+    {
+      "source_id": "w3c-prov",
+      "sha256": "88561485381412926e1d5df032d5d861fdc0964f2d35c74cefb78d498d1b73ff",
+      "start": 24,
+      "end": 84,
+      "quote": "A derivation is a transformation of one entity into another."
+    },
+    {
+      "source_id": "iiif-presentation",
+      "sha256": "3432be8a403830072503d8b68b82a5c789a93577ddf92b77bb63646c69af866c",
+      "start": 24,
+      "end": 75,
+      "quote": "An ordered list of Canvases, and/or further Ranges."
+    }
+  ],
+  "metrics": {
+    "position_only": {
+      "recoverable_targets": 21,
+      "correct_recoveries": 6,
+      "missed_recoverable": 0,
+      "absent_or_ambiguous": 12,
+      "proper_abstentions": 0,
+      "wrong_known_target": 15,
+      "ambiguous_attachments": 3,
+      "absent_exact_target_attachments": 9
+    },
+    "first_exact_quote": {
+      "recoverable_targets": 21,
+      "correct_recoveries": 18,
+      "missed_recoverable": 0,
+      "absent_or_ambiguous": 12,
+      "proper_abstentions": 9,
+      "wrong_known_target": 3,
+      "ambiguous_attachments": 3,
+      "absent_exact_target_attachments": 0
+    },
+    "unique_quote_and_context": {
+      "recoverable_targets": 21,
+      "correct_recoveries": 15,
+      "missed_recoverable": 6,
+      "absent_or_ambiguous": 12,
+      "proper_abstentions": 12,
+      "wrong_known_target": 0,
+      "ambiguous_attachments": 0,
+      "absent_exact_target_attachments": 0
+    }
+  },
+  "initial_original_invariant": "Three original text objects remain in memory; repeated 33 times, not a disk lookup.",
+  "ambiguity_policy": "Duplicate complete document requires abstention; this is not proof that the first occurrence is semantically wrong.",
+  "whitespace_policy": "Only the unchanged exact character sequence is considered recoverable by these simple resolvers.",
+  "portable_disk_lookup": [
+    {
+      "source_id": "typesafe-state",
+      "case": "valid",
+      "expected": "recovered",
+      "actual": {
+        "status": "recovered",
+        "text": "Jev accepts text only.",
+        "source_id": "typesafe-state"
+      },
+      "correct": true
+    },
+    {
+      "source_id": "typesafe-state",
+      "case": "missing",
+      "expected": "missing_snapshot",
+      "actual": {
+        "status": "missing_snapshot"
+      },
+      "correct": true
+    },
+    {
+      "source_id": "typesafe-state",
+      "case": "corruption",
+      "expected": "hash_mismatch",
+      "actual": {
+        "status": "hash_mismatch"
+      },
+      "correct": true
+    },
+    {
+      "source_id": "typesafe-state",
+      "case": "wrong_locator",
+      "expected": "invalid_locator",
+      "actual": {
+        "status": "invalid_locator"
+      },
+      "correct": true
+    },
+    {
+      "source_id": "w3c-prov",
+      "case": "valid",
+      "expected": "recovered",
+      "actual": {
+        "status": "recovered",
+        "text": "A derivation is a transformation of one entity into another.",
+        "source_id": "w3c-prov"
+      },
+      "correct": true
+    },
+    {
+      "source_id": "w3c-prov",
+      "case": "missing",
+      "expected": "missing_snapshot",
+      "actual": {
+        "status": "missing_snapshot"
+      },
+      "correct": true
+    },
+    {
+      "source_id": "w3c-prov",
+      "case": "corruption",
+      "expected": "hash_mismatch",
+      "actual": {
+        "status": "hash_mismatch"
+      },
+      "correct": true
+    },
+    {
+      "source_id": "w3c-prov",
+      "case": "wrong_locator",
+      "expected": "invalid_locator",
+      "actual": {
+        "status": "invalid_locator"
+      },
+      "correct": true
+    },
+    {
+      "source_id": "iiif-presentation",
+      "case": "valid",
+      "expected": "recovered",
+      "actual": {
+        "status": "recovered",
+        "text": "An ordered list of Canvases, and/or further Ranges.",
+        "source_id": "iiif-presentation"
+      },
+      "correct": true
+    },
+    {
+      "source_id": "iiif-presentation",
+      "case": "missing",
+      "expected": "missing_snapshot",
+      "actual": {
+        "status": "missing_snapshot"
+      },
+      "correct": true
+    },
+    {
+      "source_id": "iiif-presentation",
+      "case": "corruption",
+      "expected": "hash_mismatch",
+      "actual": {
+        "status": "hash_mismatch"
+      },
+      "correct": true
+    },
+    {
+      "source_id": "iiif-presentation",
+      "case": "wrong_locator",
+      "expected": "invalid_locator",
+      "actual": {
+        "status": "invalid_locator"
+      },
+      "correct": true
+    }
+  ],
+  "disk_lookup_summary": {
+    "valid_recovered": 3,
+    "invalid_references_rejected": 9
+  },
+  "api_calls": 0,
+  "api_cost_usd": 0
+}

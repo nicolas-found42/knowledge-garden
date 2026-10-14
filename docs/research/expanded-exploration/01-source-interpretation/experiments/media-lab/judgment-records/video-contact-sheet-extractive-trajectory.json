@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "video-contact-sheet-extractive-trajectory",
+    "family": "claim",
+    "source": "video-contact-sheet",
+    "representation": "extractive",
+    "claim": "The exact uninterrupted trajectory of every person between 0 and 30 seconds is established.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "video-contact-sheet",
+      "evidence_kind": "extractive",
+      "evidence": "t=0s OCR:\n\nt=2s OCR:\n\nt=5s OCR:\n\nt=10s OCR:\n\nt=20s OCR:\n\nt=30s OCR:\n",
+      "claim": "The exact uninterrupted trajectory of every person between 0 and 30 seconds is established."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "unknown",
+        "probabilities": {
+          "contradicted": 0.1,
+          "supported": 0,
+          "unknown": 0.9
+        },
+        "confidence": 0.85
+      }
+    },
+    "usage": {
+      "input_tokens": 493,
+      "output_tokens": 41,
+      "cost": 2.0706e-05
+    },
+    "id": "gen-dec-1790725835-da8TMUvzCGisQj97GSO1",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.28294320800341666
+}

@@ -1,0 +1,65 @@
+{
+    "streams": [
+        {
+            "index": 0,
+            "codec_name": "msmpeg4v3",
+            "codec_long_name": "MPEG-4 part 2 Microsoft variant version 3",
+            "codec_type": "video",
+            "codec_tag_string": "div3",
+            "codec_tag": "0x33766964",
+            "width": 768,
+            "height": 576,
+            "coded_width": 768,
+            "coded_height": 576,
+            "has_b_frames": 0,
+            "pix_fmt": "yuv420p",
+            "level": -99,
+            "r_frame_rate": "10/1",
+            "avg_frame_rate": "10/1",
+            "time_base": "1/10",
+            "start_pts": 0,
+            "start_time": "0.000000",
+            "duration_ts": 795,
+            "duration": "79.500000",
+            "bit_rate": "816938",
+            "nb_frames": "795",
+            "disposition": {
+                "default": 0,
+                "dub": 0,
+                "original": 0,
+                "comment": 0,
+                "lyrics": 0,
+                "karaoke": 0,
+                "forced": 0,
+                "hearing_impaired": 0,
+                "visual_impaired": 0,
+                "clean_effects": 0,
+                "attached_pic": 0,
+                "timed_thumbnails": 0,
+                "non_diegetic": 0,
+                "captions": 0,
+                "descriptions": 0,
+                "metadata": 0,
+                "dependent": 0,
+                "still_image": 0,
+                "multilayer": 0
+            }
+        }
+    ],
+    "format": {
+        "filename": "/tmp/knowledge-garden-media-lab/vtest.avi",
+        "nb_streams": 1,
+        "nb_programs": 0,
+        "nb_stream_groups": 0,
+        "format_name": "avi",
+        "format_long_name": "AVI (Audio Video Interleaved)",
+        "start_time": "0.000000",
+        "duration": "79.500000",
+        "size": "8131690",
+        "bit_rate": "818283",
+        "probe_score": 100,
+        "tags": {
+            "software": "MEncoder 2:1.0~rc2-0ubuntu19"
+        }
+    }
+}

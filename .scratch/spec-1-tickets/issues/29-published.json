@@ -1,0 +1,46 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEP0jA",
+        "number": 27,
+        "state": "OPEN",
+        "title": "Assemble mixed-material trails and persist them only when explicitly saved",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/27"
+      },
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPm0Q",
+        "number": 19,
+        "state": "OPEN",
+        "title": "Search remembered meaning locally while offline",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/19"
+      },
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPUaA",
+        "number": 8,
+        "state": "OPEN",
+        "title": "Keep external moves, renames, and concurrent edits safe and navigable",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/8"
+      }
+    ],
+    "totalCount": 3
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 40, 65; **Markdown, original assets, and external editors**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nProve the collection can discard every derived database, graph/vector index, thumbnail, and work cache, then recover its full lasting knowledge and resume needed reconciliation from Markdown and retained originals.\n\n## Acceptance criteria\n\n- [ ] A documented cold rebuild reconstructs page/fact/relation identities, qualifiers, annotations, source versions, evidence origins/locations, manual corrections, saved views, and trails without the old derived stores.\n- [ ] Lexical, relational, and local meaning-search behavior returns with the same current knowledge and stable navigation references; stale removed/superseded values are not resurrected.\n- [ ] Authoritative corrections remain protected after rebuild, and later source updates still refresh only unedited facts.\n- [ ] Loss of operational job state cannot permanently forget copied/partially processed sources or source changes requiring reconciliation; pending work is rediscovered safely.\n- [ ] Malformed or ambiguous durable records preserve original content and expose precise recovery gaps instead of silently disappearing from the rebuilt collection.\n- [ ] Rebuild is resumable and bounded; interruption does not alter original assets or leave durable knowledge dependent on a half-built index.\n- [ ] A destructive-to-caches-only integration fixture snapshots externally observable knowledge, removes all derived stores, rebuilds, and compares complete identities/support/corrections/saved criteria plus search/navigation outcomes.\n\n## Blocked by\n\n- [#8 \u2014 Keep external moves, renames, and concurrent edits safe and navigable](https://github.com/nicolas-found42/knowledge-garden/issues/8)\n- [#19 \u2014 Search remembered meaning locally while offline](https://github.com/nicolas-found42/knowledge-garden/issues/19)\n- [#27 \u2014 Assemble mixed-material trails and persist them only when explicitly saved](https://github.com/nicolas-found42/knowledge-garden/issues/27)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nThis ticket audits and closes the full durability contract after saved navigation and external-edit recovery exist. Each earlier slice must already store its lasting data durably. Format adapters use the same evidence contract; the later full release corpus checks all of them. Never run cache-destruction tests on the owner\u2019s personal collection.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nPrepare a temporary collection containing a replaced source, a targeted correction, two independent supports, an external manual correction, a moved page, a saved view, a saved trail, and unfinished remote work. Delete every derived store and job cache, rebuild offline where possible, reconnect, and exercise the same knowledge and update outcomes.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Rebuild all derived stores from Markdown and retained assets without knowledge loss",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/30"
+}

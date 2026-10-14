@@ -1,0 +1,14 @@
+{
+  "platform": "darwin",
+  "assertions": {
+    "end_state_hashes_match_intended": true,
+    "observed_event_count_positive": true,
+    "removed_file_absent_after_rescan": true,
+    "rename_id_preserved_after_rescan": true,
+    "atomic_save_content_authoritative": true,
+    "burst_files_all_recovered": true,
+    "rescan_matches_after_event_thinning": true
+  },
+  "operation_shape": ["append", "atomic-save rename-over", "post-save append", "external rename", "burst create 40 notes", "remove", "rebuild scan"],
+  "do_not_assert": ["one event per action", "filename always exists", "file watcher sees replaced inode", "production reliability"]
+}

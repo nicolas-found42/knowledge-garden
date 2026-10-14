@@ -1,0 +1,32 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPoaA",
+        "number": 20,
+        "state": "OPEN",
+        "title": "Explore degrees of separation and inspect evidence for connecting paths",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/20"
+      }
+    ],
+    "totalCount": 1
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 13, 26, 27, 28, 29; **Collection organization and granularity**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nOrient the owner with an automatically grouped view of the whole collection and expandable local neighborhoods, while preserving access to every item and the current reading context.\n\n## Acceptance criteria\n\n- [ ] Automatic topic groups provide the primary overview, with person, place, date, and format views over the same collection.\n- [ ] An item can belong to multiple relevant groups; unclassified/uncertain items remain discoverable instead of disappearing outside the grouping scheme.\n- [ ] Groups expand to bounded member lists/neighborhoods and collapse without losing access to any collection item; large groups support continuation rather than permanent truncation.\n- [ ] Reading, research, and canvas presentations retain selected item, active scope/filters, navigation context, and Back behavior when switching.\n- [ ] Jev-assisted topic/membership/related-page choices preserve uncertainty and source support; changing sources refreshes organization incrementally.\n- [ ] Canvas previews and labels load lazily from bounded disk-backed queries; a full in-memory graph is not required.\n- [ ] Keyboard and assistive-technology users can reach equivalent groups, members, and details through a structured alternative to spatial interaction.\n- [ ] Fixtures prove overlapping membership, unclassified items, expansion/collapse, outside-view navigation, and context preservation. Renderer choice is validated against these tasks, not a synthetic drawing number alone.\n\n## Blocked by\n\n- [#20 \u2014 Explore degrees of separation and inspect evidence for connecting paths](https://github.com/nicolas-found42/knowledge-garden/issues/20)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nThis is the orientation path; advanced Boolean query construction is independent. Keep the reader quiet and expose the canvas on demand. The parent\u2019s 50,000-node drawing fixture does not establish integrated application scale.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nImport sources sharing a river topic but differing in people, places, dates, and formats, plus an unrelated/uncertain item. Expand a topic, open a member, switch through reader/research/canvas, change to a place view, and navigate Back. Confirm the overlapping item appears in each relevant group and every item remains reachable.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Browse automatic collection groups and expand a whole-collection canvas",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/22"
+}

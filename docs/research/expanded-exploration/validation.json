@@ -1,0 +1,10 @@
+{
+  "python_files_parsed": 41,
+  "json_files_parsed": 200,
+  "local_markdown_links_checked": 151,
+  "navigation_nodes_checked": 24,
+  "javascript_syntax_passed": true,
+  "credential_pattern_findings": [],
+  "privacy_check_limit": "Known configured key plus narrow credential patterns; not a proof that arbitrary sensitive content cannot exist.",
+  "errors": []
+}

@@ -1,0 +1,365 @@
+{
+  "summary": {
+    "source_cards": 24,
+    "typed_edges": 22,
+    "tasks": 8,
+    "promoted_item_baseline": 85,
+    "promotion_assumption": "Replace five thread cards and one metrics card with their 17 messages and 50 frame records; all other cards unchanged.",
+    "api_calls": 0,
+    "api_cost_usd": 0,
+    "human_usability_test": false,
+    "evaluation_scope": "Authored required-node set coverage, not interface reachability, clicks, time, answer correctness or human task completion. Question collections use oracle project membership from the same authored tasks.",
+    "policies": {
+      "all_records": {
+        "complete_required_sets": 8,
+        "mean_visible": 24.0,
+        "mean_extra_visible": 21.375
+      },
+      "recorded_only": {
+        "complete_required_sets": 6,
+        "mean_visible": 20.0,
+        "mean_extra_visible": 17.875
+      },
+      "recorded_and_tentative": {
+        "complete_required_sets": 7,
+        "mean_visible": 23.0,
+        "mean_extra_visible": 20.5
+      },
+      "question_collection": {
+        "complete_required_sets": 8,
+        "mean_visible": 6.5,
+        "mean_extra_visible": 3.875
+      }
+    }
+  },
+  "rows": [
+    {
+      "policy": "all_records",
+      "task": "why-change",
+      "required": 3,
+      "visible": 24,
+      "recovered": 3,
+      "complete": true,
+      "extra_visible": 21,
+      "missing": []
+    },
+    {
+      "policy": "all_records",
+      "task": "inspect-result",
+      "required": 3,
+      "visible": 24,
+      "recovered": 3,
+      "complete": true,
+      "extra_visible": 21,
+      "missing": []
+    },
+    {
+      "policy": "all_records",
+      "task": "check-original",
+      "required": 2,
+      "visible": 24,
+      "recovered": 2,
+      "complete": true,
+      "extra_visible": 22,
+      "missing": []
+    },
+    {
+      "policy": "all_records",
+      "task": "test-new-connection",
+      "required": 4,
+      "visible": 24,
+      "recovered": 4,
+      "complete": true,
+      "extra_visible": 20,
+      "missing": []
+    },
+    {
+      "policy": "all_records",
+      "task": "locate-ocr-evidence",
+      "required": 2,
+      "visible": 24,
+      "recovered": 2,
+      "complete": true,
+      "extra_visible": 22,
+      "missing": []
+    },
+    {
+      "policy": "all_records",
+      "task": "separate-retrieval-failure",
+      "required": 2,
+      "visible": 24,
+      "recovered": 2,
+      "complete": true,
+      "extra_visible": 22,
+      "missing": []
+    },
+    {
+      "policy": "all_records",
+      "task": "method-and-exception",
+      "required": 3,
+      "visible": 24,
+      "recovered": 3,
+      "complete": true,
+      "extra_visible": 21,
+      "missing": []
+    },
+    {
+      "policy": "all_records",
+      "task": "anchor-limitation",
+      "required": 2,
+      "visible": 24,
+      "recovered": 2,
+      "complete": true,
+      "extra_visible": 22,
+      "missing": []
+    },
+    {
+      "policy": "recorded_only",
+      "task": "why-change",
+      "required": 3,
+      "visible": 20,
+      "recovered": 3,
+      "complete": true,
+      "extra_visible": 17,
+      "missing": []
+    },
+    {
+      "policy": "recorded_only",
+      "task": "inspect-result",
+      "required": 3,
+      "visible": 20,
+      "recovered": 3,
+      "complete": true,
+      "extra_visible": 17,
+      "missing": []
+    },
+    {
+      "policy": "recorded_only",
+      "task": "check-original",
+      "required": 2,
+      "visible": 20,
+      "recovered": 2,
+      "complete": true,
+      "extra_visible": 18,
+      "missing": []
+    },
+    {
+      "policy": "recorded_only",
+      "task": "test-new-connection",
+      "required": 4,
+      "visible": 20,
+      "recovered": 2,
+      "complete": false,
+      "extra_visible": 18,
+      "missing": [
+        "selection-analogy",
+        "selection-note"
+      ]
+    },
+    {
+      "policy": "recorded_only",
+      "task": "locate-ocr-evidence",
+      "required": 2,
+      "visible": 20,
+      "recovered": 2,
+      "complete": true,
+      "extra_visible": 18,
+      "missing": []
+    },
+    {
+      "policy": "recorded_only",
+      "task": "separate-retrieval-failure",
+      "required": 2,
+      "visible": 20,
+      "recovered": 2,
+      "complete": true,
+      "extra_visible": 18,
+      "missing": []
+    },
+    {
+      "policy": "recorded_only",
+      "task": "method-and-exception",
+      "required": 3,
+      "visible": 20,
+      "recovered": 1,
+      "complete": false,
+      "extra_visible": 19,
+      "missing": [
+        "method-proposal",
+        "thread-unresolved"
+      ]
+    },
+    {
+      "policy": "recorded_only",
+      "task": "anchor-limitation",
+      "required": 2,
+      "visible": 20,
+      "recovered": 2,
+      "complete": true,
+      "extra_visible": 18,
+      "missing": []
+    },
+    {
+      "policy": "recorded_and_tentative",
+      "task": "why-change",
+      "required": 3,
+      "visible": 23,
+      "recovered": 3,
+      "complete": true,
+      "extra_visible": 20,
+      "missing": []
+    },
+    {
+      "policy": "recorded_and_tentative",
+      "task": "inspect-result",
+      "required": 3,
+      "visible": 23,
+      "recovered": 3,
+      "complete": true,
+      "extra_visible": 20,
+      "missing": []
+    },
+    {
+      "policy": "recorded_and_tentative",
+      "task": "check-original",
+      "required": 2,
+      "visible": 23,
+      "recovered": 2,
+      "complete": true,
+      "extra_visible": 21,
+      "missing": []
+    },
+    {
+      "policy": "recorded_and_tentative",
+      "task": "test-new-connection",
+      "required": 4,
+      "visible": 23,
+      "recovered": 3,
+      "complete": false,
+      "extra_visible": 20,
+      "missing": [
+        "selection-analogy"
+      ]
+    },
+    {
+      "policy": "recorded_and_tentative",
+      "task": "locate-ocr-evidence",
+      "required": 2,
+      "visible": 23,
+      "recovered": 2,
+      "complete": true,
+      "extra_visible": 21,
+      "missing": []
+    },
+    {
+      "policy": "recorded_and_tentative",
+      "task": "separate-retrieval-failure",
+      "required": 2,
+      "visible": 23,
+      "recovered": 2,
+      "complete": true,
+      "extra_visible": 21,
+      "missing": []
+    },
+    {
+      "policy": "recorded_and_tentative",
+      "task": "method-and-exception",
+      "required": 3,
+      "visible": 23,
+      "recovered": 3,
+      "complete": true,
+      "extra_visible": 20,
+      "missing": []
+    },
+    {
+      "policy": "recorded_and_tentative",
+      "task": "anchor-limitation",
+      "required": 2,
+      "visible": 23,
+      "recovered": 2,
+      "complete": true,
+      "extra_visible": 21,
+      "missing": []
+    },
+    {
+      "policy": "question_collection",
+      "task": "why-change",
+      "required": 3,
+      "visible": 7,
+      "recovered": 3,
+      "complete": true,
+      "extra_visible": 4,
+      "missing": []
+    },
+    {
+      "policy": "question_collection",
+      "task": "inspect-result",
+      "required": 3,
+      "visible": 7,
+      "recovered": 3,
+      "complete": true,
+      "extra_visible": 4,
+      "missing": []
+    },
+    {
+      "policy": "question_collection",
+      "task": "check-original",
+      "required": 2,
+      "visible": 7,
+      "recovered": 2,
+      "complete": true,
+      "extra_visible": 5,
+      "missing": []
+    },
+    {
+      "policy": "question_collection",
+      "task": "test-new-connection",
+      "required": 4,
+      "visible": 7,
+      "recovered": 4,
+      "complete": true,
+      "extra_visible": 3,
+      "missing": []
+    },
+    {
+      "policy": "question_collection",
+      "task": "locate-ocr-evidence",
+      "required": 2,
+      "visible": 7,
+      "recovered": 2,
+      "complete": true,
+      "extra_visible": 5,
+      "missing": []
+    },
+    {
+      "policy": "question_collection",
+      "task": "separate-retrieval-failure",
+      "required": 2,
+      "visible": 7,
+      "recovered": 2,
+      "complete": true,
+      "extra_visible": 5,
+      "missing": []
+    },
+    {
+      "policy": "question_collection",
+      "task": "method-and-exception",
+      "required": 3,
+      "visible": 8,
+      "recovered": 3,
+      "complete": true,
+      "extra_visible": 5,
+      "missing": []
+    },
+    {
+      "policy": "question_collection",
+      "task": "anchor-limitation",
+      "required": 2,
+      "visible": 2,
+      "recovered": 2,
+      "complete": true,
+      "extra_visible": 0,
+      "missing": []
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "sentences": [
+    {
+      "text": "The observed rate was 1.2 visits per minute, calculated from 12 visits in ten minutes on 17 May 2024.",
+      "sourceIds": [
+        "table",
+        "homework",
+        "claim-rate"
+      ],
+      "quote": "Controlled homework: 12 visits in ten minutes is 1.2 per minute. A calculation from 12 visits divided by ten minutes; bounded to the 17 May observation, not a daily estimate."
+    },
+    {
+      "text": "This observed rate establishes a short-term pollinator visit rate but does not estimate all-day activity or establish causality related to rain.",
+      "sourceIds": [
+        "homework",
+        "table"
+      ],
+      "quote": "A short observation does not estimate all-day activity. Rain causality is not established."
+    }
+  ],
+  "checks": [
+    {
+      "index": 0,
+      "idsValid": true,
+      "quoteExact": false
+    },
+    {
+      "index": 1,
+      "idsValid": true,
+      "quoteExact": true
+    }
+  ]
+}

@@ -1,0 +1,208 @@
+{
+  "trial": "separate_event-r2",
+  "case": "separate_event",
+  "answers": {
+    "relationship": {
+      "type": "choice",
+      "choice": "separate_event",
+      "probabilities": {
+        "separate_event": 1,
+        "supplement": 0,
+        "older_revision": 0,
+        "unknown": 0,
+        "replacement": 0
+      },
+      "confidence": 1
+    },
+    "needs_more_content": {
+      "type": "noul",
+      "noul": 0.56
+    },
+    "field_observer": {
+      "type": "choice",
+      "choice": "add_separate",
+      "probabilities": {
+        "remove": 0,
+        "need_more_content": 0,
+        "add_separate": 0.86,
+        "use_incoming": 0,
+        "keep_current": 0.14
+      },
+      "confidence": 0.82
+    },
+    "field_location": {
+      "type": "choice",
+      "choice": "add_separate",
+      "probabilities": {
+        "remove": 0,
+        "need_more_content": 0,
+        "add_separate": 0.92,
+        "use_incoming": 0,
+        "keep_current": 0.08
+      },
+      "confidence": 0.89
+    },
+    "field_count": {
+      "type": "choice",
+      "choice": "add_separate",
+      "probabilities": {
+        "remove": 0,
+        "need_more_content": 0,
+        "add_separate": 0.94,
+        "use_incoming": 0,
+        "keep_current": 0.06
+      },
+      "confidence": 0.92
+    },
+    "field_duration": {
+      "type": "choice",
+      "choice": "add_separate",
+      "probabilities": {
+        "remove": 0,
+        "need_more_content": 0,
+        "add_separate": 0.88,
+        "use_incoming": 0,
+        "keep_current": 0.12
+      },
+      "confidence": 0.85
+    },
+    "field_event_date": {
+      "type": "choice",
+      "choice": "add_separate",
+      "probabilities": {
+        "remove": 0,
+        "need_more_content": 0,
+        "add_separate": 0.95,
+        "use_incoming": 0,
+        "keep_current": 0.05
+      },
+      "confidence": 0.93
+    }
+  },
+  "expected": {
+    "relationship": "separate_event",
+    "ops": {
+      "observer": "add_separate",
+      "location": "add_separate",
+      "count": "add_separate",
+      "duration": "add_separate",
+      "event_date": "add_separate"
+    },
+    "needs_more_content": false
+  },
+  "checks": {
+    "relationship": true,
+    "fields": {
+      "observer": true,
+      "location": true,
+      "count": true,
+      "duration": true,
+      "event_date": true
+    },
+    "needs_more_content": false
+  },
+  "all_classification_labels_match": false,
+  "proposal": {
+    "current_observation": {
+      "observer": {
+        "value": "Maya",
+        "quote": "Observer: Maya.",
+        "source_id": "report-r1",
+        "start": 47,
+        "end": 62
+      },
+      "location": {
+        "value": "Riverside",
+        "quote": "Location: Riverside.",
+        "source_id": "report-r1",
+        "start": 63,
+        "end": 83
+      },
+      "count": {
+        "value": 12,
+        "quote": "Count: 12 visits.",
+        "source_id": "report-r1",
+        "start": 84,
+        "end": 101
+      },
+      "duration": {
+        "value": 10,
+        "quote": "Duration: 10 minutes.",
+        "source_id": "report-r1",
+        "start": 102,
+        "end": 123
+      },
+      "event_date": {
+        "value": "2024-05-17",
+        "quote": "Observation date: 2024-05-17.",
+        "source_id": "report-r1",
+        "start": 124,
+        "end": 153
+      }
+    },
+    "separate_observation": {
+      "observer": {
+        "value": "Maya",
+        "quote": "Observer: Maya.",
+        "source_id": "report-r18",
+        "start": 74,
+        "end": 89
+      },
+      "location": {
+        "value": "Riverside",
+        "quote": "Location: Riverside.",
+        "source_id": "report-r18",
+        "start": 90,
+        "end": 110
+      },
+      "count": {
+        "value": 8,
+        "quote": "Count: 8 visits.",
+        "source_id": "report-r18",
+        "start": 111,
+        "end": 127
+      },
+      "duration": {
+        "value": 10,
+        "quote": "Duration: 10 minutes.",
+        "source_id": "report-r18",
+        "start": 128,
+        "end": 149
+      },
+      "event_date": {
+        "value": "2024-05-18",
+        "quote": "Observation date: 2024-05-18.",
+        "source_id": "report-r18",
+        "start": 150,
+        "end": 179
+      }
+    },
+    "pending_fields": [],
+    "composition_errors": []
+  },
+  "proposal_matches_expected": true,
+  "verifier_answers": {
+    "verdict": {
+      "type": "choice",
+      "choice": "consistent",
+      "probabilities": {
+        "undetermined": 0,
+        "incorrect": 0.02,
+        "consistent": 0.98
+      },
+      "confidence": 0.97
+    },
+    "wrongful_deletion": {
+      "type": "noul",
+      "noul": 0.05
+    },
+    "superseded_fact": {
+      "type": "noul",
+      "noul": 0.07
+    },
+    "event_conflation": {
+      "type": "noul",
+      "noul": 0.03
+    }
+  }
+}

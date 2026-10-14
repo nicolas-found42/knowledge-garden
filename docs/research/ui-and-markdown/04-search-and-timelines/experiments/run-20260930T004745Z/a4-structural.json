@@ -1,0 +1,18 @@
+{
+  "sentences": [
+    {
+      "text": "The field-guide website is mentioned as a link in the controlled conversation but its contents are unknown because it has never been fetched.",
+      "sourceIds": [
+        "linked"
+      ],
+      "quote": "Controlled conversation mentioned https://example.invalid/field-guide. Acquisition: merely linked. Destination has never been fetched and its contents are unknown."
+    }
+  ],
+  "checks": [
+    {
+      "index": 0,
+      "idsValid": true,
+      "quoteExact": true
+    }
+  ]
+}

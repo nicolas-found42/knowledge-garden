@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "controlled-demo-screenshot-extractive-overlay",
+    "family": "claim",
+    "source": "controlled-demo-screenshot",
+    "representation": "extractive",
+    "claim": "The displayed screenshot includes red changed pixel overlays.",
+    "source_truth": "supported",
+    "state": {
+      "source": "controlled-demo-screenshot",
+      "evidence_kind": "extractive",
+      "evidence": "CONTROLLED IMAGE LABEL: changed pixels, no intent inference; SOURCE t=2.0s. No other text extracted.",
+      "claim": "The displayed screenshot includes red changed pixel overlays."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "unknown",
+        "probabilities": {
+          "supported": 0.11,
+          "contradicted": 0,
+          "unknown": 0.89
+        },
+        "confidence": 0.83
+      }
+    },
+    "usage": {
+      "input_tokens": 469,
+      "output_tokens": 41,
+      "cost": 1.9698e-05
+    },
+    "id": "gen-dec-1790725836-S3xKY1YADG3og7UJcW7V",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.37838079102220945
+}

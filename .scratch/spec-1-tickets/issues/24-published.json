@@ -1,0 +1,39 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPQJA",
+        "number": 5,
+        "state": "OPEN",
+        "title": "Apply targeted corrections while keeping distinct observations separate",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/5"
+      },
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPjBw",
+        "number": 17,
+        "state": "OPEN",
+        "title": "Ingest agent conversations with message provenance and separate reasoning events",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/17"
+      }
+    ],
+    "totalCount": 2
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 34, 35; **The eight purposes**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nLet the owner explore actual events over time while switching explicitly among event dates, reasoning dates, and collection activity, without inventing dates or replaying obsolete facts.\n\n## Acceptance criteria\n\n- [ ] The timeline offers distinct source-described event, reasoning-event, and collection-activity date meanings with user-controlled ascending/descending sorting.\n- [ ] Source event dates remain separate from acquisition/processing timestamps; unknown event dates are not filled from import time.\n- [ ] Approximate dates retain their precision/interval/uncertainty visibly and accessibly, with documented deterministic sorting for approximate and unknown values.\n- [ ] Separate observations such as V17 and V18 remain separate events even when imported out of chronological order; corrections do not manufacture a new real observation.\n- [ ] Selecting an event opens its page and supporting source/message context, and Back restores selected date meaning, sort, filters, and position.\n- [ ] The timeline includes actual past events and collection activity without surfacing superseded/removed wiki facts as historical alternatives.\n- [ ] Fixtures verify exact, approximate, missing, and conflicting dates; reasoning messages; out-of-order imports; corrections; and keyboard navigation.\n\n## Blocked by\n\n- [#5 \u2014 Apply targeted corrections while keeping distinct observations separate](https://github.com/nicolas-found42/knowledge-garden/issues/5)\n- [#17 \u2014 Ingest agent conversations with message provenance and separate reasoning events](https://github.com/nicolas-found42/knowledge-garden/issues/17)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nPersist genuine event/date qualifications as knowledge; presentation sorting is derived. Conversation ingestion supplies real reasoning-event provenance rather than forcing the timeline to fabricate such records.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nImport V17 on May 17, V18 on May 18, an approximately dated event described as \u201cMay 2024,\u201d and an undated event, deliberately receiving V18 first. Add a conversation with a dated decision. Switch all three date meanings, reverse sort, open an event\u2019s evidence, and return.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Navigate distinct source-event, reasoning, and collection-activity timelines",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/25"
+}

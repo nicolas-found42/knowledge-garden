@@ -1,0 +1,228 @@
+{
+  "environment": {
+    "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]",
+    "platform": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
+    "sqlite": "3.53.4"
+  },
+  "keyword": [
+    {
+      "id": "q1",
+      "results": [
+        "slides"
+      ],
+      "topOneCorrect": true,
+      "candidateContainsAcceptable": true,
+      "seconds": 8.762499783188105e-05
+    },
+    {
+      "id": "q2",
+      "results": [
+        "person-maya"
+      ],
+      "topOneCorrect": false,
+      "candidateContainsAcceptable": false,
+      "seconds": 1.5541998436674476e-05
+    },
+    {
+      "id": "q3",
+      "results": [
+        "photo-fruit"
+      ],
+      "topOneCorrect": true,
+      "candidateContainsAcceptable": true,
+      "seconds": 1.18750031106174e-05
+    },
+    {
+      "id": "q4",
+      "results": [
+        "plan-1",
+        "book",
+        "plan-2",
+        "event-visit",
+        "reasoning"
+      ],
+      "topOneCorrect": false,
+      "candidateContainsAcceptable": null,
+      "seconds": 2.6875000912696123e-05
+    },
+    {
+      "id": "q5",
+      "results": [
+        "download",
+        "video",
+        "reasoning"
+      ],
+      "topOneCorrect": false,
+      "candidateContainsAcceptable": true,
+      "seconds": 1.1459022061899304e-05
+    },
+    {
+      "id": "q6",
+      "results": [
+        "plan-1",
+        "plan-2",
+        "reasoning",
+        "question-rain",
+        "slides"
+      ],
+      "topOneCorrect": true,
+      "candidateContainsAcceptable": true,
+      "seconds": 1.329201040789485e-05
+    },
+    {
+      "id": "q7",
+      "results": [
+        "receipt",
+        "download",
+        "trail"
+      ],
+      "topOneCorrect": true,
+      "candidateContainsAcceptable": true,
+      "seconds": 1.1916010407730937e-05
+    },
+    {
+      "id": "q8",
+      "results": [
+        "photo-missing",
+        "claim-rain"
+      ],
+      "topOneCorrect": true,
+      "candidateContainsAcceptable": true,
+      "seconds": 9.374984074383974e-06
+    },
+    {
+      "id": "q9",
+      "results": [
+        "claim-rain",
+        "question-rain",
+        "reasoning",
+        "table",
+        "homework"
+      ],
+      "topOneCorrect": false,
+      "candidateContainsAcceptable": null,
+      "seconds": 1.5083001926541328e-05
+    },
+    {
+      "id": "q10",
+      "results": [
+        "question-rain",
+        "trail",
+        "claim-rain",
+        "reasoning",
+        "plan-2"
+      ],
+      "topOneCorrect": true,
+      "candidateContainsAcceptable": true,
+      "seconds": 1.620801049284637e-05
+    },
+    {
+      "id": "q11",
+      "results": [
+        "homework",
+        "person-maya",
+        "audio",
+        "book",
+        "notes"
+      ],
+      "topOneCorrect": false,
+      "candidateContainsAcceptable": true,
+      "seconds": 1.2791017070412636e-05
+    },
+    {
+      "id": "q12",
+      "results": [
+        "claim-rate"
+      ],
+      "topOneCorrect": false,
+      "candidateContainsAcceptable": false,
+      "seconds": 9.083974873647094e-06
+    },
+    {
+      "id": "q13",
+      "results": [
+        "linked",
+        "slides",
+        "receipt",
+        "report"
+      ],
+      "topOneCorrect": false,
+      "candidateContainsAcceptable": null,
+      "seconds": 1.0666000889614224e-05
+    },
+    {
+      "id": "q14",
+      "results": [
+        "video",
+        "photo-fruit",
+        "photo-missing"
+      ],
+      "topOneCorrect": true,
+      "candidateContainsAcceptable": true,
+      "seconds": 9.66701190918684e-06
+    },
+    {
+      "id": "q15",
+      "results": [
+        "trail",
+        "question-rain",
+        "concept-sampling",
+        "event-visit",
+        "table"
+      ],
+      "topOneCorrect": true,
+      "candidateContainsAcceptable": true,
+      "seconds": 2.7250003768131137e-05
+    },
+    {
+      "id": "q16",
+      "results": [
+        "photo-missing",
+        "person-maya",
+        "photo-fruit",
+        "slides",
+        "caption"
+      ],
+      "topOneCorrect": false,
+      "candidateContainsAcceptable": null,
+      "seconds": 1.7333979485556483e-05
+    }
+  ],
+  "relational": [
+    {
+      "id": "mentions-person-filter-format",
+      "results": [
+        "slides"
+      ],
+      "expected": [
+        "slides"
+      ]
+    },
+    {
+      "id": "accepted-support-only",
+      "results": [
+        "table"
+      ],
+      "expected": [
+        "table"
+      ]
+    },
+    {
+      "id": "superseded-plan",
+      "results": [
+        "plan-1"
+      ],
+      "expected": [
+        "plan-1"
+      ]
+    }
+  ],
+  "indexRebuildIdentical": true,
+  "summary": {
+    "keywordTopOneCorrect": 8,
+    "queries": 16,
+    "answerableCandidateRecall": 10,
+    "answerableQueries": 12,
+    "relationalCorrect": 3
+  }
+}

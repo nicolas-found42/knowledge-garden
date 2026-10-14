@@ -1,0 +1,1037 @@
+[
+  {
+    "family": "maintenance",
+    "name": "correction",
+    "state": {
+      "existing_wiki": "Wiki cache expires after 24h.",
+      "new_evidence": "User: We measured memory growth and now choose a 1h expiry for this wiki. Source is complete.",
+      "purpose": "Decide whether this exchange exposes a concrete reusable maintenance issue, not whether its scientific claims are universally true."
+    },
+    "expected": {
+      "route": "review"
+    },
+    "baseline": {
+      "route": "review"
+    }
+  },
+  {
+    "family": "maintenance",
+    "name": "covered",
+    "state": {
+      "existing_wiki": "Wiki cache expires after 1h.",
+      "new_evidence": "User: Keep the one-hour wiki cache expiry. Source is complete.",
+      "purpose": "Decide whether this exchange exposes a concrete reusable maintenance issue, not whether its scientific claims are universally true."
+    },
+    "expected": {
+      "route": "answer"
+    },
+    "baseline": {
+      "route": "answer"
+    }
+  },
+  {
+    "family": "maintenance",
+    "name": "truncated",
+    "state": {
+      "existing_wiki": "Wiki cache expiry policy is not in the supplied window.",
+      "new_evidence": "Excerpt: We choose... [TRUNCATED]. The omitted text includes the actual policy.",
+      "purpose": "Decide whether this exchange exposes a concrete reusable maintenance issue, not whether its scientific claims are universally true."
+    },
+    "expected": {
+      "route": "lookup"
+    },
+    "baseline": {
+      "route": "review"
+    }
+  },
+  {
+    "family": "maintenance",
+    "name": "dropped",
+    "state": {
+      "existing_wiki": "No relevant wiki passages supplied.",
+      "new_evidence": "The retriever dropped the policy note because the byte budget was exceeded.",
+      "purpose": "Decide whether this exchange exposes a concrete reusable maintenance issue, not whether its scientific claims are universally true."
+    },
+    "expected": {
+      "route": "lookup"
+    },
+    "baseline": {
+      "route": "review"
+    }
+  },
+  {
+    "family": "maintenance",
+    "name": "speculation",
+    "state": {
+      "existing_wiki": "Wiki uses a one-hour cache.",
+      "new_evidence": "Assistant: Perhaps a five-minute cache would be faster. No measurement or user decision is supplied.",
+      "purpose": "Decide whether this exchange exposes a concrete reusable maintenance issue, not whether its scientific claims are universally true."
+    },
+    "expected": {
+      "route": "answer"
+    },
+    "baseline": {
+      "route": "answer"
+    }
+  },
+  {
+    "family": "maintenance",
+    "name": "known_limitation",
+    "state": {
+      "existing_wiki": "Known limitation: title-only dedup misses paraphrases.",
+      "new_evidence": "A note observes title-only dedup missing paraphrases; this is already listed as a limitation.",
+      "purpose": "Decide whether this exchange exposes a concrete reusable maintenance issue, not whether its scientific claims are universally true."
+    },
+    "expected": {
+      "route": "answer"
+    },
+    "baseline": {
+      "route": "review"
+    }
+  },
+  {
+    "family": "maintenance",
+    "name": "new_failure",
+    "state": {
+      "existing_wiki": "Dedup says title matches are always safe to merge.",
+      "new_evidence": "Observed trace: notes titled Atlas refer to different projects; source IDs and contents prove a wrong merge. The general rule is unsafe.",
+      "purpose": "Decide whether this exchange exposes a concrete reusable maintenance issue, not whether its scientific claims are universally true."
+    },
+    "expected": {
+      "route": "review"
+    },
+    "baseline": {
+      "route": "review"
+    }
+  },
+  {
+    "family": "maintenance",
+    "name": "oneoff",
+    "state": {
+      "existing_wiki": "Wiki default cache is one hour.",
+      "new_evidence": "User: On my battery-starved train trip today disable cache indexing. The wiki default is unchanged.",
+      "purpose": "Decide whether this exchange exposes a concrete reusable maintenance issue, not whether its scientific claims are universally true."
+    },
+    "expected": {
+      "route": "answer"
+    },
+    "baseline": {
+      "route": "answer"
+    }
+  },
+  {
+    "family": "maintenance",
+    "name": "unresolved",
+    "state": {
+      "existing_wiki": "Wiki conflict behavior is not supplied.",
+      "new_evidence": "User asks whether contradictory sources should replace notes. No cited source or current policy is supplied.",
+      "purpose": "Decide whether this exchange exposes a concrete reusable maintenance issue, not whether its scientific claims are universally true."
+    },
+    "expected": {
+      "route": "lookup"
+    },
+    "baseline": {
+      "route": "review"
+    }
+  },
+  {
+    "family": "maintenance",
+    "name": "same_meaning",
+    "state": {
+      "existing_wiki": "Canonical notes are .md files; indexes are rebuildable.",
+      "new_evidence": "User: Markdown is authoritative; SQLite is just a disposable index. The source is complete.",
+      "purpose": "Decide whether this exchange exposes a concrete reusable maintenance issue, not whether its scientific claims are universally true."
+    },
+    "expected": {
+      "route": "answer"
+    },
+    "baseline": {
+      "route": "answer"
+    }
+  },
+  {
+    "family": "impact",
+    "name": "database",
+    "state": {
+      "source_id": "s1",
+      "old_source": "The wiki uses SQLite.",
+      "new_source": "The wiki now uses Postgres.",
+      "dependent_notes": [
+        {
+          "id": "current",
+          "text": "The wiki currently uses SQLite.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        },
+        {
+          "id": "history",
+          "text": "The wiki used SQLite in the 2025 prototype.",
+          "kind": "historical_record",
+          "depends_on": "s1"
+        },
+        {
+          "id": "separate",
+          "text": "User prefers dark mode.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        }
+      ]
+    },
+    "expected": {
+      "current": "refresh",
+      "history": "keep",
+      "separate": "keep"
+    },
+    "baseline": {
+      "current": "refresh",
+      "history": "refresh",
+      "separate": "refresh"
+    }
+  },
+  {
+    "family": "impact",
+    "name": "retention",
+    "state": {
+      "source_id": "s1",
+      "old_source": "Cache expires in 24h.",
+      "new_source": "Cache now expires in 1h.",
+      "dependent_notes": [
+        {
+          "id": "current",
+          "text": "Cache expires in 24h.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        },
+        {
+          "id": "history",
+          "text": "In the April experiment, expiry was 24h.",
+          "kind": "historical_record",
+          "depends_on": "s1"
+        },
+        {
+          "id": "separate",
+          "text": "User prefers dark mode.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        }
+      ]
+    },
+    "expected": {
+      "current": "refresh",
+      "history": "keep",
+      "separate": "keep"
+    },
+    "baseline": {
+      "current": "refresh",
+      "history": "refresh",
+      "separate": "refresh"
+    }
+  },
+  {
+    "family": "impact",
+    "name": "condition",
+    "state": {
+      "source_id": "s1",
+      "old_source": "All notes may be sent to the provider.",
+      "new_source": "Only public notes may be sent to the provider.",
+      "dependent_notes": [
+        {
+          "id": "current",
+          "text": "All notes may be sent to the provider.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        },
+        {
+          "id": "history",
+          "text": "Earlier, we experimented with sending all notes.",
+          "kind": "historical_record",
+          "depends_on": "s1"
+        },
+        {
+          "id": "separate",
+          "text": "User prefers dark mode.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        }
+      ]
+    },
+    "expected": {
+      "current": "refresh",
+      "history": "keep",
+      "separate": "keep"
+    },
+    "baseline": {
+      "current": "refresh",
+      "history": "refresh",
+      "separate": "refresh"
+    }
+  },
+  {
+    "family": "impact",
+    "name": "mandatory",
+    "state": {
+      "source_id": "s1",
+      "old_source": "Evidence citations are optional.",
+      "new_source": "Evidence citations are now mandatory.",
+      "dependent_notes": [
+        {
+          "id": "current",
+          "text": "Evidence citations are optional.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        },
+        {
+          "id": "history",
+          "text": "The initial draft allowed optional citations.",
+          "kind": "historical_record",
+          "depends_on": "s1"
+        },
+        {
+          "id": "separate",
+          "text": "User prefers dark mode.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        }
+      ]
+    },
+    "expected": {
+      "current": "refresh",
+      "history": "keep",
+      "separate": "keep"
+    },
+    "baseline": {
+      "current": "refresh",
+      "history": "refresh",
+      "separate": "refresh"
+    }
+  },
+  {
+    "family": "impact",
+    "name": "reversed",
+    "state": {
+      "source_id": "s1",
+      "old_source": "Graph server is required.",
+      "new_source": "Graph server is explicitly no longer required.",
+      "dependent_notes": [
+        {
+          "id": "current",
+          "text": "A graph server is required.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        },
+        {
+          "id": "history",
+          "text": "The first plan required a graph server.",
+          "kind": "historical_record",
+          "depends_on": "s1"
+        },
+        {
+          "id": "separate",
+          "text": "User prefers dark mode.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        }
+      ]
+    },
+    "expected": {
+      "current": "refresh",
+      "history": "keep",
+      "separate": "keep"
+    },
+    "baseline": {
+      "current": "refresh",
+      "history": "refresh",
+      "separate": "refresh"
+    }
+  },
+  {
+    "family": "impact",
+    "name": "typo",
+    "state": {
+      "source_id": "s1",
+      "old_source": "Canonical notes are Markdown files.",
+      "new_source": "Canonical notes are Markdown files. Typo in heading fixed.",
+      "dependent_notes": [
+        {
+          "id": "current",
+          "text": "Canonical notes are Markdown files.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        },
+        {
+          "id": "history",
+          "text": "The original source chose Markdown files.",
+          "kind": "historical_record",
+          "depends_on": "s1"
+        },
+        {
+          "id": "separate",
+          "text": "User prefers dark mode.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        }
+      ]
+    },
+    "expected": {
+      "current": "keep",
+      "history": "keep",
+      "separate": "keep"
+    },
+    "baseline": {
+      "current": "refresh",
+      "history": "refresh",
+      "separate": "refresh"
+    }
+  },
+  {
+    "family": "impact",
+    "name": "format",
+    "state": {
+      "source_id": "s1",
+      "old_source": "Use a one-hour cache.",
+      "new_source": "Use a 1h cache. Same meaning; formatting only.",
+      "dependent_notes": [
+        {
+          "id": "current",
+          "text": "Use a one-hour cache.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        },
+        {
+          "id": "history",
+          "text": "We originally chose a one-hour cache.",
+          "kind": "historical_record",
+          "depends_on": "s1"
+        },
+        {
+          "id": "separate",
+          "text": "User prefers dark mode.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        }
+      ]
+    },
+    "expected": {
+      "current": "keep",
+      "history": "keep",
+      "separate": "keep"
+    },
+    "baseline": {
+      "current": "refresh",
+      "history": "refresh",
+      "separate": "refresh"
+    }
+  },
+  {
+    "family": "impact",
+    "name": "scope",
+    "state": {
+      "source_id": "s1",
+      "old_source": "Wiki uses SQLite. Payments uses Postgres.",
+      "new_source": "Wiki still uses SQLite. Payments now uses MySQL.",
+      "dependent_notes": [
+        {
+          "id": "current",
+          "text": "Wiki uses SQLite.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        },
+        {
+          "id": "history",
+          "text": "Payments used Postgres before this edit.",
+          "kind": "historical_record",
+          "depends_on": "s1"
+        },
+        {
+          "id": "separate",
+          "text": "User prefers dark mode.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        }
+      ]
+    },
+    "expected": {
+      "current": "keep",
+      "history": "keep",
+      "separate": "keep"
+    },
+    "baseline": {
+      "current": "refresh",
+      "history": "refresh",
+      "separate": "refresh"
+    }
+  },
+  {
+    "family": "impact",
+    "name": "reason",
+    "state": {
+      "source_id": "s1",
+      "old_source": "SQLite chosen because measured speed was twice as fast.",
+      "new_source": "SQLite chosen for simplicity; the speed comparison was invalid and retracted.",
+      "dependent_notes": [
+        {
+          "id": "current",
+          "text": "SQLite was measured twice as fast.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        },
+        {
+          "id": "history",
+          "text": "A speed claim was made in the original meeting.",
+          "kind": "historical_record",
+          "depends_on": "s1"
+        },
+        {
+          "id": "separate",
+          "text": "User prefers dark mode.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        }
+      ]
+    },
+    "expected": {
+      "current": "refresh",
+      "history": "keep",
+      "separate": "keep"
+    },
+    "baseline": {
+      "current": "refresh",
+      "history": "refresh",
+      "separate": "refresh"
+    }
+  },
+  {
+    "family": "impact",
+    "name": "provenance",
+    "state": {
+      "source_id": "s1",
+      "old_source": "Trace T1 verified command A passed.",
+      "new_source": "Trace T1 was found fabricated; there is no evidence that command A passed.",
+      "dependent_notes": [
+        {
+          "id": "current",
+          "text": "Command A is verified to pass.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        },
+        {
+          "id": "history",
+          "text": "An unverified report originally claimed A passed.",
+          "kind": "historical_record",
+          "depends_on": "s1"
+        },
+        {
+          "id": "separate",
+          "text": "User prefers dark mode.",
+          "kind": "current_fact",
+          "depends_on": "s1"
+        }
+      ]
+    },
+    "expected": {
+      "current": "refresh",
+      "history": "keep",
+      "separate": "keep"
+    },
+    "baseline": {
+      "current": "refresh",
+      "history": "refresh",
+      "separate": "refresh"
+    }
+  },
+  {
+    "family": "context",
+    "name": "pronoun",
+    "state": {
+      "query": "Did the user accept SQLite?",
+      "fragment": "User: Yes, do that.",
+      "available_fetches": {
+        "neighbor": "The assistant proposal immediately before this reply says: Use SQLite for the wiki index.",
+        "distractor": "A SQLite tutorial describes indexes.",
+        "none": "No more lookup is needed; current fragment itself answers the question."
+      }
+    },
+    "expected": {
+      "fetch": "neighbor"
+    },
+    "baseline": {
+      "fetch": "distractor"
+    }
+  },
+  {
+    "family": "context",
+    "name": "pronoun_other",
+    "state": {
+      "query": "Did the user accept SQLite?",
+      "fragment": "User: Yes, do that.",
+      "available_fetches": {
+        "neighbor": "The assistant proposal immediately before this reply says: Use Postgres for the wiki index.",
+        "distractor": "A SQLite tutorial describes indexes.",
+        "none": "No more lookup is needed; current fragment itself answers the question."
+      }
+    },
+    "expected": {
+      "fetch": "neighbor"
+    },
+    "baseline": {
+      "fetch": "distractor"
+    }
+  },
+  {
+    "family": "context",
+    "name": "test_claim",
+    "state": {
+      "query": "Is command A proven to work on Windows?",
+      "fragment": "Assistant: All tests pass.",
+      "available_fetches": {
+        "artifact": "Original CI artifact lists operating system Windows and command A exit 0.",
+        "distractor": "A README discusses testing command A on Windows.",
+        "none": "No more lookup is needed; current fragment itself answers the question."
+      }
+    },
+    "expected": {
+      "fetch": "artifact"
+    },
+    "baseline": {
+      "fetch": "distractor"
+    }
+  },
+  {
+    "family": "context",
+    "name": "test_missing",
+    "state": {
+      "query": "Is command A proven to work on Windows?",
+      "fragment": "Assistant: All tests pass.",
+      "available_fetches": {
+        "artifact": "Original CI artifact lists Linux only; no Windows run.",
+        "distractor": "A README discusses testing command A on Windows.",
+        "none": "No more lookup is needed; current fragment itself answers the question."
+      }
+    },
+    "expected": {
+      "fetch": "artifact"
+    },
+    "baseline": {
+      "fetch": "distractor"
+    }
+  },
+  {
+    "family": "context",
+    "name": "current_policy",
+    "state": {
+      "query": "What cache expiry is active now?",
+      "fragment": "An old source says cache expiry is 24h.",
+      "available_fetches": {
+        "policy": "Latest user decision says replace 24h cache with 1h.",
+        "distractor": "A 24h cache benchmark exists.",
+        "none": "No more lookup is needed; current fragment itself answers the question."
+      }
+    },
+    "expected": {
+      "fetch": "policy"
+    },
+    "baseline": {
+      "fetch": "distractor"
+    }
+  },
+  {
+    "family": "context",
+    "name": "exception",
+    "state": {
+      "query": "Is Python now the user standing preference?",
+      "fragment": "User: Use Python for this one throwaway prototype.",
+      "available_fetches": {
+        "policy": "Standing preferences note: default language TypeScript unless the user changes the general preference.",
+        "distractor": "A Python article says prototypes are fast.",
+        "none": "No more lookup is needed; current fragment itself answers the question."
+      }
+    },
+    "expected": {
+      "fetch": "policy"
+    },
+    "baseline": {
+      "fetch": "distractor"
+    }
+  },
+  {
+    "family": "context",
+    "name": "fabricated",
+    "state": {
+      "query": "Did the cited quote exist?",
+      "fragment": "Proposed quote: Every graph edge is verified.",
+      "available_fetches": {
+        "artifact": "Complete original source text and quote offsets.",
+        "distractor": "A summary repeats Every graph edge is verified.",
+        "none": "No more lookup is needed; current fragment itself answers the question."
+      }
+    },
+    "expected": {
+      "fetch": "artifact"
+    },
+    "baseline": {
+      "fetch": "distractor"
+    }
+  },
+  {
+    "family": "context",
+    "name": "same_project",
+    "state": {
+      "query": "Which Atlas project did the decision refer to?",
+      "fragment": "User: Put it in Atlas.",
+      "available_fetches": {
+        "neighbor": "Earlier messages identify Atlas as the gardening notebook, distinct from payment service Atlas.",
+        "distractor": "Documentation for payment service Atlas.",
+        "none": "No more lookup is needed; current fragment itself answers the question."
+      }
+    },
+    "expected": {
+      "fetch": "neighbor"
+    },
+    "baseline": {
+      "fetch": "distractor"
+    }
+  },
+  {
+    "family": "context",
+    "name": "already_sufficient",
+    "state": {
+      "query": "Did the user accept SQLite?",
+      "fragment": "User: Use SQLite for this wiki index; this is my final choice.",
+      "available_fetches": {
+        "neighbor": "An unrelated old discussion about Postgres.",
+        "distractor": "A SQLite tutorial describes indexes.",
+        "none": "No more lookup is needed; current fragment itself answers the question."
+      }
+    },
+    "expected": {
+      "fetch": "none"
+    },
+    "baseline": {
+      "fetch": "distractor"
+    }
+  },
+  {
+    "family": "context",
+    "name": "correction",
+    "state": {
+      "query": "Was the first architecture abandoned?",
+      "fragment": "User: Actually, revert that choice.",
+      "available_fetches": {
+        "neighbor": "The preceding user decision chose Neo4j; this reply explicitly refers to that choice.",
+        "distractor": "An architecture guide describes Neo4j.",
+        "none": "No more lookup is needed; current fragment itself answers the question."
+      }
+    },
+    "expected": {
+      "fetch": "neighbor"
+    },
+    "baseline": {
+      "fetch": "distractor"
+    }
+  },
+  {
+    "family": "procedure",
+    "name": "repeated",
+    "state": {
+      "episodes": [
+        {
+          "session_id": "s1",
+          "text": "run tests then inspect failure logs",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s2",
+          "text": "run tests then inspect failure logs",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s3",
+          "text": "run tests then inspect failure logs",
+          "outcome": "completed"
+        }
+      ],
+      "candidate_policy": "A draft candidate needs a repeatable multi-step operation in at least 3 distinct sessions, with completed outcomes and no later abandonment. Facts/preferences and one-ticket repeats are not procedures. Keep project scope and unknown details visible; do not install anything."
+    },
+    "expected": {
+      "route": "candidate"
+    },
+    "baseline": {
+      "route": "candidate"
+    }
+  },
+  {
+    "family": "procedure",
+    "name": "same_session",
+    "state": {
+      "episodes": [
+        {
+          "session_id": "s1",
+          "text": "run tests then inspect failure logs",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s1",
+          "text": "run tests then inspect failure logs",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s1",
+          "text": "run tests then inspect failure logs",
+          "outcome": "completed"
+        }
+      ],
+      "candidate_policy": "A draft candidate needs a repeatable multi-step operation in at least 3 distinct sessions, with completed outcomes and no later abandonment. Facts/preferences and one-ticket repeats are not procedures. Keep project scope and unknown details visible; do not install anything."
+    },
+    "expected": {
+      "route": "none"
+    },
+    "baseline": {
+      "route": "candidate"
+    }
+  },
+  {
+    "family": "procedure",
+    "name": "all_failed",
+    "state": {
+      "episodes": [
+        {
+          "session_id": "s1",
+          "text": "run tests then inspect failure logs",
+          "outcome": "failed"
+        },
+        {
+          "session_id": "s2",
+          "text": "run tests then inspect failure logs",
+          "outcome": "failed"
+        },
+        {
+          "session_id": "s3",
+          "text": "run tests then inspect failure logs",
+          "outcome": "failed"
+        }
+      ],
+      "candidate_policy": "A draft candidate needs a repeatable multi-step operation in at least 3 distinct sessions, with completed outcomes and no later abandonment. Facts/preferences and one-ticket repeats are not procedures. Keep project scope and unknown details visible; do not install anything."
+    },
+    "expected": {
+      "route": "evidence"
+    },
+    "baseline": {
+      "route": "candidate"
+    }
+  },
+  {
+    "family": "procedure",
+    "name": "retries",
+    "state": {
+      "episodes": [
+        {
+          "session_id": "s1",
+          "text": "failed command then corrected it and ran tests successfully",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s2",
+          "text": "ran corrected tests successfully",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s3",
+          "text": "ran corrected tests successfully",
+          "outcome": "completed"
+        }
+      ],
+      "candidate_policy": "A draft candidate needs a repeatable multi-step operation in at least 3 distinct sessions, with completed outcomes and no later abandonment. Facts/preferences and one-ticket repeats are not procedures. Keep project scope and unknown details visible; do not install anything."
+    },
+    "expected": {
+      "route": "candidate"
+    },
+    "baseline": {
+      "route": "candidate"
+    }
+  },
+  {
+    "family": "procedure",
+    "name": "abandoned",
+    "state": {
+      "episodes": [
+        {
+          "session_id": "s1",
+          "text": "run tests then inspect failure logs",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s2",
+          "text": "run tests then inspect failure logs",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s3",
+          "text": "run tests then inspect failure logs",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s4",
+          "text": "User: abandon this procedure; it corrupts state",
+          "outcome": "abandoned"
+        }
+      ],
+      "candidate_policy": "A draft candidate needs a repeatable multi-step operation in at least 3 distinct sessions, with completed outcomes and no later abandonment. Facts/preferences and one-ticket repeats are not procedures. Keep project scope and unknown details visible; do not install anything."
+    },
+    "expected": {
+      "route": "none"
+    },
+    "baseline": {
+      "route": "candidate"
+    }
+  },
+  {
+    "family": "procedure",
+    "name": "preference",
+    "state": {
+      "episodes": [
+        {
+          "session_id": "s1",
+          "text": "user prefers dark mode",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s2",
+          "text": "user prefers dark mode",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s3",
+          "text": "user prefers dark mode",
+          "outcome": "completed"
+        }
+      ],
+      "candidate_policy": "A draft candidate needs a repeatable multi-step operation in at least 3 distinct sessions, with completed outcomes and no later abandonment. Facts/preferences and one-ticket repeats are not procedures. Keep project scope and unknown details visible; do not install anything."
+    },
+    "expected": {
+      "route": "none"
+    },
+    "baseline": {
+      "route": "candidate"
+    }
+  },
+  {
+    "family": "procedure",
+    "name": "oneoff",
+    "state": {
+      "episodes": [
+        {
+          "session_id": "s1",
+          "text": "apply ticket 421 patch only",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s2",
+          "text": "apply ticket 421 patch only",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s3",
+          "text": "apply ticket 421 patch only",
+          "outcome": "completed"
+        }
+      ],
+      "candidate_policy": "A draft candidate needs a repeatable multi-step operation in at least 3 distinct sessions, with completed outcomes and no later abandonment. Facts/preferences and one-ticket repeats are not procedures. Keep project scope and unknown details visible; do not install anything."
+    },
+    "expected": {
+      "route": "none"
+    },
+    "baseline": {
+      "route": "candidate"
+    }
+  },
+  {
+    "family": "procedure",
+    "name": "unknown_flags",
+    "state": {
+      "episodes": [
+        {
+          "session_id": "s1",
+          "text": "journal says run tests then inspect logs; exact flags absent",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s2",
+          "text": "journal says run tests then inspect logs; exact flags absent",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s3",
+          "text": "journal says run tests then inspect logs; exact flags absent",
+          "outcome": "completed"
+        }
+      ],
+      "candidate_policy": "A draft candidate needs a repeatable multi-step operation in at least 3 distinct sessions, with completed outcomes and no later abandonment. Facts/preferences and one-ticket repeats are not procedures. Keep project scope and unknown details visible; do not install anything."
+    },
+    "expected": {
+      "route": "candidate"
+    },
+    "baseline": {
+      "route": "candidate"
+    }
+  },
+  {
+    "family": "procedure",
+    "name": "scope",
+    "state": {
+      "episodes": [
+        {
+          "session_id": "s1",
+          "text": "Wiki project: rebuild index then verify note citations",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s2",
+          "text": "Wiki project: rebuild index then verify note citations",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s3",
+          "text": "Wiki project: rebuild index then verify note citations",
+          "outcome": "completed"
+        }
+      ],
+      "candidate_policy": "A draft candidate needs a repeatable multi-step operation in at least 3 distinct sessions, with completed outcomes and no later abandonment. Facts/preferences and one-ticket repeats are not procedures. Keep project scope and unknown details visible; do not install anything."
+    },
+    "expected": {
+      "route": "candidate"
+    },
+    "baseline": {
+      "route": "candidate"
+    }
+  },
+  {
+    "family": "procedure",
+    "name": "unsafe_generalization",
+    "state": {
+      "episodes": [
+        {
+          "session_id": "s1",
+          "text": "in this demo only delete scratch index then rebuild",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s2",
+          "text": "in this demo only delete scratch index then rebuild",
+          "outcome": "completed"
+        },
+        {
+          "session_id": "s3",
+          "text": "production index has irreplaceable audit data; never delete it",
+          "outcome": "warning"
+        }
+      ],
+      "candidate_policy": "A draft candidate needs a repeatable multi-step operation in at least 3 distinct sessions, with completed outcomes and no later abandonment. Facts/preferences and one-ticket repeats are not procedures. Keep project scope and unknown details visible; do not install anything."
+    },
+    "expected": {
+      "route": "evidence"
+    },
+    "baseline": {
+      "route": "candidate"
+    }
+  }
+]

@@ -1,0 +1,32 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPMmA",
+        "number": 3,
+        "state": "OPEN",
+        "title": "Turn a text source into evidence-grounded facts and linked pages with Jev",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/3"
+      }
+    ],
+    "totalCount": 1
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 1, 7, 31; **Research evidence boundaries**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nImport ordinary photos, inspect the original, and navigate supported visual details while keeping observed pixels, file metadata, supplied captions, and uncertain inferences distinct.\n\n## Acceptance criteria\n\n- [ ] Representative ordinary photo formats from the target Mac workflow retain originals and produce readable source pages with on-demand image previews.\n- [ ] Image metadata, supplied textual captions, OCR text, actual visual observations, and generated interpretations retain distinct origins in the durable evidence record.\n- [ ] A caption claiming a photo date does not become a verified pixel observation or authenticated capture date; absent/ambiguous dates remain unknown or qualified.\n- [ ] Useful image details and regions are searchable and open in context, with region evidence or a disclosed whole-image fallback.\n- [ ] Allowed image-processing capabilities are validated with real requests before use; unsupported selected-provider capabilities leave a recoverable gap rather than triggering an unselected generative service.\n- [ ] Unreadable images and uncertain identities retain originals and inspectable states without fabricated details or a user review queue.\n- [ ] Independent fixtures include misleading captions, stripped/conflicting metadata, uncertain entities, and OCR errors; tests verify source origin and qualification preservation.\n\n## Blocked by\n\n- [#3 \u2014 Turn a text source into evidence-grounded facts and linked pages with Jev](https://github.com/nicolas-found42/knowledge-garden/issues/3)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nThe parent records a prior false-provenance failure in which a constructed caption became a photograph date. Treat this as a required negative fixture, not permission to publish private photos. Supporting decoders/OCR do not replace the selected semantic/generative policy.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nImport a synthetic photo fixture with no capture date, alongside a supplied caption claiming \u201cMay 17, 2024,\u201d then a version with conflicting metadata. Inspect date evidence and origin. Search a visible detail, open the supporting image region, and repeat with an unsupported image/capability response.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Form photo knowledge without confusing pixels, metadata, and captions",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/13"
+}

@@ -1,0 +1,291 @@
+{
+  "development_status": "Added after inspecting premature broad-completion result; explicit facets alter the goal contract and prompts. No holdout.",
+  "path": [
+    "garden",
+    "import",
+    "search"
+  ],
+  "reason": "no_useful_link",
+  "gold_evidence_coverage": {
+    "preservation_reason": false,
+    "quote_traceability": false
+  },
+  "results": [
+    {
+      "family": "graph_facets",
+      "name": "garden",
+      "request": {
+        "state": {
+          "goal": "Find BOTH why original transcripts are preserved AND the concrete method connecting quotations to their stored source body (message IDs, offsets, or equivalent traceable references).",
+          "evidence_seen": {
+            "garden": "Garden overview."
+          },
+          "observed_outgoing": {
+            "import": {
+              "label": "Source import overview",
+              "preview": "Import overview; preserve revisions."
+            },
+            "search": {
+              "label": "Search system and decision records",
+              "preview": "A rebuildable local full-text database serves searches without network access. Canonical notes remain ordinary Markdown files."
+            },
+            "noise": {
+              "label": "Color theme",
+              "preview": "Grey and green palette."
+            }
+          }
+        },
+        "questions": {
+          "preservation_reason": {
+            "type": "noul",
+            "instructions": "Does `evidence_seen` explicitly explain the failure or reason motivating preservation of original transcript revisions? A statement to preserve them without why is insufficient."
+          },
+          "quote_traceability": {
+            "type": "noul",
+            "instructions": "Does `evidence_seen` explicitly describe a concrete method connecting quoted text to its saved original source, such as saved content hashes PLUS source message IDs or offsets? Generic preservation alone is insufficient."
+          },
+          "next": {
+            "type": "choice",
+            "instructions": "Choose an observed outgoing link likely to supply a missing requirement from `goal`. Prioritize concrete traceability mechanics once the preservation reason is known. Select stop if no useful link remains.",
+            "criteria": {
+              "import": {
+                "label": "Source import overview",
+                "preview": "Import overview; preserve revisions."
+              },
+              "search": {
+                "label": "Search system and decision records",
+                "preview": "A rebuildable local full-text database serves searches without network access. Canonical notes remain ordinary Markdown files."
+              },
+              "noise": {
+                "label": "Color theme",
+                "preview": "Grey and green palette."
+              },
+              "stop": "No observed useful link."
+            }
+          }
+        },
+        "model": "typesafe/jev-1.13"
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "preservation_reason": {
+            "type": "noul",
+            "noul": 0.06
+          },
+          "quote_traceability": {
+            "type": "noul",
+            "noul": 0.03
+          },
+          "next": {
+            "type": "choice",
+            "choice": "import",
+            "probabilities": {
+              "noise": 0,
+              "import": 0.64,
+              "search": 0.31,
+              "stop": 0.05
+            },
+            "confidence": 0.51
+          }
+        },
+        "usage": {
+          "input_tokens": 705,
+          "output_tokens": 84,
+          "cost": 2.961e-05
+        },
+        "id": "gen-dec-1790721939-609dBOppkMdfrgnf3L92",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.38673924998147413,
+      "checks": {
+        "preservation_reason": {
+          "expected": false,
+          "actual": 0.06,
+          "correct": true
+        },
+        "quote_traceability": {
+          "expected": false,
+          "actual": 0.03,
+          "correct": true
+        }
+      }
+    },
+    {
+      "family": "graph_facets",
+      "name": "garden_import",
+      "request": {
+        "state": {
+          "goal": "Find BOTH why original transcripts are preserved AND the concrete method connecting quotations to their stored source body (message IDs, offsets, or equivalent traceable references).",
+          "evidence_seen": {
+            "garden": "Garden overview.",
+            "import": "Import overview; preserve revisions."
+          },
+          "observed_outgoing": {
+            "revisions": {
+              "label": "Reason for preservation",
+              "preview": "An agent misquoted a decision after its transcript was overwritten. Preserve each imported source revision so later readers can inspect what was actually said."
+            },
+            "search": {
+              "label": "Search system and decision records",
+              "preview": "A rebuildable local full-text database serves searches without network access. Canonical notes remain ordinary Markdown files."
+            }
+          }
+        },
+        "questions": {
+          "preservation_reason": {
+            "type": "noul",
+            "instructions": "Does `evidence_seen` explicitly explain the failure or reason motivating preservation of original transcript revisions? A statement to preserve them without why is insufficient."
+          },
+          "quote_traceability": {
+            "type": "noul",
+            "instructions": "Does `evidence_seen` explicitly describe a concrete method connecting quoted text to its saved original source, such as saved content hashes PLUS source message IDs or offsets? Generic preservation alone is insufficient."
+          },
+          "next": {
+            "type": "choice",
+            "instructions": "Choose an observed outgoing link likely to supply a missing requirement from `goal`. Prioritize concrete traceability mechanics once the preservation reason is known. Select stop if no useful link remains.",
+            "criteria": {
+              "revisions": {
+                "label": "Reason for preservation",
+                "preview": "An agent misquoted a decision after its transcript was overwritten. Preserve each imported source revision so later readers can inspect what was actually said."
+              },
+              "search": {
+                "label": "Search system and decision records",
+                "preview": "A rebuildable local full-text database serves searches without network access. Canonical notes remain ordinary Markdown files."
+              },
+              "stop": "No observed useful link."
+            }
+          }
+        },
+        "model": "typesafe/jev-1.13"
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "preservation_reason": {
+            "type": "noul",
+            "noul": 0.6
+          },
+          "quote_traceability": {
+            "type": "noul",
+            "noul": 0.06
+          },
+          "next": {
+            "type": "choice",
+            "choice": "search",
+            "probabilities": {
+              "stop": 0.24,
+              "revisions": 0.23,
+              "search": 0.53
+            },
+            "confidence": 0.29
+          }
+        },
+        "usage": {
+          "input_tokens": 708,
+          "output_tokens": 79,
+          "cost": 2.9736e-05
+        },
+        "id": "gen-dec-1790721939-UqEVEaLQbXhZoHLAfW6Q",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.6442102500004694,
+      "checks": {
+        "preservation_reason": {
+          "expected": false,
+          "actual": 0.6,
+          "correct": false
+        },
+        "quote_traceability": {
+          "expected": false,
+          "actual": 0.06,
+          "correct": true
+        }
+      }
+    },
+    {
+      "family": "graph_facets",
+      "name": "garden_import_search",
+      "request": {
+        "state": {
+          "goal": "Find BOTH why original transcripts are preserved AND the concrete method connecting quotations to their stored source body (message IDs, offsets, or equivalent traceable references).",
+          "evidence_seen": {
+            "garden": "Garden overview.",
+            "import": "Import overview; preserve revisions.",
+            "search": "A rebuildable local full-text database serves searches without network access. Canonical notes remain ordinary Markdown files."
+          },
+          "observed_outgoing": {
+            "choice": {
+              "label": "User decision replacing old search",
+              "preview": "User decision: replace hosted search in Garden with the local full-text database so it works on the train. This supersedes the July choice."
+            }
+          }
+        },
+        "questions": {
+          "preservation_reason": {
+            "type": "noul",
+            "instructions": "Does `evidence_seen` explicitly explain the failure or reason motivating preservation of original transcript revisions? A statement to preserve them without why is insufficient."
+          },
+          "quote_traceability": {
+            "type": "noul",
+            "instructions": "Does `evidence_seen` explicitly describe a concrete method connecting quoted text to its saved original source, such as saved content hashes PLUS source message IDs or offsets? Generic preservation alone is insufficient."
+          },
+          "next": {
+            "type": "choice",
+            "instructions": "Choose an observed outgoing link likely to supply a missing requirement from `goal`. Prioritize concrete traceability mechanics once the preservation reason is known. Select stop if no useful link remains.",
+            "criteria": {
+              "choice": {
+                "label": "User decision replacing old search",
+                "preview": "User decision: replace hosted search in Garden with the local full-text database so it works on the train. This supersedes the July choice."
+              },
+              "stop": "No observed useful link."
+            }
+          }
+        },
+        "model": "typesafe/jev-1.13"
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "preservation_reason": {
+            "type": "noul",
+            "noul": 0.1
+          },
+          "quote_traceability": {
+            "type": "noul",
+            "noul": 0.05
+          },
+          "next": {
+            "type": "choice",
+            "choice": "stop",
+            "probabilities": {
+              "stop": 0.78,
+              "choice": 0.22
+            },
+            "confidence": 0.56
+          }
+        },
+        "usage": {
+          "input_tokens": 640,
+          "output_tokens": 70,
+          "cost": 2.688e-05
+        },
+        "id": "gen-dec-1790721940-JXQlljiUBHsIynkCjFg9",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.5777926659793593,
+      "checks": {
+        "preservation_reason": {
+          "expected": false,
+          "actual": 0.1,
+          "correct": true
+        },
+        "quote_traceability": {
+          "expected": false,
+          "actual": 0.05,
+          "correct": true
+        }
+      }
+    }
+  ]
+}

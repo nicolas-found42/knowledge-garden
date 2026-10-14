@@ -1,0 +1,66 @@
+{
+  "id": "a6",
+  "role": "cited-answer",
+  "request": {
+    "model": "openai/gpt-4.1-mini",
+    "temperature": 0,
+    "max_tokens": 900,
+    "response_format": {
+      "type": "json_object"
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "{\"instruction\": \"Return JSON with sentences:[{text,sourceIds,quote}]. Each sentence must be supported by supplied source context; quote is exact source text. Explicitly state unknown, uncertainty, constructed origin and missing evidence. A valid citation is not proof of a claim. Do not fill gaps. This is one question, no follow-up conversation.\", \"question\": \"Does the video count at two seconds measure accuracy over a two-second interval?\", \"sources\": [{\"id\": \"video\", \"title\": \"Motion difference demonstration\", \"kind\": \"file\", \"format\": \"MP4\", \"body\": \"Reused executed demonstration built from public OpenCV video. At two seconds, 11566 is a sampled consecutive-frame changed-pixel count, not an interval aggregate or accuracy score.\", \"origin\": \"controlled over public video\", \"epistemic\": \"recorded\", \"acquisition\": \"captured\"}, {\"id\": \"code\", \"title\": \"Motion demonstration source\", \"kind\": \"file\", \"format\": \"Python\", \"body\": \"Executed controlled code: grayscale, blur and threshold 35. It produces masks; better accuracy was not established.\", \"origin\": \"controlled\", \"epistemic\": \"recorded\", \"acquisition\": \"captured\"}]}"
+      }
+    ]
+  },
+  "started": "2026-09-30T00:48:22.494282+00:00",
+  "response": {
+    "id": "gen-1790729302-bVAo5cnzYZd7xhLKPMXW",
+    "object": "chat.completion",
+    "created": 1790729302,
+    "model": "openai/gpt-4.1-mini",
+    "provider": "OpenAI",
+    "system_fingerprint": null,
+    "service_tier": "default",
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "completed",
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"sentences\": [\n    {\n      \"text\": \"The video count at two seconds is a sampled consecutive-frame changed-pixel count, not an interval aggregate or accuracy score.\",\n      \"sourceIds\": [\"video\"],\n      \"quote\": \"At two seconds, 11566 is a sampled consecutive-frame changed-pixel count, not an interval aggregate or accuracy score.\"\n    }\n  ]\n}",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 270,
+      "completion_tokens": 82,
+      "total_tokens": 352,
+      "cost": 0.000236808,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0002392,
+        "upstream_inference_prompt_cost": 0.000108,
+        "upstream_inference_completions_cost": 0.0001312
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  "seconds": 1.54856608400587
+}

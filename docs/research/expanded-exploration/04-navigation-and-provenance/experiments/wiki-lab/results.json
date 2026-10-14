@@ -1,0 +1,1897 @@
+{
+  "recorded_at": "2026-09-29T23:56:51.994797+00:00",
+  "fixture_sha256": "b42947846ac5cfd543c7fdb899acb84cd40f6fa7dadec997959e4bf1876df408",
+  "results": [
+    {
+      "request": {
+        "model": "openai/gpt-4.1-mini",
+        "temperature": 0,
+        "response_format": {
+          "type": "json_object"
+        },
+        "messages": [
+          {
+            "role": "user",
+            "content": "{\"instruction\": \"Write a readable source-linked wiki capsule as JSON {title,sentences:[{text,source_ids,status}]}. At most FOUR short sentences. Status must be recorded/tentative/speculative. Refer only to supplied source IDs. Preserve constructed/authored origins when supplied; do not infer real personal history from an observation. Preserve bounded claims, uncertainty, source conversions and relevant exceptions. Distinguish measured outputs from assistant assertions and hypotheses from facts. If metadata or evidence is missing, leave claims tentative or explicitly unknown. No external knowledge, invented outcomes, causal improvement claims, or skill activation. Cite the particular records that support each sentence. Make this understandable to someone without the experiment context.\", \"bundle\": \"motion\", \"input\": [{\"id\": \"motion-c1\", \"text\": \"Controlled research demonstration: use the public OpenCV surveillance sample to find frame changes. Mark changed pixels, without interpreting people or their intent.\", \"origin\": \"constructed conversation\", \"source_status\": \"captured\", \"artifact\": \"01-source-interpretation/experiments/media-lab/controlled-coding-thread.json\", \"artifact_sha256\": \"90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e\", \"selector\": \"turn c1\"}, {\"id\": \"motion-c2\", \"text\": \"First attempt compared RGB values directly with threshold 10, producing noise. I propose blur plus grayscale and threshold 35.\", \"origin\": \"constructed assistant assertion, no measured before comparison\", \"source_status\": \"captured\", \"artifact\": \"01-source-interpretation/experiments/media-lab/controlled-coding-thread.json\", \"artifact_sha256\": \"90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e\", \"selector\": \"turn c2\"}, {\"id\": \"motion-c3\", \"text\": \"Use grayscale, a small blur, and threshold 35. Keep frame time anchors. This is an experiment; do not claim the detector identifies suspicious behavior.\", \"origin\": \"constructed user adoption\", \"source_status\": \"captured\", \"artifact\": \"01-source-interpretation/experiments/media-lab/controlled-coding-thread.json\", \"artifact_sha256\": \"90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e\", \"selector\": \"turn c3\"}, {\"id\": \"motion-code\", \"text\": \"\\\"\\\"\\\"Actual controlled change and runnable public-video difference demonstration.\\nNo object identity or intent inference. Output overlays pixel changes.\\n\\\"\\\"\\\"\\nfrom pathlib import Path\\nimport subprocess,json\\nfrom PIL import Image,ImageChops,ImageFilter,ImageDraw\\nROOT=Path(__file__).parent\\nCACHE=Path('/tmp/knowledge-garden-media-lab')\\nTHRESHOLD=35\\ndef mask(previous,current):\\n a=previous.convert('L').filter(ImageFilter.GaussianBlur(1))\\n b=current.convert('L').filter(ImageFilter.GaussianBlur(1))\\n return ImageChops.difference(a,b).point(lambda x:255 if x>THRESHOLD else 0)\\ndef main():\\n frames=CACHE/'demo-frames';frames.mkdir(exist_ok=True)\\n subprocess.run(['ffmpeg','-y','-loglevel','error','-i',str(CACHE/'vtest.avi'),'-t','10','-vf','fps=5',str(frames/'input-%03d.png')],check=True)\\n paths=sorted(frames.glob('input-*.png'));previous=Image.open(paths[0]);rows=[]\\n for i,path in enumerate(paths):\\n  current=Image.open(path).convert('RGB');m=mask(previous,current)\\n  overlay=Image.new('RGB',current.size,(255,0,0));out=Image.composite(overlay,current,m)\\n  d=ImageDraw.Draw(out);d.rectangle((0,0,768,24),fill='black');d.text((5,5),f'Controlled demo | SOURCE t={i/5:.1f}s | changed pixels, no intent inference',fill='white')\\n  out.save(frames/f'output-{i:03d}.png');rows.append(dict(seconds=i/5,changed_pixels=sum(v>0 for v in m.getdata()),total_pixels=m.width*m.height));previous=current\\n subprocess.run(['ffmpeg','-y','-loglevel','error','-framerate','5','-i',str(frames/'output-%03d.png'),'-c:v','libx264','-pix_fmt','yuv420p',str(ROOT/'controlled-demo.mp4')],check=True)\\n Image.open(frames/'output-010.png').save(ROOT/'controlled-demo-screenshot.png')\\n (ROOT/'controlled-demo-metrics.json').write_text(json.dumps(rows,indent=2))\\nif __name__=='__main__':main()\\n\", \"origin\": \"actually executed constructed code\", \"source_status\": \"captured\", \"artifact\": \"01-source-interpretation/experiments/media-lab/controlled_demo.py\", \"artifact_sha256\": \"0252143111c601230860c15973fbaa1f75aaf07d838ffdb09dcdb24a4c523e14\"}, {\"id\": \"motion-t2\", \"text\": \"{\\\"seconds\\\": 2.0, \\\"changed_pixels\\\": 11566, \\\"total_pixels\\\": 442368}\", \"origin\": \"actual measured output\", \"source_status\": \"captured\", \"artifact\": \"01-source-interpretation/experiments/media-lab/controlled-demo-metrics.json\", \"artifact_sha256\": \"f22e4dc18a264c0597cd413add1f5c8d2f22dd65999e1434ab6606fab5bc24fe\", \"selector\": \"seconds=2.0\"}, {\"id\": \"motion-c4\", \"text\": \"Changed controlled_demo.py accordingly and rendered a demonstration. Difference masks are evidence of pixel change, not a reliable object tracker.\", \"origin\": \"constructed assistant assertion\", \"source_status\": \"captured\", \"artifact\": \"01-source-interpretation/experiments/media-lab/controlled-coding-thread.json\", \"artifact_sha256\": \"90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e\", \"selector\": \"turn c4\"}]}"
+          }
+        ]
+      },
+      "response": {
+        "id": "gen-1790726194-DS7esd8BAWxbjXBN24XB",
+        "object": "chat.completion",
+        "created": 1790726194,
+        "model": "openai/gpt-4.1-mini",
+        "provider": "OpenAI",
+        "system_fingerprint": null,
+        "service_tier": "default",
+        "choices": [
+          {
+            "index": 0,
+            "logprobs": null,
+            "finish_reason": "stop",
+            "native_finish_reason": "completed",
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"title\": \"Controlled Motion Detection Demonstration\",\n  \"sentences\": [\n    {\n      \"text\": \"A controlled research demonstration used the public OpenCV surveillance sample to detect frame changes by marking changed pixels without interpreting people or their intent.\",\n      \"source_ids\": [\"motion-c1\"],\n      \"status\": \"recorded\"\n    },\n    {\n      \"text\": \"The detection method was updated to use grayscale conversion, a small Gaussian blur, and a threshold of 35 to reduce noise compared to a direct RGB comparison with threshold 10.\",\n      \"source_ids\": [\"motion-c2\", \"motion-c3\"],\n      \"status\": \"recorded\"\n    },\n    {\n      \"text\": \"The difference masks produced indicate pixel changes but are not reliable for object tracking or identifying suspicious behavior.\",\n      \"source_ids\": [\"motion-c4\", \"motion-c3\"],\n      \"status\": \"recorded\"\n    },\n    {\n      \"text\": \"An example measurement at 2 seconds showed 11,566 changed pixels out of 442,368 total pixels, demonstrating the pixel change detection output.\",\n      \"source_ids\": [\"motion-t2\"],\n      \"status\": \"recorded\"\n    }\n  ]\n}",
+              "refusal": null,
+              "reasoning": null
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 1437,
+          "completion_tokens": 250,
+          "total_tokens": 1687,
+          "cost": 0.000965052,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0009748,
+            "upstream_inference_prompt_cost": 0.0005748,
+            "upstream_inference_completions_cost": 0.0004
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "seconds": 2.367006458021933,
+      "id": "motion-full",
+      "engine": "generative",
+      "variant": "full_evidence",
+      "parsed_capsule": {
+        "title": "Controlled Motion Detection Demonstration",
+        "sentences": [
+          {
+            "text": "A controlled research demonstration used the public OpenCV surveillance sample to detect frame changes by marking changed pixels without interpreting people or their intent.",
+            "source_ids": [
+              "motion-c1"
+            ],
+            "status": "recorded"
+          },
+          {
+            "text": "The detection method was updated to use grayscale conversion, a small Gaussian blur, and a threshold of 35 to reduce noise compared to a direct RGB comparison with threshold 10.",
+            "source_ids": [
+              "motion-c2",
+              "motion-c3"
+            ],
+            "status": "recorded"
+          },
+          {
+            "text": "The difference masks produced indicate pixel changes but are not reliable for object tracking or identifying suspicious behavior.",
+            "source_ids": [
+              "motion-c4",
+              "motion-c3"
+            ],
+            "status": "recorded"
+          },
+          {
+            "text": "An example measurement at 2 seconds showed 11,566 changed pixels out of 442,368 total pixels, demonstrating the pixel change detection output.",
+            "source_ids": [
+              "motion-t2"
+            ],
+            "status": "recorded"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "model": "typesafe/jev-1.13",
+        "state": {
+          "claims": [
+            {
+              "index": 0,
+              "generated_sentence": {
+                "text": "A controlled research demonstration used the public OpenCV surveillance sample to detect frame changes by marking changed pixels without interpreting people or their intent.",
+                "source_ids": [
+                  "motion-c1"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "motion-c1",
+                  "text": "Controlled research demonstration: use the public OpenCV surveillance sample to find frame changes. Mark changed pixels, without interpreting people or their intent.",
+                  "origin": "constructed conversation",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/controlled-coding-thread.json",
+                  "artifact_sha256": "90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e",
+                  "selector": "turn c1"
+                }
+              ],
+              "unknown_source_ids": []
+            },
+            {
+              "index": 1,
+              "generated_sentence": {
+                "text": "The detection method was updated to use grayscale conversion, a small Gaussian blur, and a threshold of 35 to reduce noise compared to a direct RGB comparison with threshold 10.",
+                "source_ids": [
+                  "motion-c2",
+                  "motion-c3"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "motion-c2",
+                  "text": "First attempt compared RGB values directly with threshold 10, producing noise. I propose blur plus grayscale and threshold 35.",
+                  "origin": "constructed assistant assertion, no measured before comparison",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/controlled-coding-thread.json",
+                  "artifact_sha256": "90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e",
+                  "selector": "turn c2"
+                },
+                {
+                  "id": "motion-c3",
+                  "text": "Use grayscale, a small blur, and threshold 35. Keep frame time anchors. This is an experiment; do not claim the detector identifies suspicious behavior.",
+                  "origin": "constructed user adoption",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/controlled-coding-thread.json",
+                  "artifact_sha256": "90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e",
+                  "selector": "turn c3"
+                }
+              ],
+              "unknown_source_ids": []
+            },
+            {
+              "index": 2,
+              "generated_sentence": {
+                "text": "The difference masks produced indicate pixel changes but are not reliable for object tracking or identifying suspicious behavior.",
+                "source_ids": [
+                  "motion-c4",
+                  "motion-c3"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "motion-c4",
+                  "text": "Changed controlled_demo.py accordingly and rendered a demonstration. Difference masks are evidence of pixel change, not a reliable object tracker.",
+                  "origin": "constructed assistant assertion",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/controlled-coding-thread.json",
+                  "artifact_sha256": "90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e",
+                  "selector": "turn c4"
+                },
+                {
+                  "id": "motion-c3",
+                  "text": "Use grayscale, a small blur, and threshold 35. Keep frame time anchors. This is an experiment; do not claim the detector identifies suspicious behavior.",
+                  "origin": "constructed user adoption",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/controlled-coding-thread.json",
+                  "artifact_sha256": "90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e",
+                  "selector": "turn c3"
+                }
+              ],
+              "unknown_source_ids": []
+            },
+            {
+              "index": 3,
+              "generated_sentence": {
+                "text": "An example measurement at 2 seconds showed 11,566 changed pixels out of 442,368 total pixels, demonstrating the pixel change detection output.",
+                "source_ids": [
+                  "motion-t2"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "motion-t2",
+                  "text": "{\"seconds\": 2.0, \"changed_pixels\": 11566, \"total_pixels\": 442368}",
+                  "origin": "actual measured output",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/controlled-demo-metrics.json",
+                  "artifact_sha256": "f22e4dc18a264c0597cd413add1f5c8d2f22dd65999e1434ab6606fab5bc24fe",
+                  "selector": "seconds=2.0"
+                }
+              ],
+              "unknown_source_ids": []
+            }
+          ],
+          "bundle_original_provenance": "Public source excerpts and explicitly constructed controlled histories; no real private-user history in this experiment."
+        },
+        "questions": {
+          "fidelity_0": {
+            "type": "choice",
+            "instructions": "Does claims[0].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_0": {
+            "type": "noul",
+            "instructions": "Is claims[0].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          },
+          "fidelity_1": {
+            "type": "choice",
+            "instructions": "Does claims[1].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_1": {
+            "type": "noul",
+            "instructions": "Is claims[1].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          },
+          "fidelity_2": {
+            "type": "choice",
+            "instructions": "Does claims[2].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_2": {
+            "type": "noul",
+            "instructions": "Is claims[2].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          },
+          "fidelity_3": {
+            "type": "choice",
+            "instructions": "Does claims[3].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_3": {
+            "type": "noul",
+            "instructions": "Is claims[3].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "fidelity_0": {
+            "type": "choice",
+            "choice": "faithful",
+            "probabilities": {
+              "faithful": 0.81,
+              "qualifier_missing": 0.13,
+              "unsupported": 0.06
+            },
+            "confidence": 0.71
+          },
+          "status_0": {
+            "type": "noul",
+            "noul": 0.87
+          },
+          "fidelity_1": {
+            "type": "choice",
+            "choice": "unsupported",
+            "probabilities": {
+              "faithful": 0.03,
+              "qualifier_missing": 0.27,
+              "unsupported": 0.7
+            },
+            "confidence": 0.55
+          },
+          "status_1": {
+            "type": "noul",
+            "noul": 0.74
+          },
+          "fidelity_2": {
+            "type": "choice",
+            "choice": "faithful",
+            "probabilities": {
+              "faithful": 0.57,
+              "qualifier_missing": 0.21,
+              "unsupported": 0.22
+            },
+            "confidence": 0.36
+          },
+          "status_2": {
+            "type": "noul",
+            "noul": 0.79
+          },
+          "fidelity_3": {
+            "type": "choice",
+            "choice": "faithful",
+            "probabilities": {
+              "faithful": 0.83,
+              "qualifier_missing": 0.11,
+              "unsupported": 0.06
+            },
+            "confidence": 0.75
+          },
+          "status_3": {
+            "type": "noul",
+            "noul": 0.89
+          }
+        },
+        "usage": {
+          "input_tokens": 2526,
+          "output_tokens": 254,
+          "cost": 0.000106092
+        },
+        "id": "gen-dec-1790726196-chuze261jzRAY6P5eKHK",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.32319987498340197,
+      "id": "motion-full-verify",
+      "engine": "jev",
+      "variant": "full_evidence"
+    },
+    {
+      "request": {
+        "model": "openai/gpt-4.1-mini",
+        "temperature": 0,
+        "response_format": {
+          "type": "json_object"
+        },
+        "messages": [
+          {
+            "role": "user",
+            "content": "{\"instruction\": \"Write a readable source-linked wiki capsule as JSON {title,sentences:[{text,source_ids,status}]}. At most FOUR short sentences. Status must be recorded/tentative/speculative. Refer only to supplied source IDs. Preserve constructed/authored origins when supplied; do not infer real personal history from an observation. Preserve bounded claims, uncertainty, source conversions and relevant exceptions. Distinguish measured outputs from assistant assertions and hypotheses from facts. If metadata or evidence is missing, leave claims tentative or explicitly unknown. No external knowledge, invented outcomes, causal improvement claims, or skill activation. Cite the particular records that support each sentence. Make this understandable to someone without the experiment context.\", \"bundle\": \"motion\", \"input\": [{\"id\": \"motion-c3\", \"observation\": \"Use grayscale, a small blur, and threshold 35. Keep frame time anchors.\"}, {\"id\": \"motion-t2\", \"observation\": \"{\\\"seconds\\\": 2.0, \\\"changed_pixels\\\": 11566, \\\"total_pixels\\\": 442368}\"}, {\"id\": \"motion-code\", \"observation\": \"The code renders difference masks from grayscale frames with Gaussian blur1 and threshold35.\"}]}"
+          }
+        ]
+      },
+      "response": {
+        "id": "gen-1790726196-MuxjTUUUanGj3Zd83bhA",
+        "object": "chat.completion",
+        "created": 1790726196,
+        "model": "openai/gpt-4.1-mini",
+        "provider": "OpenAI",
+        "system_fingerprint": null,
+        "service_tier": "default",
+        "choices": [
+          {
+            "index": 0,
+            "logprobs": null,
+            "finish_reason": "stop",
+            "native_finish_reason": "completed",
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"title\": \"Motion Detection Method Using Grayscale and Thresholding\",\n  \"sentences\": [\n    {\n      \"text\": \"The motion detection process uses grayscale images with a small Gaussian blur and a threshold value of 35 to create difference masks.\",\n      \"source_ids\": [\"motion-c3\", \"motion-code\"],\n      \"status\": \"recorded\"\n    },\n    {\n      \"text\": \"Frame time anchors are maintained during the processing to preserve temporal alignment.\",\n      \"source_ids\": [\"motion-c3\"],\n      \"status\": \"recorded\"\n    },\n    {\n      \"text\": \"In one measurement, over 2 seconds, 11,566 pixels changed out of a total of 442,368 pixels.\",\n      \"source_ids\": [\"motion-t2\"],\n      \"status\": \"recorded\"\n    }\n  ]\n}",
+              "refusal": null,
+              "reasoning": null
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 255,
+          "completion_tokens": 174,
+          "total_tokens": 429,
+          "cost": 0.000376596,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0003804,
+            "upstream_inference_prompt_cost": 0.000102,
+            "upstream_inference_completions_cost": 0.0002784
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "seconds": 3.125502167007653,
+      "id": "motion-lossy",
+      "engine": "generative",
+      "variant": "lossy_observations",
+      "parsed_capsule": {
+        "title": "Motion Detection Method Using Grayscale and Thresholding",
+        "sentences": [
+          {
+            "text": "The motion detection process uses grayscale images with a small Gaussian blur and a threshold value of 35 to create difference masks.",
+            "source_ids": [
+              "motion-c3",
+              "motion-code"
+            ],
+            "status": "recorded"
+          },
+          {
+            "text": "Frame time anchors are maintained during the processing to preserve temporal alignment.",
+            "source_ids": [
+              "motion-c3"
+            ],
+            "status": "recorded"
+          },
+          {
+            "text": "In one measurement, over 2 seconds, 11,566 pixels changed out of a total of 442,368 pixels.",
+            "source_ids": [
+              "motion-t2"
+            ],
+            "status": "recorded"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "model": "typesafe/jev-1.13",
+        "state": {
+          "claims": [
+            {
+              "index": 0,
+              "generated_sentence": {
+                "text": "The motion detection process uses grayscale images with a small Gaussian blur and a threshold value of 35 to create difference masks.",
+                "source_ids": [
+                  "motion-c3",
+                  "motion-code"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "motion-c3",
+                  "text": "Use grayscale, a small blur, and threshold 35. Keep frame time anchors. This is an experiment; do not claim the detector identifies suspicious behavior.",
+                  "origin": "constructed user adoption",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/controlled-coding-thread.json",
+                  "artifact_sha256": "90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e",
+                  "selector": "turn c3"
+                },
+                {
+                  "id": "motion-code",
+                  "text": "\"\"\"Actual controlled change and runnable public-video difference demonstration.\nNo object identity or intent inference. Output overlays pixel changes.\n\"\"\"\nfrom pathlib import Path\nimport subprocess,json\nfrom PIL import Image,ImageChops,ImageFilter,ImageDraw\nROOT=Path(__file__).parent\nCACHE=Path('/tmp/knowledge-garden-media-lab')\nTHRESHOLD=35\ndef mask(previous,current):\n a=previous.convert('L').filter(ImageFilter.GaussianBlur(1))\n b=current.convert('L').filter(ImageFilter.GaussianBlur(1))\n return ImageChops.difference(a,b).point(lambda x:255 if x>THRESHOLD else 0)\ndef main():\n frames=CACHE/'demo-frames';frames.mkdir(exist_ok=True)\n subprocess.run(['ffmpeg','-y','-loglevel','error','-i',str(CACHE/'vtest.avi'),'-t','10','-vf','fps=5',str(frames/'input-%03d.png')],check=True)\n paths=sorted(frames.glob('input-*.png'));previous=Image.open(paths[0]);rows=[]\n for i,path in enumerate(paths):\n  current=Image.open(path).convert('RGB');m=mask(previous,current)\n  overlay=Image.new('RGB',current.size,(255,0,0));out=Image.composite(overlay,current,m)\n  d=ImageDraw.Draw(out);d.rectangle((0,0,768,24),fill='black');d.text((5,5),f'Controlled demo | SOURCE t={i/5:.1f}s | changed pixels, no intent inference',fill='white')\n  out.save(frames/f'output-{i:03d}.png');rows.append(dict(seconds=i/5,changed_pixels=sum(v>0 for v in m.getdata()),total_pixels=m.width*m.height));previous=current\n subprocess.run(['ffmpeg','-y','-loglevel','error','-framerate','5','-i',str(frames/'output-%03d.png'),'-c:v','libx264','-pix_fmt','yuv420p',str(ROOT/'controlled-demo.mp4')],check=True)\n Image.open(frames/'output-010.png').save(ROOT/'controlled-demo-screenshot.png')\n (ROOT/'controlled-demo-metrics.json').write_text(json.dumps(rows,indent=2))\nif __name__=='__main__':main()\n",
+                  "origin": "actually executed constructed code",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/controlled_demo.py",
+                  "artifact_sha256": "0252143111c601230860c15973fbaa1f75aaf07d838ffdb09dcdb24a4c523e14"
+                }
+              ],
+              "unknown_source_ids": []
+            },
+            {
+              "index": 1,
+              "generated_sentence": {
+                "text": "Frame time anchors are maintained during the processing to preserve temporal alignment.",
+                "source_ids": [
+                  "motion-c3"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "motion-c3",
+                  "text": "Use grayscale, a small blur, and threshold 35. Keep frame time anchors. This is an experiment; do not claim the detector identifies suspicious behavior.",
+                  "origin": "constructed user adoption",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/controlled-coding-thread.json",
+                  "artifact_sha256": "90fa651ada20eb1ed97afa82e20c7b5f6953e5a87aef5aa8645b55c2e9cd0d3e",
+                  "selector": "turn c3"
+                }
+              ],
+              "unknown_source_ids": []
+            },
+            {
+              "index": 2,
+              "generated_sentence": {
+                "text": "In one measurement, over 2 seconds, 11,566 pixels changed out of a total of 442,368 pixels.",
+                "source_ids": [
+                  "motion-t2"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "motion-t2",
+                  "text": "{\"seconds\": 2.0, \"changed_pixels\": 11566, \"total_pixels\": 442368}",
+                  "origin": "actual measured output",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/controlled-demo-metrics.json",
+                  "artifact_sha256": "f22e4dc18a264c0597cd413add1f5c8d2f22dd65999e1434ab6606fab5bc24fe",
+                  "selector": "seconds=2.0"
+                }
+              ],
+              "unknown_source_ids": []
+            }
+          ],
+          "bundle_original_provenance": "Public source excerpts and explicitly constructed controlled histories; no real private-user history in this experiment."
+        },
+        "questions": {
+          "fidelity_0": {
+            "type": "choice",
+            "instructions": "Does claims[0].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_0": {
+            "type": "noul",
+            "instructions": "Is claims[0].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          },
+          "fidelity_1": {
+            "type": "choice",
+            "instructions": "Does claims[1].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_1": {
+            "type": "noul",
+            "instructions": "Is claims[1].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          },
+          "fidelity_2": {
+            "type": "choice",
+            "instructions": "Does claims[2].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_2": {
+            "type": "noul",
+            "instructions": "Is claims[2].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "fidelity_0": {
+            "type": "choice",
+            "choice": "faithful",
+            "probabilities": {
+              "qualifier_missing": 0.42,
+              "faithful": 0.53,
+              "unsupported": 0.05
+            },
+            "confidence": 0.3
+          },
+          "status_0": {
+            "type": "noul",
+            "noul": 0.9
+          },
+          "fidelity_1": {
+            "type": "choice",
+            "choice": "faithful",
+            "probabilities": {
+              "qualifier_missing": 0.28,
+              "faithful": 0.48,
+              "unsupported": 0.24
+            },
+            "confidence": 0.21
+          },
+          "status_1": {
+            "type": "noul",
+            "noul": 0.89
+          },
+          "fidelity_2": {
+            "type": "choice",
+            "choice": "faithful",
+            "probabilities": {
+              "qualifier_missing": 0.39,
+              "faithful": 0.58,
+              "unsupported": 0.03
+            },
+            "confidence": 0.37
+          },
+          "status_2": {
+            "type": "noul",
+            "noul": 0.92
+          }
+        },
+        "usage": {
+          "input_tokens": 2374,
+          "output_tokens": 193,
+          "cost": 9.9708e-05
+        },
+        "id": "gen-dec-1790726199-ND85UITpukrhHuzk3N8t",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.2473157919885125,
+      "id": "motion-lossy-verify",
+      "engine": "jev",
+      "variant": "lossy_observations"
+    },
+    {
+      "request": {
+        "model": "openai/gpt-4.1-mini",
+        "temperature": 0,
+        "response_format": {
+          "type": "json_object"
+        },
+        "messages": [
+          {
+            "role": "user",
+            "content": "{\"instruction\": \"Write a readable source-linked wiki capsule as JSON {title,sentences:[{text,source_ids,status}]}. At most FOUR short sentences. Status must be recorded/tentative/speculative. Refer only to supplied source IDs. Preserve constructed/authored origins when supplied; do not infer real personal history from an observation. Preserve bounded claims, uncertainty, source conversions and relevant exceptions. Distinguish measured outputs from assistant assertions and hypotheses from facts. If metadata or evidence is missing, leave claims tentative or explicitly unknown. No external knowledge, invented outcomes, causal improvement claims, or skill activation. Cite the particular records that support each sentence. Make this understandable to someone without the experiment context.\", \"bundle\": \"book\", \"input\": [{\"id\": \"book-ocr\", \"text\": \"78\\nNATURAL SELECTION.\\n[CHAP. IV\\nOn the other hand, we may feel sure that any\\nvariation\\nin the lenst degree injurious would be rigidly destroved.\\nThis preservation of favourable variations and the rejec-\\ntion of injurious\\nvariations, I call Natural Selection.\\nVariations neither useful nor injurious would not be aftect-\\ned by natural selection, and would be left a fluctuating\\nclement, as perhaps we see in the species called polymor-\\nphic.\\nWe shall best understand the probable course of na-\\ntuwral sclection by taking the case of a country undergo-\\ning some physical change, for instance, of climate.\\nThe\\nproportional numbers of its inhabitants would almost im-\\nmediately undergo a change, and some species might be-\\ncome extinet.\\nWe may conelude, from what we have\\nseen of the intimate and complex manner in which the in-\\nhabitants of cach country are bound together, that any\\nchange in the munerical\\nsome of the in-\\nCabiguts, ithe peumeia of rue chango of ehimat tiedil,\\nwould most seriously affeet many of the others.\\ncountry were open on its borders, new forms would cer-\\ntainly immigrate, and this also would serionsly disturb\\nthe relations of some of the former inhabitants.\\nLet it be\\nremembered how powerfiul the influence of' a single intro-\\nduced tree or manual has been shown to be.\\nBut in the\\ncase of an island, or of a country partly surrounded by\\nbarriers, into which new and betfer adapted forms could\\nnot freely enter, we should then have places in the econo-\\nmny of nature whieh would assuredly be better filled up,\\nif some of' the original inhabitants were in some manner\\nmnodified; for, had the arca been open to inmigration,\\nthese same places would have been seized on by intruders.\\nIn such case, every slight moditication, which in the course\\nof ages chanced to arise, and wlueh in any way favoured\\nthe individuals of any of the species, by |\\nthem to their altered conditions, would tend to be pre-\\nserved; and natural selection would thus have free scope\\nfor the work of improvement.\\nWe have reason to believe, as stated in the first chap-\\nter, that a change in the conditions of life, by specially\\naeting on the reproductive system, causes or increases\", \"origin\": \"derived OCR from real 1860 book scan; not exact scan text\", \"source_status\": \"captured\", \"artifact\": \"01-source-interpretation/experiments/media-lab/book-pdf-page-84-ocr.json\", \"artifact_sha256\": \"aa1886cd8584e1bfda580e7bfa1c0e598733d0ec56c93a1d1ba844ad7f22cd79\", \"selector\": \"PDF page84,printed page78\", \"primary_scan\": \"01-source-interpretation/experiments/media-lab/book-pdf-page-84.png\"}, {\"id\": \"deap-article\", \"text\": \"\\nSelection\\n---------\\n\\nSelection is made among a population by the selection operators that are\\navailable in the :mod:`deap.tools` module. The selection operator usually\\ntakes as first argument an iterable container of individuals and the number of\\nindividuals to select. It returns a list containing the references to the\\nselected individuals. The selection is made as follow.\\n\\n.. literalinclude:: /code/tutorials/part_3/3_next_step.py\\n   :lines: 49-50\\n\\n.. warning:: It is **very** important here to note that the selection\\n   operators does not duplicate any individual during the selection process.\\n   If an individual is selected twice and one of either object is modified,\\n   the other will also be modified. Only a reference to the individual is\\n   copied. Just like every other operator it selects and only selects.\\n\\nUsually duplication of the entire population will be made after selection or\\nbefore variation.\\n\\n.. literalinclude:: /code/tutorials/part_3/3_next_step.py\\n   :lines: 56-57\\n\\n\\nUsing the Toolbox\\n-----------------\\n\\nThe toolbox is intended to contain all the evolutionary tools, from the object\\ninitializers to the evaluation operator. It allows easy configuration of each\\nalgorithm. The toolbox has basically two methods,\\n:meth:`~deap.toolbox.Toolbox.register` and\\n:meth:`~deap.toolbox.Toolbox.unregister`, that are used to add or remove tools\\nfrom the toolbox.\\n\\nThis part of the tutorial will focus on registration of the evolutionary tools\\nin the toolbox rather than the initialization tools. The usual names for the\\nevolutionary tools are :func:`~deap.mate`, :func:`~deap.mutate`,\\n:func:`~deap.evaluate` and :func:`~deap.select`, however, any name can be\\nregistered as long as it is unique. Here is how they are registered in the\\ntoolbox.\\n\\n.. literalinclude:: /code/tutorials/part_3/3_6_using_the_toolbox.py\\n   :lines: 2-8,10-15\\n\\nUsing the toolbox for registering tools helps with keeping the rest of the\\nalgorithms independent from the operator set. Using this scheme makes it very\\neasy to locate and change any tool in the toolbox if needed.\\n\\n.. _using-tools:\\n\\nUsing the Tools\\n+++++++++++++++\\nWhen building evolutionary algorithms, the toolbox is used to contain the\\noperators, which are called using their generic name. For example, here is a\\nvery simple generational evolutionary algorithm.\\n\\n.. literalinclude:: /code/tutorials/part_3/3_6_using_the_toolbox.py\\n   :lines: 30-\\n\\nThis is a complete algorithm. It is generic enough to accept any kind of\\nindividual and any operator, as long as the operators are suitable for the\\nchosen individual type. As shown in the last example, the usage of the toolbox\\nallows to write algorithms that are as close as possible to pseudo code.\\nNow it is up to you to write and experiment on your own.\\n\\nTool Decoration\\n+++++++++++++++\\nTool decoration is a very powerful feature that helps to control very precise\\nthings during an evolution without changing anything in the algorithm or\\noperators. A decorator is a wrapper that is called instead of a function. It\\nis asked to make some initialization and termination work before and after the\\nactual function is called. For example, in the case of a constrained domain,\\none can apply a decorator\", \"origin\": \"captured public DEAP tutorial, not user history\", \"source_status\": \"captured\", \"artifact\": \"01-source-interpretation/experiments/media-lab/article-selection.rst\", \"artifact_sha256\": \"94e2c8d2df9bf220fdae088d7d9e092e7e19e2877f905b171135a0e2cda1dde7\"}, {\"id\": \"deap-code\", \"text\": \"import random\\nimport numpy as np\\n\\nfrom functools import partial\\nfrom operator import attrgetter\\n\\n######################################\\n# Selections                         #\\n######################################\\n\\n\\ndef selRandom(individuals, k):\\n    \\\"\\\"\\\"Select *k* individuals at random from the input *individuals* with\\n    replacement. The list returned contains references to the input\\n    *individuals*.\\n\\n    :param individuals: A list of individuals to select from.\\n    :param k: The number of individuals to select.\\n    :returns: A list of selected individuals.\\n\\n    This function uses the :func:`~random.choice` function from the\\n    python base :mod:`random` module.\\n    \\\"\\\"\\\"\\n    return [random.choice(individuals) for i in range(k)]\\n\\n\\ndef selBest(individuals, k, fit_attr=\\\"fitness\\\"):\\n    \\\"\\\"\\\"Select the *k* best individuals among the input *individuals*. The\\n    list returned contains references to the input *individuals*.\\n\\n    :param individuals: A list of individuals to select from.\\n    :param k: The number of individuals to select.\\n    :param fit_attr: The attribute of individuals to use as selection criterion\\n    :returns: A list containing the k best individuals.\\n    \\\"\\\"\\\"\\n    return sorted(individuals, key=attrgetter(fit_attr), reverse=True)[:k]\\n\\n\\ndef selWorst(individuals, k, fit_attr=\\\"fitness\\\"):\\n    \\\"\\\"\\\"Select the *k* worst individuals among the input *individuals*. The\\n    list returned contains references to the input *individuals*.\\n\\n    :param individuals: A list of individuals to select from.\\n    :param k: The number of individuals to select.\\n    :param fit_attr: The attribute of individuals to use as selection criterion\\n    :returns: A list containing the k worst individuals.\\n    \\\"\\\"\\\"\\n    return sorted(individuals, key=attrgetter(fit_attr))[:k]\\n\\n\\ndef selTournament(individuals, k, tournsize, fit_attr=\\\"fitness\\\"):\\n    \\\"\\\"\\\"Select the best individual among *tournsize* randomly chosen\\n    individuals, *k* times. The list returned contains\\n    references to the input *individuals*.\\n\\n    :param individuals: A list of individuals to select from.\\n    :param k: The number of individuals to select.\\n    :param tournsize: The number of individuals participating in each tournament.\\n    :param fit_attr: The attribute of individuals to use as selection criterion\\n    :returns: A list of selected individuals.\\n\\n    This function uses the :func:`~random.choice` function from the python base\\n    :mod:`random` module.\\n    \\\"\\\"\\\"\\n    chosen = []\\n    for i in range(k):\\n        aspirants = selRandom(individuals, tournsize)\\n        chosen.append(max(aspirants, key=attrgetter(fit_attr)))\\n    return chosen\\n\\n\\ndef selRoulette(individuals, k, fit_attr=\\\"fitness\\\"):\\n    \\\"\\\"\\\"Select *k* individuals from the input *individuals* using *k*\\n    spins of a roulette. The selection is made by looking only at the first\\n    objective of each individual. The list returned contains references to\\n    the input *individuals*.\\n\\n    :param individuals: A list of individuals to select from.\\n    :param k: The number of individuals to select.\\n    :param fit_attr: The attribute of individuals to use as selection criterion\\n    :returns: A list of selected individuals.\\n\\n    This function uses the :func:`~random.random` function from the python base\\n    :mod:`random` module.\\n\\n    .. warning::\\n       The roulette selection by definition cannot be used for minimization\\n       or when the fitness can be smaller or equal to 0.\\n    \\\"\\\"\\\"\\n\\n    s_inds = sorted(individuals, key=attrgetter(fit_attr), reverse=True)\\n    sum_fits = sum(getattr(ind, fit_attr).values[0] for ind in individuals)\\n    chosen = []\\n    for i in range(k):\\n        u = random.random() * sum_fits\\n        sum_ = 0\\n        for ind in s_inds:\\n            sum_ += getattr(ind, fit_attr).values[0]\\n            if sum_ > u:\\n                chosen.append(ind)\\n                break\\n\\n    return chosen\\n\\n\\ndef selDoubleTournament(individuals, k, fitness_size, parsimony_size, fitness_first, fit_attr=\\\"fitness\\\"):\\n    \\\"\\\"\\\"Tournament selection which use the size of the individuals in order\\n    to discriminate good solutions. This kind of tournament is obviously\\n    useless with fixed-length representation, but has been shown to\\n    significantly reduce excessive growth of individuals, especially in GP,\\n    where it can be used as a bloat control technique (see\\n    [Luke2002fighting]_). This selection operator implements the double\\n    tournament technique presented in this paper.\\n\\n    The core principle is to use a normal tournament selection, but using a\\n    special sample function to select aspirants, which is another tournament\\n    based on the size of the individuals. To ensure that the selection\\n    pressure is not too high, the size of the size tournament (the number\\n    of candidates evaluated) can be a real number between 1 and 2. In this\\n    case, the smaller individual among two will be selected with a probability\\n    *size_tourn_size*/2. For instance, if *size_tourn_size* is set to 1.4,\\n    then the smaller individual will have a 0.7 probability to be selected.\\n\\n    .. note::\\n        In GP, it has been shown that this operator produces better results\\n        when it is combined with some kind of a depth limit.\\n\\n    :param individuals: A list of individuals to select from.\\n    :param k: The number of individuals to select.\\n    :param fitness_size: The number of individuals participating in each \\\\\\n    fitness tournament\\n    :param parsimony_size: The number of individuals participating in each \\\\\\n    size tournament. This value has to be a real number\\\\\\n    in the range [1,2], see above for details.\\n    :param fitness_first: Set this to True if the first tournament done should \\\\\\n    be the fitness one (i.e. the fitness tournament producing aspirants for \\\\\\n    the size tournament). Setting it to False will behaves as the opposite \\\\\\n    (size tournament feeding fitness tournaments with candidates). It has been \\\\\\n    shown that this parameter does not have a significant effect in most cases\\\\\\n    (see [Luke2002fighting]_).\\n    :param fit_attr: The attribute of individuals to use as selection criterion\\n    :returns: A list of selected individuals.\\n\\n    .. [Luke2002fighting] Luke and Panait, 2002, Fighting bloat with\\n        nonparametric parsimony pressure\\n    \\\"\\\"\\\"\\n    assert (1 <= parsimony_size <= 2), \\\"Parsimony tournament size has to be in the range [1, 2].\\\"\\n\\n    def _sizeTournament(individuals, k, select):\\n        chosen = []\\n        for i in range(k):\\n            # Select two individuals from \", \"origin\": \"captured public implementation, not a recovered user project\", \"source_status\": \"captured\", \"artifact\": \"01-source-interpretation/experiments/media-lab/old-project-selection.py\", \"artifact_sha256\": \"18fbb468f438dfb9c8eb2a161a48a869b80bdde52c173628d3330bc0e11e05a4\"}, {\"id\": \"controlled-note\", \"text\": \"CONTROLLED PERSONAL NOTE \\u2014 authored for this experiment, not recovered user history.\\n\\nI once tried retaining only the fastest benchmark configuration in a toy search project. That lost alternatives useful under changed workloads. I want to revisit whether keeping diverse candidates improves adaptation. No relationship to Darwin or DEAP has been recorded in this note.\\n\", \"origin\": \"authored controlled personal note, not recovered user history\", \"source_status\": \"captured\", \"artifact\": \"01-source-interpretation/experiments/media-lab/controlled-personal-note.md\", \"artifact_sha256\": \"b4211909cc77f267323616af1fbd3f673f098b5358e494ce24163cc6fe987fcc\"}]}"
+          }
+        ]
+      },
+      "response": {
+        "id": "gen-1790726200-YwZoeKQngXP2I5uqFQtZ",
+        "object": "chat.completion",
+        "created": 1790726200,
+        "model": "openai/gpt-4.1-mini",
+        "provider": "OpenAI",
+        "system_fingerprint": null,
+        "service_tier": "default",
+        "choices": [
+          {
+            "index": 0,
+            "logprobs": null,
+            "finish_reason": "stop",
+            "native_finish_reason": "completed",
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"title\": \"Natural Selection and Selection Operators in Evolutionary Algorithms\",\n  \"sentences\": [\n    {\n      \"text\": \"Natural selection preserves favorable variations and rejects injurious ones, while neutral variations remain fluctuating elements in populations, especially under changing environmental conditions such as climate shifts.\",\n      \"source_ids\": [\"book-ocr\"],\n      \"status\": \"recorded\"\n    },\n    {\n      \"text\": \"Selection operators in the DEAP evolutionary computation framework select individuals from a population based on criteria like fitness, without duplicating individuals during the selection process.\",\n      \"source_ids\": [\"deap-article\"],\n      \"status\": \"recorded\"\n    },\n    {\n      \"text\": \"Common selection methods implemented in DEAP include random selection, best and worst selection, tournament selection, roulette wheel selection, and double tournament selection, each with specific mechanisms and use cases.\",\n      \"source_ids\": [\"deap-code\"],\n      \"status\": \"recorded\"\n    },\n    {\n      \"text\": \"Double tournament selection in DEAP uses both fitness and individual size to reduce bloat in genetic programming, with parameters controlling tournament sizes and order, as described in Luke and Panait (2002).\",\n      \"source_ids\": [\"deap-code\"],\n      \"status\": \"recorded\"\n    }\n  ]\n}",
+              "refusal": null,
+              "reasoning": null
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 3597,
+          "completion_tokens": 271,
+          "total_tokens": 3868,
+          "cost": 0.001853676,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0018724,
+            "upstream_inference_prompt_cost": 0.0014388,
+            "upstream_inference_completions_cost": 0.0004336
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "seconds": 2.596783917018911,
+      "id": "book-full",
+      "engine": "generative",
+      "variant": "full_evidence",
+      "parsed_capsule": {
+        "title": "Natural Selection and Selection Operators in Evolutionary Algorithms",
+        "sentences": [
+          {
+            "text": "Natural selection preserves favorable variations and rejects injurious ones, while neutral variations remain fluctuating elements in populations, especially under changing environmental conditions such as climate shifts.",
+            "source_ids": [
+              "book-ocr"
+            ],
+            "status": "recorded"
+          },
+          {
+            "text": "Selection operators in the DEAP evolutionary computation framework select individuals from a population based on criteria like fitness, without duplicating individuals during the selection process.",
+            "source_ids": [
+              "deap-article"
+            ],
+            "status": "recorded"
+          },
+          {
+            "text": "Common selection methods implemented in DEAP include random selection, best and worst selection, tournament selection, roulette wheel selection, and double tournament selection, each with specific mechanisms and use cases.",
+            "source_ids": [
+              "deap-code"
+            ],
+            "status": "recorded"
+          },
+          {
+            "text": "Double tournament selection in DEAP uses both fitness and individual size to reduce bloat in genetic programming, with parameters controlling tournament sizes and order, as described in Luke and Panait (2002).",
+            "source_ids": [
+              "deap-code"
+            ],
+            "status": "recorded"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "model": "typesafe/jev-1.13",
+        "state": {
+          "claims": [
+            {
+              "index": 0,
+              "generated_sentence": {
+                "text": "Natural selection preserves favorable variations and rejects injurious ones, while neutral variations remain fluctuating elements in populations, especially under changing environmental conditions such as climate shifts.",
+                "source_ids": [
+                  "book-ocr"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "book-ocr",
+                  "text": "78\nNATURAL SELECTION.\n[CHAP. IV\nOn the other hand, we may feel sure that any\nvariation\nin the lenst degree injurious would be rigidly destroved.\nThis preservation of favourable variations and the rejec-\ntion of injurious\nvariations, I call Natural Selection.\nVariations neither useful nor injurious would not be aftect-\ned by natural selection, and would be left a fluctuating\nclement, as perhaps we see in the species called polymor-\nphic.\nWe shall best understand the probable course of na-\ntuwral sclection by taking the case of a country undergo-\ning some physical change, for instance, of climate.\nThe\nproportional numbers of its inhabitants would almost im-\nmediately undergo a change, and some species might be-\ncome extinet.\nWe may conelude, from what we have\nseen of the intimate and complex manner in which the in-\nhabitants of cach country are bound together, that any\nchange in the munerical\nsome of the in-\nCabiguts, ithe peumeia of rue chango of ehimat tiedil,\nwould most seriously affeet many of the others.\ncountry were open on its borders, new forms would cer-\ntainly immigrate, and this also would serionsly disturb\nthe relations of some of the former inhabitants.\nLet it be\nremembered how powerfiul the influence of' a single intro-\nduced tree or manual has been shown to be.\nBut in the\ncase of an island, or of a country partly surrounded by\nbarriers, into which new and betfer adapted forms could\nnot freely enter, we should then have places in the econo-\nmny of nature whieh would assuredly be better filled up,\nif some of' the original inhabitants were in some manner\nmnodified; for, had the arca been open to inmigration,\nthese same places would have been seized on by intruders.\nIn such case, every slight moditication, which in the course\nof ages chanced to arise, and wlueh in any way favoured\nthe individuals of any of the species, by |\nthem to their altered conditions, would tend to be pre-\nserved; and natural selection would thus have free scope\nfor the work of improvement.\nWe have reason to believe, as stated in the first chap-\nter, that a change in the conditions of life, by specially\naeting on the reproductive system, causes or increases",
+                  "origin": "derived OCR from real 1860 book scan; not exact scan text",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/book-pdf-page-84-ocr.json",
+                  "artifact_sha256": "aa1886cd8584e1bfda580e7bfa1c0e598733d0ec56c93a1d1ba844ad7f22cd79",
+                  "selector": "PDF page84,printed page78",
+                  "primary_scan": "01-source-interpretation/experiments/media-lab/book-pdf-page-84.png"
+                }
+              ],
+              "unknown_source_ids": []
+            },
+            {
+              "index": 1,
+              "generated_sentence": {
+                "text": "Selection operators in the DEAP evolutionary computation framework select individuals from a population based on criteria like fitness, without duplicating individuals during the selection process.",
+                "source_ids": [
+                  "deap-article"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "deap-article",
+                  "text": "\nSelection\n---------\n\nSelection is made among a population by the selection operators that are\navailable in the :mod:`deap.tools` module. The selection operator usually\ntakes as first argument an iterable container of individuals and the number of\nindividuals to select. It returns a list containing the references to the\nselected individuals. The selection is made as follow.\n\n.. literalinclude:: /code/tutorials/part_3/3_next_step.py\n   :lines: 49-50\n\n.. warning:: It is **very** important here to note that the selection\n   operators does not duplicate any individual during the selection process.\n   If an individual is selected twice and one of either object is modified,\n   the other will also be modified. Only a reference to the individual is\n   copied. Just like every other operator it selects and only selects.\n\nUsually duplication of the entire population will be made after selection or\nbefore variation.\n\n.. literalinclude:: /code/tutorials/part_3/3_next_step.py\n   :lines: 56-57\n\n\nUsing the Toolbox\n-----------------\n\nThe toolbox is intended to contain all the evolutionary tools, from the object\ninitializers to the evaluation operator. It allows easy configuration of each\nalgorithm. The toolbox has basically two methods,\n:meth:`~deap.toolbox.Toolbox.register` and\n:meth:`~deap.toolbox.Toolbox.unregister`, that are used to add or remove tools\nfrom the toolbox.\n\nThis part of the tutorial will focus on registration of the evolutionary tools\nin the toolbox rather than the initialization tools. The usual names for the\nevolutionary tools are :func:`~deap.mate`, :func:`~deap.mutate`,\n:func:`~deap.evaluate` and :func:`~deap.select`, however, any name can be\nregistered as long as it is unique. Here is how they are registered in the\ntoolbox.\n\n.. literalinclude:: /code/tutorials/part_3/3_6_using_the_toolbox.py\n   :lines: 2-8,10-15\n\nUsing the toolbox for registering tools helps with keeping the rest of the\nalgorithms independent from the operator set. Using this scheme makes it very\neasy to locate and change any tool in the toolbox if needed.\n\n.. _using-tools:\n\nUsing the Tools\n+++++++++++++++\nWhen building evolutionary algorithms, the toolbox is used to contain the\noperators, which are called using their generic name. For example, here is a\nvery simple generational evolutionary algorithm.\n\n.. literalinclude:: /code/tutorials/part_3/3_6_using_the_toolbox.py\n   :lines: 30-\n\nThis is a complete algorithm. It is generic enough to accept any kind of\nindividual and any operator, as long as the operators are suitable for the\nchosen individual type. As shown in the last example, the usage of the toolbox\nallows to write algorithms that are as close as possible to pseudo code.\nNow it is up to you to write and experiment on your own.\n\nTool Decoration\n+++++++++++++++\nTool decoration is a very powerful feature that helps to control very precise\nthings during an evolution without changing anything in the algorithm or\noperators. A decorator is a wrapper that is called instead of a function. It\nis asked to make some initialization and termination work before and after the\nactual function is called. For example, in the case of a constrained domain,\none can apply a decorator",
+                  "origin": "captured public DEAP tutorial, not user history",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/article-selection.rst",
+                  "artifact_sha256": "94e2c8d2df9bf220fdae088d7d9e092e7e19e2877f905b171135a0e2cda1dde7"
+                }
+              ],
+              "unknown_source_ids": []
+            },
+            {
+              "index": 2,
+              "generated_sentence": {
+                "text": "Common selection methods implemented in DEAP include random selection, best and worst selection, tournament selection, roulette wheel selection, and double tournament selection, each with specific mechanisms and use cases.",
+                "source_ids": [
+                  "deap-code"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "deap-code",
+                  "text": "import random\nimport numpy as np\n\nfrom functools import partial\nfrom operator import attrgetter\n\n######################################\n# Selections                         #\n######################################\n\n\ndef selRandom(individuals, k):\n    \"\"\"Select *k* individuals at random from the input *individuals* with\n    replacement. The list returned contains references to the input\n    *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :returns: A list of selected individuals.\n\n    This function uses the :func:`~random.choice` function from the\n    python base :mod:`random` module.\n    \"\"\"\n    return [random.choice(individuals) for i in range(k)]\n\n\ndef selBest(individuals, k, fit_attr=\"fitness\"):\n    \"\"\"Select the *k* best individuals among the input *individuals*. The\n    list returned contains references to the input *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list containing the k best individuals.\n    \"\"\"\n    return sorted(individuals, key=attrgetter(fit_attr), reverse=True)[:k]\n\n\ndef selWorst(individuals, k, fit_attr=\"fitness\"):\n    \"\"\"Select the *k* worst individuals among the input *individuals*. The\n    list returned contains references to the input *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list containing the k worst individuals.\n    \"\"\"\n    return sorted(individuals, key=attrgetter(fit_attr))[:k]\n\n\ndef selTournament(individuals, k, tournsize, fit_attr=\"fitness\"):\n    \"\"\"Select the best individual among *tournsize* randomly chosen\n    individuals, *k* times. The list returned contains\n    references to the input *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param tournsize: The number of individuals participating in each tournament.\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list of selected individuals.\n\n    This function uses the :func:`~random.choice` function from the python base\n    :mod:`random` module.\n    \"\"\"\n    chosen = []\n    for i in range(k):\n        aspirants = selRandom(individuals, tournsize)\n        chosen.append(max(aspirants, key=attrgetter(fit_attr)))\n    return chosen\n\n\ndef selRoulette(individuals, k, fit_attr=\"fitness\"):\n    \"\"\"Select *k* individuals from the input *individuals* using *k*\n    spins of a roulette. The selection is made by looking only at the first\n    objective of each individual. The list returned contains references to\n    the input *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list of selected individuals.\n\n    This function uses the :func:`~random.random` function from the python base\n    :mod:`random` module.\n\n    .. warning::\n       The roulette selection by definition cannot be used for minimization\n       or when the fitness can be smaller or equal to 0.\n    \"\"\"\n\n    s_inds = sorted(individuals, key=attrgetter(fit_attr), reverse=True)\n    sum_fits = sum(getattr(ind, fit_attr).values[0] for ind in individuals)\n    chosen = []\n    for i in range(k):\n        u = random.random() * sum_fits\n        sum_ = 0\n        for ind in s_inds:\n            sum_ += getattr(ind, fit_attr).values[0]\n            if sum_ > u:\n                chosen.append(ind)\n                break\n\n    return chosen\n\n\ndef selDoubleTournament(individuals, k, fitness_size, parsimony_size, fitness_first, fit_attr=\"fitness\"):\n    \"\"\"Tournament selection which use the size of the individuals in order\n    to discriminate good solutions. This kind of tournament is obviously\n    useless with fixed-length representation, but has been shown to\n    significantly reduce excessive growth of individuals, especially in GP,\n    where it can be used as a bloat control technique (see\n    [Luke2002fighting]_). This selection operator implements the double\n    tournament technique presented in this paper.\n\n    The core principle is to use a normal tournament selection, but using a\n    special sample function to select aspirants, which is another tournament\n    based on the size of the individuals. To ensure that the selection\n    pressure is not too high, the size of the size tournament (the number\n    of candidates evaluated) can be a real number between 1 and 2. In this\n    case, the smaller individual among two will be selected with a probability\n    *size_tourn_size*/2. For instance, if *size_tourn_size* is set to 1.4,\n    then the smaller individual will have a 0.7 probability to be selected.\n\n    .. note::\n        In GP, it has been shown that this operator produces better results\n        when it is combined with some kind of a depth limit.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param fitness_size: The number of individuals participating in each \\\n    fitness tournament\n    :param parsimony_size: The number of individuals participating in each \\\n    size tournament. This value has to be a real number\\\n    in the range [1,2], see above for details.\n    :param fitness_first: Set this to True if the first tournament done should \\\n    be the fitness one (i.e. the fitness tournament producing aspirants for \\\n    the size tournament). Setting it to False will behaves as the opposite \\\n    (size tournament feeding fitness tournaments with candidates). It has been \\\n    shown that this parameter does not have a significant effect in most cases\\\n    (see [Luke2002fighting]_).\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list of selected individuals.\n\n    .. [Luke2002fighting] Luke and Panait, 2002, Fighting bloat with\n        nonparametric parsimony pressure\n    \"\"\"\n    assert (1 <= parsimony_size <= 2), \"Parsimony tournament size has to be in the range [1, 2].\"\n\n    def _sizeTournament(individuals, k, select):\n        chosen = []\n        for i in range(k):\n            # Select two individuals from ",
+                  "origin": "captured public implementation, not a recovered user project",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/old-project-selection.py",
+                  "artifact_sha256": "18fbb468f438dfb9c8eb2a161a48a869b80bdde52c173628d3330bc0e11e05a4"
+                }
+              ],
+              "unknown_source_ids": []
+            },
+            {
+              "index": 3,
+              "generated_sentence": {
+                "text": "Double tournament selection in DEAP uses both fitness and individual size to reduce bloat in genetic programming, with parameters controlling tournament sizes and order, as described in Luke and Panait (2002).",
+                "source_ids": [
+                  "deap-code"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "deap-code",
+                  "text": "import random\nimport numpy as np\n\nfrom functools import partial\nfrom operator import attrgetter\n\n######################################\n# Selections                         #\n######################################\n\n\ndef selRandom(individuals, k):\n    \"\"\"Select *k* individuals at random from the input *individuals* with\n    replacement. The list returned contains references to the input\n    *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :returns: A list of selected individuals.\n\n    This function uses the :func:`~random.choice` function from the\n    python base :mod:`random` module.\n    \"\"\"\n    return [random.choice(individuals) for i in range(k)]\n\n\ndef selBest(individuals, k, fit_attr=\"fitness\"):\n    \"\"\"Select the *k* best individuals among the input *individuals*. The\n    list returned contains references to the input *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list containing the k best individuals.\n    \"\"\"\n    return sorted(individuals, key=attrgetter(fit_attr), reverse=True)[:k]\n\n\ndef selWorst(individuals, k, fit_attr=\"fitness\"):\n    \"\"\"Select the *k* worst individuals among the input *individuals*. The\n    list returned contains references to the input *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list containing the k worst individuals.\n    \"\"\"\n    return sorted(individuals, key=attrgetter(fit_attr))[:k]\n\n\ndef selTournament(individuals, k, tournsize, fit_attr=\"fitness\"):\n    \"\"\"Select the best individual among *tournsize* randomly chosen\n    individuals, *k* times. The list returned contains\n    references to the input *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param tournsize: The number of individuals participating in each tournament.\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list of selected individuals.\n\n    This function uses the :func:`~random.choice` function from the python base\n    :mod:`random` module.\n    \"\"\"\n    chosen = []\n    for i in range(k):\n        aspirants = selRandom(individuals, tournsize)\n        chosen.append(max(aspirants, key=attrgetter(fit_attr)))\n    return chosen\n\n\ndef selRoulette(individuals, k, fit_attr=\"fitness\"):\n    \"\"\"Select *k* individuals from the input *individuals* using *k*\n    spins of a roulette. The selection is made by looking only at the first\n    objective of each individual. The list returned contains references to\n    the input *individuals*.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list of selected individuals.\n\n    This function uses the :func:`~random.random` function from the python base\n    :mod:`random` module.\n\n    .. warning::\n       The roulette selection by definition cannot be used for minimization\n       or when the fitness can be smaller or equal to 0.\n    \"\"\"\n\n    s_inds = sorted(individuals, key=attrgetter(fit_attr), reverse=True)\n    sum_fits = sum(getattr(ind, fit_attr).values[0] for ind in individuals)\n    chosen = []\n    for i in range(k):\n        u = random.random() * sum_fits\n        sum_ = 0\n        for ind in s_inds:\n            sum_ += getattr(ind, fit_attr).values[0]\n            if sum_ > u:\n                chosen.append(ind)\n                break\n\n    return chosen\n\n\ndef selDoubleTournament(individuals, k, fitness_size, parsimony_size, fitness_first, fit_attr=\"fitness\"):\n    \"\"\"Tournament selection which use the size of the individuals in order\n    to discriminate good solutions. This kind of tournament is obviously\n    useless with fixed-length representation, but has been shown to\n    significantly reduce excessive growth of individuals, especially in GP,\n    where it can be used as a bloat control technique (see\n    [Luke2002fighting]_). This selection operator implements the double\n    tournament technique presented in this paper.\n\n    The core principle is to use a normal tournament selection, but using a\n    special sample function to select aspirants, which is another tournament\n    based on the size of the individuals. To ensure that the selection\n    pressure is not too high, the size of the size tournament (the number\n    of candidates evaluated) can be a real number between 1 and 2. In this\n    case, the smaller individual among two will be selected with a probability\n    *size_tourn_size*/2. For instance, if *size_tourn_size* is set to 1.4,\n    then the smaller individual will have a 0.7 probability to be selected.\n\n    .. note::\n        In GP, it has been shown that this operator produces better results\n        when it is combined with some kind of a depth limit.\n\n    :param individuals: A list of individuals to select from.\n    :param k: The number of individuals to select.\n    :param fitness_size: The number of individuals participating in each \\\n    fitness tournament\n    :param parsimony_size: The number of individuals participating in each \\\n    size tournament. This value has to be a real number\\\n    in the range [1,2], see above for details.\n    :param fitness_first: Set this to True if the first tournament done should \\\n    be the fitness one (i.e. the fitness tournament producing aspirants for \\\n    the size tournament). Setting it to False will behaves as the opposite \\\n    (size tournament feeding fitness tournaments with candidates). It has been \\\n    shown that this parameter does not have a significant effect in most cases\\\n    (see [Luke2002fighting]_).\n    :param fit_attr: The attribute of individuals to use as selection criterion\n    :returns: A list of selected individuals.\n\n    .. [Luke2002fighting] Luke and Panait, 2002, Fighting bloat with\n        nonparametric parsimony pressure\n    \"\"\"\n    assert (1 <= parsimony_size <= 2), \"Parsimony tournament size has to be in the range [1, 2].\"\n\n    def _sizeTournament(individuals, k, select):\n        chosen = []\n        for i in range(k):\n            # Select two individuals from ",
+                  "origin": "captured public implementation, not a recovered user project",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/old-project-selection.py",
+                  "artifact_sha256": "18fbb468f438dfb9c8eb2a161a48a869b80bdde52c173628d3330bc0e11e05a4"
+                }
+              ],
+              "unknown_source_ids": []
+            }
+          ],
+          "bundle_original_provenance": "Public source excerpts and explicitly constructed controlled histories; no real private-user history in this experiment."
+        },
+        "questions": {
+          "fidelity_0": {
+            "type": "choice",
+            "instructions": "Does claims[0].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_0": {
+            "type": "noul",
+            "instructions": "Is claims[0].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          },
+          "fidelity_1": {
+            "type": "choice",
+            "instructions": "Does claims[1].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_1": {
+            "type": "noul",
+            "instructions": "Is claims[1].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          },
+          "fidelity_2": {
+            "type": "choice",
+            "instructions": "Does claims[2].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_2": {
+            "type": "noul",
+            "instructions": "Is claims[2].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          },
+          "fidelity_3": {
+            "type": "choice",
+            "instructions": "Does claims[3].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_3": {
+            "type": "noul",
+            "instructions": "Is claims[3].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "fidelity_0": {
+            "type": "choice",
+            "choice": "faithful",
+            "probabilities": {
+              "qualifier_missing": 0.23,
+              "faithful": 0.44,
+              "unsupported": 0.33
+            },
+            "confidence": 0.15
+          },
+          "status_0": {
+            "type": "noul",
+            "noul": 0.73
+          },
+          "fidelity_1": {
+            "type": "choice",
+            "choice": "faithful",
+            "probabilities": {
+              "qualifier_missing": 0.11,
+              "faithful": 0.5,
+              "unsupported": 0.39
+            },
+            "confidence": 0.26
+          },
+          "status_1": {
+            "type": "noul",
+            "noul": 0.77
+          },
+          "fidelity_2": {
+            "type": "choice",
+            "choice": "faithful",
+            "probabilities": {
+              "qualifier_missing": 0.14,
+              "faithful": 0.72,
+              "unsupported": 0.14
+            },
+            "confidence": 0.58
+          },
+          "status_2": {
+            "type": "noul",
+            "noul": 0.76
+          },
+          "fidelity_3": {
+            "type": "choice",
+            "choice": "faithful",
+            "probabilities": {
+              "qualifier_missing": 0.06,
+              "faithful": 0.89,
+              "unsupported": 0.05
+            },
+            "confidence": 0.84
+          },
+          "status_3": {
+            "type": "noul",
+            "noul": 0.77
+          }
+        },
+        "usage": {
+          "input_tokens": 6504,
+          "output_tokens": 256,
+          "cost": 0.000273168
+        },
+        "id": "gen-dec-1790726202-zmGiaXZMpWUBOyOQwZ7w",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.25958124999306165,
+      "id": "book-full-verify",
+      "engine": "jev",
+      "variant": "full_evidence"
+    },
+    {
+      "request": {
+        "model": "openai/gpt-4.1-mini",
+        "temperature": 0,
+        "response_format": {
+          "type": "json_object"
+        },
+        "messages": [
+          {
+            "role": "user",
+            "content": "{\"instruction\": \"Write a readable source-linked wiki capsule as JSON {title,sentences:[{text,source_ids,status}]}. At most FOUR short sentences. Status must be recorded/tentative/speculative. Refer only to supplied source IDs. Preserve constructed/authored origins when supplied; do not infer real personal history from an observation. Preserve bounded claims, uncertainty, source conversions and relevant exceptions. Distinguish measured outputs from assistant assertions and hypotheses from facts. If metadata or evidence is missing, leave claims tentative or explicitly unknown. No external knowledge, invented outcomes, causal improvement claims, or skill activation. Cite the particular records that support each sentence. Make this understandable to someone without the experiment context.\", \"bundle\": \"book\", \"input\": [{\"id\": \"book-ocr\", \"observation\": \"Page heading NATURAL SELECTION; preservation of favourable variations and rejection of injurious variations.\"}, {\"id\": \"deap-article\", \"observation\": \"Selection operators select individuals; selected individuals are references, not independent copies.\"}, {\"id\": \"controlled-note\", \"observation\": \"Retaining only the fastest benchmark configuration lost alternatives useful under changed workloads; revisit whether keeping diverse candidates improves adaptation.\"}]}"
+          }
+        ]
+      },
+      "response": {
+        "id": "gen-1790726202-vxoOZJT3C1bVHV8hXJQP",
+        "object": "chat.completion",
+        "created": 1790726202,
+        "model": "openai/gpt-4.1-mini",
+        "provider": "OpenAI",
+        "system_fingerprint": null,
+        "service_tier": "default",
+        "choices": [
+          {
+            "index": 0,
+            "logprobs": null,
+            "finish_reason": "stop",
+            "native_finish_reason": "completed",
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"title\": \"Natural Selection and Selection Operators in Evolutionary Processes\",\n  \"sentences\": [\n    {\n      \"text\": \"Natural selection involves the preservation of favorable variations and the rejection of injurious variations.\",\n      \"source_ids\": [\"book-ocr\"],\n      \"status\": \"recorded\"\n    },\n    {\n      \"text\": \"Selection operators function by selecting individuals as references rather than creating independent copies.\",\n      \"source_ids\": [\"deap-article\"],\n      \"status\": \"recorded\"\n    },\n    {\n      \"text\": \"Retaining only the fastest benchmark configuration may result in losing alternative candidates that could be useful under changed workloads.\",\n      \"source_ids\": [\"controlled-note\"],\n      \"status\": \"recorded\"\n    },\n    {\n      \"text\": \"It remains tentative whether keeping a diverse set of candidates improves adaptation to varying conditions.\",\n      \"source_ids\": [\"controlled-note\"],\n      \"status\": \"tentative\"\n    }\n  ]\n}",
+              "refusal": null,
+              "reasoning": null
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 254,
+          "completion_tokens": 200,
+          "total_tokens": 454,
+          "cost": 0.000417384,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0004216,
+            "upstream_inference_prompt_cost": 0.0001016,
+            "upstream_inference_completions_cost": 0.00032
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "seconds": 1.7550538330106065,
+      "id": "book-lossy",
+      "engine": "generative",
+      "variant": "lossy_observations",
+      "parsed_capsule": {
+        "title": "Natural Selection and Selection Operators in Evolutionary Processes",
+        "sentences": [
+          {
+            "text": "Natural selection involves the preservation of favorable variations and the rejection of injurious variations.",
+            "source_ids": [
+              "book-ocr"
+            ],
+            "status": "recorded"
+          },
+          {
+            "text": "Selection operators function by selecting individuals as references rather than creating independent copies.",
+            "source_ids": [
+              "deap-article"
+            ],
+            "status": "recorded"
+          },
+          {
+            "text": "Retaining only the fastest benchmark configuration may result in losing alternative candidates that could be useful under changed workloads.",
+            "source_ids": [
+              "controlled-note"
+            ],
+            "status": "recorded"
+          },
+          {
+            "text": "It remains tentative whether keeping a diverse set of candidates improves adaptation to varying conditions.",
+            "source_ids": [
+              "controlled-note"
+            ],
+            "status": "tentative"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "model": "typesafe/jev-1.13",
+        "state": {
+          "claims": [
+            {
+              "index": 0,
+              "generated_sentence": {
+                "text": "Natural selection involves the preservation of favorable variations and the rejection of injurious variations.",
+                "source_ids": [
+                  "book-ocr"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "book-ocr",
+                  "text": "78\nNATURAL SELECTION.\n[CHAP. IV\nOn the other hand, we may feel sure that any\nvariation\nin the lenst degree injurious would be rigidly destroved.\nThis preservation of favourable variations and the rejec-\ntion of injurious\nvariations, I call Natural Selection.\nVariations neither useful nor injurious would not be aftect-\ned by natural selection, and would be left a fluctuating\nclement, as perhaps we see in the species called polymor-\nphic.\nWe shall best understand the probable course of na-\ntuwral sclection by taking the case of a country undergo-\ning some physical change, for instance, of climate.\nThe\nproportional numbers of its inhabitants would almost im-\nmediately undergo a change, and some species might be-\ncome extinet.\nWe may conelude, from what we have\nseen of the intimate and complex manner in which the in-\nhabitants of cach country are bound together, that any\nchange in the munerical\nsome of the in-\nCabiguts, ithe peumeia of rue chango of ehimat tiedil,\nwould most seriously affeet many of the others.\ncountry were open on its borders, new forms would cer-\ntainly immigrate, and this also would serionsly disturb\nthe relations of some of the former inhabitants.\nLet it be\nremembered how powerfiul the influence of' a single intro-\nduced tree or manual has been shown to be.\nBut in the\ncase of an island, or of a country partly surrounded by\nbarriers, into which new and betfer adapted forms could\nnot freely enter, we should then have places in the econo-\nmny of nature whieh would assuredly be better filled up,\nif some of' the original inhabitants were in some manner\nmnodified; for, had the arca been open to inmigration,\nthese same places would have been seized on by intruders.\nIn such case, every slight moditication, which in the course\nof ages chanced to arise, and wlueh in any way favoured\nthe individuals of any of the species, by |\nthem to their altered conditions, would tend to be pre-\nserved; and natural selection would thus have free scope\nfor the work of improvement.\nWe have reason to believe, as stated in the first chap-\nter, that a change in the conditions of life, by specially\naeting on the reproductive system, causes or increases",
+                  "origin": "derived OCR from real 1860 book scan; not exact scan text",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/book-pdf-page-84-ocr.json",
+                  "artifact_sha256": "aa1886cd8584e1bfda580e7bfa1c0e598733d0ec56c93a1d1ba844ad7f22cd79",
+                  "selector": "PDF page84,printed page78",
+                  "primary_scan": "01-source-interpretation/experiments/media-lab/book-pdf-page-84.png"
+                }
+              ],
+              "unknown_source_ids": []
+            },
+            {
+              "index": 1,
+              "generated_sentence": {
+                "text": "Selection operators function by selecting individuals as references rather than creating independent copies.",
+                "source_ids": [
+                  "deap-article"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "deap-article",
+                  "text": "\nSelection\n---------\n\nSelection is made among a population by the selection operators that are\navailable in the :mod:`deap.tools` module. The selection operator usually\ntakes as first argument an iterable container of individuals and the number of\nindividuals to select. It returns a list containing the references to the\nselected individuals. The selection is made as follow.\n\n.. literalinclude:: /code/tutorials/part_3/3_next_step.py\n   :lines: 49-50\n\n.. warning:: It is **very** important here to note that the selection\n   operators does not duplicate any individual during the selection process.\n   If an individual is selected twice and one of either object is modified,\n   the other will also be modified. Only a reference to the individual is\n   copied. Just like every other operator it selects and only selects.\n\nUsually duplication of the entire population will be made after selection or\nbefore variation.\n\n.. literalinclude:: /code/tutorials/part_3/3_next_step.py\n   :lines: 56-57\n\n\nUsing the Toolbox\n-----------------\n\nThe toolbox is intended to contain all the evolutionary tools, from the object\ninitializers to the evaluation operator. It allows easy configuration of each\nalgorithm. The toolbox has basically two methods,\n:meth:`~deap.toolbox.Toolbox.register` and\n:meth:`~deap.toolbox.Toolbox.unregister`, that are used to add or remove tools\nfrom the toolbox.\n\nThis part of the tutorial will focus on registration of the evolutionary tools\nin the toolbox rather than the initialization tools. The usual names for the\nevolutionary tools are :func:`~deap.mate`, :func:`~deap.mutate`,\n:func:`~deap.evaluate` and :func:`~deap.select`, however, any name can be\nregistered as long as it is unique. Here is how they are registered in the\ntoolbox.\n\n.. literalinclude:: /code/tutorials/part_3/3_6_using_the_toolbox.py\n   :lines: 2-8,10-15\n\nUsing the toolbox for registering tools helps with keeping the rest of the\nalgorithms independent from the operator set. Using this scheme makes it very\neasy to locate and change any tool in the toolbox if needed.\n\n.. _using-tools:\n\nUsing the Tools\n+++++++++++++++\nWhen building evolutionary algorithms, the toolbox is used to contain the\noperators, which are called using their generic name. For example, here is a\nvery simple generational evolutionary algorithm.\n\n.. literalinclude:: /code/tutorials/part_3/3_6_using_the_toolbox.py\n   :lines: 30-\n\nThis is a complete algorithm. It is generic enough to accept any kind of\nindividual and any operator, as long as the operators are suitable for the\nchosen individual type. As shown in the last example, the usage of the toolbox\nallows to write algorithms that are as close as possible to pseudo code.\nNow it is up to you to write and experiment on your own.\n\nTool Decoration\n+++++++++++++++\nTool decoration is a very powerful feature that helps to control very precise\nthings during an evolution without changing anything in the algorithm or\noperators. A decorator is a wrapper that is called instead of a function. It\nis asked to make some initialization and termination work before and after the\nactual function is called. For example, in the case of a constrained domain,\none can apply a decorator",
+                  "origin": "captured public DEAP tutorial, not user history",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/article-selection.rst",
+                  "artifact_sha256": "94e2c8d2df9bf220fdae088d7d9e092e7e19e2877f905b171135a0e2cda1dde7"
+                }
+              ],
+              "unknown_source_ids": []
+            },
+            {
+              "index": 2,
+              "generated_sentence": {
+                "text": "Retaining only the fastest benchmark configuration may result in losing alternative candidates that could be useful under changed workloads.",
+                "source_ids": [
+                  "controlled-note"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "controlled-note",
+                  "text": "CONTROLLED PERSONAL NOTE \u2014 authored for this experiment, not recovered user history.\n\nI once tried retaining only the fastest benchmark configuration in a toy search project. That lost alternatives useful under changed workloads. I want to revisit whether keeping diverse candidates improves adaptation. No relationship to Darwin or DEAP has been recorded in this note.\n",
+                  "origin": "authored controlled personal note, not recovered user history",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/controlled-personal-note.md",
+                  "artifact_sha256": "b4211909cc77f267323616af1fbd3f673f098b5358e494ce24163cc6fe987fcc"
+                }
+              ],
+              "unknown_source_ids": []
+            },
+            {
+              "index": 3,
+              "generated_sentence": {
+                "text": "It remains tentative whether keeping a diverse set of candidates improves adaptation to varying conditions.",
+                "source_ids": [
+                  "controlled-note"
+                ],
+                "status": "tentative"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "controlled-note",
+                  "text": "CONTROLLED PERSONAL NOTE \u2014 authored for this experiment, not recovered user history.\n\nI once tried retaining only the fastest benchmark configuration in a toy search project. That lost alternatives useful under changed workloads. I want to revisit whether keeping diverse candidates improves adaptation. No relationship to Darwin or DEAP has been recorded in this note.\n",
+                  "origin": "authored controlled personal note, not recovered user history",
+                  "source_status": "captured",
+                  "artifact": "01-source-interpretation/experiments/media-lab/controlled-personal-note.md",
+                  "artifact_sha256": "b4211909cc77f267323616af1fbd3f673f098b5358e494ce24163cc6fe987fcc"
+                }
+              ],
+              "unknown_source_ids": []
+            }
+          ],
+          "bundle_original_provenance": "Public source excerpts and explicitly constructed controlled histories; no real private-user history in this experiment."
+        },
+        "questions": {
+          "fidelity_0": {
+            "type": "choice",
+            "instructions": "Does claims[0].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_0": {
+            "type": "noul",
+            "instructions": "Is claims[0].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          },
+          "fidelity_1": {
+            "type": "choice",
+            "instructions": "Does claims[1].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_1": {
+            "type": "noul",
+            "instructions": "Is claims[1].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          },
+          "fidelity_2": {
+            "type": "choice",
+            "instructions": "Does claims[2].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_2": {
+            "type": "noul",
+            "instructions": "Is claims[2].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          },
+          "fidelity_3": {
+            "type": "choice",
+            "instructions": "Does claims[3].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_3": {
+            "type": "noul",
+            "instructions": "Is claims[3].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "fidelity_0": {
+            "type": "choice",
+            "choice": "faithful",
+            "probabilities": {
+              "qualifier_missing": 0.05,
+              "faithful": 0.94,
+              "unsupported": 0.01
+            },
+            "confidence": 0.91
+          },
+          "status_0": {
+            "type": "noul",
+            "noul": 0.74
+          },
+          "fidelity_1": {
+            "type": "choice",
+            "choice": "faithful",
+            "probabilities": {
+              "qualifier_missing": 0.14,
+              "faithful": 0.83,
+              "unsupported": 0.03
+            },
+            "confidence": 0.75
+          },
+          "status_1": {
+            "type": "noul",
+            "noul": 0.71
+          },
+          "fidelity_2": {
+            "type": "choice",
+            "choice": "qualifier_missing",
+            "probabilities": {
+              "qualifier_missing": 0.47,
+              "faithful": 0.42,
+              "unsupported": 0.11
+            },
+            "confidence": 0.21
+          },
+          "status_2": {
+            "type": "noul",
+            "noul": 0.63
+          },
+          "fidelity_3": {
+            "type": "choice",
+            "choice": "faithful",
+            "probabilities": {
+              "qualifier_missing": 0.33,
+              "faithful": 0.57,
+              "unsupported": 0.1
+            },
+            "confidence": 0.37
+          },
+          "status_3": {
+            "type": "noul",
+            "noul": 0.69
+          }
+        },
+        "usage": {
+          "input_tokens": 3471,
+          "output_tokens": 256,
+          "cost": 0.000145782
+        },
+        "id": "gen-dec-1790726204-N7CPhLNotBA8s2aQoh7S",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.26389037497574463,
+      "id": "book-lossy-verify",
+      "engine": "jev",
+      "variant": "lossy_observations"
+    },
+    {
+      "request": {
+        "model": "openai/gpt-4.1-mini",
+        "temperature": 0,
+        "response_format": {
+          "type": "json_object"
+        },
+        "messages": [
+          {
+            "role": "user",
+            "content": "{\"instruction\": \"Write a readable source-linked wiki capsule as JSON {title,sentences:[{text,source_ids,status}]}. At most FOUR short sentences. Status must be recorded/tentative/speculative. Refer only to supplied source IDs. Preserve constructed/authored origins when supplied; do not infer real personal history from an observation. Preserve bounded claims, uncertainty, source conversions and relevant exceptions. Distinguish measured outputs from assistant assertions and hypotheses from facts. If metadata or evidence is missing, leave claims tentative or explicitly unknown. No external knowledge, invented outcomes, causal improvement claims, or skill activation. Cite the particular records that support each sentence. Make this understandable to someone without the experiment context.\", \"bundle\": \"methods\", \"input\": [{\"id\": \"thread-csv_ids\", \"text\": \"{\\\"id\\\": \\\"thread-csv_ids\\\", \\\"status\\\": \\\"constructed_coding_history_with_actual_execution\\\", \\\"project\\\": \\\"csv_ids\\\", \\\"messages\\\": [{\\\"id\\\": \\\"csv_ids-m1\\\", \\\"role\\\": \\\"user\\\", \\\"text\\\": \\\"Preserve distinct source identities in the derived lookup key.\\\"}, {\\\"id\\\": \\\"csv_ids-m2\\\", \\\"role\\\": \\\"assistant\\\", \\\"text\\\": \\\"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\\\"}, {\\\"id\\\": \\\"csv_ids-m3\\\", \\\"role\\\": \\\"tool\\\", \\\"text\\\": \\\"[{\\\\\\\"id\\\\\\\": \\\\\\\"csv_ids-failed\\\\\\\", \\\\\\\"file\\\\\\\": \\\\\\\"coding-demo/csv_ids/failed.py\\\\\\\", \\\\\\\"exit_code\\\\\\\": 1, \\\\\\\"stdout\\\\\\\": \\\\\\\"\\\\\\\", \\\\\\\"stderr\\\\\\\": \\\\\\\"Traceback (most recent call last):\\\\\\\\n  File \\\\\\\\\\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/csv_ids/failed.py\\\\\\\\\\\\\\\", line 2, in <module>\\\\\\\\n    assert key(\\\\\\\\\\\\\\\"007\\\\\\\\\\\\\\\") != key(\\\\\\\\\\\\\\\"7\\\\\\\\\\\\\\\"), \\\\\\\\\\\\\\\"distinct customer IDs collapsed\\\\\\\\\\\\\\\"\\\\\\\\n           ^^^^^^^^^^^^^^^^^^^^^^\\\\\\\\nAssertionError: distinct customer IDs collapsed\\\\\\\\n\\\\\\\"}, {\\\\\\\"id\\\\\\\": \\\\\\\"csv_ids-successful\\\\\\\", \\\\\\\"file\\\\\\\": \\\\\\\"coding-demo/csv_ids/successful.py\\\\\\\", \\\\\\\"exit_code\\\\\\\": 0, \\\\\\\"stdout\\\\\\\": \\\\\\\"invariants passed\\\\\\\\n\\\\\\\", \\\\\\\"stderr\\\\\\\": \\\\\\\"\\\\\\\"}]\\\"}, {\\\"id\\\": \\\"csv_ids-m4\\\", \\\"role\\\": \\\"assistant\\\", \\\"text\\\": \\\"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\\\"}], \\\"source_code\\\": {\\\"failed\\\": \\\"def key(x): return str(int(x))\\\", \\\"successful\\\": \\\"def key(x): return x\\\", \\\"invariant\\\": \\\"assert key(\\\\\\\"007\\\\\\\") != key(\\\\\\\"7\\\\\\\"), \\\\\\\"distinct customer IDs collapsed\\\\\\\"\\\"}}\", \"origin\": \"constructed_coding_history_with_actual_execution\", \"source_status\": \"captured\", \"artifact\": \"03-connections-and-methods/experiments/method-demo.json\", \"artifact_sha256\": \"ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1\"}, {\"id\": \"thread-url_keys\", \"text\": \"{\\\"id\\\": \\\"thread-url_keys\\\", \\\"status\\\": \\\"constructed_coding_history_with_actual_execution\\\", \\\"project\\\": \\\"url_keys\\\", \\\"messages\\\": [{\\\"id\\\": \\\"url_keys-m1\\\", \\\"role\\\": \\\"user\\\", \\\"text\\\": \\\"Preserve distinct source identities in the derived lookup key.\\\"}, {\\\"id\\\": \\\"url_keys-m2\\\", \\\"role\\\": \\\"assistant\\\", \\\"text\\\": \\\"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\\\"}, {\\\"id\\\": \\\"url_keys-m3\\\", \\\"role\\\": \\\"tool\\\", \\\"text\\\": \\\"[{\\\\\\\"id\\\\\\\": \\\\\\\"url_keys-failed\\\\\\\", \\\\\\\"file\\\\\\\": \\\\\\\"coding-demo/url_keys/failed.py\\\\\\\", \\\\\\\"exit_code\\\\\\\": 1, \\\\\\\"stdout\\\\\\\": \\\\\\\"\\\\\\\", \\\\\\\"stderr\\\\\\\": \\\\\\\"Traceback (most recent call last):\\\\\\\\n  File \\\\\\\\\\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/url_keys/failed.py\\\\\\\\\\\\\\\", line 4, in <module>\\\\\\\\n    assert key(\\\\\\\\\\\\\\\"https://example.invalid/a?view=all\\\\\\\\\\\\\\\") != key(\\\\\\\\\\\\\\\"https://example.invalid/a?view=mine\\\\\\\\\\\\\\\"), \\\\\\\\\\\\\\\"query destinations collapsed\\\\\\\\\\\\\\\"\\\\\\\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\\\\\\\nAssertionError: query destinations collapsed\\\\\\\\n\\\\\\\"}, {\\\\\\\"id\\\\\\\": \\\\\\\"url_keys-successful\\\\\\\", \\\\\\\"file\\\\\\\": \\\\\\\"coding-demo/url_keys/successful.py\\\\\\\", \\\\\\\"exit_code\\\\\\\": 0, \\\\\\\"stdout\\\\\\\": \\\\\\\"invariants passed\\\\\\\\n\\\\\\\", \\\\\\\"stderr\\\\\\\": \\\\\\\"\\\\\\\"}]\\\"}, {\\\"id\\\": \\\"url_keys-m4\\\", \\\"role\\\": \\\"assistant\\\", \\\"text\\\": \\\"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\\\"}], \\\"source_code\\\": {\\\"failed\\\": \\\"from urllib.parse import urlsplit\\\\ndef key(x):\\\\n p=urlsplit(x); return (p.scheme.lower(),p.netloc.lower(),p.path)\\\", \\\"successful\\\": \\\"from urllib.parse import urlsplit\\\\ndef key(x):\\\\n p=urlsplit(x); return (p.scheme.lower(),p.netloc.lower(),p.path,p.query)\\\", \\\"invariant\\\": \\\"assert key(\\\\\\\"https://example.invalid/a?view=all\\\\\\\") != key(\\\\\\\"https://example.invalid/a?view=mine\\\\\\\"), \\\\\\\"query destinations collapsed\\\\\\\"\\\"}}\", \"origin\": \"constructed_coding_history_with_actual_execution\", \"source_status\": \"captured\", \"artifact\": \"03-connections-and-methods/experiments/method-demo.json\", \"artifact_sha256\": \"ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1\"}, {\"id\": \"thread-cache_scope\", \"text\": \"{\\\"id\\\": \\\"thread-cache_scope\\\", \\\"status\\\": \\\"constructed_coding_history_with_actual_execution\\\", \\\"project\\\": \\\"cache_scope\\\", \\\"messages\\\": [{\\\"id\\\": \\\"cache_scope-m1\\\", \\\"role\\\": \\\"user\\\", \\\"text\\\": \\\"Preserve distinct source identities in the derived lookup key.\\\"}, {\\\"id\\\": \\\"cache_scope-m2\\\", \\\"role\\\": \\\"assistant\\\", \\\"text\\\": \\\"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\\\"}, {\\\"id\\\": \\\"cache_scope-m3\\\", \\\"role\\\": \\\"tool\\\", \\\"text\\\": \\\"[{\\\\\\\"id\\\\\\\": \\\\\\\"cache_scope-failed\\\\\\\", \\\\\\\"file\\\\\\\": \\\\\\\"coding-demo/cache_scope/failed.py\\\\\\\", \\\\\\\"exit_code\\\\\\\": 1, \\\\\\\"stdout\\\\\\\": \\\\\\\"\\\\\\\", \\\\\\\"stderr\\\\\\\": \\\\\\\"Traceback (most recent call last):\\\\\\\\n  File \\\\\\\\\\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/cache_scope/failed.py\\\\\\\\\\\\\\\", line 2, in <module>\\\\\\\\n    assert key(\\\\\\\\\\\\\\\"A\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"v1\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"hello\\\\\\\\\\\\\\\") != key(\\\\\\\\\\\\\\\"B\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"v1\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"HELLO\\\\\\\\\\\\\\\"), \\\\\\\\\\\\\\\"tenant isolation lost\\\\\\\\\\\\\\\"\\\\\\\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\\\\\\\nAssertionError: tenant isolation lost\\\\\\\\n\\\\\\\"}, {\\\\\\\"id\\\\\\\": \\\\\\\"cache_scope-successful\\\\\\\", \\\\\\\"file\\\\\\\": \\\\\\\"coding-demo/cache_scope/successful.py\\\\\\\", \\\\\\\"exit_code\\\\\\\": 0, \\\\\\\"stdout\\\\\\\": \\\\\\\"invariants passed\\\\\\\\n\\\\\\\", \\\\\\\"stderr\\\\\\\": \\\\\\\"\\\\\\\"}]\\\"}, {\\\"id\\\": \\\"cache_scope-m4\\\", \\\"role\\\": \\\"assistant\\\", \\\"text\\\": \\\"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\\\"}], \\\"source_code\\\": {\\\"failed\\\": \\\"def key(tenant,policy,text): return text.casefold()\\\", \\\"successful\\\": \\\"def key(tenant,policy,text): return (tenant,policy,text.casefold())\\\", \\\"invariant\\\": \\\"assert key(\\\\\\\"A\\\\\\\",\\\\\\\"v1\\\\\\\",\\\\\\\"hello\\\\\\\") != key(\\\\\\\"B\\\\\\\",\\\\\\\"v1\\\\\\\",\\\\\\\"HELLO\\\\\\\"), \\\\\\\"tenant isolation lost\\\\\\\"\\\\nassert key(\\\\\\\"A\\\\\\\",\\\\\\\"v1\\\\\\\",\\\\\\\"hello\\\\\\\") != key(\\\\\\\"A\\\\\\\",\\\\\\\"v2\\\\\\\",\\\\\\\"hello\\\\\\\"), \\\\\\\"policy revision ignored\\\\\\\"\\\"}}\", \"origin\": \"constructed_coding_history_with_actual_execution\", \"source_status\": \"captured\", \"artifact\": \"03-connections-and-methods/experiments/method-demo.json\", \"artifact_sha256\": \"ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1\"}, {\"id\": \"thread-unresolved\", \"text\": \"{\\\"id\\\": \\\"thread-unresolved\\\", \\\"status\\\": \\\"constructed_counterexample\\\", \\\"project\\\": \\\"signed_urls\\\", \\\"messages\\\": [{\\\"id\\\": \\\"signed-m1\\\", \\\"role\\\": \\\"user\\\", \\\"text\\\": \\\"Can query parameters be sorted for signed URLs? The signature might cover exact bytes. No provider signing specification or verification run is available.\\\"}]}\", \"origin\": \"constructed_counterexample\", \"source_status\": \"captured\", \"artifact\": \"03-connections-and-methods/experiments/method-demo.json\", \"artifact_sha256\": \"ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1\"}, {\"id\": \"method-candidate\", \"text\": \"{\\\"candidate\\\": \\\"Preserve exact identity/scope fields, reproduce collision, make bounded correction, run invariant regression, then use semantic judgments only where compatible.\\\", \\\"exceptions\\\": [\\\"Source fields declared numeric may legitimately normalize padding.\\\", \\\"Signed URL byte equivalence remains unresolved: preserve original bytes until provider semantics verified.\\\", \\\"Tenant identity not applicable to genuinely public immutable resources.\\\"]}\", \"origin\": \"authored method hypothesis; not an installed skill\", \"source_status\": \"captured\", \"artifact\": \"03-connections-and-methods/experiments/method-demo.json\", \"artifact_sha256\": \"ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1\"}]}"
+          }
+        ]
+      },
+      "response": {
+        "id": "gen-1790726206-uFEQbmjzLB68SiwiNPWB",
+        "object": "chat.completion",
+        "created": 1790726206,
+        "model": "openai/gpt-4.1-mini",
+        "provider": "OpenAI",
+        "system_fingerprint": null,
+        "service_tier": "default",
+        "choices": [
+          {
+            "index": 0,
+            "logprobs": null,
+            "finish_reason": "stop",
+            "native_finish_reason": "completed",
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"title\": \"Preserving Distinct Source Identities in Lookup Keys\",\n  \"sentences\": [\n    {\n      \"text\": \"Preserving exact identity and scope fields in lookup keys prevents unintended collisions, as shown by failed attempts to normalize numeric IDs or URL components that collapsed distinct values.\",\n      \"source_ids\": [\"thread-csv_ids\", \"thread-url_keys\", \"thread-cache_scope\"],\n      \"status\": \"recorded\"\n    },\n    {\n      \"text\": \"Regression tests that reproduce collisions and then apply bounded corrections have been used to verify that distinct source identities are maintained in key derivation.\",\n      \"source_ids\": [\"thread-csv_ids\", \"thread-url_keys\", \"thread-cache_scope\"],\n      \"status\": \"recorded\"\n    },\n    {\n      \"text\": \"Some exceptions exist, such as numeric source fields where normalization of padding may be legitimate, and tenant identity is not relevant for public immutable resources.\",\n      \"source_ids\": [\"method-candidate\"],\n      \"status\": \"tentative\"\n    },\n    {\n      \"text\": \"The question of sorting query parameters for signed URLs remains unresolved due to lack of provider signing specifications and verification, so original bytes should be preserved until semantics are confirmed.\",\n      \"source_ids\": [\"thread-unresolved\", \"method-candidate\"],\n      \"status\": \"tentative\"\n    }\n  ]\n}",
+              "refusal": null,
+              "reasoning": null
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 2383,
+          "completion_tokens": 279,
+          "total_tokens": 2662,
+          "cost": 0.001385604,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0013996,
+            "upstream_inference_prompt_cost": 0.0009532,
+            "upstream_inference_completions_cost": 0.0004464
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "seconds": 4.217323624994606,
+      "id": "methods-full",
+      "engine": "generative",
+      "variant": "full_evidence",
+      "parsed_capsule": {
+        "title": "Preserving Distinct Source Identities in Lookup Keys",
+        "sentences": [
+          {
+            "text": "Preserving exact identity and scope fields in lookup keys prevents unintended collisions, as shown by failed attempts to normalize numeric IDs or URL components that collapsed distinct values.",
+            "source_ids": [
+              "thread-csv_ids",
+              "thread-url_keys",
+              "thread-cache_scope"
+            ],
+            "status": "recorded"
+          },
+          {
+            "text": "Regression tests that reproduce collisions and then apply bounded corrections have been used to verify that distinct source identities are maintained in key derivation.",
+            "source_ids": [
+              "thread-csv_ids",
+              "thread-url_keys",
+              "thread-cache_scope"
+            ],
+            "status": "recorded"
+          },
+          {
+            "text": "Some exceptions exist, such as numeric source fields where normalization of padding may be legitimate, and tenant identity is not relevant for public immutable resources.",
+            "source_ids": [
+              "method-candidate"
+            ],
+            "status": "tentative"
+          },
+          {
+            "text": "The question of sorting query parameters for signed URLs remains unresolved due to lack of provider signing specifications and verification, so original bytes should be preserved until semantics are confirmed.",
+            "source_ids": [
+              "thread-unresolved",
+              "method-candidate"
+            ],
+            "status": "tentative"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "model": "typesafe/jev-1.13",
+        "state": {
+          "claims": [
+            {
+              "index": 0,
+              "generated_sentence": {
+                "text": "Preserving exact identity and scope fields in lookup keys prevents unintended collisions, as shown by failed attempts to normalize numeric IDs or URL components that collapsed distinct values.",
+                "source_ids": [
+                  "thread-csv_ids",
+                  "thread-url_keys",
+                  "thread-cache_scope"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "thread-csv_ids",
+                  "text": "{\"id\": \"thread-csv_ids\", \"status\": \"constructed_coding_history_with_actual_execution\", \"project\": \"csv_ids\", \"messages\": [{\"id\": \"csv_ids-m1\", \"role\": \"user\", \"text\": \"Preserve distinct source identities in the derived lookup key.\"}, {\"id\": \"csv_ids-m2\", \"role\": \"assistant\", \"text\": \"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\"}, {\"id\": \"csv_ids-m3\", \"role\": \"tool\", \"text\": \"[{\\\"id\\\": \\\"csv_ids-failed\\\", \\\"file\\\": \\\"coding-demo/csv_ids/failed.py\\\", \\\"exit_code\\\": 1, \\\"stdout\\\": \\\"\\\", \\\"stderr\\\": \\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/csv_ids/failed.py\\\\\\\", line 2, in <module>\\\\n    assert key(\\\\\\\"007\\\\\\\") != key(\\\\\\\"7\\\\\\\"), \\\\\\\"distinct customer IDs collapsed\\\\\\\"\\\\n           ^^^^^^^^^^^^^^^^^^^^^^\\\\nAssertionError: distinct customer IDs collapsed\\\\n\\\"}, {\\\"id\\\": \\\"csv_ids-successful\\\", \\\"file\\\": \\\"coding-demo/csv_ids/successful.py\\\", \\\"exit_code\\\": 0, \\\"stdout\\\": \\\"invariants passed\\\\n\\\", \\\"stderr\\\": \\\"\\\"}]\"}, {\"id\": \"csv_ids-m4\", \"role\": \"assistant\", \"text\": \"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\"}], \"source_code\": {\"failed\": \"def key(x): return str(int(x))\", \"successful\": \"def key(x): return x\", \"invariant\": \"assert key(\\\"007\\\") != key(\\\"7\\\"), \\\"distinct customer IDs collapsed\\\"\"}}",
+                  "origin": "constructed_coding_history_with_actual_execution",
+                  "source_status": "captured",
+                  "artifact": "03-connections-and-methods/experiments/method-demo.json",
+                  "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+                },
+                {
+                  "id": "thread-url_keys",
+                  "text": "{\"id\": \"thread-url_keys\", \"status\": \"constructed_coding_history_with_actual_execution\", \"project\": \"url_keys\", \"messages\": [{\"id\": \"url_keys-m1\", \"role\": \"user\", \"text\": \"Preserve distinct source identities in the derived lookup key.\"}, {\"id\": \"url_keys-m2\", \"role\": \"assistant\", \"text\": \"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\"}, {\"id\": \"url_keys-m3\", \"role\": \"tool\", \"text\": \"[{\\\"id\\\": \\\"url_keys-failed\\\", \\\"file\\\": \\\"coding-demo/url_keys/failed.py\\\", \\\"exit_code\\\": 1, \\\"stdout\\\": \\\"\\\", \\\"stderr\\\": \\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/url_keys/failed.py\\\\\\\", line 4, in <module>\\\\n    assert key(\\\\\\\"https://example.invalid/a?view=all\\\\\\\") != key(\\\\\\\"https://example.invalid/a?view=mine\\\\\\\"), \\\\\\\"query destinations collapsed\\\\\\\"\\\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\\\nAssertionError: query destinations collapsed\\\\n\\\"}, {\\\"id\\\": \\\"url_keys-successful\\\", \\\"file\\\": \\\"coding-demo/url_keys/successful.py\\\", \\\"exit_code\\\": 0, \\\"stdout\\\": \\\"invariants passed\\\\n\\\", \\\"stderr\\\": \\\"\\\"}]\"}, {\"id\": \"url_keys-m4\", \"role\": \"assistant\", \"text\": \"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\"}], \"source_code\": {\"failed\": \"from urllib.parse import urlsplit\\ndef key(x):\\n p=urlsplit(x); return (p.scheme.lower(),p.netloc.lower(),p.path)\", \"successful\": \"from urllib.parse import urlsplit\\ndef key(x):\\n p=urlsplit(x); return (p.scheme.lower(),p.netloc.lower(),p.path,p.query)\", \"invariant\": \"assert key(\\\"https://example.invalid/a?view=all\\\") != key(\\\"https://example.invalid/a?view=mine\\\"), \\\"query destinations collapsed\\\"\"}}",
+                  "origin": "constructed_coding_history_with_actual_execution",
+                  "source_status": "captured",
+                  "artifact": "03-connections-and-methods/experiments/method-demo.json",
+                  "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+                },
+                {
+                  "id": "thread-cache_scope",
+                  "text": "{\"id\": \"thread-cache_scope\", \"status\": \"constructed_coding_history_with_actual_execution\", \"project\": \"cache_scope\", \"messages\": [{\"id\": \"cache_scope-m1\", \"role\": \"user\", \"text\": \"Preserve distinct source identities in the derived lookup key.\"}, {\"id\": \"cache_scope-m2\", \"role\": \"assistant\", \"text\": \"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\"}, {\"id\": \"cache_scope-m3\", \"role\": \"tool\", \"text\": \"[{\\\"id\\\": \\\"cache_scope-failed\\\", \\\"file\\\": \\\"coding-demo/cache_scope/failed.py\\\", \\\"exit_code\\\": 1, \\\"stdout\\\": \\\"\\\", \\\"stderr\\\": \\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/cache_scope/failed.py\\\\\\\", line 2, in <module>\\\\n    assert key(\\\\\\\"A\\\\\\\",\\\\\\\"v1\\\\\\\",\\\\\\\"hello\\\\\\\") != key(\\\\\\\"B\\\\\\\",\\\\\\\"v1\\\\\\\",\\\\\\\"HELLO\\\\\\\"), \\\\\\\"tenant isolation lost\\\\\\\"\\\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\\\nAssertionError: tenant isolation lost\\\\n\\\"}, {\\\"id\\\": \\\"cache_scope-successful\\\", \\\"file\\\": \\\"coding-demo/cache_scope/successful.py\\\", \\\"exit_code\\\": 0, \\\"stdout\\\": \\\"invariants passed\\\\n\\\", \\\"stderr\\\": \\\"\\\"}]\"}, {\"id\": \"cache_scope-m4\", \"role\": \"assistant\", \"text\": \"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\"}], \"source_code\": {\"failed\": \"def key(tenant,policy,text): return text.casefold()\", \"successful\": \"def key(tenant,policy,text): return (tenant,policy,text.casefold())\", \"invariant\": \"assert key(\\\"A\\\",\\\"v1\\\",\\\"hello\\\") != key(\\\"B\\\",\\\"v1\\\",\\\"HELLO\\\"), \\\"tenant isolation lost\\\"\\nassert key(\\\"A\\\",\\\"v1\\\",\\\"hello\\\") != key(\\\"A\\\",\\\"v2\\\",\\\"hello\\\"), \\\"policy revision ignored\\\"\"}}",
+                  "origin": "constructed_coding_history_with_actual_execution",
+                  "source_status": "captured",
+                  "artifact": "03-connections-and-methods/experiments/method-demo.json",
+                  "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+                }
+              ],
+              "unknown_source_ids": []
+            },
+            {
+              "index": 1,
+              "generated_sentence": {
+                "text": "Regression tests that reproduce collisions and then apply bounded corrections have been used to verify that distinct source identities are maintained in key derivation.",
+                "source_ids": [
+                  "thread-csv_ids",
+                  "thread-url_keys",
+                  "thread-cache_scope"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "thread-csv_ids",
+                  "text": "{\"id\": \"thread-csv_ids\", \"status\": \"constructed_coding_history_with_actual_execution\", \"project\": \"csv_ids\", \"messages\": [{\"id\": \"csv_ids-m1\", \"role\": \"user\", \"text\": \"Preserve distinct source identities in the derived lookup key.\"}, {\"id\": \"csv_ids-m2\", \"role\": \"assistant\", \"text\": \"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\"}, {\"id\": \"csv_ids-m3\", \"role\": \"tool\", \"text\": \"[{\\\"id\\\": \\\"csv_ids-failed\\\", \\\"file\\\": \\\"coding-demo/csv_ids/failed.py\\\", \\\"exit_code\\\": 1, \\\"stdout\\\": \\\"\\\", \\\"stderr\\\": \\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/csv_ids/failed.py\\\\\\\", line 2, in <module>\\\\n    assert key(\\\\\\\"007\\\\\\\") != key(\\\\\\\"7\\\\\\\"), \\\\\\\"distinct customer IDs collapsed\\\\\\\"\\\\n           ^^^^^^^^^^^^^^^^^^^^^^\\\\nAssertionError: distinct customer IDs collapsed\\\\n\\\"}, {\\\"id\\\": \\\"csv_ids-successful\\\", \\\"file\\\": \\\"coding-demo/csv_ids/successful.py\\\", \\\"exit_code\\\": 0, \\\"stdout\\\": \\\"invariants passed\\\\n\\\", \\\"stderr\\\": \\\"\\\"}]\"}, {\"id\": \"csv_ids-m4\", \"role\": \"assistant\", \"text\": \"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\"}], \"source_code\": {\"failed\": \"def key(x): return str(int(x))\", \"successful\": \"def key(x): return x\", \"invariant\": \"assert key(\\\"007\\\") != key(\\\"7\\\"), \\\"distinct customer IDs collapsed\\\"\"}}",
+                  "origin": "constructed_coding_history_with_actual_execution",
+                  "source_status": "captured",
+                  "artifact": "03-connections-and-methods/experiments/method-demo.json",
+                  "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+                },
+                {
+                  "id": "thread-url_keys",
+                  "text": "{\"id\": \"thread-url_keys\", \"status\": \"constructed_coding_history_with_actual_execution\", \"project\": \"url_keys\", \"messages\": [{\"id\": \"url_keys-m1\", \"role\": \"user\", \"text\": \"Preserve distinct source identities in the derived lookup key.\"}, {\"id\": \"url_keys-m2\", \"role\": \"assistant\", \"text\": \"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\"}, {\"id\": \"url_keys-m3\", \"role\": \"tool\", \"text\": \"[{\\\"id\\\": \\\"url_keys-failed\\\", \\\"file\\\": \\\"coding-demo/url_keys/failed.py\\\", \\\"exit_code\\\": 1, \\\"stdout\\\": \\\"\\\", \\\"stderr\\\": \\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/url_keys/failed.py\\\\\\\", line 4, in <module>\\\\n    assert key(\\\\\\\"https://example.invalid/a?view=all\\\\\\\") != key(\\\\\\\"https://example.invalid/a?view=mine\\\\\\\"), \\\\\\\"query destinations collapsed\\\\\\\"\\\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\\\nAssertionError: query destinations collapsed\\\\n\\\"}, {\\\"id\\\": \\\"url_keys-successful\\\", \\\"file\\\": \\\"coding-demo/url_keys/successful.py\\\", \\\"exit_code\\\": 0, \\\"stdout\\\": \\\"invariants passed\\\\n\\\", \\\"stderr\\\": \\\"\\\"}]\"}, {\"id\": \"url_keys-m4\", \"role\": \"assistant\", \"text\": \"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\"}], \"source_code\": {\"failed\": \"from urllib.parse import urlsplit\\ndef key(x):\\n p=urlsplit(x); return (p.scheme.lower(),p.netloc.lower(),p.path)\", \"successful\": \"from urllib.parse import urlsplit\\ndef key(x):\\n p=urlsplit(x); return (p.scheme.lower(),p.netloc.lower(),p.path,p.query)\", \"invariant\": \"assert key(\\\"https://example.invalid/a?view=all\\\") != key(\\\"https://example.invalid/a?view=mine\\\"), \\\"query destinations collapsed\\\"\"}}",
+                  "origin": "constructed_coding_history_with_actual_execution",
+                  "source_status": "captured",
+                  "artifact": "03-connections-and-methods/experiments/method-demo.json",
+                  "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+                },
+                {
+                  "id": "thread-cache_scope",
+                  "text": "{\"id\": \"thread-cache_scope\", \"status\": \"constructed_coding_history_with_actual_execution\", \"project\": \"cache_scope\", \"messages\": [{\"id\": \"cache_scope-m1\", \"role\": \"user\", \"text\": \"Preserve distinct source identities in the derived lookup key.\"}, {\"id\": \"cache_scope-m2\", \"role\": \"assistant\", \"text\": \"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\"}, {\"id\": \"cache_scope-m3\", \"role\": \"tool\", \"text\": \"[{\\\"id\\\": \\\"cache_scope-failed\\\", \\\"file\\\": \\\"coding-demo/cache_scope/failed.py\\\", \\\"exit_code\\\": 1, \\\"stdout\\\": \\\"\\\", \\\"stderr\\\": \\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/cache_scope/failed.py\\\\\\\", line 2, in <module>\\\\n    assert key(\\\\\\\"A\\\\\\\",\\\\\\\"v1\\\\\\\",\\\\\\\"hello\\\\\\\") != key(\\\\\\\"B\\\\\\\",\\\\\\\"v1\\\\\\\",\\\\\\\"HELLO\\\\\\\"), \\\\\\\"tenant isolation lost\\\\\\\"\\\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\\\nAssertionError: tenant isolation lost\\\\n\\\"}, {\\\"id\\\": \\\"cache_scope-successful\\\", \\\"file\\\": \\\"coding-demo/cache_scope/successful.py\\\", \\\"exit_code\\\": 0, \\\"stdout\\\": \\\"invariants passed\\\\n\\\", \\\"stderr\\\": \\\"\\\"}]\"}, {\"id\": \"cache_scope-m4\", \"role\": \"assistant\", \"text\": \"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\"}], \"source_code\": {\"failed\": \"def key(tenant,policy,text): return text.casefold()\", \"successful\": \"def key(tenant,policy,text): return (tenant,policy,text.casefold())\", \"invariant\": \"assert key(\\\"A\\\",\\\"v1\\\",\\\"hello\\\") != key(\\\"B\\\",\\\"v1\\\",\\\"HELLO\\\"), \\\"tenant isolation lost\\\"\\nassert key(\\\"A\\\",\\\"v1\\\",\\\"hello\\\") != key(\\\"A\\\",\\\"v2\\\",\\\"hello\\\"), \\\"policy revision ignored\\\"\"}}",
+                  "origin": "constructed_coding_history_with_actual_execution",
+                  "source_status": "captured",
+                  "artifact": "03-connections-and-methods/experiments/method-demo.json",
+                  "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+                }
+              ],
+              "unknown_source_ids": []
+            },
+            {
+              "index": 2,
+              "generated_sentence": {
+                "text": "Some exceptions exist, such as numeric source fields where normalization of padding may be legitimate, and tenant identity is not relevant for public immutable resources.",
+                "source_ids": [
+                  "method-candidate"
+                ],
+                "status": "tentative"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "method-candidate",
+                  "text": "{\"candidate\": \"Preserve exact identity/scope fields, reproduce collision, make bounded correction, run invariant regression, then use semantic judgments only where compatible.\", \"exceptions\": [\"Source fields declared numeric may legitimately normalize padding.\", \"Signed URL byte equivalence remains unresolved: preserve original bytes until provider semantics verified.\", \"Tenant identity not applicable to genuinely public immutable resources.\"]}",
+                  "origin": "authored method hypothesis; not an installed skill",
+                  "source_status": "captured",
+                  "artifact": "03-connections-and-methods/experiments/method-demo.json",
+                  "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+                }
+              ],
+              "unknown_source_ids": []
+            },
+            {
+              "index": 3,
+              "generated_sentence": {
+                "text": "The question of sorting query parameters for signed URLs remains unresolved due to lack of provider signing specifications and verification, so original bytes should be preserved until semantics are confirmed.",
+                "source_ids": [
+                  "thread-unresolved",
+                  "method-candidate"
+                ],
+                "status": "tentative"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "thread-unresolved",
+                  "text": "{\"id\": \"thread-unresolved\", \"status\": \"constructed_counterexample\", \"project\": \"signed_urls\", \"messages\": [{\"id\": \"signed-m1\", \"role\": \"user\", \"text\": \"Can query parameters be sorted for signed URLs? The signature might cover exact bytes. No provider signing specification or verification run is available.\"}]}",
+                  "origin": "constructed_counterexample",
+                  "source_status": "captured",
+                  "artifact": "03-connections-and-methods/experiments/method-demo.json",
+                  "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+                },
+                {
+                  "id": "method-candidate",
+                  "text": "{\"candidate\": \"Preserve exact identity/scope fields, reproduce collision, make bounded correction, run invariant regression, then use semantic judgments only where compatible.\", \"exceptions\": [\"Source fields declared numeric may legitimately normalize padding.\", \"Signed URL byte equivalence remains unresolved: preserve original bytes until provider semantics verified.\", \"Tenant identity not applicable to genuinely public immutable resources.\"]}",
+                  "origin": "authored method hypothesis; not an installed skill",
+                  "source_status": "captured",
+                  "artifact": "03-connections-and-methods/experiments/method-demo.json",
+                  "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+                }
+              ],
+              "unknown_source_ids": []
+            }
+          ],
+          "bundle_original_provenance": "Public source excerpts and explicitly constructed controlled histories; no real private-user history in this experiment."
+        },
+        "questions": {
+          "fidelity_0": {
+            "type": "choice",
+            "instructions": "Does claims[0].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_0": {
+            "type": "noul",
+            "instructions": "Is claims[0].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          },
+          "fidelity_1": {
+            "type": "choice",
+            "instructions": "Does claims[1].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_1": {
+            "type": "noul",
+            "instructions": "Is claims[1].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          },
+          "fidelity_2": {
+            "type": "choice",
+            "instructions": "Does claims[2].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_2": {
+            "type": "noul",
+            "instructions": "Is claims[2].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          },
+          "fidelity_3": {
+            "type": "choice",
+            "instructions": "Does claims[3].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_3": {
+            "type": "noul",
+            "instructions": "Is claims[3].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "fidelity_0": {
+            "type": "choice",
+            "choice": "qualifier_missing",
+            "probabilities": {
+              "faithful": 0.33,
+              "unsupported": 0.11,
+              "qualifier_missing": 0.56
+            },
+            "confidence": 0.34
+          },
+          "status_0": {
+            "type": "noul",
+            "noul": 0.73
+          },
+          "fidelity_1": {
+            "type": "choice",
+            "choice": "qualifier_missing",
+            "probabilities": {
+              "faithful": 0.38,
+              "unsupported": 0.05,
+              "qualifier_missing": 0.57
+            },
+            "confidence": 0.35
+          },
+          "status_1": {
+            "type": "noul",
+            "noul": 0.81
+          },
+          "fidelity_2": {
+            "type": "choice",
+            "choice": "qualifier_missing",
+            "probabilities": {
+              "faithful": 0.39,
+              "unsupported": 0.07,
+              "qualifier_missing": 0.54
+            },
+            "confidence": 0.31
+          },
+          "status_2": {
+            "type": "noul",
+            "noul": 0.77
+          },
+          "fidelity_3": {
+            "type": "choice",
+            "choice": "faithful",
+            "probabilities": {
+              "faithful": 0.68,
+              "unsupported": 0.07,
+              "qualifier_missing": 0.25
+            },
+            "confidence": 0.53
+          },
+          "status_3": {
+            "type": "noul",
+            "noul": 0.77
+          }
+        },
+        "usage": {
+          "input_tokens": 5960,
+          "output_tokens": 256,
+          "cost": 0.00025032
+        },
+        "id": "gen-dec-1790726209-t2oIlZkVKjvcc8FGEGKd",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.2521939169964753,
+      "id": "methods-full-verify",
+      "engine": "jev",
+      "variant": "full_evidence"
+    },
+    {
+      "request": {
+        "model": "openai/gpt-4.1-mini",
+        "temperature": 0,
+        "response_format": {
+          "type": "json_object"
+        },
+        "messages": [
+          {
+            "role": "user",
+            "content": "{\"instruction\": \"Write a readable source-linked wiki capsule as JSON {title,sentences:[{text,source_ids,status}]}. At most FOUR short sentences. Status must be recorded/tentative/speculative. Refer only to supplied source IDs. Preserve constructed/authored origins when supplied; do not infer real personal history from an observation. Preserve bounded claims, uncertainty, source conversions and relevant exceptions. Distinguish measured outputs from assistant assertions and hypotheses from facts. If metadata or evidence is missing, leave claims tentative or explicitly unknown. No external knowledge, invented outcomes, causal improvement claims, or skill activation. Cite the particular records that support each sentence. Make this understandable to someone without the experiment context.\", \"bundle\": \"methods\", \"input\": [{\"id\": \"thread-csv_ids\", \"observation\": \"Padded IDs collapsed with int conversion; string-preserving correction passes.\"}, {\"id\": \"thread-url_keys\", \"observation\": \"Query-free URL key collapsed distinct views; query-preserving correction passes.\"}, {\"id\": \"thread-cache_scope\", \"observation\": \"Tenant/policy-free keys collapsed scopes; partitioned key passes.\"}]}"
+          }
+        ]
+      },
+      "response": {
+        "id": "gen-1790726209-HsAIAayydQjzL54BArGS",
+        "object": "chat.completion",
+        "created": 1790726209,
+        "model": "openai/gpt-4.1-mini",
+        "provider": "OpenAI",
+        "system_fingerprint": null,
+        "service_tier": "default",
+        "choices": [
+          {
+            "index": 0,
+            "logprobs": null,
+            "finish_reason": "stop",
+            "native_finish_reason": "completed",
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"title\": \"Data Processing Methods for ID and Key Handling\",\n  \"sentences\": [\n    {\n      \"text\": \"Padded IDs were initially collapsed due to integer conversion, but subsequent correction passes preserved their string format.\",\n      \"source_ids\": [\"thread-csv_ids\"],\n      \"status\": \"recorded\"\n    },\n    {\n      \"text\": \"URL keys without queries were collapsed into distinct views, while keys preserving queries passed correction processes.\",\n      \"source_ids\": [\"thread-url_keys\"],\n      \"status\": \"recorded\"\n    },\n    {\n      \"text\": \"Keys without tenant or policy context were collapsed across scopes, but partitioned keys successfully passed correction.\",\n      \"source_ids\": [\"thread-cache_scope\"],\n      \"status\": \"recorded\"\n    }\n  ]\n}",
+              "refusal": null,
+              "reasoning": null
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 242,
+          "completion_tokens": 164,
+          "total_tokens": 406,
+          "cost": 0.000355608,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0003592,
+            "upstream_inference_prompt_cost": 9.68e-05,
+            "upstream_inference_completions_cost": 0.0002624
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "seconds": 2.3479749590042047,
+      "id": "methods-lossy",
+      "engine": "generative",
+      "variant": "lossy_observations",
+      "parsed_capsule": {
+        "title": "Data Processing Methods for ID and Key Handling",
+        "sentences": [
+          {
+            "text": "Padded IDs were initially collapsed due to integer conversion, but subsequent correction passes preserved their string format.",
+            "source_ids": [
+              "thread-csv_ids"
+            ],
+            "status": "recorded"
+          },
+          {
+            "text": "URL keys without queries were collapsed into distinct views, while keys preserving queries passed correction processes.",
+            "source_ids": [
+              "thread-url_keys"
+            ],
+            "status": "recorded"
+          },
+          {
+            "text": "Keys without tenant or policy context were collapsed across scopes, but partitioned keys successfully passed correction.",
+            "source_ids": [
+              "thread-cache_scope"
+            ],
+            "status": "recorded"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "model": "typesafe/jev-1.13",
+        "state": {
+          "claims": [
+            {
+              "index": 0,
+              "generated_sentence": {
+                "text": "Padded IDs were initially collapsed due to integer conversion, but subsequent correction passes preserved their string format.",
+                "source_ids": [
+                  "thread-csv_ids"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "thread-csv_ids",
+                  "text": "{\"id\": \"thread-csv_ids\", \"status\": \"constructed_coding_history_with_actual_execution\", \"project\": \"csv_ids\", \"messages\": [{\"id\": \"csv_ids-m1\", \"role\": \"user\", \"text\": \"Preserve distinct source identities in the derived lookup key.\"}, {\"id\": \"csv_ids-m2\", \"role\": \"assistant\", \"text\": \"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\"}, {\"id\": \"csv_ids-m3\", \"role\": \"tool\", \"text\": \"[{\\\"id\\\": \\\"csv_ids-failed\\\", \\\"file\\\": \\\"coding-demo/csv_ids/failed.py\\\", \\\"exit_code\\\": 1, \\\"stdout\\\": \\\"\\\", \\\"stderr\\\": \\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/csv_ids/failed.py\\\\\\\", line 2, in <module>\\\\n    assert key(\\\\\\\"007\\\\\\\") != key(\\\\\\\"7\\\\\\\"), \\\\\\\"distinct customer IDs collapsed\\\\\\\"\\\\n           ^^^^^^^^^^^^^^^^^^^^^^\\\\nAssertionError: distinct customer IDs collapsed\\\\n\\\"}, {\\\"id\\\": \\\"csv_ids-successful\\\", \\\"file\\\": \\\"coding-demo/csv_ids/successful.py\\\", \\\"exit_code\\\": 0, \\\"stdout\\\": \\\"invariants passed\\\\n\\\", \\\"stderr\\\": \\\"\\\"}]\"}, {\"id\": \"csv_ids-m4\", \"role\": \"assistant\", \"text\": \"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\"}], \"source_code\": {\"failed\": \"def key(x): return str(int(x))\", \"successful\": \"def key(x): return x\", \"invariant\": \"assert key(\\\"007\\\") != key(\\\"7\\\"), \\\"distinct customer IDs collapsed\\\"\"}}",
+                  "origin": "constructed_coding_history_with_actual_execution",
+                  "source_status": "captured",
+                  "artifact": "03-connections-and-methods/experiments/method-demo.json",
+                  "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+                }
+              ],
+              "unknown_source_ids": []
+            },
+            {
+              "index": 1,
+              "generated_sentence": {
+                "text": "URL keys without queries were collapsed into distinct views, while keys preserving queries passed correction processes.",
+                "source_ids": [
+                  "thread-url_keys"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "thread-url_keys",
+                  "text": "{\"id\": \"thread-url_keys\", \"status\": \"constructed_coding_history_with_actual_execution\", \"project\": \"url_keys\", \"messages\": [{\"id\": \"url_keys-m1\", \"role\": \"user\", \"text\": \"Preserve distinct source identities in the derived lookup key.\"}, {\"id\": \"url_keys-m2\", \"role\": \"assistant\", \"text\": \"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\"}, {\"id\": \"url_keys-m3\", \"role\": \"tool\", \"text\": \"[{\\\"id\\\": \\\"url_keys-failed\\\", \\\"file\\\": \\\"coding-demo/url_keys/failed.py\\\", \\\"exit_code\\\": 1, \\\"stdout\\\": \\\"\\\", \\\"stderr\\\": \\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/url_keys/failed.py\\\\\\\", line 4, in <module>\\\\n    assert key(\\\\\\\"https://example.invalid/a?view=all\\\\\\\") != key(\\\\\\\"https://example.invalid/a?view=mine\\\\\\\"), \\\\\\\"query destinations collapsed\\\\\\\"\\\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\\\nAssertionError: query destinations collapsed\\\\n\\\"}, {\\\"id\\\": \\\"url_keys-successful\\\", \\\"file\\\": \\\"coding-demo/url_keys/successful.py\\\", \\\"exit_code\\\": 0, \\\"stdout\\\": \\\"invariants passed\\\\n\\\", \\\"stderr\\\": \\\"\\\"}]\"}, {\"id\": \"url_keys-m4\", \"role\": \"assistant\", \"text\": \"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\"}], \"source_code\": {\"failed\": \"from urllib.parse import urlsplit\\ndef key(x):\\n p=urlsplit(x); return (p.scheme.lower(),p.netloc.lower(),p.path)\", \"successful\": \"from urllib.parse import urlsplit\\ndef key(x):\\n p=urlsplit(x); return (p.scheme.lower(),p.netloc.lower(),p.path,p.query)\", \"invariant\": \"assert key(\\\"https://example.invalid/a?view=all\\\") != key(\\\"https://example.invalid/a?view=mine\\\"), \\\"query destinations collapsed\\\"\"}}",
+                  "origin": "constructed_coding_history_with_actual_execution",
+                  "source_status": "captured",
+                  "artifact": "03-connections-and-methods/experiments/method-demo.json",
+                  "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+                }
+              ],
+              "unknown_source_ids": []
+            },
+            {
+              "index": 2,
+              "generated_sentence": {
+                "text": "Keys without tenant or policy context were collapsed across scopes, but partitioned keys successfully passed correction.",
+                "source_ids": [
+                  "thread-cache_scope"
+                ],
+                "status": "recorded"
+              },
+              "original_referenced_sources": [
+                {
+                  "id": "thread-cache_scope",
+                  "text": "{\"id\": \"thread-cache_scope\", \"status\": \"constructed_coding_history_with_actual_execution\", \"project\": \"cache_scope\", \"messages\": [{\"id\": \"cache_scope-m1\", \"role\": \"user\", \"text\": \"Preserve distinct source identities in the derived lookup key.\"}, {\"id\": \"cache_scope-m2\", \"role\": \"assistant\", \"text\": \"A lossy normalization seemed convenient. The reproducer failed, so preserve the scope/identity fields before any optional semantic lookup.\"}, {\"id\": \"cache_scope-m3\", \"role\": \"tool\", \"text\": \"[{\\\"id\\\": \\\"cache_scope-failed\\\", \\\"file\\\": \\\"coding-demo/cache_scope/failed.py\\\", \\\"exit_code\\\": 1, \\\"stdout\\\": \\\"\\\", \\\"stderr\\\": \\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/Users/Nicolas/Documents/github/knowledge-garden/docs/research/expanded-exploration/03-connections-and-methods/experiments/coding-demo/cache_scope/failed.py\\\\\\\", line 2, in <module>\\\\n    assert key(\\\\\\\"A\\\\\\\",\\\\\\\"v1\\\\\\\",\\\\\\\"hello\\\\\\\") != key(\\\\\\\"B\\\\\\\",\\\\\\\"v1\\\\\\\",\\\\\\\"HELLO\\\\\\\"), \\\\\\\"tenant isolation lost\\\\\\\"\\\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\\\nAssertionError: tenant isolation lost\\\\n\\\"}, {\\\"id\\\": \\\"cache_scope-successful\\\", \\\"file\\\": \\\"coding-demo/cache_scope/successful.py\\\", \\\"exit_code\\\": 0, \\\"stdout\\\": \\\"invariants passed\\\\n\\\", \\\"stderr\\\": \\\"\\\"}]\"}, {\"id\": \"cache_scope-m4\", \"role\": \"assistant\", \"text\": \"Regression now passes for this bounded fixture. This does not establish arbitrary format coverage.\"}], \"source_code\": {\"failed\": \"def key(tenant,policy,text): return text.casefold()\", \"successful\": \"def key(tenant,policy,text): return (tenant,policy,text.casefold())\", \"invariant\": \"assert key(\\\"A\\\",\\\"v1\\\",\\\"hello\\\") != key(\\\"B\\\",\\\"v1\\\",\\\"HELLO\\\"), \\\"tenant isolation lost\\\"\\nassert key(\\\"A\\\",\\\"v1\\\",\\\"hello\\\") != key(\\\"A\\\",\\\"v2\\\",\\\"hello\\\"), \\\"policy revision ignored\\\"\"}}",
+                  "origin": "constructed_coding_history_with_actual_execution",
+                  "source_status": "captured",
+                  "artifact": "03-connections-and-methods/experiments/method-demo.json",
+                  "artifact_sha256": "ff4edd40c0cc4a66dc9df36975907b10bf9c9c7032fbf8aa2610d5efe836deb1"
+                }
+              ],
+              "unknown_source_ids": []
+            }
+          ],
+          "bundle_original_provenance": "Public source excerpts and explicitly constructed controlled histories; no real private-user history in this experiment."
+        },
+        "questions": {
+          "fidelity_0": {
+            "type": "choice",
+            "instructions": "Does claims[0].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_0": {
+            "type": "noul",
+            "instructions": "Is claims[0].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          },
+          "fidelity_1": {
+            "type": "choice",
+            "instructions": "Does claims[1].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_1": {
+            "type": "noul",
+            "instructions": "Is claims[1].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          },
+          "fidelity_2": {
+            "type": "choice",
+            "instructions": "Does claims[2].generated_sentence.text faithfully represent ONLY original_referenced_sources? Quote occurrence is not adoption; assistant claims are not measured output. Reject invented history, unsupported before/after improvement, universal capability and speculation presented as recorded. Inspect origin as well as content.",
+            "criteria": {
+              "faithful": "Sentence supported with essential scope/origin preserved.",
+              "qualifier_missing": "Core content supported but an essential provenance/scope/uncertainty qualifier omitted.",
+              "unsupported": "Sentence adds a claim its original sources do not establish, contradicts them or cites unavailable IDs."
+            }
+          },
+          "status_2": {
+            "type": "noul",
+            "instructions": "Is claims[2].generated_sentence.status appropriate given original source provenance, modality and claim content? A recorded observation within an explicitly constructed history may be recorded; analogy/application transfer is speculative."
+          }
+        }
+      },
+      "response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "fidelity_0": {
+            "type": "choice",
+            "choice": "unsupported",
+            "probabilities": {
+              "qualifier_missing": 0.23,
+              "faithful": 0.18,
+              "unsupported": 0.59
+            },
+            "confidence": 0.38
+          },
+          "status_0": {
+            "type": "noul",
+            "noul": 0.85
+          },
+          "fidelity_1": {
+            "type": "choice",
+            "choice": "unsupported",
+            "probabilities": {
+              "qualifier_missing": 0.15,
+              "faithful": 0.06,
+              "unsupported": 0.79
+            },
+            "confidence": 0.68
+          },
+          "status_1": {
+            "type": "noul",
+            "noul": 0.73
+          },
+          "fidelity_2": {
+            "type": "choice",
+            "choice": "qualifier_missing",
+            "probabilities": {
+              "qualifier_missing": 0.5,
+              "faithful": 0.13,
+              "unsupported": 0.37
+            },
+            "confidence": 0.25
+          },
+          "status_2": {
+            "type": "noul",
+            "noul": 0.77
+          }
+        },
+        "usage": {
+          "input_tokens": 3062,
+          "output_tokens": 189,
+          "cost": 0.000128604
+        },
+        "id": "gen-dec-1790726211-MaHnJMwUs3zfdwe8fqzi",
+        "provider": "TypeSafe"
+      },
+      "seconds": 0.2685385000077076,
+      "id": "methods-lossy-verify",
+      "engine": "jev",
+      "variant": "lossy_observations"
+    }
+  ]
+}

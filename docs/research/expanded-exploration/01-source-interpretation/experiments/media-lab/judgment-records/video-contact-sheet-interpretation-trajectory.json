@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "video-contact-sheet-interpretation-trajectory",
+    "family": "claim",
+    "source": "video-contact-sheet",
+    "representation": "interpretation",
+    "claim": "The exact uninterrupted trajectory of every person between 0 and 30 seconds is established.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "video-contact-sheet",
+      "evidence_kind": "interpretation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"box_2d\": [130, 128, 188, 184],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [130, 322, 188, 378],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [130, 416, 188, 472],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [130, 776, 188, 832],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [330, 240, 388, 296],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [330, 328, 388, 384],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [330, 460, 388, 516],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [330, 728, 388, 784],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [330, 876, 388, 932],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [530, 48, 588, 104],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [530, 140, 588, 196],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [530, 328, 588, 384],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [530, 436, 588, 492],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [530, 696, 588, 752],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [530, 816, 588, 872],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [530, 880, 588, 936],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [730, 48, 788, 104],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [730, 140, 788, 196],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [730, 316, 788, 372],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [730, 440, 788, 496],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [730, 620, 788, 676],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [730, 696, 788, 752],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [730, 876, 788, 932],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [730, 900, 788, 956],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [930, 48, 988, 104],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [930, 400, 988, 456],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [930, 456, 988, 512],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [930, 540, 988, 596],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [930, 708, 988, 764],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [930, 816, 988, 872],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [930, 896, 988, 952],\n      \"label\": \"person\"\n    },\n    {\n      \"box_2d\": [28, 376, 60, 408],\n      \"label\": \"van\"\n    },\n    {\n      \"box_2d\": [28, 424, 60, 468],\n      \"label\": \"van\"\n    },\n    {\n      \"box_2d\": [28, 924, 60, 968],\n      \"label\": \"van\"\n    },\n    {\n      \"box_2d\": [356, 424, 388, 468],\n      \"label\": \"van\"\n    },\n    {\n      \"box_2d\": [356, 924, 388, 968],\n      \"label\": \"van\"\n    },\n    {\n      \"box_2d\": [684, 424, 716, 468],\n      \"label\": \"van\"\n    },\n    {\n      \"box_2d\": [684, 924, 716, 968],\n      \"label\": \"van\"\n    },\n    {\n      \"box_2d\": [10, 268, 30, 284],\n      \"label\": \"cone\"\n    },\n    {\n      \"box_2d\": [10, 300, 30, 316],\n      \"label\": \"cone\"\n    },\n    {\n      \"box_2d\": [10, 320, 30, 336],\n      \"label\": \"cone\"\n    },\n    {\n      \"box_2d\": [10, 336, 30, 352],\n      \"label\": \"cone\"\n    },\n    {\n      \"box_2d\": [10, 352, 30, 368],\n      \"label\": \"cone\"\n    },\n    {",
+      "claim": "The exact uninterrupted trajectory of every person between 0 and 30 seconds is established."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "unknown",
+        "probabilities": {
+          "unknown": 0.83,
+          "contradicted": 0.17,
+          "supported": 0
+        },
+        "confidence": 0.74
+      }
+    },
+    "usage": {
+      "input_tokens": 2077,
+      "output_tokens": 41,
+      "cost": 8.7234e-05
+    },
+    "id": "gen-dec-1790725836-ELmHvZ8nPlU3NqoRmKM7",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.29386766598327085
+}

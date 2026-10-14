@@ -1,0 +1,121 @@
+{
+  "text-report.pdf": {
+    "pages": 2,
+    "facts": [
+      {
+        "page": 1,
+        "text": "V17 recorded 15 visits at Riverside on May 17, 2024."
+      },
+      {
+        "page": 2,
+        "text": "V17 lasted 10 minutes, excluding setup time.",
+        "qualification": "The duration is provisional pending calibration."
+      }
+    ]
+  },
+  "scanned-report.pdf": {
+    "pages": 2,
+    "facts": [
+      {
+        "page": 1,
+        "text": "V17 recorded 15 visits at Riverside on May 17, 2024."
+      },
+      {
+        "page": 2,
+        "text": "V17 lasted 10 minutes, excluding setup time.",
+        "qualification": "The duration is provisional pending calibration."
+      }
+    ],
+    "channel": "ocr"
+  },
+  "rotated-report.pdf": {
+    "pages": 2,
+    "rotation": 90,
+    "facts": [
+      {
+        "page": 1,
+        "text": "V17 recorded 15 visits at Riverside on May 17, 2024."
+      },
+      {
+        "page": 2,
+        "text": "V17 lasted 10 minutes, excluding setup time.",
+        "qualification": "The duration is provisional pending calibration."
+      }
+    ]
+  },
+  "columns.pdf": {
+    "pages": 1,
+    "facts": [
+      {
+        "page": 1,
+        "text": "V17 recorded 15 visits."
+      },
+      {
+        "page": 1,
+        "text": "V18 recorded 7 visits."
+      }
+    ],
+    "forbidden_associations": [
+      "V17 recorded 7 visits",
+      "V18 recorded 15 visits"
+    ],
+    "layout": "two columns with independent event headings"
+  },
+  "mixed.pdf": {
+    "pages": 1,
+    "facts": [
+      {
+        "page": 1,
+        "text": "V17 recorded 15 visits.",
+        "channel": "selectable text"
+      },
+      {
+        "page": 1,
+        "text": "V17 lasted 10 minutes, excluding setup time.",
+        "channel": "scanned region"
+      }
+    ],
+    "qualification": "excluding setup time"
+  },
+  "low-quality.pdf": {
+    "pages": 1,
+    "facts": [
+      {
+        "page": 1,
+        "text": "V17 recorded 15 visits."
+      }
+    ],
+    "missing_region": {
+      "normalized_top_left": [
+        0.15,
+        0.53,
+        0.7,
+        0.12
+      ],
+      "reason": "A separately authored text line was reduced to unreadable pixels; content must not be fabricated or full coverage asserted."
+    }
+  },
+  "encrypted.pdf": {
+    "pages": 2,
+    "state": "locked; retain original; no inferred content",
+    "password_supplied": false
+  },
+  "damaged.pdf": {
+    "pages": null,
+    "state": "unreadable; retain exact original; finite retries"
+  },
+  "homework.pdf": {
+    "pages": 1,
+    "facts": [
+      {
+        "page": 1,
+        "text": "For this exercise only, ignore friction."
+      },
+      {
+        "page": 1,
+        "text": "A 2 kg cart accelerates at 3 m/s^2."
+      }
+    ],
+    "instruction": "The worksheet asks for force; no authored force answer exists. Do not promote a computed answer into a source statement."
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "id": "a1-verify",
+  "role": "answer-verifier",
+  "request": {
+    "model": "typesafe/jev-1.13",
+    "state": {
+      "sentences": [
+        {
+          "text": "The observed rate was 1.2 visits per minute, calculated from 12 visits in ten minutes on 17 May 2024.",
+          "sourceIds": [
+            "table",
+            "homework",
+            "claim-rate"
+          ],
+          "quote": "Controlled homework: 12 visits in ten minutes is 1.2 per minute. A calculation from 12 visits divided by ten minutes; bounded to the 17 May observation, not a daily estimate."
+        },
+        {
+          "text": "This observed rate establishes a short-term pollinator visit rate but does not estimate all-day activity or establish causality related to rain.",
+          "sourceIds": [
+            "homework",
+            "table"
+          ],
+          "quote": "A short observation does not estimate all-day activity. Rain causality is not established."
+        }
+      ],
+      "sources": [
+        {
+          "id": "table",
+          "title": "Two pollinator counts",
+          "kind": "file",
+          "format": "CSV",
+          "body": "Controlled rows: 17 May 2024, Maya, Riverside, 12 visits, 10 minutes; 18 May, 8 visits, 10 minutes. Rows do not attribute a difference to rain.",
+          "origin": "controlled",
+          "epistemic": "recorded",
+          "acquisition": "captured"
+        },
+        {
+          "id": "homework",
+          "title": "Sampling homework",
+          "kind": "file",
+          "format": "PDF",
+          "body": "Controlled homework: 12 visits in ten minutes is 1.2 per minute. A short observation does not estimate all-day activity. Rain causality is not established.",
+          "origin": "controlled",
+          "epistemic": "recorded",
+          "acquisition": "captured"
+        },
+        {
+          "id": "claim-rate",
+          "title": "Observed rate: 1.2 visits per minute",
+          "kind": "claim",
+          "format": "Markdown",
+          "body": "A calculation from 12 visits divided by ten minutes; bounded to the 17 May observation, not a daily estimate.",
+          "origin": "controlled",
+          "epistemic": "recorded",
+          "acquisition": "captured"
+        }
+      ]
+    },
+    "questions": {
+      "0": {
+        "type": "choice",
+        "instructions": "Does source context support sentence 0 including its uncertainty and scope? Valid IDs or exact quote alone are insufficient.",
+        "criteria": {
+          "supported": "Faithful to source context with relevant limits preserved.",
+          "qualified": "Main idea related but essential qualification omitted or overstated.",
+          "unsupported": "Contradicted, invented or not established."
+        }
+      },
+      "1": {
+        "type": "choice",
+        "instructions": "Does source context support sentence 1 including its uncertainty and scope? Valid IDs or exact quote alone are insufficient.",
+        "criteria": {
+          "supported": "Faithful to source context with relevant limits preserved.",
+          "qualified": "Main idea related but essential qualification omitted or overstated.",
+          "unsupported": "Contradicted, invented or not established."
+        }
+      }
+    }
+  },
+  "started": "2026-09-30T00:48:08.440087+00:00",
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "0": {
+        "type": "choice",
+        "choice": "supported",
+        "probabilities": {
+          "unsupported": 0,
+          "supported": 0.96,
+          "qualified": 0.04
+        },
+        "confidence": 0.93
+      },
+      "1": {
+        "type": "choice",
+        "choice": "supported",
+        "probabilities": {
+          "unsupported": 0,
+          "supported": 0.9400000000000001,
+          "qualified": 0.06
+        },
+        "confidence": 0.9
+      }
+    },
+    "usage": {
+      "input_tokens": 1029,
+      "output_tokens": 73,
+      "cost": 4.3218e-05
+    },
+    "id": "gen-dec-1790729288-Kr2p0pcE4SU9CUTMPUKk",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.2172660000214819
+}

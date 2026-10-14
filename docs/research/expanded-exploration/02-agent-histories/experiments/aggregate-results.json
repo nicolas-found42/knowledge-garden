@@ -1,0 +1,514 @@
+{
+  "inventory": {
+    "Codex": {
+      "files": 565,
+      "bytes": 1629787698,
+      "empty_files": 0
+    },
+    "Claude": {
+      "files": 433,
+      "bytes": 765435690,
+      "empty_files": 0
+    },
+    "OMP": {
+      "files": 3181,
+      "bytes": 2651508400,
+      "empty_files": 0
+    },
+    "Hermes": {
+      "sessions": 109,
+      "messages": 19597,
+      "role_counts": {
+        "assistant": 7579,
+        "tool": 11616,
+        "user": 402
+      }
+    }
+  },
+  "url_summary": {
+    "threads": 52,
+    "occurrences": 5131,
+    "identities": 1936,
+    "domains": 230,
+    "identities_in_multiple_threads": 24,
+    "domains_in_multiple_threads": 25,
+    "invalid": 46,
+    "destination_fetch_attempts": 0,
+    "status_counts": {
+      "merely_linked": 5131
+    },
+    "scope": "All string fields in selected JSONL records; Hermes selected extracted message fields. Not whole available corpus."
+  },
+  "initial": {
+    "calls": 88,
+    "successful": 88,
+    "failures": 0,
+    "failed_billing": "No failed requests",
+    "model_ids": [
+      "typesafe/jev-1.13-20260917"
+    ],
+    "input_tokens": 147894,
+    "output_tokens": 7363,
+    "cost_usd": 0.006211548,
+    "wall_seconds": 7.485879499989096,
+    "median_seconds": 0.2764343545131851,
+    "p95_seconds": 0.5566527080081869,
+    "fixture_sha256": "d56952b44fa3adbc0d5b1dfc4596466ddee26b82c250b71a75c41ee99e11fc40",
+    "real_label_counts": {
+      "unfinished": 6,
+      "spam": 20,
+      "ambiguous": 2,
+      "meaningful": 24
+    },
+    "baseline_real": {
+      "correct": 50,
+      "total": 52
+    },
+    "metrics": {
+      "real_quality/full_readable": {
+        "calls": 37,
+        "checks": 37,
+        "correct": 34,
+        "errors": [
+          {
+            "id": "codex-38f7c4eb81d80635",
+            "question": "quality",
+            "expected": "ambiguous",
+            "actual": "spam"
+          },
+          {
+            "id": "codex-f9e5fb04fc0ce4a4",
+            "question": "quality",
+            "expected": "ambiguous",
+            "actual": "unfinished"
+          },
+          {
+            "id": "codex-d0e016a1f4642098",
+            "question": "quality",
+            "expected": "unfinished",
+            "actual": "spam"
+          }
+        ]
+      },
+      "real_quality/selected_messages": {
+        "calls": 15,
+        "checks": 15,
+        "correct": 15,
+        "errors": []
+      },
+      "controlled_representation/full_readable": {
+        "calls": 12,
+        "checks": 24,
+        "correct": 22,
+        "errors": [
+          {
+            "id": "assistant-proposal-full_readable",
+            "question": "adoption",
+            "expected": "not_adopted",
+            "actual": "unknown"
+          },
+          {
+            "id": "holdout-negative-full_readable",
+            "question": "verification",
+            "expected": "verified",
+            "actual": "failed"
+          }
+        ]
+      },
+      "controlled_representation/extractive_summary": {
+        "calls": 12,
+        "checks": 24,
+        "correct": 24,
+        "errors": []
+      },
+      "controlled_representation/selected_evidence": {
+        "calls": 12,
+        "checks": 24,
+        "correct": 23,
+        "errors": [
+          {
+            "id": "assistant-proposal-selected_evidence",
+            "question": "adoption",
+            "expected": "not_adopted",
+            "actual": "unknown"
+          }
+        ]
+      }
+    }
+  },
+  "followup": {
+    "calls": 26,
+    "successful": 26,
+    "failures": 0,
+    "input_tokens": 20228,
+    "output_tokens": 1297,
+    "cost_usd": 0.000849576,
+    "model_ids": [
+      "typesafe/jev-1.13-20260917"
+    ],
+    "median_seconds": 0.2613262914819643,
+    "p95_seconds": 0.341948457993567,
+    "wall_seconds": 1.9271406670159195,
+    "metrics": {
+      "paired_real/extractive_summary": {
+        "calls": 12,
+        "source_label_agreement": 6,
+        "checks": 12,
+        "errors": [
+          {
+            "id": "codex-bc2b773ac01321b0-extractive_summary",
+            "expected": "unfinished",
+            "actual": "spam"
+          },
+          {
+            "id": "codex-70d3bee9484040f5-extractive_summary",
+            "expected": "meaningful",
+            "actual": "unfinished"
+          },
+          {
+            "id": "claude-b5eaa298261b25bd-extractive_summary",
+            "expected": "meaningful",
+            "actual": "unfinished"
+          },
+          {
+            "id": "omp-504c1fafb65fee36-extractive_summary",
+            "expected": "meaningful",
+            "actual": "spam"
+          },
+          {
+            "id": "omp-adfd29ff6244e9ce-extractive_summary",
+            "expected": "meaningful",
+            "actual": "ambiguous"
+          },
+          {
+            "id": "hermes-9a42078e864ae3a4-extractive_summary",
+            "expected": "unfinished",
+            "actual": "ambiguous"
+          }
+        ]
+      },
+      "paired_real/selected_conversation": {
+        "calls": 12,
+        "source_label_agreement": 8,
+        "checks": 12,
+        "errors": [
+          {
+            "id": "claude-b5eaa298261b25bd-selected_conversation",
+            "expected": "meaningful",
+            "actual": "ambiguous"
+          },
+          {
+            "id": "omp-504c1fafb65fee36-selected_conversation",
+            "expected": "meaningful",
+            "actual": "unfinished"
+          },
+          {
+            "id": "omp-adfd29ff6244e9ce-selected_conversation",
+            "expected": "meaningful",
+            "actual": "unfinished"
+          },
+          {
+            "id": "hermes-9a42078e864ae3a4-selected_conversation",
+            "expected": "unfinished",
+            "actual": "spam"
+          }
+        ]
+      },
+      "verification_diagnostic/full_readable": {
+        "calls": 2,
+        "source_label_agreement": 2,
+        "checks": 2,
+        "errors": []
+      }
+    },
+    "retention": [
+      {
+        "id": "codex-9b3b7a36cc9098b6",
+        "view": "extractive_summary",
+        "source_message_count": 2,
+        "retained_message_ids": 1,
+        "source_chars": 40,
+        "retained_chars": 35,
+        "user_messages_retained": 0,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "codex-9b3b7a36cc9098b6",
+        "view": "selected_conversation",
+        "source_message_count": 2,
+        "retained_message_ids": 2,
+        "source_chars": 40,
+        "retained_chars": 40,
+        "user_messages_retained": 1,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "codex-bc2b773ac01321b0",
+        "view": "extractive_summary",
+        "source_message_count": 1,
+        "retained_message_ids": 0,
+        "source_chars": 263,
+        "retained_chars": 0,
+        "user_messages_retained": 0,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "codex-bc2b773ac01321b0",
+        "view": "selected_conversation",
+        "source_message_count": 1,
+        "retained_message_ids": 1,
+        "source_chars": 263,
+        "retained_chars": 263,
+        "user_messages_retained": 1,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "codex-70d3bee9484040f5",
+        "view": "extractive_summary",
+        "source_message_count": 2,
+        "retained_message_ids": 1,
+        "source_chars": 14759,
+        "retained_chars": 4000,
+        "user_messages_retained": 0,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "codex-70d3bee9484040f5",
+        "view": "selected_conversation",
+        "source_message_count": 2,
+        "retained_message_ids": 2,
+        "source_chars": 14759,
+        "retained_chars": 4386,
+        "user_messages_retained": 1,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "claude-4dc8983581a13659",
+        "view": "extractive_summary",
+        "source_message_count": 2,
+        "retained_message_ids": 0,
+        "source_chars": 375,
+        "retained_chars": 0,
+        "user_messages_retained": 0,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "claude-4dc8983581a13659",
+        "view": "selected_conversation",
+        "source_message_count": 2,
+        "retained_message_ids": 2,
+        "source_chars": 375,
+        "retained_chars": 375,
+        "user_messages_retained": 2,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "claude-52ff9e3b362aa44f",
+        "view": "extractive_summary",
+        "source_message_count": 8,
+        "retained_message_ids": 1,
+        "source_chars": 10212,
+        "retained_chars": 2500,
+        "user_messages_retained": 0,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "claude-52ff9e3b362aa44f",
+        "view": "selected_conversation",
+        "source_message_count": 8,
+        "retained_message_ids": 3,
+        "source_chars": 10212,
+        "retained_chars": 5060,
+        "user_messages_retained": 1,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "claude-b5eaa298261b25bd",
+        "view": "extractive_summary",
+        "source_message_count": 14,
+        "retained_message_ids": 1,
+        "source_chars": 22565,
+        "retained_chars": 89,
+        "user_messages_retained": 0,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "claude-b5eaa298261b25bd",
+        "view": "selected_conversation",
+        "source_message_count": 14,
+        "retained_message_ids": 3,
+        "source_chars": 22565,
+        "retained_chars": 137,
+        "user_messages_retained": 2,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "omp-d3292a0bbb22de81",
+        "view": "extractive_summary",
+        "source_message_count": 0,
+        "retained_message_ids": 0,
+        "source_chars": 0,
+        "retained_chars": 0,
+        "user_messages_retained": 0,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "omp-d3292a0bbb22de81",
+        "view": "selected_conversation",
+        "source_message_count": 0,
+        "retained_message_ids": 0,
+        "source_chars": 0,
+        "retained_chars": 0,
+        "user_messages_retained": 0,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "omp-504c1fafb65fee36",
+        "view": "extractive_summary",
+        "source_message_count": 43,
+        "retained_message_ids": 1,
+        "source_chars": 10562,
+        "retained_chars": 17,
+        "user_messages_retained": 0,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "omp-504c1fafb65fee36",
+        "view": "selected_conversation",
+        "source_message_count": 43,
+        "retained_message_ids": 3,
+        "source_chars": 10562,
+        "retained_chars": 344,
+        "user_messages_retained": 2,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "omp-adfd29ff6244e9ce",
+        "view": "extractive_summary",
+        "source_message_count": 8,
+        "retained_message_ids": 1,
+        "source_chars": 10052,
+        "retained_chars": 34,
+        "user_messages_retained": 0,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "omp-adfd29ff6244e9ce",
+        "view": "selected_conversation",
+        "source_message_count": 8,
+        "retained_message_ids": 3,
+        "source_chars": 10052,
+        "retained_chars": 880,
+        "user_messages_retained": 2,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "hermes-2116d347594d501e",
+        "view": "extractive_summary",
+        "source_message_count": 2,
+        "retained_message_ids": 1,
+        "source_chars": 83,
+        "retained_chars": 79,
+        "user_messages_retained": 0,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "hermes-2116d347594d501e",
+        "view": "selected_conversation",
+        "source_message_count": 2,
+        "retained_message_ids": 2,
+        "source_chars": 83,
+        "retained_chars": 83,
+        "user_messages_retained": 1,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "hermes-9a42078e864ae3a4",
+        "view": "extractive_summary",
+        "source_message_count": 2,
+        "retained_message_ids": 1,
+        "source_chars": 10878,
+        "retained_chars": 83,
+        "user_messages_retained": 0,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "hermes-9a42078e864ae3a4",
+        "view": "selected_conversation",
+        "source_message_count": 2,
+        "retained_message_ids": 2,
+        "source_chars": 10878,
+        "retained_chars": 4083,
+        "user_messages_retained": 1,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "hermes-aa964ba312495394",
+        "view": "extractive_summary",
+        "source_message_count": 6,
+        "retained_message_ids": 1,
+        "source_chars": 10026,
+        "retained_chars": 1227,
+        "user_messages_retained": 0,
+        "tool_messages_retained": 0
+      },
+      {
+        "id": "hermes-aa964ba312495394",
+        "view": "selected_conversation",
+        "source_message_count": 6,
+        "retained_message_ids": 2,
+        "source_chars": 10026,
+        "retained_chars": 1492,
+        "user_messages_retained": 1,
+        "tool_messages_retained": 0
+      }
+    ]
+  },
+  "combined": {
+    "calls": 114,
+    "successful": 114,
+    "failures": 0,
+    "input_tokens": 168122,
+    "output_tokens": 8660,
+    "cost_usd": 0.007061124,
+    "model_ids": [
+      "typesafe/jev-1.13-20260917"
+    ],
+    "median_seconds": 0.2701761875068769,
+    "p95_seconds": 0.5566527080081869,
+    "failed_billing_unknown": 0,
+    "coding_agent_costs_included": false
+  },
+  "title_availability": {
+    "Codex": {
+      "selected": 13,
+      "with_nonempty_title": 7
+    },
+    "Claude": {
+      "selected": 13,
+      "with_nonempty_title": 3
+    },
+    "OMP": {
+      "selected": 13,
+      "with_nonempty_title": 0
+    },
+    "Hermes": {
+      "selected": 13,
+      "with_nonempty_title": 11
+    }
+  },
+  "controlled_keyword_adoption_baseline": {
+    "full_readable": {
+      "checks": 12,
+      "correct": 4
+    },
+    "extractive_summary": {
+      "checks": 12,
+      "correct": 12
+    },
+    "selected_evidence": {
+      "checks": 12,
+      "correct": 4
+    }
+  }
+}

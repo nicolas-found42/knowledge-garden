@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "controlled-demo-screenshot-observation-crime",
+    "family": "claim",
+    "source": "controlled-demo-screenshot",
+    "representation": "observation",
+    "claim": "Red highlights prove that a suspicious person was detected.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "controlled-demo-screenshot",
+      "evidence_kind": "observation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\n      \"claim\": \"Several people are visible.\",\n      \"anchor\": [0.40, 0.30, 0.20, 0.20],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"Several people are visible.\",\n      \"anchor\": [0.53, 0.38, 0.16, 0.17],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"Several people are visible.\",\n      \"anchor\": [0.86, 0.45, 0.14, 0.20],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A tripod is visible.\",\n      \"anchor\": [0.58, 0.58, 0.11, 0.20],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A white van is visible.\",\n      \"anchor\": [0.84, 0.08, 0.15, 0.11],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A blue car is visible.\",\n      \"anchor\": [0.94, 0.09, 0.06, 0.07],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A yellow object is visible on the grass.\",\n      \"anchor\": [0.13, 0.85, 0.05, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A yellow object is visible on the grass.\",\n      \"anchor\": [0.42, 0.79, 0.02, 0.02],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.37, 0.52, 0.03, 0.05],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.78, 0.07, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.76, 0.04, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.75, 0.02, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.74, 0.01, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.73, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.72, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.71, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.70, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.69, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.68, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.67, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.66, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.65, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.64, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.63, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.62, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.61, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.60, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.59, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.58, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.57, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n    },\n    {\n      \"claim\": \"A sign with text is visible.\",\n      \"anchor\": [0.56, 0.00, 0.03, 0.04],\n      \"uncertainty\": 0.0\n",
+      "claim": "Red highlights prove that a suspicious person was detected."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "unknown",
+        "probabilities": {
+          "unknown": 0.98,
+          "contradicted": 0.02,
+          "supported": 0
+        },
+        "confidence": 0.96
+      }
+    },
+    "usage": {
+      "input_tokens": 2152,
+      "output_tokens": 41,
+      "cost": 9.0384e-05
+    },
+    "id": "gen-dec-1790725836-hDrjVIxBOfHuFrFSlcKr",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.2979842920030933
+}

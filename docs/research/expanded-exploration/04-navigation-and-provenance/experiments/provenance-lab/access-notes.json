@@ -1,0 +1,10 @@
+{
+  "research_date": "2026-09-29",
+  "web_tool_markdown_failures": [
+    "https://docs.typesafe.ai/api.md",
+    "https://docs.typesafe.ai/cookbooks/pre_parsed_value_extraction_cookbook.md",
+    "https://docs.typesafe.ai/cookbooks/citation_check.md"
+  ],
+  "recovery": "Extensionless official pages were read successfully and separately captured in the source manifest.",
+  "conversation_url_destinations_involved": false
+}

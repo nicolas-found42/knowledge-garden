@@ -1,0 +1,32 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPMmA",
+        "number": 3,
+        "state": "OPEN",
+        "title": "Turn a text source into evidence-grounded facts and linked pages with Jev",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/3"
+      }
+    ],
+    "totalCount": 1
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 1, 7, 31; **Prior evidence and remaining gates**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nLet a supplied recording become navigable knowledge and searchable passages whose evidence opens the relevant moment in the retained audio.\n\n## Acceptance criteria\n\n- [ ] Representative recording formats import with original audio retained and an inspectable source page; playback is available without rewriting the original.\n- [ ] Transcribed passages preserve timestamps, source origin, uncertainty, and speaker uncertainty; unidentified speakers are not silently authenticated as known people.\n- [ ] Facts, questions, decisions, and reasoning events extracted from speech link to the supporting segment, with a disclosed fallback if precise seek is unavailable.\n- [ ] Silent, overlapping, noisy, partly decoded, or unsupported segments create explicit coverage/confidence limits; transcription guesses do not become unqualified facts.\n- [ ] Long recordings process in bounded resumable segments, preserving stable segment identities and avoiding duplicate knowledge after restart.\n- [ ] Actual transcription/media capabilities are validated through allowed supporting tools and model routes; remote failure leaves resumable work and access to the original.\n- [ ] A labeled recording fixture verifies passage retrieval, seek accuracy, uncertain wording/speakers, interruption/resumption, and partial coverage.\n\n## Blocked by\n\n- [#3 \u2014 Turn a text source into evidence-grounded facts and linked pages with Jev](https://github.com/nicolas-found42/knowledge-garden/issues/3)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nDo not assume OpenCode Go provides audio support; establish the actual supported route. Audio decoding/transcription are supporting capabilities. This slice does not implement video frames or invent source-event dates from recording import time.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nUse a consented or synthetic short recording with a known statement, an uncertain correction, a quiet segment, and two distinguishable but unnamed speakers. Import it, find the statement, open its evidence timestamp, interrupt processing, and resume. Confirm uncertainty and identities against independently authored labels.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Ingest audio recordings with time-located transcripts and qualified knowledge",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/14"
+}

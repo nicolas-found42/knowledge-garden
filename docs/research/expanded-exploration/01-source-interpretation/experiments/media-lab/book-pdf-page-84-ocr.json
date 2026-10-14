@@ -1,0 +1,502 @@
+[
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561403026315795,
+      0.89843749989583332,
+      0.048245614035087717,
+      0.02083333333333337
+    ],
+    "text" : "78"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.35087718930921058,
+      0.90624999986979171,
+      0.29385964912280699,
+      0.015625
+    ],
+    "text" : "NATURAL SELECTION."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.80263157916666661,
+      0.90624999997495992,
+      0.11403508771929827,
+      0.01302083333333337
+    ],
+    "text" : "[CHAP. IV"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.083333344883040589,
+      0.86197916679687503,
+      0.69298245614035092,
+      0.0234375
+    ],
+    "text" : "On the other hand, we may feel sure that any"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.78065618481973698,
+      0.86704190554256388,
+      0.14044201164914849,
+      0.015916188557942634
+    ],
+    "text" : "variation"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947382383040499,
+      0.84635416684027776,
+      0.83771929824561409,
+      0.015625
+    ],
+    "text" : "in the lenst degree injurious would be rigidly destroved."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947354385965368,
+      0.82552083328993053,
+      0.8421052631578948,
+      0.01822916666666663
+    ],
+    "text" : "This preservation of favourable variations and the rejec-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947381245680973,
+      0.8046875001302084,
+      0.26754384291799449,
+      0.01822916666666663
+    ],
+    "text" : "tion of injurious"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.35087720255847921,
+      0.8046875,
+      0.57456140350877194,
+      0.02083333333333337
+    ],
+    "text" : "variations, I call Natural Selection."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.083333341754385851,
+      0.7838541667708333,
+      0.8421052631578948,
+      0.02083333333333337
+    ],
+    "text" : "Variations neither useful nor injurious would not be aftect-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947357839912552,
+      0.76302083320312497,
+      0.84649122807017529,
+      0.02083333333333337
+    ],
+    "text" : "ed by natural selection, and would be left a fluctuating"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947373026315645,
+      0.7421875004340277,
+      0.84649122807017552,
+      0.026041666666666741
+    ],
+    "text" : "clement, as perhaps we see in the species called polymor-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561404550438581,
+      0.7213541666992187,
+      0.083333333333333343,
+      0.0234375
+    ],
+    "text" : "phic."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.13157896067251415,
+      0.70312500004340284,
+      0.79824561403508776,
+      0.0234375
+    ],
+    "text" : "We shall best understand the probable course of na-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947379002192772,
+      0.6848958333984374,
+      0.84649122807017552,
+      0.020833333333333481
+    ],
+    "text" : "tuwral sclection by taking the case of a country undergo-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947381140350492,
+      0.66406250008680545,
+      0.76315789473684215,
+      0.020833333333333481
+    ],
+    "text" : "ing some physical change, for instance, of climate."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.85964912335526311,
+      0.66406250008680545,
+      0.065789473684210509,
+      0.020833333333333481
+    ],
+    "text" : "The"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947365935672614,
+      0.6458333336371529,
+      0.84210526315789469,
+      0.018229166666666519
+    ],
+    "text" : "proportional numbers of its inhabitants would almost im-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078862488709910847,
+      0.62371085224612699,
+      0.84227505064847175,
+      0.023411629100640541
+    ],
+    "text" : "mediately undergo a change, and some species might be-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561400000000111,
+      0.60677083311631952,
+      0.21052631578947367,
+      0.018229166666666519
+    ],
+    "text" : "come extinet."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.31578948384502897,
+      0.60677083333333326,
+      0.60964912280701755,
+      0.020833333333333481
+    ],
+    "text" : "We may conelude, from what we have"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561389327485891,
+      0.58333333320312497,
+      0.85087719298245612,
+      0.0234375
+    ],
+    "text" : "seen of the intimate and complex manner in which the in-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947382456139886,
+      0.56510416679687503,
+      0.8421052631578948,
+      0.018229166666666519
+    ],
+    "text" : "habitants of cach country are bound together, that any"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947363651315897,
+      0.54687499986979171,
+      0.38157894736842102,
+      0.015625
+    ],
+    "text" : "change in the munerical"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.69298245241228074,
+      0.54947916653645845,
+      0.22368421052631582,
+      0.013020833333333259
+    ],
+    "text" : "some of the in-"
+  },
+  {
+    "confidence" : 0.30000001192092896,
+    "rect_bottom_left_normalized" : [
+      0.074561392982456398,
+      0.52343749967447928,
+      0.84210526315789469,
+      0.041666666666666519
+    ],
+    "text" : "Cabiguts, ithe peumeia of rue chango of ehimat tiedil,"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947380555555127,
+      0.50260416679687503,
+      0.72807017543859642,
+      0.0234375
+    ],
+    "text" : "would most seriously affeet many of the others."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561393201754755,
+      0.48177083294270828,
+      0.84649122807017529,
+      0.023437500000000111
+    ],
+    "text" : "country were open on its borders, new forms would cer-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561417690058029,
+      0.46354166679687503,
+      0.85087719298245612,
+      0.0234375
+    ],
+    "text" : "tainly immigrate, and this also would serionsly disturb"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561415277777418,
+      0.44791666671006947,
+      0.70614035087719307,
+      0.01822916666666663
+    ],
+    "text" : "the relations of some of the former inhabitants."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.78478680761152975,
+      0.44706151934734428,
+      0.14095269588001991,
+      0.01993945986032486
+    ],
+    "text" : "Let it be"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561417690058029,
+      0.42447916675347219,
+      0.85087719298245612,
+      0.02083333333333337
+    ],
+    "text" : "remembered how powerfiul the influence of' a single intro-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561414985379729,
+      0.40625000013020829,
+      0.6885964912280701,
+      0.01822916666666663
+    ],
+    "text" : "duced tree or manual has been shown to be."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.77192982648026309,
+      0.40885416673177088,
+      0.15350877192982448,
+      0.015625
+    ],
+    "text" : "But in the"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947354459064825,
+      0.38802083315972224,
+      0.83771929824561409,
+      0.015625
+    ],
+    "text" : "case of an island, or of a country partly surrounded by"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078909666983317805,
+      0.36655134663467559,
+      0.84218068708453264,
+      0.019501473133762715
+    ],
+    "text" : "barriers, into which new and betfer adapted forms could"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.078947382456139886,
+      0.34635416679687503,
+      0.8421052631578948,
+      0.01822916666666663
+    ],
+    "text" : "not freely enter, we should then have places in the econo-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561389400585279,
+      0.32552083320312486,
+      0.84649122807017541,
+      0.018229166666666741
+    ],
+    "text" : "mny of nature whieh would assuredly be better filled up,"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561414144736618,
+      0.3046875001302084,
+      0.85087719298245612,
+      0.02083333333333337
+    ],
+    "text" : "if some of' the original inhabitants were in some manner"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.07017542441520519,
+      0.28385416657986118,
+      0.85087719298245612,
+      0.020833333333333259
+    ],
+    "text" : "mnodified; for, had the arca been open to inmigration,"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.07456141408991207,
+      0.26562500006510403,
+      0.84649122807017552,
+      0.02083333333333337
+    ],
+    "text" : "these same places would have been seized on by intruders."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561414144736618,
+      0.24479166676432296,
+      0.85087719298245612,
+      0.0234375
+    ],
+    "text" : "In such case, every slight moditication, which in the course"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561389473684667,
+      0.22656249991319444,
+      0.8421052631578948,
+      0.015625
+    ],
+    "text" : "of ages chanced to arise, and wlueh in any way favoured"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561413669590335,
+      0.20833333350694438,
+      0.60964912280701755,
+      0.015625
+    ],
+    "text" : "the individuals of any of the species, by |"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.074561408625730796,
+      0.18750000034722214,
+      0.84210526315789469,
+      0.02083333271245158
+    ],
+    "text" : "them to their altered conditions, would tend to be pre-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.07017542441520519,
+      0.16406249991319444,
+      0.85087719298245612,
+      0.02083333333333337
+    ],
+    "text" : "served; and natural selection would thus have free scope"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.07017544413377183,
+      0.1458333333984374,
+      0.44298245614035081,
+      0.02083333333333337
+    ],
+    "text" : "for the work of improvement."
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.12719299237938572,
+      0.12760416676432296,
+      0.79385964912280704,
+      0.01822916666666663
+    ],
+    "text" : "We have reason to believe, as stated in the first chap-"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.070175439108187146,
+      0.10156250043402781,
+      0.84649122807017552,
+      0.02604166666666663
+    ],
+    "text" : "ter, that a change in the conditions of life, by specially"
+  },
+  {
+    "confidence" : 1,
+    "rect_bottom_left_normalized" : [
+      0.070175434649122972,
+      0.083333333723958347,
+      0.85087719298245601,
+      0.0234375
+    ],
+    "text" : "aeting on the reproductive system, causes or increases"
+  }
+]

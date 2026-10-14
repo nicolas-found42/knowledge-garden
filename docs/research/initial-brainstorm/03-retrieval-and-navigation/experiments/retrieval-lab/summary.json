@@ -1,0 +1,911 @@
+{
+  "study_status": "Synthetic author-labeled development probes. Initial labels frozen before API calls; follow-up wording/composition informed by observed failures. No untouched holdout.",
+  "usage": {
+    "api_calls": 257,
+    "successful": 257,
+    "questions": 547,
+    "input_tokens": 150805,
+    "output_tokens": 12784,
+    "reported_cost_usd": 0.00633381,
+    "median_request_seconds": 0.36430862502311356,
+    "resolved_models": [
+      "typesafe/jev-1.13-20260917"
+    ]
+  },
+  "fixture_counts": {
+    "corpus_sources": 20,
+    "retrieval_queries": 8,
+    "query_source_pairs": 160,
+    "bundle_states": 6,
+    "temporal_queries": 4,
+    "clarification_states": 4,
+    "graph_goals": 3,
+    "axes_sources": 20,
+    "initial_distractor_pool_sizes": 4,
+    "followup_equivalent_pool_sizes": 4,
+    "note": "Shared/repeated fixtures overlap; these are not independent sample counts and should not be summed."
+  },
+  "families": {
+    "recall_choice": {
+      "api_calls": 16,
+      "questions": 32,
+      "raw_label_checks": 32,
+      "raw_correct": 23
+    },
+    "independent": {
+      "api_calls": 160,
+      "questions": 320,
+      "raw_label_checks": 160,
+      "raw_correct": 148
+    },
+    "bundle": {
+      "api_calls": 6,
+      "questions": 30,
+      "raw_label_checks": 6,
+      "raw_correct": 6
+    },
+    "temporal": {
+      "api_calls": 4,
+      "questions": 8,
+      "raw_label_checks": 4,
+      "raw_correct": 4
+    },
+    "clarification": {
+      "api_calls": 4,
+      "questions": 8,
+      "raw_label_checks": 8,
+      "raw_correct": 6
+    },
+    "cache_axes": {
+      "api_calls": 20,
+      "questions": 60,
+      "raw_label_checks": 0,
+      "raw_correct": 0
+    },
+    "dilution": {
+      "api_calls": 4,
+      "questions": 8,
+      "raw_label_checks": 8,
+      "raw_correct": 8
+    },
+    "graph": {
+      "api_calls": 10,
+      "questions": 20,
+      "raw_label_checks": 10,
+      "raw_correct": 10
+    },
+    "atomic_answerability": {
+      "api_calls": 8,
+      "questions": 8,
+      "raw_label_checks": 8,
+      "raw_correct": 8
+    },
+    "clarification_explicit": {
+      "api_calls": 4,
+      "questions": 8,
+      "raw_label_checks": 8,
+      "raw_correct": 7
+    },
+    "equivalent_dilution": {
+      "api_calls": 4,
+      "questions": 8,
+      "raw_label_checks": 8,
+      "raw_correct": 8
+    },
+    "graph_beam": {
+      "api_calls": 14,
+      "questions": 28,
+      "raw_label_checks": 0,
+      "raw_correct": 0
+    },
+    "graph_facets": {
+      "api_calls": 3,
+      "questions": 9,
+      "raw_label_checks": 6,
+      "raw_correct": 5
+    }
+  },
+  "retrieval": [
+    {
+      "query": "audible_constraint",
+      "gold": [
+        "quiet_hours"
+      ],
+      "lexical_top1": "meeting_audio",
+      "lexical_top3": [
+        "meeting_audio",
+        "attack",
+        "cloud_search"
+      ],
+      "candidate_gold_coverage": false,
+      "independent_score_top1": "quiet_hours",
+      "independent_noul_top1": "quiet_hours",
+      "variants": {
+        "broad": {
+          "best": "quiet_hours",
+          "corpus_selection_correct": true,
+          "answerability_noul": 0.38,
+          "supplied_state_answerability_gold": true,
+          "supplied_state_answerability_correct": false,
+          "failure_attribution": null
+        },
+        "lexical_top3": {
+          "best": "none",
+          "corpus_selection_correct": false,
+          "answerability_noul": 0.03,
+          "supplied_state_answerability_gold": false,
+          "supplied_state_answerability_correct": true,
+          "failure_attribution": "candidate_recall"
+        }
+      }
+    },
+    {
+      "query": "offline_constraint",
+      "gold": [
+        "offline_rule",
+        "new_choice"
+      ],
+      "lexical_top1": "offline_rule",
+      "lexical_top3": [
+        "offline_rule",
+        "quiet_hours",
+        "attack"
+      ],
+      "candidate_gold_coverage": true,
+      "independent_score_top1": "offline_rule",
+      "independent_noul_top1": "new_choice",
+      "variants": {
+        "broad": {
+          "best": "new_choice",
+          "corpus_selection_correct": true,
+          "answerability_noul": 0.66,
+          "supplied_state_answerability_gold": true,
+          "supplied_state_answerability_correct": true,
+          "failure_attribution": null
+        },
+        "lexical_top3": {
+          "best": "offline_rule",
+          "corpus_selection_correct": true,
+          "answerability_noul": 0.35,
+          "supplied_state_answerability_gold": true,
+          "supplied_state_answerability_correct": false,
+          "failure_attribution": null
+        }
+      }
+    },
+    {
+      "query": "current_choice",
+      "gold": [
+        "new_choice"
+      ],
+      "lexical_top1": "old_choice",
+      "lexical_top3": [
+        "old_choice",
+        "cloud_search",
+        "new_choice"
+      ],
+      "candidate_gold_coverage": true,
+      "independent_score_top1": "new_choice",
+      "independent_noul_top1": "new_choice",
+      "variants": {
+        "broad": {
+          "best": "new_choice",
+          "corpus_selection_correct": true,
+          "answerability_noul": 0.9,
+          "supplied_state_answerability_gold": true,
+          "supplied_state_answerability_correct": true,
+          "failure_attribution": null
+        },
+        "lexical_top3": {
+          "best": "new_choice",
+          "corpus_selection_correct": true,
+          "answerability_noul": 0.8,
+          "supplied_state_answerability_gold": true,
+          "supplied_state_answerability_correct": true,
+          "failure_attribution": null
+        }
+      }
+    },
+    {
+      "query": "revision_reason",
+      "gold": [
+        "revision_why",
+        "revision_why_duplicate"
+      ],
+      "lexical_top1": "revision_why",
+      "lexical_top3": [
+        "revision_why",
+        "repair_guide",
+        "proposal"
+      ],
+      "candidate_gold_coverage": true,
+      "independent_score_top1": "revision_why",
+      "independent_noul_top1": "revision_why_duplicate",
+      "variants": {
+        "broad": {
+          "best": "revision_why",
+          "corpus_selection_correct": true,
+          "answerability_noul": 0.53,
+          "supplied_state_answerability_gold": true,
+          "supplied_state_answerability_correct": true,
+          "failure_attribution": null
+        },
+        "lexical_top3": {
+          "best": "revision_why",
+          "corpus_selection_correct": true,
+          "answerability_noul": 0.4,
+          "supplied_state_answerability_gold": true,
+          "supplied_state_answerability_correct": false,
+          "failure_attribution": null
+        }
+      }
+    },
+    {
+      "query": "revision_method",
+      "gold": [
+        "revision_how"
+      ],
+      "lexical_top1": "revision_why",
+      "lexical_top3": [
+        "revision_why",
+        "proposal",
+        "repair_guide"
+      ],
+      "candidate_gold_coverage": false,
+      "independent_score_top1": "revision_how",
+      "independent_noul_top1": "revision_how",
+      "variants": {
+        "broad": {
+          "best": "revision_how",
+          "corpus_selection_correct": true,
+          "answerability_noul": 0.52,
+          "supplied_state_answerability_gold": true,
+          "supplied_state_answerability_correct": true,
+          "failure_attribution": null
+        },
+        "lexical_top3": {
+          "best": "none",
+          "corpus_selection_correct": false,
+          "answerability_noul": 0.08,
+          "supplied_state_answerability_gold": false,
+          "supplied_state_answerability_correct": true,
+          "failure_attribution": "candidate_recall"
+        }
+      }
+    },
+    {
+      "query": "deletion_missing",
+      "gold": [],
+      "lexical_top1": "deletion_open",
+      "lexical_top3": [
+        "deletion_open",
+        "deletion_keywords",
+        "local_search"
+      ],
+      "candidate_gold_coverage": null,
+      "independent_score_top1": "repair_guide",
+      "independent_noul_top1": "deletion_open",
+      "variants": {
+        "broad": {
+          "best": "none",
+          "corpus_selection_correct": true,
+          "answerability_noul": 0.05,
+          "supplied_state_answerability_gold": false,
+          "supplied_state_answerability_correct": true,
+          "failure_attribution": null
+        },
+        "lexical_top3": {
+          "best": "none",
+          "corpus_selection_correct": true,
+          "answerability_noul": 0.4,
+          "supplied_state_answerability_gold": false,
+          "supplied_state_answerability_correct": true,
+          "failure_attribution": null
+        }
+      }
+    },
+    {
+      "query": "encryption_missing",
+      "gold": [],
+      "lexical_top1": "attack",
+      "lexical_top3": [
+        "attack",
+        "proposal",
+        "new_choice"
+      ],
+      "candidate_gold_coverage": null,
+      "independent_score_top1": "revision_why",
+      "independent_noul_top1": "proposal",
+      "variants": {
+        "broad": {
+          "best": "none",
+          "corpus_selection_correct": true,
+          "answerability_noul": 0.12,
+          "supplied_state_answerability_gold": false,
+          "supplied_state_answerability_correct": true,
+          "failure_attribution": null
+        },
+        "lexical_top3": {
+          "best": "none",
+          "corpus_selection_correct": true,
+          "answerability_noul": 0.05,
+          "supplied_state_answerability_gold": false,
+          "supplied_state_answerability_correct": true,
+          "failure_attribution": null
+        }
+      }
+    },
+    {
+      "query": "rebuild",
+      "gold": [
+        "repair_guide"
+      ],
+      "lexical_top1": "local_search",
+      "lexical_top3": [
+        "local_search",
+        "new_choice",
+        "new_summary"
+      ],
+      "candidate_gold_coverage": false,
+      "independent_score_top1": "repair_guide",
+      "independent_noul_top1": "repair_guide",
+      "variants": {
+        "broad": {
+          "best": "repair_guide",
+          "corpus_selection_correct": true,
+          "answerability_noul": 0.55,
+          "supplied_state_answerability_gold": true,
+          "supplied_state_answerability_correct": true,
+          "failure_attribution": null
+        },
+        "lexical_top3": {
+          "best": "local_search",
+          "corpus_selection_correct": false,
+          "answerability_noul": 0.27,
+          "supplied_state_answerability_gold": false,
+          "supplied_state_answerability_correct": true,
+          "failure_attribution": "candidate_recall"
+        }
+      }
+    }
+  ],
+  "retrieval_summary": {
+    "answerable_queries": 6,
+    "lexical_top1_correct": 2,
+    "lexical_top3_gold_coverage": 3,
+    "broad_choice_correct_all8": 8,
+    "shortlist_choice_correct_all8": 5,
+    "independent_score_top1_correct_answerable6": 6,
+    "independent_noul_top1_correct_answerable6": 6,
+    "supplied_state_answerability_correct16": 13
+  },
+  "facet_graph": {
+    "development_status": "Added after inspecting premature broad-completion result; explicit facets alter the goal contract and prompts. No holdout.",
+    "path": [
+      "garden",
+      "import",
+      "search"
+    ],
+    "reason": "no_useful_link",
+    "gold_evidence_coverage": {
+      "preservation_reason": false,
+      "quote_traceability": false
+    }
+  },
+  "initial_graph": [
+    {
+      "name": "trace",
+      "expected_path": [
+        "garden",
+        "import",
+        "revisions",
+        "mechanics"
+      ],
+      "actual_path": [
+        "garden",
+        "import",
+        "revisions",
+        "mechanics"
+      ],
+      "reason": "no_useful_link",
+      "exact_expected_path": true
+    },
+    {
+      "name": "search",
+      "expected_path": [
+        "garden",
+        "search",
+        "choice"
+      ],
+      "actual_path": [
+        "garden",
+        "import",
+        "revisions",
+        "mechanics"
+      ],
+      "reason": "no_useful_link",
+      "exact_expected_path": false
+    },
+    {
+      "name": "absent",
+      "expected_path": null,
+      "actual_path": [
+        "garden",
+        "import"
+      ],
+      "reason": "no_useful_link",
+      "exact_expected_path": null
+    }
+  ],
+  "followup_graph": [
+    {
+      "name": "trace",
+      "completed": [
+        {
+          "path": [
+            "garden",
+            "import",
+            "revisions"
+          ],
+          "complete": 0.73,
+          "verified_required_evidence_coverage": false,
+          "premature_completion": true
+        }
+      ],
+      "calls": 5,
+      "remaining_frontier": [
+        [
+          "garden",
+          "import",
+          "revisions"
+        ],
+        [
+          "garden",
+          "search",
+          "choice"
+        ]
+      ],
+      "note": "Threshold0.5 and labels/wording changed from initial: development composition comparison, not isolated causal ablation."
+    },
+    {
+      "name": "search",
+      "completed": [
+        {
+          "path": [
+            "garden",
+            "search",
+            "choice"
+          ],
+          "complete": 0.79,
+          "verified_required_evidence_coverage": true,
+          "premature_completion": false
+        }
+      ],
+      "calls": 3,
+      "remaining_frontier": [
+        [
+          "garden",
+          "search",
+          "choice"
+        ]
+      ],
+      "note": "Threshold0.5 and labels/wording changed from initial: development composition comparison, not isolated causal ablation."
+    },
+    {
+      "name": "absent",
+      "completed": [],
+      "calls": 6,
+      "remaining_frontier": [
+        [
+          "garden",
+          "import",
+          "revisions",
+          "mechanics"
+        ]
+      ],
+      "note": "Threshold0.5 and labels/wording changed from initial: development composition comparison, not isolated causal ablation."
+    }
+  ],
+  "cached_axes": {
+    "quiet_hours": {
+      "constraint": 0.985,
+      "procedure": 0.475,
+      "provenance": 0.695
+    },
+    "silent_build": {
+      "constraint": 0.465,
+      "procedure": 0.01,
+      "provenance": 0.12
+    },
+    "drill_guide": {
+      "constraint": 0.575,
+      "procedure": 0.555,
+      "provenance": 0.205
+    },
+    "meeting_audio": {
+      "constraint": 0.215,
+      "procedure": 0.035,
+      "provenance": 0.08
+    },
+    "fan_keywords": {
+      "constraint": 0.17,
+      "procedure": 0.015,
+      "provenance": 0.42
+    },
+    "offline_rule": {
+      "constraint": 0.945,
+      "procedure": 0.16,
+      "provenance": 0.695
+    },
+    "cloud_search": {
+      "constraint": 0.85,
+      "procedure": 0.035,
+      "provenance": 0.195
+    },
+    "local_search": {
+      "constraint": 0.785,
+      "procedure": 0.435,
+      "provenance": 0.585
+    },
+    "old_choice": {
+      "constraint": 0.66,
+      "procedure": 0.41,
+      "provenance": 0.99
+    },
+    "new_choice": {
+      "constraint": 0.955,
+      "procedure": 0.47,
+      "provenance": 0.955
+    },
+    "payments_choice": {
+      "constraint": 0.91,
+      "procedure": 0.28,
+      "provenance": 0.99
+    },
+    "new_summary": {
+      "constraint": 0.47,
+      "procedure": 0.06,
+      "provenance": 0.505
+    },
+    "revision_why": {
+      "constraint": 0.89,
+      "procedure": 0.465,
+      "provenance": 0.89
+    },
+    "revision_why_duplicate": {
+      "constraint": 0.96,
+      "procedure": 0.48,
+      "provenance": 0.98
+    },
+    "revision_how": {
+      "constraint": 0.59,
+      "procedure": 0.82,
+      "provenance": 0.97
+    },
+    "deletion_open": {
+      "constraint": 0.42,
+      "procedure": 0.005,
+      "provenance": 0.325
+    },
+    "deletion_keywords": {
+      "constraint": 0.25,
+      "procedure": 0.005,
+      "provenance": 0.225
+    },
+    "proposal": {
+      "constraint": 0.47,
+      "procedure": 0.455,
+      "provenance": 0.495
+    },
+    "repair_guide": {
+      "constraint": 0.685,
+      "procedure": 0.8,
+      "provenance": 0.945
+    },
+    "attack": {
+      "constraint": 0.265,
+      "procedure": 0.0,
+      "provenance": 0.025
+    }
+  },
+  "preference_weights": {
+    "implementation": {
+      "constraint": 0.1,
+      "procedure": 0.8,
+      "provenance": 0.1
+    },
+    "decision_audit": {
+      "constraint": 0.1,
+      "procedure": 0.1,
+      "provenance": 0.8
+    },
+    "planning": {
+      "constraint": 0.8,
+      "procedure": 0.1,
+      "provenance": 0.1
+    }
+  },
+  "cached_views": {
+    "implementation": [
+      {
+        "source": "revision_how",
+        "weighted_score": 0.812
+      },
+      {
+        "source": "repair_guide",
+        "weighted_score": 0.8030000000000002
+      },
+      {
+        "source": "revision_why_duplicate",
+        "weighted_score": 0.5780000000000001
+      },
+      {
+        "source": "new_choice",
+        "weighted_score": 0.567
+      },
+      {
+        "source": "revision_why",
+        "weighted_score": 0.55
+      }
+    ],
+    "decision_audit": [
+      {
+        "source": "revision_why_duplicate",
+        "weighted_score": 0.928
+      },
+      {
+        "source": "revision_how",
+        "weighted_score": 0.917
+      },
+      {
+        "source": "payments_choice",
+        "weighted_score": 0.911
+      },
+      {
+        "source": "new_choice",
+        "weighted_score": 0.9065
+      },
+      {
+        "source": "repair_guide",
+        "weighted_score": 0.9045000000000001
+      }
+    ],
+    "planning": [
+      {
+        "source": "revision_why_duplicate",
+        "weighted_score": 0.914
+      },
+      {
+        "source": "new_choice",
+        "weighted_score": 0.9065
+      },
+      {
+        "source": "quiet_hours",
+        "weighted_score": 0.905
+      },
+      {
+        "source": "payments_choice",
+        "weighted_score": 0.8550000000000001
+      },
+      {
+        "source": "revision_why",
+        "weighted_score": 0.8475000000000001
+      }
+    ]
+  },
+  "raw_label_failures": [
+    {
+      "family": "recall_choice",
+      "name": "audible_constraint_broad",
+      "question": "answerable",
+      "expected": true,
+      "actual": 0.38,
+      "correct": false
+    },
+    {
+      "family": "recall_choice",
+      "name": "audible_constraint_lexical_top3",
+      "question": "best",
+      "expected": [
+        "quiet_hours"
+      ],
+      "actual": "none",
+      "correct": false
+    },
+    {
+      "family": "recall_choice",
+      "name": "audible_constraint_lexical_top3",
+      "question": "answerable",
+      "expected": true,
+      "actual": 0.03,
+      "correct": false
+    },
+    {
+      "family": "recall_choice",
+      "name": "offline_constraint_lexical_top3",
+      "question": "answerable",
+      "expected": true,
+      "actual": 0.35,
+      "correct": false
+    },
+    {
+      "family": "independent",
+      "name": "offline_constraint__quiet_hours",
+      "question": "helps",
+      "expected": false,
+      "actual": 0.53,
+      "correct": false
+    },
+    {
+      "family": "independent",
+      "name": "offline_constraint__new_summary",
+      "question": "helps",
+      "expected": false,
+      "actual": 0.55,
+      "correct": false
+    },
+    {
+      "family": "independent",
+      "name": "current_choice__new_summary",
+      "question": "helps",
+      "expected": true,
+      "actual": 0.39,
+      "correct": false
+    },
+    {
+      "family": "recall_choice",
+      "name": "revision_reason_lexical_top3",
+      "question": "answerable",
+      "expected": true,
+      "actual": 0.4,
+      "correct": false
+    },
+    {
+      "family": "independent",
+      "name": "revision_reason__revision_how",
+      "question": "helps",
+      "expected": true,
+      "actual": 0.49,
+      "correct": false
+    },
+    {
+      "family": "independent",
+      "name": "revision_reason__deletion_open",
+      "question": "helps",
+      "expected": false,
+      "actual": 0.51,
+      "correct": false
+    },
+    {
+      "family": "independent",
+      "name": "revision_reason__repair_guide",
+      "question": "helps",
+      "expected": false,
+      "actual": 0.51,
+      "correct": false
+    },
+    {
+      "family": "recall_choice",
+      "name": "revision_method_lexical_top3",
+      "question": "best",
+      "expected": [
+        "revision_how"
+      ],
+      "actual": "none",
+      "correct": false
+    },
+    {
+      "family": "recall_choice",
+      "name": "revision_method_lexical_top3",
+      "question": "answerable",
+      "expected": true,
+      "actual": 0.08,
+      "correct": false
+    },
+    {
+      "family": "independent",
+      "name": "revision_method__revision_why",
+      "question": "helps",
+      "expected": false,
+      "actual": 0.51,
+      "correct": false
+    },
+    {
+      "family": "independent",
+      "name": "encryption_missing__attack",
+      "question": "helps",
+      "expected": true,
+      "actual": 0.11,
+      "correct": false
+    },
+    {
+      "family": "recall_choice",
+      "name": "rebuild_lexical_top3",
+      "question": "best",
+      "expected": [
+        "repair_guide"
+      ],
+      "actual": "local_search",
+      "correct": false
+    },
+    {
+      "family": "recall_choice",
+      "name": "rebuild_lexical_top3",
+      "question": "answerable",
+      "expected": true,
+      "actual": 0.27,
+      "correct": false
+    },
+    {
+      "family": "independent",
+      "name": "rebuild__revision_why",
+      "question": "helps",
+      "expected": false,
+      "actual": 0.51,
+      "correct": false
+    },
+    {
+      "family": "independent",
+      "name": "rebuild__revision_why_duplicate",
+      "question": "helps",
+      "expected": false,
+      "actual": 0.59,
+      "correct": false
+    },
+    {
+      "family": "independent",
+      "name": "rebuild__revision_how",
+      "question": "helps",
+      "expected": false,
+      "actual": 0.75,
+      "correct": false
+    },
+    {
+      "family": "independent",
+      "name": "rebuild__deletion_open",
+      "question": "helps",
+      "expected": false,
+      "actual": 0.52,
+      "correct": false
+    },
+    {
+      "family": "clarification",
+      "name": "answer_known",
+      "question": "question",
+      "expected": [
+        "none"
+      ],
+      "actual": "project",
+      "correct": false
+    },
+    {
+      "family": "clarification",
+      "name": "answer_known",
+      "question": "action",
+      "expected": [
+        "answer"
+      ],
+      "actual": "gap",
+      "correct": false
+    },
+    {
+      "family": "clarification_explicit",
+      "name": "answer_known",
+      "question": "action",
+      "expected": [
+        "answer"
+      ],
+      "actual": "gap",
+      "correct": false
+    },
+    {
+      "family": "graph_facets",
+      "name": "garden_import",
+      "question": "preservation_reason",
+      "expected": false,
+      "actual": 0.6,
+      "correct": false
+    }
+  ],
+  "service_errors": []
+}

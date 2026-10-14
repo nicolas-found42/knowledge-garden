@@ -1,0 +1,701 @@
+{
+  "schema": "kg-researcher-answer-audit-v1",
+  "audited_at_utc": "2026-09-30T00:51:27.793867+00:00",
+  "run": "run-20260930T004745Z",
+  "boundary": "Post-generation researcher audit of authored development fixtures. No new API calls, no independent holdout, no human usability study, no inspection of actual media pixels/files in this audit. Source support is checked against supplied corpus text and full per-answer source context.",
+  "rubric": {
+    "semantic_context": "supported: supplied context warrants prose at stated scope; qualified: main idea related but scope/qualification enlarged or missing; unsupported: a substantive assertion is not warranted or is contradicted by source context.",
+    "structural_quote": "Exact, case-sensitive contiguous substring in one cited source body. Valid IDs are separate. Combining passages from different sources into one quote fails even when prose is sound.",
+    "origin": "Explicit controlled/constructed/public-reuse source origin must remain inspectable and disclosed as requested by generator instruction. Missing disclosure is reported separately; promoting constructed metadata into actual provenance is a substantive semantic failure.",
+    "completeness": "Does answer address question and uncertainty, and does extra prose contradict or undermine the answer? Not merely matching must/forbid substrings.",
+    "independence": "Different researcher than fixture/generation author, but after-the-fact, nonblind review on the same development corpus; no statistical independence or held-out accuracy claim."
+  },
+  "inputs": [
+    {
+      "path": "experiments/corpus.json",
+      "sha256": "136a9688ea3ff3afdce461ffd64a86c90bc972757afeecb067664f20ef0ece12"
+    },
+    {
+      "path": "experiments/frozen-labels.json",
+      "sha256": "73bb89c777646b7041a3b3f14827a6be57e403e23ab05463ff6de6b6534b5390"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/frozen-labels.json",
+      "sha256": "73bb89c777646b7041a3b3f14827a6be57e403e23ab05463ff6de6b6534b5390"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a1.json",
+      "sha256": "ac8e5c53c7ab5e17ddb56d2597bb146fac6366f1a591cce4570ec099f35f4b20"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a1-structural.json",
+      "sha256": "7c8a349923fda1622fc0f8532e98f0f32fc946b826011a189abc7d6c8461caea"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a1-verify.json",
+      "sha256": "d7552020544d2e069f42980304b174e61e80e199c1fa632be7802b2cca0bbf4c"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a2.json",
+      "sha256": "cc509f23e81ae389d88e8a34b33f183c14b499df683f8653da8b5035a9c2dd42"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a2-structural.json",
+      "sha256": "5a9408a0e41d1964defd21ce46130707265328a0a4eeef31bd80389fe196b82e"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a2-verify.json",
+      "sha256": "8f33e39f121185840df5b9e082536e885033c6ef2f4974c88fcb7a8a2c7f6dd7"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a3.json",
+      "sha256": "37d79cb382b5e9ac9fec8a285b057aac3a1eeba5db28fbb2d7ece2d481808979"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a3-structural.json",
+      "sha256": "e6b50d1d5b8d60e5dd63c70ff36302394b943d353e82150a3ff25183cdffc2a3"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a3-verify.json",
+      "sha256": "d249f19f66bdd0b0cd7edfc175e9d4c9f6aaf9eb8c6bf2d74134658951ba7917"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a4.json",
+      "sha256": "1ee9268046edfa526cd47c7217f9a25c51ee8b3e4b07b7b2d945fbefb326f738"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a4-structural.json",
+      "sha256": "365782a5a89edbb24d5e729bfdcd3b04a2a9b74d2425168b0355d5e6de1fd12f"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a4-verify.json",
+      "sha256": "51dbe94c96f0221a47aeba19e4d9e99397dddaf1c09ab58ffc47ae13ccee254b"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a5.json",
+      "sha256": "97a063f8f66a6d5836fe16995f18ec4b4a905074c412a630acdd2ec4d0c683ff"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a5-structural.json",
+      "sha256": "48d2b63588d9adc23b283891f5464d80deda4e0a1359df051b7c8481eb8b360c"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a5-verify.json",
+      "sha256": "e1e8538b9cad59ccfe9efc31577722972ba9afc98583ab26f65d62ca9b856ae7"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a6.json",
+      "sha256": "7d32295d32166e2974842305a2628eea4075e76ac89eb823363641e5a48480a3"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a6-structural.json",
+      "sha256": "48609d6dc2faffc48b0919e4f06822858b9fcaade285cc1a2a3ce379fbdf0dfd"
+    },
+    {
+      "path": "experiments/run-20260930T004745Z/a6-verify.json",
+      "sha256": "fb46a1e4f3d159b942eb237200fa302a3c0c5a7b98ef49590000c3a3b0668249"
+    }
+  ],
+  "summary": {
+    "answers": 6,
+    "sentences": 13,
+    "valid_ids": 13,
+    "exact_quotes": 9,
+    "semantic_context": {
+      "supported": 11,
+      "unsupported": 1,
+      "qualified": 1
+    },
+    "jev_supported_sentences": 13,
+    "semantic_disagreements_with_jev": 2,
+    "answers_addressing_core_question": 6,
+    "answers_without_substantive_context_failure": 5,
+    "answers_explicitly_preserving_constructed_origin": 1,
+    "sentence_origin_disclosures": 1,
+    "do_not_pool": "Separate quote validity, semantic context, constructed provenance, and question completeness; none is general accuracy."
+  },
+  "answers": [
+    {
+      "id": "a1",
+      "question": "What rate was observed, and what does it establish?",
+      "frozen_label": {
+        "id": "a1",
+        "query": "What rate was observed, and what does it establish?",
+        "sources": [
+          "table",
+          "homework",
+          "claim-rate"
+        ],
+        "must": [
+          "1.2",
+          "observation"
+        ],
+        "forbid": [
+          "daily estimate is 1.2"
+        ]
+      },
+      "question_core_addressed": true,
+      "answer_context_verdict": "core question addressed; quote/origin issues remain as listed",
+      "constructed_origin_requirement_met": false,
+      "sentences": [
+        {
+          "index": 0,
+          "text": "The observed rate was 1.2 visits per minute, calculated from 12 visits in ten minutes on 17 May 2024.",
+          "sourceIds": [
+            "table",
+            "homework",
+            "claim-rate"
+          ],
+          "quote": "Controlled homework: 12 visits in ten minutes is 1.2 per minute. A calculation from 12 visits divided by ten minutes; bounded to the 17 May observation, not a daily estimate.",
+          "semantic_context_verdict": "supported",
+          "semantic_reason": "Two cited records give 12/10 and the rate; table and claim delimit 17 May. The prose is a faithful bounded calculation.",
+          "ids_valid": true,
+          "quote_exact_in_one_cited_source": false,
+          "exact_quote_sourceIds": [],
+          "recorded_structural": {
+            "index": 0,
+            "idsValid": true,
+            "quoteExact": false
+          },
+          "quote_or_citation_issue": "The quote concatenates homework and claim-rate text into a single non-source passage.",
+          "constructed_origin_disclosed_in_generated_sentence": false,
+          "constructed_origin_issue": "Generated prose omits controlled/constructed provenance present in supplied sources. This is a separate publication/context axis, not an automatic semantic contradiction.",
+          "suggested_repair": "Retain separate exact quotes for homework and claim-rate; introduce this as a controlled observation.",
+          "jev_verification": {
+            "type": "choice",
+            "choice": "supported",
+            "probabilities": {
+              "unsupported": 0,
+              "supported": 0.96,
+              "qualified": 0.04
+            },
+            "confidence": 0.93
+          }
+        },
+        {
+          "index": 1,
+          "text": "This observed rate establishes a short-term pollinator visit rate but does not estimate all-day activity or establish causality related to rain.",
+          "sourceIds": [
+            "homework",
+            "table"
+          ],
+          "quote": "A short observation does not estimate all-day activity. Rain causality is not established.",
+          "semantic_context_verdict": "supported",
+          "semantic_reason": "The homework explicitly limits all-day inference and rain causality. The sentence retains those limits.",
+          "ids_valid": true,
+          "quote_exact_in_one_cited_source": true,
+          "exact_quote_sourceIds": [
+            "homework"
+          ],
+          "recorded_structural": {
+            "index": 1,
+            "idsValid": true,
+            "quoteExact": true
+          },
+          "quote_or_citation_issue": "Exact consecutive homework sentences; table is a secondary corroborating citation.",
+          "constructed_origin_disclosed_in_generated_sentence": false,
+          "constructed_origin_issue": "Generated prose omits controlled/constructed provenance present in supplied sources. This is a separate publication/context axis, not an automatic semantic contradiction.",
+          "suggested_repair": "Add controlled-fixture origin at answer level; the scientific scope is already appropriately bounded.",
+          "jev_verification": {
+            "type": "choice",
+            "choice": "supported",
+            "probabilities": {
+              "unsupported": 0,
+              "supported": 0.9400000000000001,
+              "qualified": 0.06
+            },
+            "confidence": 0.9
+          }
+        }
+      ]
+    },
+    {
+      "id": "a2",
+      "question": "Why was the noon-only plan changed? Was better accuracy established?",
+      "frozen_label": {
+        "id": "a2",
+        "query": "Why was the noon-only plan changed? Was better accuracy established?",
+        "sources": [
+          "plan-1",
+          "plan-2",
+          "reasoning"
+        ],
+        "must": [
+          "rain",
+          "not"
+        ],
+        "forbid": [
+          "proved more accurate"
+        ]
+      },
+      "question_core_addressed": true,
+      "answer_context_verdict": "core question addressed; quote/origin issues remain as listed",
+      "constructed_origin_requirement_met": false,
+      "sentences": [
+        {
+          "index": 0,
+          "text": "The noon-only plan was changed because rain disrupted the noon visit, leading to the adoption of morning and noon observations.",
+          "sourceIds": [
+            "plan-2",
+            "reasoning"
+          ],
+          "quote": "Use morning and noon observations after rain disrupted the noon visit. This replaces the noon-only plan; better sampling accuracy has not been measured.\n2024-05-19T11:00:00Z Rain interrupts the noon visit.\n2024-05-20T08:00:00Z Maya adopts morning and noon observations.",
+          "semantic_context_verdict": "supported",
+          "semantic_reason": "plan-2 explicitly says use both times after rain disruption and replace noon-only; reasoning supplies adoption. No measured superiority is asserted.",
+          "ids_valid": true,
+          "quote_exact_in_one_cited_source": false,
+          "exact_quote_sourceIds": [],
+          "recorded_structural": {
+            "index": 0,
+            "idsValid": true,
+            "quoteExact": false
+          },
+          "quote_or_citation_issue": "Quote splices plan-2 and reasoning into one purported exact passage.",
+          "constructed_origin_disclosed_in_generated_sentence": false,
+          "constructed_origin_issue": "Generated prose omits controlled/constructed provenance present in supplied sources. This is a separate publication/context axis, not an automatic semantic contradiction.",
+          "suggested_repair": "Use separate source/quote objects; introduce the controlled plan/history.",
+          "jev_verification": {
+            "type": "choice",
+            "choice": "supported",
+            "probabilities": {
+              "qualified": 0.14,
+              "supported": 0.85,
+              "unsupported": 0.01
+            },
+            "confidence": 0.77
+          }
+        },
+        {
+          "index": 1,
+          "text": "Better accuracy was not established when the plan changed from noon-only to morning and noon sampling.",
+          "sourceIds": [
+            "plan-2",
+            "reasoning"
+          ],
+          "quote": "Better sampling accuracy has not been measured.\nNo accuracy comparison was run.",
+          "semantic_context_verdict": "supported",
+          "semantic_reason": "Both cited sources explicitly say accuracy was not measured/no comparison was run.",
+          "ids_valid": true,
+          "quote_exact_in_one_cited_source": false,
+          "exact_quote_sourceIds": [],
+          "recorded_structural": {
+            "index": 1,
+            "idsValid": true,
+            "quoteExact": false
+          },
+          "quote_or_citation_issue": "Quote is stitched from two sources; Better is capitalized unlike the mid-sentence better in plan-2.",
+          "constructed_origin_disclosed_in_generated_sentence": false,
+          "constructed_origin_issue": "Generated prose omits controlled/constructed provenance present in supplied sources. This is a separate publication/context axis, not an automatic semantic contradiction.",
+          "suggested_repair": "Keep exact source substrings separately and disclose the controlled study.",
+          "jev_verification": {
+            "type": "choice",
+            "choice": "supported",
+            "probabilities": {
+              "qualified": 0.08,
+              "supported": 0.91,
+              "unsupported": 0.01
+            },
+            "confidence": 0.87
+          }
+        }
+      ]
+    },
+    {
+      "id": "a3",
+      "question": "On exactly what day was the picnic photograph taken?",
+      "frozen_label": {
+        "id": "a3",
+        "query": "On exactly what day was the picnic photograph taken?",
+        "sources": [
+          "photo-fruit",
+          "caption"
+        ],
+        "must": [
+          "unknown"
+        ],
+        "forbid": [
+          "17 May"
+        ]
+      },
+      "question_core_addressed": true,
+      "answer_context_verdict": "partial: correct exact-day abstention undermined by false month provenance and overbroad date-information claim",
+      "constructed_origin_requirement_met": false,
+      "sentences": [
+        {
+          "index": 0,
+          "text": "The exact day on which the picnic photograph was taken is unknown.",
+          "sourceIds": [
+            "caption"
+          ],
+          "quote": "The photographer did not record the exact date.",
+          "semantic_context_verdict": "supported",
+          "semantic_reason": "The exact true photograph date is not established by the supplied evidence. Unknown is the right response, but the controlled caption is not independent true provenance.",
+          "ids_valid": true,
+          "quote_exact_in_one_cited_source": false,
+          "exact_quote_sourceIds": [],
+          "recorded_structural": {
+            "index": 0,
+            "idsValid": true,
+            "quoteExact": false
+          },
+          "quote_or_citation_issue": "Quote adds The and lowercases photographer relative to source Photographer did not record the exact date.",
+          "constructed_origin_disclosed_in_generated_sentence": false,
+          "constructed_origin_issue": "Generated prose omits controlled/constructed provenance present in supplied sources. This is a separate publication/context axis, not an automatic semantic contradiction.",
+          "suggested_repair": "Say the real public photo date is unknown; identify the accompanying caption as controlled metadata.",
+          "jev_verification": {
+            "type": "choice",
+            "choice": "supported",
+            "probabilities": {
+              "supported": 0.92,
+              "qualified": 0.07,
+              "unsupported": 0.01
+            },
+            "confidence": 0.87
+          }
+        },
+        {
+          "index": 1,
+          "text": "The photograph was taken on some day in May 2024, but the precise date is not specified.",
+          "sourceIds": [
+            "caption"
+          ],
+          "quote": "Maya prepared fruit at Riverside on a day in May 2024.",
+          "semantic_context_verdict": "unsupported",
+          "semantic_reason": "Source explicitly says the caption is controlled metadata, not true provenance. Preparing fruit in the fictional caption does not establish that the actual public photograph was taken in May 2024.",
+          "ids_valid": true,
+          "quote_exact_in_one_cited_source": true,
+          "exact_quote_sourceIds": [
+            "caption"
+          ],
+          "recorded_structural": {
+            "index": 1,
+            "idsValid": true,
+            "quoteExact": true
+          },
+          "quote_or_citation_issue": "The exact quote is present, but it does not support the asserted photo capture date in context.",
+          "constructed_origin_disclosed_in_generated_sentence": false,
+          "constructed_origin_issue": "Generated prose omits controlled/constructed provenance present in supplied sources. This is a separate publication/context axis, not an automatic semantic contradiction.",
+          "suggested_repair": "The controlled caption describes fruit preparation in May 2024; it does not establish the public photograph date.",
+          "jev_verification": {
+            "type": "choice",
+            "choice": "supported",
+            "probabilities": {
+              "supported": 0.92,
+              "qualified": 0.07,
+              "unsupported": 0.01
+            },
+            "confidence": 0.87
+          }
+        },
+        {
+          "index": 2,
+          "text": "The photograph itself does not provide any information about the date it was taken.",
+          "sourceIds": [
+            "photo-fruit"
+          ],
+          "quote": "pixels do not establish Maya, Riverside, a date, nutrition, or weight.",
+          "semantic_context_verdict": "qualified",
+          "semantic_reason": "Source says pixels do not establish a date. The sentence broadens pixels to the photograph itself and inability to establish a date to no information at all. The supplied text does not establish absence of all metadata or visual date clues.",
+          "ids_valid": true,
+          "quote_exact_in_one_cited_source": true,
+          "exact_quote_sourceIds": [
+            "photo-fruit"
+          ],
+          "recorded_structural": {
+            "index": 2,
+            "idsValid": true,
+            "quoteExact": true
+          },
+          "quote_or_citation_issue": "Exact quote but semantic scope enlarged; no false quote or wrong ID.",
+          "constructed_origin_disclosed_in_generated_sentence": false,
+          "constructed_origin_issue": "Generated prose omits controlled/constructed provenance present in supplied sources. This is a separate publication/context axis, not an automatic semantic contradiction.",
+          "suggested_repair": "The inspected pixels do not establish a capture date in this evidence. Do not claim absence of all information.",
+          "jev_verification": {
+            "type": "choice",
+            "choice": "supported",
+            "probabilities": {
+              "supported": 0.77,
+              "unsupported": 0.07,
+              "qualified": 0.16
+            },
+            "confidence": 0.66
+          }
+        }
+      ]
+    },
+    {
+      "id": "a4",
+      "question": "What does the field-guide website say?",
+      "frozen_label": {
+        "id": "a4",
+        "query": "What does the field-guide website say?",
+        "sources": [
+          "linked"
+        ],
+        "must": [
+          "unknown"
+        ],
+        "forbid": [
+          "recommends"
+        ]
+      },
+      "question_core_addressed": true,
+      "answer_context_verdict": "core question addressed; quote/origin issues remain as listed",
+      "constructed_origin_requirement_met": true,
+      "sentences": [
+        {
+          "index": 0,
+          "text": "The field-guide website is mentioned as a link in the controlled conversation but its contents are unknown because it has never been fetched.",
+          "sourceIds": [
+            "linked"
+          ],
+          "quote": "Controlled conversation mentioned https://example.invalid/field-guide. Acquisition: merely linked. Destination has never been fetched and its contents are unknown.",
+          "semantic_context_verdict": "supported",
+          "semantic_reason": "Explicitly preserves controlled origin, merely-linked acquisition and unknown destination contents. No destination content is invented.",
+          "ids_valid": true,
+          "quote_exact_in_one_cited_source": true,
+          "exact_quote_sourceIds": [
+            "linked"
+          ],
+          "recorded_structural": {
+            "index": 0,
+            "idsValid": true,
+            "quoteExact": true
+          },
+          "quote_or_citation_issue": "Exact source passage; ID points to the link-occurrence record, not acquired website content.",
+          "constructed_origin_disclosed_in_generated_sentence": true,
+          "constructed_origin_issue": "Controlled origin explicitly preserved.",
+          "suggested_repair": "No substantive repair needed; keep the unacquired-destination distinction.",
+          "jev_verification": {
+            "type": "choice",
+            "choice": "supported",
+            "probabilities": {
+              "supported": 1,
+              "unsupported": 0,
+              "qualified": 0
+            },
+            "confidence": 0.99
+          }
+        }
+      ]
+    },
+    {
+      "id": "a5",
+      "question": "Did rain cause the lower pollinator count?",
+      "frozen_label": {
+        "id": "a5",
+        "query": "Did rain cause the lower pollinator count?",
+        "sources": [
+          "table",
+          "question-rain",
+          "claim-rain",
+          "report"
+        ],
+        "must": [
+          "not"
+        ],
+        "forbid": [
+          "rain caused the decrease"
+        ]
+      },
+      "question_core_addressed": true,
+      "answer_context_verdict": "core question addressed; quote/origin issues remain as listed",
+      "constructed_origin_requirement_met": false,
+      "sentences": [
+        {
+          "index": 0,
+          "text": "The data show 12 pollinator visits on 17 May 2024 and 8 visits on 18 May 2024, but the rows do not attribute the difference to rain.",
+          "sourceIds": [
+            "table"
+          ],
+          "quote": "Controlled rows: 17 May 2024, Maya, Riverside, 12 visits, 10 minutes; 18 May, 8 visits, 10 minutes. Rows do not attribute a difference to rain.",
+          "semantic_context_verdict": "supported",
+          "semantic_reason": "Table supports both counts/dates and explicitly withholds attribution to rain.",
+          "ids_valid": true,
+          "quote_exact_in_one_cited_source": true,
+          "exact_quote_sourceIds": [
+            "table"
+          ],
+          "recorded_structural": {
+            "index": 0,
+            "idsValid": true,
+            "quoteExact": true
+          },
+          "quote_or_citation_issue": "Exact table body.",
+          "constructed_origin_disclosed_in_generated_sentence": false,
+          "constructed_origin_issue": "Generated prose omits controlled/constructed provenance present in supplied sources. This is a separate publication/context axis, not an automatic semantic contradiction.",
+          "suggested_repair": "Introduce these as controlled rows; preserve the no-attribution qualification.",
+          "jev_verification": {
+            "type": "choice",
+            "choice": "supported",
+            "probabilities": {
+              "qualified": 0.02,
+              "unsupported": 0.01,
+              "supported": 0.97
+            },
+            "confidence": 0.95
+          }
+        },
+        {
+          "index": 1,
+          "text": "It is unknown whether rain caused the lower pollinator count because current notes do not resolve if rain changed pollinator activity or only prevented observation.",
+          "sourceIds": [
+            "question-rain"
+          ],
+          "quote": "Did rain change pollinator activity or only prevent observation? Current notes do not resolve this causal question.",
+          "semantic_context_verdict": "supported",
+          "semantic_reason": "question-rain explicitly leaves activity versus observation unresolved. The question and other supplied table provide the lower-count context; the cited question alone is not evidence of the numerical difference.",
+          "ids_valid": true,
+          "quote_exact_in_one_cited_source": true,
+          "exact_quote_sourceIds": [
+            "question-rain"
+          ],
+          "recorded_structural": {
+            "index": 1,
+            "idsValid": true,
+            "quoteExact": true
+          },
+          "quote_or_citation_issue": "Exact question passage; cite table too if independently asserting a lower count.",
+          "constructed_origin_disclosed_in_generated_sentence": false,
+          "constructed_origin_issue": "Generated prose omits controlled/constructed provenance present in supplied sources. This is a separate publication/context axis, not an automatic semantic contradiction.",
+          "suggested_repair": "Disclose controlled origin; retain unknown causality and cite table for count difference if repeated.",
+          "jev_verification": {
+            "type": "choice",
+            "choice": "supported",
+            "probabilities": {
+              "qualified": 0.02,
+              "unsupported": 0.01,
+              "supported": 0.97
+            },
+            "confidence": 0.95
+          }
+        },
+        {
+          "index": 2,
+          "text": "The claim that rain reduced pollinator activity is speculative and not established by the interrupted visit or the two rows of data.",
+          "sourceIds": [
+            "claim-rain"
+          ],
+          "quote": "Speculative causal explanation, not established by the interrupted visit or the two rows. Distinguish missing observations from fewer insects.",
+          "semantic_context_verdict": "supported",
+          "semantic_reason": "claim-rain explicitly labels the explanation speculative and unsupported by the available observations.",
+          "ids_valid": true,
+          "quote_exact_in_one_cited_source": true,
+          "exact_quote_sourceIds": [
+            "claim-rain"
+          ],
+          "recorded_structural": {
+            "index": 2,
+            "idsValid": true,
+            "quoteExact": true
+          },
+          "quote_or_citation_issue": "Exact claim body; proposition is reported as speculative, not adopted.",
+          "constructed_origin_disclosed_in_generated_sentence": false,
+          "constructed_origin_issue": "Generated prose omits controlled/constructed provenance present in supplied sources. This is a separate publication/context axis, not an automatic semantic contradiction.",
+          "suggested_repair": "Retain controlled origin as well as speculative epistemic status.",
+          "jev_verification": {
+            "type": "choice",
+            "choice": "supported",
+            "probabilities": {
+              "qualified": 0.01,
+              "unsupported": 0.01,
+              "supported": 0.98
+            },
+            "confidence": 0.97
+          }
+        },
+        {
+          "index": 3,
+          "text": "One observation of 12 visits on 17 May 2024 does not establish a trend, and a later wet visit was interrupted, limiting evidence.",
+          "sourceIds": [
+            "report"
+          ],
+          "quote": "Maya recorded 12 pollinator visits in ten minutes on 17 May 2024 at Riverside. One observation does not establish a trend. A later wet visit was interrupted.",
+          "semantic_context_verdict": "supported",
+          "semantic_reason": "Report explicitly describes one observation and a later interrupted wet visit; limiting evidence is a reasonable synthesis of those stated restrictions.",
+          "ids_valid": true,
+          "quote_exact_in_one_cited_source": true,
+          "exact_quote_sourceIds": [
+            "report"
+          ],
+          "recorded_structural": {
+            "index": 3,
+            "idsValid": true,
+            "quoteExact": true
+          },
+          "quote_or_citation_issue": "Exact report body; no invented causal outcome.",
+          "constructed_origin_disclosed_in_generated_sentence": false,
+          "constructed_origin_issue": "Generated prose omits controlled/constructed provenance present in supplied sources. This is a separate publication/context axis, not an automatic semantic contradiction.",
+          "suggested_repair": "Introduce the report as controlled; do not infer a trend.",
+          "jev_verification": {
+            "type": "choice",
+            "choice": "supported",
+            "probabilities": {
+              "qualified": 0.01,
+              "unsupported": 0.01,
+              "supported": 0.98
+            },
+            "confidence": 0.98
+          }
+        }
+      ]
+    },
+    {
+      "id": "a6",
+      "question": "Does the video count at two seconds measure accuracy over a two-second interval?",
+      "frozen_label": {
+        "id": "a6",
+        "query": "Does the video count at two seconds measure accuracy over a two-second interval?",
+        "sources": [
+          "video",
+          "code"
+        ],
+        "must": [
+          "not"
+        ],
+        "forbid": [
+          "accuracy over two seconds"
+        ]
+      },
+      "question_core_addressed": true,
+      "answer_context_verdict": "core question addressed; quote/origin issues remain as listed",
+      "constructed_origin_requirement_met": false,
+      "sentences": [
+        {
+          "index": 0,
+          "text": "The video count at two seconds is a sampled consecutive-frame changed-pixel count, not an interval aggregate or accuracy score.",
+          "sourceIds": [
+            "video"
+          ],
+          "quote": "At two seconds, 11566 is a sampled consecutive-frame changed-pixel count, not an interval aggregate or accuracy score.",
+          "semantic_context_verdict": "supported",
+          "semantic_reason": "Video source explicitly distinguishes sampled consecutive-frame count from interval aggregate and accuracy score. The sentence directly answers both mistaken readings.",
+          "ids_valid": true,
+          "quote_exact_in_one_cited_source": true,
+          "exact_quote_sourceIds": [
+            "video"
+          ],
+          "recorded_structural": {
+            "index": 0,
+            "idsValid": true,
+            "quoteExact": true
+          },
+          "quote_or_citation_issue": "Exact video passage. Code need not be cited to answer the measurement-type question.",
+          "constructed_origin_disclosed_in_generated_sentence": false,
+          "constructed_origin_issue": "Generated prose omits controlled/constructed provenance present in supplied sources. This is a separate publication/context axis, not an automatic semantic contradiction.",
+          "suggested_repair": "Add that this is a reused executed demonstration built from public video; no need to assert improved accuracy.",
+          "jev_verification": {
+            "type": "choice",
+            "choice": "supported",
+            "probabilities": {
+              "supported": 0.97,
+              "qualified": 0.02,
+              "unsupported": 0.01
+            },
+            "confidence": 0.96
+          }
+        }
+      ]
+    }
+  ]
+}

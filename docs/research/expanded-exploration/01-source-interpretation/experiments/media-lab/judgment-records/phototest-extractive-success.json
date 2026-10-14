@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "phototest-extractive-success",
+    "family": "claim",
+    "source": "phototest",
+    "representation": "extractive",
+    "claim": "The OCR code passed all file format tests.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "phototest",
+      "evidence_kind": "extractive",
+      "evidence": "This is a lot of 12 point text to test the\nocr code and see if it works on all types\nof file format.\nThe quick brown dog jumped over the\nlazy fox. The quick brown dog jumped\nover the lazy fox. The quick brown dog\njumped over the lazy fox. The quick\nbrown dog jumped over the lazy fox.",
+      "claim": "The OCR code passed all file format tests."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "unknown",
+        "probabilities": {
+          "unknown": 1,
+          "contradicted": 0,
+          "supported": 0
+        },
+        "confidence": 1
+      }
+    },
+    "usage": {
+      "input_tokens": 515,
+      "output_tokens": 41,
+      "cost": 2.163e-05
+    },
+    "id": "gen-dec-1790725832-oiUrOCe0mfLSe1AjEcb4",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.23803666699677706
+}

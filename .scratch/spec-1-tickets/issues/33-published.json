@@ -1,0 +1,81 @@
+{
+  "blockedBy": {
+    "nodes": [
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPZgQ",
+        "number": 11,
+        "state": "OPEN",
+        "title": "Read PDFs and scanned documents with located evidence and coverage recovery",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/11"
+      },
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPvNA",
+        "number": 24,
+        "state": "OPEN",
+        "title": "Inspect knowledge gaps without creating review chores",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/24"
+      },
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPX-Q",
+        "number": 10,
+        "state": "OPEN",
+        "title": "Ingest explicitly supplied URLs while preserving uncrawled link references",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/10"
+      },
+      {
+        "id": "I_kwDOUz8doM8AAAABUEP3Yw",
+        "number": 29,
+        "state": "OPEN",
+        "title": "Accept new sources offline and resume remote processing automatically",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/29"
+      },
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPa2w",
+        "number": 12,
+        "state": "OPEN",
+        "title": "Turn documents and presentations into knowledge with passage and slide provenance",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/12"
+      },
+      {
+        "id": "I_kwDOUz8doM8AAAABUEP0jA",
+        "number": 27,
+        "state": "OPEN",
+        "title": "Assemble mixed-material trails and persist them only when explicitly saved",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/27"
+      },
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPgDQ",
+        "number": 15,
+        "state": "OPEN",
+        "title": "Ingest video with synchronized visual and spoken evidence",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/15"
+      },
+      {
+        "id": "I_kwDOUz8doM8AAAABUEPhpQ",
+        "number": 16,
+        "state": "OPEN",
+        "title": "Import repositories as connected source material with precise code and document evidence",
+        "url": "https://github.com/nicolas-found42/knowledge-garden/issues/16"
+      }
+    ],
+    "totalCount": 8
+  },
+  "body": "## Parent\n\n[Specification #1: automatic Markdown knowledge garden with page search and relational navigation](https://github.com/nicolas-found42/knowledge-garden/issues/1)\n\nParent coverage: user stories 66, 67, 69; **Research evidence boundaries**. The parent\u2019s selected decisions take precedence over earlier research recommendations.\n\n## What to build\n\nDemonstrate that the implemented semantic workflows preserve source meaning, current facts, identity, and provenance across representative real-format inputs, using independent expected outcomes rather than model self-approval.\n\n## Acceptance criteria\n\n- [ ] Before each evaluation, freeze an independently authored/sanitized corpus and expected labels for retrieval, source support, qualifications, identity, update scope, and provenance; do not let the evaluated model grade its own truth.\n- [ ] Exercise Jev\u2019s actual role in interpretation, facts, matching/relations, updates, organization, retrieval, route selection, recovery, and helper routing; document justified non-Jev work and code-owned deterministic operations.\n- [ ] Run required V17/V18, older/duplicate import, partial extraction, independent support, caption-origin, misleading identity, and deliberately bad deletion cases; fix violations of these specified invariants before this gate passes.\n- [ ] Report missed and inappropriate retrieval candidates, wrong additions/removals/merges, qualification loss, and provenance errors with denominators and representative failure examples; repeated authored examples are not advertised as broad accuracy.\n- [ ] Separate deterministic replay/integrity results from authorized live provider results, record actual model/service capabilities and versions, and verify only selected general-purpose models are used.\n- [ ] Validate autonomous knowledge-processing suitability and real text/media routes, quotas, retry behavior, allowed helper selection, and unavailable-capability recovery without paid fallback or silent substitution.\n- [ ] Capture remaining uncertainty and workload-specific quality thresholds explicitly. Unsupported capabilities or unresolved violations remain release gates; passing a typed response or whole-record verifier alone cannot close them.\n\n## Blocked by\n\n- [#10 \u2014 Ingest explicitly supplied URLs while preserving uncrawled link references](https://github.com/nicolas-found42/knowledge-garden/issues/10)\n- [#11 \u2014 Read PDFs and scanned documents with located evidence and coverage recovery](https://github.com/nicolas-found42/knowledge-garden/issues/11)\n- [#12 \u2014 Turn documents and presentations into knowledge with passage and slide provenance](https://github.com/nicolas-found42/knowledge-garden/issues/12)\n- [#15 \u2014 Ingest video with synchronized visual and spoken evidence](https://github.com/nicolas-found42/knowledge-garden/issues/15)\n- [#16 \u2014 Import repositories as connected source material with precise code and document evidence](https://github.com/nicolas-found42/knowledge-garden/issues/16)\n- [#24 \u2014 Inspect knowledge gaps without creating review chores](https://github.com/nicolas-found42/knowledge-garden/issues/24)\n- [#27 \u2014 Assemble mixed-material trails and persist them only when explicitly saved](https://github.com/nicolas-found42/knowledge-garden/issues/27)\n- [#29 \u2014 Accept new sources offline and resume remote processing automatically](https://github.com/nicolas-found42/knowledge-garden/issues/29)\n\nThese are completion gates. `ready-for-agent` means the ticket is specified; implementation starts when its native GitHub blockers are closed.\n\n## Scope and implementation notes\n\nThis is an executable quality qualification path through the finished workflows, not a horizontal unit-test project or permission to replace implementation with a report. Each earlier ticket supplies its own focused tests. Use synthetic/public or expressly authorized sanitized material; raw personal histories and private mappings stay unpublished.\n\nCarry the slice through its durable records, Rust/application operations, relevant reader/navigation UI, and verification. Follow the selected Tauri 2 / Rust / TypeScript foundation. Keep lasting knowledge in readable Markdown and original assets in their formats; indexes remain disposable. Preserve shared source identities, evidence, current-value rules, and authoritative external edits as those capabilities become available.\n\n## Verification scenario\n\nUse newly labeled source documents across text, PDFs/scans, office files, photos, audio/video, repositories, and conversations. Freeze expected facts, relationships, scope changes, and evidence locations before running the app. Include a whole-record verifier recording that accepts a wrong deletion, then verify deterministic/support safeguards reject it. Compare live and replay runs separately.\n\nUse the parent\u2019s application-level boundary: supply or change a temporary source collection, exercise public import/search/navigation/lifecycle actions, and inspect resulting Markdown, retained originals, query results, and visible state. Use deterministic provider responses for integrity/recovery and separate independently labeled live evaluation where model quality is in scope. Each scenario above is a proposed implementation check, not a claim that it has already passed.\n\n## Evidence and validation limits\n\nThis is an implementation ticket derived from the [published specification](https://github.com/nicolas-found42/knowledge-garden/issues/1), not a report of an existing runtime defect. At ticket preparation on September 30, 2026, the repository has engineering guidance but no production application or production test suite. Historical prototypes establish only the bounded observations summarized in #1; local unpublished artifacts are not required to understand this ticket.\n\nThe release target is the owner\u2019s 16 GB Apple Silicon Mac (macOS 26.4.1 observed during specification); record the actual build, OS, services, and input coverage when validating. Concrete libraries, helper capabilities, and format limits must be verified during implementation. Do not weaken the selected behavior or introduce user curation to hide a failed validation.\n\nScreenshots/attachments: not applicable at authoring time because this specifies future behavior, not an observed UI failure. No production reproduction, visual evidence, or completed implementation is claimed.\n",
+  "labels": [
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qbnvw",
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "id": "LA_kwDOUz8doM8AAAAC5qb-Tw",
+      "name": "ready-for-agent",
+      "description": "Fully specified, ready for an agent",
+      "color": "0E8A16"
+    }
+  ],
+  "state": "OPEN",
+  "title": "Qualify semantic workflows with independently fixed labels and failure cases",
+  "url": "https://github.com/nicolas-found42/knowledge-garden/issues/34"
+}

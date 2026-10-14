@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "fruits-interpretation-weight",
+    "family": "claim",
+    "source": "fruits",
+    "representation": "interpretation",
+    "claim": "The bananas weigh exactly 250 grams.",
+    "source_truth": "unknown",
+    "state": {
+      "source": "fruits",
+      "evidence_kind": "interpretation",
+      "evidence": "```json\n{\n  \"observations\": [\n    {\"object\": \"orange slice\", \"bounding_box\": [88, 142, 992, 680], \"color\": \"orange\", \"texture\": \"juicy, segmented\"},\n    {\"object\": \"kiwi\", \"bounding_box\": [568, 0, 1000, 232], \"color\": \"green\", \"texture\": \"fuzzy skin, seeded interior\"},\n    {\"object\": \"lime\", \"bounding_box\": [248, 562, 676, 1000], \"color\": \"green\", \"texture\": \"bumpy skin\"},\n    {\"object\": \"lemon\", \"bounding_box\": [512, 618, 1000, 1000], \"color\": \"yellow\", \"texture\": \"smooth skin, segmented interior\"},\n    {\"object\": \"banana\", \"bounding_box\": [204, 0, 492, 270], \"color\": \"yellow\", \"texture\": \"smooth\"},\n    {\"object\": \"red cabbage\", \"bounding_box\": [0, 190, 340, 998], \"color\": \"purple\", \"texture\": \"leafy, layered\"}\n  ],\n  \"interpretive_candidates\": [\n    {\n      \"claim\": \"The image depicts a collection of citrus fruits and other produce.\",\n      \"anchor\": \"orange slice, kiwi, lime, lemon, banana, red cabbage\",\n      \"status\": \"observed\",\n      \"why\": \"These objects are clearly visible and identifiable in the image.\"\n    },\n    {\n      \"claim\": \"The arrangement suggests a still life composition.\",\n      \"anchor\": \"orange slice, kiwi, lime, lemon, banana, red cabbage\",\n      \"status\": \"inferred\",\n      \"why\": \"The fruits and vegetables are placed together in a visually appealing manner, typical of still life art.\"\n    },\n    {\n      \"claim\": \"The presence of various fruits and vegetables could be related to a theme of healthy eating or a balanced diet.\",\n      \"anchor\": \"orange slice, kiwi, lime, lemon, banana, red cabbage\",\n      \"status\": \"hypothesis\",\n      \"why\": \"These items are commonly associated with nutrition and healthy food choices.\"\n    },\n    {\n      \"claim\": \"The combination of citrus fruits (orange, lime, lemon) might be intended to showcase a range of vitamin C sources.\",\n      \"anchor\": \"orange slice, lime, lemon\",\n      \"status\": \"hypothesis\",\n      \"why\": \"Citrus fruits are well-known for their high vitamin C content.\"\n    },\n    {\n      \"claim\": \"The inclusion of red cabbage, a cruciferous vegetable, could represent diversity in produce or a contrast to the fruits.\",\n      \"anchor\": \"red cabbage\",\n      \"status\": \"hypothesis\",\n      \"why\": \"Red cabbage is a distinct type of produce from the fruits shown and adds visual and nutritional variety.\"\n    }\n  ],\n  \"limitations\": [\n    \"The exact variety or ripeness of the fruits and vegetables cannot be definitively determined from the image alone.\",\n    \"The context or purpose of the arrangement (e.g., for a recipe, a study, or decoration) is not provided.\",\n    \"The lighting and camera angle may affect the perception of colors and textures.\"\n  ],\n  \"research_connections\": [\n    {\n      \"connection\": \"Nutritional content of citrus fruits (Vitamin C, antioxidants)\",\n      \"type\": \"research_area\",\n      \"details\": \"Investigating the specific health benefits and nutritional profiles of oranges, lemons, and limes.\"\n    },\n    {\n      \"connection\": \"Culinary uses of the depicted ingredients\",\n      \"type\": \"research_area\",\n      \"details\": \"Exploring recipes or food pairings that commonly utilize oranges, kiwis, limes, lemons, bananas, and red cabbage.\"\n    },\n    {\n      \"connection\": \"Still life art history and symbolism\",\n      \"type\": \"research_area\",\n      \"details\": \"Examining the historical significance and common interpretations of fruit and vegetable still life compositions in art.\"\n    },\n    {\n      \"connection\": \"Color theory and visual composition\",\n      \"type\": \"research_area\",\n      \"details\": \"Analyzing how the arrangement and colors of these fruits and vegetables create a visually appealing composition.\"\n    }\n  ]\n}\n```",
+      "claim": "The bananas weigh exactly 250 grams."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "unknown",
+        "probabilities": {
+          "contradicted": 0,
+          "unknown": 1,
+          "supported": 0
+        },
+        "confidence": 1
+      }
+    },
+    "usage": {
+      "input_tokens": 1393,
+      "output_tokens": 41,
+      "cost": 5.8506e-05
+    },
+    "id": "gen-dec-1790725835-4lblFEp7YMd8Tco3oSUb",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.20064758299849927
+}

@@ -1,0 +1,50 @@
+{
+  "case": {
+    "id": "book-pdf-page-92-extractive-speed",
+    "family": "claim",
+    "source": "book-pdf-page-92",
+    "representation": "extractive",
+    "claim": "The author says speed alone is sufficient regardless of strength to master prey.",
+    "source_truth": "contradicted",
+    "state": {
+      "source": "book-pdf-page-92",
+      "evidence_kind": "extractive",
+      "evidence": "86\nNATURAL SELECTION.\n(CHAP. IV.\nthe fleefest prev, a deer for.instanee, had from any change\nin the country increased in numbers, or that other prey\nhad decreased in numbers, during that season of the vear\nwhen the wolf is hardest pressed for food. 1 ean under\nsuch ciremnstances see no reason to doubt that the swift-\nestand\nslimmest wolves would have the best chance of\nsurviving, and so be preserved or selected,\u2014provided\nalways that they retained strength to master their prey\nat this or at some other period of the year, when they\nmight be compelled to prey on other animals.\nI can see\nno more reason to doubt this, than that man can improve\nthe fleetness of' his greyhounds by careful and mothodical\nselection, or by that unconscious selection which results\nfrom each man trving to keep the best dogs without any\nthought of modifying the breed.\nEven without any change in the proportional mumbers\nof the animals on which our woll preyed, a cub might\nbe born with an innate tendeney to pursue certain kinds\nof prey.\nNor can this be thought very improbable; for\nwe often observe great differences in the nutural tenden-\ncies of our domestic animals; one caf, for instance, taking\nto catch rats, another mice; one cat, according to Nr. St.\nJohn, bringing home winged game, another liares or rab-\nbits, and another lunting on marshy ground and almost\nnightly catching woodcocks or snipes.\nThe tendener to\nenteh rats rather than mice is known to be inherited\nNow, if any slight inate change of habit or of structure\nbenetited\n811\nindividual wolf, it would have the\nbest\nchance of surviving and of leaving offipring.\nSome of\nits young would\nprobably inherit the same habits or\nstructure, and br the repetition of this process, a new\nvariety might be formed which would either supplant or\ncoexist with the parent form of wolf.\nOr, again. the\nwolves inhabiting a mountainous district, and those fre-\nquenting the lowlands, would naturally be foreed to huut\ndifferent orer : and from the continued preservation of\nthe individuals best fitted for the two sites, two varieties\nmight slowly be formed.\nThese varieties would eross\nand blend where they met; but to this subjeet of inter-\ncrossing we shall soon have to return. I may add, that,",
+      "claim": "The author says speed alone is sufficient regardless of strength to master prey."
+    },
+    "questions": {
+      "support": {
+        "type": "choice",
+        "instructions": "Using only the supplied evidence, is the full claim supported, contradicted, or unknown? Preserve negations, qualifiers, causal scope, and limits of temporal sampling. Generated speculative hypotheses do not establish real historical facts. No outside source may be assumed.",
+        "criteria": {
+          "supported": "All factual clauses established by supplied evidence.",
+          "contradicted": "Evidence directly contradicts claim.",
+          "unknown": "Missing clause, uncertain perception, hypothetical, or unsupported causal/history assertion."
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "typesafe/jev-1.13-20260917",
+    "answers": {
+      "support": {
+        "type": "choice",
+        "choice": "contradicted",
+        "probabilities": {
+          "supported": 0,
+          "unknown": 0,
+          "contradicted": 1
+        },
+        "confidence": 1
+      }
+    },
+    "usage": {
+      "input_tokens": 999,
+      "output_tokens": 44,
+      "cost": 4.1958e-05
+    },
+    "id": "gen-dec-1790725834-252AwWsATqmmUvI9mhGK",
+    "provider": "TypeSafe"
+  },
+  "seconds": 0.29755683298571967
+}

@@ -1,0 +1,66 @@
+{
+  "id": "a2",
+  "role": "cited-answer",
+  "request": {
+    "model": "openai/gpt-4.1-mini",
+    "temperature": 0,
+    "max_tokens": 900,
+    "response_format": {
+      "type": "json_object"
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "{\"instruction\": \"Return JSON with sentences:[{text,sourceIds,quote}]. Each sentence must be supported by supplied source context; quote is exact source text. Explicitly state unknown, uncertainty, constructed origin and missing evidence. A valid citation is not proof of a claim. Do not fill gaps. This is one question, no follow-up conversation.\", \"question\": \"Why was the noon-only plan changed? Was better accuracy established?\", \"sources\": [{\"id\": \"plan-1\", \"title\": \"Noon-only sampling proposal\", \"kind\": \"decision\", \"format\": \"Markdown\", \"body\": \"# Study plan, version 1\\nControlled plan, 2024-05-18. Count visits at noon only. Maya proposed noon because the path is quieter. Proposal, not a measured best time.\\n\", \"origin\": \"controlled\", \"epistemic\": \"tentative\", \"acquisition\": \"captured\"}, {\"id\": \"plan-2\", \"title\": \"Morning and noon sampling decision\", \"kind\": \"decision\", \"format\": \"Markdown\", \"body\": \"# Study plan, version 2\\nControlled decision, 2024-05-20. Use morning and noon observations after rain disrupted the noon visit. This replaces the noon-only plan; better sampling accuracy has not been measured.\\n\", \"origin\": \"controlled\", \"epistemic\": \"recorded\", \"acquisition\": \"captured\"}, {\"id\": \"reasoning\", \"title\": \"Why the sampling plan changed\", \"kind\": \"file\", \"format\": \"Markdown\", \"body\": \"# Controlled study reasoning\\n2024-05-18T09:00:00Z Maya proposes noon-only visits.\\n2024-05-19T11:00:00Z Rain interrupts the noon visit.\\n2024-05-20T08:00:00Z Maya adopts morning and noon observations. No accuracy comparison was run.\\n\", \"origin\": \"controlled\", \"epistemic\": \"recorded\", \"acquisition\": \"captured\"}]}"
+      }
+    ]
+  },
+  "started": "2026-09-30T00:48:08.657777+00:00",
+  "response": {
+    "id": "gen-1790729288-hMMGtofrPoAFA9ZozOH9",
+    "object": "chat.completion",
+    "created": 1790729288,
+    "model": "openai/gpt-4.1-mini",
+    "provider": "OpenAI",
+    "system_fingerprint": null,
+    "service_tier": "default",
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "completed",
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"sentences\": [\n    {\n      \"text\": \"The noon-only plan was changed because rain disrupted the noon visit, leading to the adoption of morning and noon observations.\",\n      \"sourceIds\": [\"plan-2\", \"reasoning\"],\n      \"quote\": \"Use morning and noon observations after rain disrupted the noon visit. This replaces the noon-only plan; better sampling accuracy has not been measured.\\n2024-05-19T11:00:00Z Rain interrupts the noon visit.\\n2024-05-20T08:00:00Z Maya adopts morning and noon observations.\"\n    },\n    {\n      \"text\": \"Better accuracy was not established when the plan changed from noon-only to morning and noon sampling.\",\n      \"sourceIds\": [\"plan-2\", \"reasoning\"],\n      \"quote\": \"Better sampling accuracy has not been measured.\\nNo accuracy comparison was run.\"\n    }\n  ]\n}",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 432,
+      "completion_tokens": 191,
+      "total_tokens": 623,
+      "cost": 0.000473616,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0004784,
+        "upstream_inference_prompt_cost": 0.0001728,
+        "upstream_inference_completions_cost": 0.0003056
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  "seconds": 1.8711721669824328
+}
