@@ -44,6 +44,6 @@ with tempfile.TemporaryDirectory(prefix="kg-pdf-public-") as temporary:
                  "The duration is provisional pending calibration."]:
         assert text in page["body"], f"missing independently labeled evidence: {text}"
     assert page["info"]["extraction_coverage"], "page coverage absent"
-    assert any(row["page_id"] == source_id for row in results["pages"]), (
+    assert any(row["page_id"] == page["info"]["page_id"] for row in results["pages"]), (
         "imported PDF evidence must be searchable")
 print("PASS: PDF original, source pages, qualifiers, coverage and search")
