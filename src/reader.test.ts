@@ -1711,6 +1711,7 @@ it("constructs a grouped typed Boolean query through keyboard controls with expl
   expect(
     await screen.findByRole("group", { name: "Boolean query expression" }),
   ).toBeTruthy();
+  expect(document.activeElement).toBe(screen.getByLabelText("Group operator"));
   await user.selectOptions(screen.getByLabelText("Group operator"), "or");
   await user.click(screen.getByRole("button", { name: "Add path clause" }));
   await user.type(
@@ -1721,7 +1722,18 @@ it("constructs a grouped typed Boolean query through keyboard controls with expl
     screen.getAllByLabelText("Hop direction")[0],
     "against_arrow",
   );
-  await user.click(screen.getAllByRole("button", { name: "Add hop" })[0]);
+  screen.getAllByRole("button", { name: "Add hop" })[0].focus();
+  await user.keyboard("{Enter}");
+  expect(document.activeElement).toBe(
+    screen.getAllByRole("button", { name: "Add hop" })[0],
+  );
+  // Shift-Tab stays in this path so the new hop can be removed by keyboard.
+  await user.keyboard("{Shift>}{Tab}{/Shift}{Enter}");
+  expect(screen.getAllByLabelText("Relationship type")).toHaveLength(2);
+  expect(document.activeElement).toBe(
+    screen.getAllByRole("button", { name: "Add hop" })[0],
+  );
+  await user.keyboard("{Enter}");
   await user.type(
     screen.getAllByLabelText("Relationship type")[1],
     "occurred_at",
@@ -1737,6 +1749,24 @@ it("constructs a grouped typed Boolean query through keyboard controls with expl
   expect(
     screen.getByText(/NOT removes pages from the known indexed set/),
   ).toBeTruthy();
+  screen.getByRole("button", { name: "Add group" }).focus();
+  await user.keyboard("{Enter}");
+  expect(document.activeElement?.textContent).toBe("Remove clause");
+  await user.tab();
+  await user.keyboard("{Enter}");
+  expect(document.activeElement?.textContent).toBe("Remove NOT");
+  await user.keyboard("{Enter}");
+  expect(document.activeElement?.textContent).toBe("Wrap in NOT");
+  await user.tab({ shift: true });
+  await user.keyboard("{Enter}");
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Add path clause" }),
+  );
+  screen.getByRole("button", { name: "Clear query" }).focus();
+  await user.keyboard("{Enter}");
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Clear query" }),
+  );
 });
 
 it("runs current Boolean clauses, clears stale results, cancels old work and restores selected query with Back", async () => {

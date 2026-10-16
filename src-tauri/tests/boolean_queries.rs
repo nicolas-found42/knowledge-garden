@@ -63,9 +63,19 @@ fn mixed_boolean_hops_scopes_and_known_set_negation_have_exact_authored_results(
         vec![id("Riverside")]
     );
     assert_eq!(results[0].paths.len(), 1);
+    // Even negation still has positive path evidence, including through groups
+    // (NOT (NOT path AND NOT other) is path OR other).
+    let nested = json!({"op":"not","child":{"op":"and","children":[
+        {"op":"not","child":path.clone()},
+        {"op":"not","child":{"op":"path","start_page_id":id("Maya"),"hops":[{"kind":"absent","direction":"with_arrow"}],"endpoint":{},"intermediate":{}}}
+    ]}});
+    let nested_results = collect(&mut app, request(nested));
+    assert_eq!(nested_results.len(), 1);
+    assert_eq!(nested_results[0].page_id, id("Riverside"));
+    assert_eq!(nested_results[0].paths.len(), 1);
     let detail = app
         .explore_path_details(knowledge_garden::application::PathDetailsRequest {
-            detail_token: results[0].paths[0].detail_token.clone(),
+            detail_token: nested_results[0].paths[0].detail_token.clone(),
             continuation: None,
             work_budget: 10,
         })
@@ -111,6 +121,19 @@ fn mixed_boolean_hops_scopes_and_known_set_negation_have_exact_authored_results(
     );
     assert!(app.open_source(&pending_source.info.source_id).is_ok());
     assert!(app.open_knowledge_page(&id("Theo")).is_ok());
+    let cleared = collect(&mut app, request(json!({"op":"and","children":[]})));
+    assert_eq!(cleared.len(), excluded.len() + 1);
+    assert!(cleared
+        .iter()
+        .any(|p| p.page_id == pending_source.info.page_id));
+    let mut formatted = path.clone();
+    formatted["endpoint"] = json!({"format":"txt","processing_status":"complete"});
+    assert_eq!(
+        collect(&mut app, request(formatted.clone()))[0].page_id,
+        id("Riverside")
+    );
+    formatted["endpoint"]["format"] = json!("md");
+    assert!(collect(&mut app, request(formatted)).is_empty());
     let cycle = json!({"op":"path","start_page_id":id("Maya"),"hops":[{"kind":"observed_by","direction":"against_arrow"},{"kind":"occurred_at","direction":"with_arrow"},{"kind":"links_to","direction":"with_arrow"}],"endpoint":{},"intermediate":{}});
     assert_eq!(
         collect(&mut app, request(cycle))
@@ -119,12 +142,12 @@ fn mixed_boolean_hops_scopes_and_known_set_negation_have_exact_authored_results(
             .collect::<Vec<_>>(),
         vec![id("Maya")]
     );
-    let mut no_match = path;
+    let mut no_match = path.clone();
     no_match["hops"][1]["direction"] = json!("against_arrow");
     assert!(collect(&mut app, request(no_match)).is_empty());
-    let request = request(json!({"op":"constraint","constraint":{}}));
-    let first = app.query_pages(request.clone()).unwrap();
-    let mut resumed = request.clone();
+    let all_pages = request(json!({"op":"constraint","constraint":{}}));
+    let first = app.query_pages(all_pages.clone()).unwrap();
+    let mut resumed = all_pages.clone();
     resumed.continuation = first.next_cursor.clone();
     app.cancel_query(first.next_cursor.as_deref().unwrap())
         .unwrap();
@@ -133,16 +156,29 @@ fn mixed_boolean_hops_scopes_and_known_set_negation_have_exact_authored_results(
         .unwrap_err()
         .to_string()
         .contains("canceled"));
-    let first = app.query_pages(request.clone()).unwrap();
+    let first = app.query_pages(all_pages.clone()).unwrap();
     let changed = workspace.path().join("changed.txt");
     std::fs::write(&changed, "New indexed source changes the known set.").unwrap();
     app.import_source(changed, AcquisitionMethod::Picker)
         .unwrap();
-    let mut resumed = request;
+    let mut resumed = all_pages;
     resumed.continuation = first.next_cursor;
     assert!(app
         .query_pages(resumed)
         .unwrap_err()
         .to_string()
         .contains("stale"));
+
+    // A missing Markdown endpoint is a disclosed gap, never an invented route.
+    let riverside = pages.iter().find(|p| p.title == "Riverside").unwrap();
+    std::fs::remove_file(workspace.path().join("collection").join(&riverside.path)).unwrap();
+    app.rebuild_index().unwrap();
+    let mut missing_endpoint = request(path);
+    missing_endpoint.work_budget = 50;
+    let response = app.query_pages(missing_endpoint).unwrap();
+    assert!(response.complete);
+    assert!(response.results.is_empty());
+    assert!(response.diagnostics.iter().any(|d| d.kind
+        == knowledge_garden::application::PathExploreDiagnosticKind::MissingEndpoint
+        && d.endpoint_page_id == riverside.page_id));
 }
