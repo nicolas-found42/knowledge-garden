@@ -864,7 +864,7 @@ impl Application {
         }
         let repository_id = format!(
             "repository-{:x}",
-            Sha256::digest(root.to_string_lossy().as_bytes())
+            Sha256::digest(root.as_os_str().as_encoded_bytes())
         );
         let mut paths = Vec::new();
         let mut exclusions = Vec::new();
@@ -880,11 +880,11 @@ impl Application {
                     if directory != root
                         && error.kind() == std::io::ErrorKind::PermissionDenied =>
                 {
-                    let relative_path = directory
-                        .strip_prefix(root)
-                        .map_err(|error| GardenError::Invalid(error.to_string()))?
-                        .to_string_lossy()
-                        .replace('\\', "/");
+                    let relative_path = repository_path_text(
+                        directory
+                            .strip_prefix(root)
+                            .map_err(|error| GardenError::Invalid(error.to_string()))?,
+                    );
                     exclusions.push(RepositoryExclusion {
                         relative_path,
                         reason: "unreadable_member".into(),
@@ -898,11 +898,10 @@ impl Application {
                 let path = entry.path();
                 let kind = fs::symlink_metadata(&path)?.file_type();
                 if kind.is_symlink() {
-                    let relative_path = path
-                        .strip_prefix(root)
-                        .map_err(|error| GardenError::Invalid(error.to_string()))?
-                        .to_string_lossy()
-                        .replace('\\', "/");
+                    let relative_path = repository_path_text(
+                        path.strip_prefix(root)
+                            .map_err(|error| GardenError::Invalid(error.to_string()))?,
+                    );
                     exclusions.push(RepositoryExclusion {
                         relative_path,
                         reason: "symbolic_link_not_followed".into(),
@@ -911,11 +910,10 @@ impl Application {
                 }
                 if kind.is_dir() {
                     if entry.file_name() == ".git" {
-                        let relative_path = path
-                            .strip_prefix(root)
-                            .map_err(|error| GardenError::Invalid(error.to_string()))?
-                            .to_string_lossy()
-                            .replace('\\', "/");
+                        let relative_path = repository_path_text(
+                            path.strip_prefix(root)
+                                .map_err(|error| GardenError::Invalid(error.to_string()))?,
+                        );
                         exclusions.push(RepositoryExclusion {
                             relative_path,
                             reason: "repository_metadata_not_imported".into(),
@@ -926,11 +924,10 @@ impl Application {
                 } else if kind.is_file() {
                     paths.push(path);
                 } else {
-                    let relative_path = path
-                        .strip_prefix(root)
-                        .map_err(|error| GardenError::Invalid(error.to_string()))?
-                        .to_string_lossy()
-                        .replace('\\', "/");
+                    let relative_path = repository_path_text(
+                        path.strip_prefix(root)
+                            .map_err(|error| GardenError::Invalid(error.to_string()))?,
+                    );
                     exclusions.push(RepositoryExclusion {
                         relative_path,
                         reason: "special_files_not_imported".into(),
@@ -944,11 +941,10 @@ impl Application {
         exclusions.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
         let mut sources = Vec::with_capacity(paths.len());
         for path in paths {
-            let relative_path = path
-                .strip_prefix(&root)
-                .map_err(|error| GardenError::Invalid(error.to_string()))?
-                .to_string_lossy()
-                .replace('\\', "/");
+            let relative_path = repository_path_text(
+                path.strip_prefix(&root)
+                    .map_err(|error| GardenError::Invalid(error.to_string()))?,
+            );
             match File::open(&path) {
                 Ok(_) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
@@ -969,7 +965,7 @@ impl Application {
             )?;
             page.info.repository = Some(RepositorySourceContext {
                 repository_id: repository_id.clone(),
-                repository_path: root.to_string_lossy().into_owned(),
+                repository_path: repository_path_text(&root),
                 relative_path: relative_path.clone(),
             });
             self.write_source_page(&page)?;
@@ -1320,7 +1316,11 @@ impl Application {
             .as_millis()
             .to_string();
         let acquisition = acquisition_override.unwrap_or_else(|| Acquisition {
-            path: supplied_path.to_string_lossy().into_owned(),
+            path: if method == AcquisitionMethod::Repository {
+                repository_path_text(&supplied_path)
+            } else {
+                supplied_path.to_string_lossy().into_owned()
+            },
             method,
             received_at,
             requested_url: None,
@@ -7671,6 +7671,44 @@ fn decode_generated_fact_value(value: &str) -> Option<String> {
         }
     }
     Some(decoded)
+}
+
+// Percent escapes keep literal percent/backslash names and invalid UTF-8
+// distinct while preserving existing ordinary UTF-8 member identities.
+fn repository_path_text(path: &Path) -> String {
+    match path.to_str() {
+        Some(text) => text.replace('%', "%25").replace('\\', "%5C"),
+        None => percent_encoding::percent_encode(
+            path.as_os_str().as_encoded_bytes(),
+            percent_encoding::NON_ALPHANUMERIC,
+        )
+        .to_string(),
+    }
+}
+
+#[cfg(all(test, unix))]
+mod repository_path_tests {
+    use super::*;
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+    #[test]
+    fn non_utf8_repository_path_encodings_are_injective() {
+        let paths = [
+            OsString::from_vec(vec![b'a', 0xfe]),
+            OsString::from_vec(vec![b'a', 0xff]),
+            OsString::from("%61%FE"),
+            OsString::from("a\\b"),
+            OsString::from("a/b"),
+            OsString::from("a%5Cb"),
+        ];
+        assert_eq!(
+            paths
+                .iter()
+                .map(|path| repository_path_text(Path::new(path)))
+                .collect::<HashSet<_>>()
+                .len(),
+            paths.len()
+        );
+    }
 }
 
 fn escape_markdown(value: &str) -> String {

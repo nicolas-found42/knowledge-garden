@@ -1149,7 +1149,10 @@ impl SemanticProvider for JevSemanticProvider {
                 value: candidate
                     .quote
                     .lines()
-                    .map(|line| line.trim_start().trim_start_matches("///").trim())
+                    .map(|line| {
+                        let content = line.trim_start().strip_prefix("///").unwrap_or(line);
+                        content.strip_prefix(' ').unwrap_or(content)
+                    })
                     .collect::<Vec<_>>()
                     .join("\n"),
                 evidence: candidate.evidence(),
@@ -2177,7 +2180,7 @@ fn repository_question_candidates(text: &str) -> Vec<Candidate> {
 fn candidates(text: &str) -> Vec<Candidate> {
     let mut result = Vec::new();
     let code_doc_re = regex(
-        r"(?m)^((?:[ \t]*///[^\r\n]*\r?\n)+)[ \t]*(?:pub[ \t]+)?(?:struct|enum|trait)[ \t]+([A-Z][A-Za-z0-9_]*)\b",
+        r"(?m)^(?:\x{FEFF})?((?:[ \t]*///(?:[^/\r\n][^\r\n]*)?\r?\n)+)[ \t]*(?:pub[ \t]+)?(?:struct|enum|trait)[ \t]+([A-Z][A-Za-z0-9_]*)\b",
     );
     for captures in code_doc_re.captures_iter(text) {
         let Some(comment) = captures.get(1) else {
