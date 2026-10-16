@@ -223,6 +223,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Application::open(args.get(1).ok_or("missing test collection")?)?
     };
     match operation {
+        "watch" => output(app.watch_directory(args.get(3).ok_or("missing directory")?)?),
+        "watches" => output(app.list_watched_directories()?),
+        "watch-step" => {
+            app.reconcile_watched_directories(
+                args.get(3)
+                    .map(|value| value.parse())
+                    .transpose()?
+                    .unwrap_or(128),
+            )?;
+            output(app.list_watched_directories()?);
+        }
         "live-import" => {
             let page = app.import_source(
                 args.get(3).ok_or("missing fixture path")?,

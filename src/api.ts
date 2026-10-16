@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 
-export type AcquisitionMethod = "picker" | "drop" | "url";
+export type AcquisitionMethod = "picker" | "drop" | "url" | "watch";
 export type ExtractionState =
   | "text_preserved"
   | "structured_text"
@@ -358,6 +358,9 @@ export interface TimelineResults {
 
 /** The reader's application boundary. Desktop paths never come from page HTML. */
 export interface GardenApi {
+  chooseDirectory?(): Promise<string | null>;
+  watchDirectory?(path: string): Promise<WatchedDirectory>;
+  listWatchedDirectories?(): Promise<WatchedDirectory[]>;
   timeline?(request: TimelineRequest): Promise<TimelineResults>;
   chooseFile(): Promise<string | null>;
   chooseRepositoryDirectory(): Promise<string | null>;
@@ -385,6 +388,14 @@ export interface GardenApi {
   onDrop(handler: (paths: string[]) => void): Promise<() => void>;
 }
 
+export interface WatchedDirectory {
+  watch_id: string;
+  path: string;
+  state: "scanning" | "watching" | "unavailable";
+  detail: string | null;
+  processed_files: number;
+}
+
 export interface UrlAcquisitionStatus {
   url: string;
   attempts: number;
@@ -395,6 +406,16 @@ export interface UrlAcquisitionStatus {
 }
 
 export const desktopApi: GardenApi = {
+  async chooseDirectory() {
+    const selected = await open({
+      multiple: false,
+      directory: true,
+      title: "Watch directory",
+    });
+    return typeof selected === "string" ? selected : null;
+  },
+  watchDirectory: (path) => invoke("watch_directory", { path }),
+  listWatchedDirectories: () => invoke("list_watched_directories"),
   async chooseFile() {
     const selected = await open({
       multiple: false,

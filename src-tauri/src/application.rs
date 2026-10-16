@@ -1,5 +1,6 @@
 //! Public, disk-backed collection operations. Markdown and originals are authoritative.
 pub mod boolean;
+pub mod watched;
 use crate::extraction::{LocalExtractor, SourceExtractor};
 use crate::meaning::{MeaningFilters, MeaningSearch};
 use crate::media::{
@@ -70,6 +71,7 @@ pub enum AcquisitionMethod {
     Drop,
     Url,
     Repository,
+    Watch,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -502,6 +504,7 @@ pub struct Application {
     fail_after_publication_files: Option<usize>,
     meaning_search: Option<MeaningSearch>,
     meaning_search_status: String,
+    watch_readers: HashMap<String, fs::ReadDir>,
     // Declared last so the collection lock releases after the index and providers drop.
     _lock: CollectionLock,
 }
@@ -836,6 +839,7 @@ impl Application {
             fail_after_publication_files: None,
             meaning_search,
             meaning_search_status,
+            watch_readers: HashMap::new(),
             _lock: CollectionLock(lock),
         };
         app.rebuild_index()?;
@@ -1341,7 +1345,12 @@ impl Application {
                 format!("source-{:x}", Sha256::digest(identity.as_bytes()))
             })
         } else if let Some(scope) = source_identity_scope {
-            let identity = format!("repository-source:{format}:{scope}");
+            let prefix = if method == AcquisitionMethod::Watch {
+                "watched-source"
+            } else {
+                "repository-source"
+            };
+            let identity = format!("{prefix}:{format}:{scope}");
             format!("source-{:x}", Sha256::digest(identity.as_bytes()))
         } else {
             existing_origin
@@ -6165,6 +6174,31 @@ impl Application {
                     continue;
                 }
                 let header = read_knowledge_header(&path)?;
+                if !self
+                    .source_dir(&header.source_id)?
+                    .join("index.md")
+                    .exists()
+                {
+                    // Authoritative owner edits outlive removal of their last source.
+                    write_search_documents(
+                        &transaction,
+                        &[SearchDocument {
+                            page_id: header.page_id.clone(),
+                            source_id: header.source_id.clone(),
+                            page_type: "knowledge".into(),
+                            title: header.title.clone(),
+                            kind: header.kind.clone(),
+                            content: knowledge_search_content(&header),
+                            format: "md".into(),
+                            extraction: ExtractionState::TextPreserved,
+                            processing_status: "source_unavailable".into(),
+                            event_date: event_date_from_facts(&header.facts),
+                            tags: header.tags.clone(),
+                            doc_kind: "page".into(),
+                            match_location: None,
+                        }],
+                    )?;
+                }
                 transaction.execute(
                     "INSERT OR REPLACE INTO knowledge_pages(page_id, title, kind) VALUES (?1, ?2, ?3)",
                     params![header.page_id, header.title, header.kind],
@@ -8455,6 +8489,8 @@ fn sync_directory(path: &Path) -> Result<()> {
 #[derive(Serialize, Deserialize)]
 struct PublicationManifest {
     entries: Vec<PublicationEntry>,
+    #[serde(default)]
+    removals: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -8468,9 +8504,28 @@ fn commit_publication(
     files: Vec<(PathBuf, Vec<u8>)>,
     fail_after_files: Option<usize>,
 ) -> Result<()> {
-    if files.is_empty() {
+    commit_publication_with_removals(root, files, Vec::new(), fail_after_files)
+}
+
+fn commit_publication_with_removals(
+    root: &Path,
+    files: Vec<(PathBuf, Vec<u8>)>,
+    removals: Vec<PathBuf>,
+    fail_after_files: Option<usize>,
+) -> Result<()> {
+    if files.is_empty() && removals.is_empty() {
         return Ok(());
     }
+    let removals = removals
+        .into_iter()
+        .map(|path| {
+            let relative = path
+                .strip_prefix(root)
+                .map_err(|_| GardenError::Invalid("A removal escaped the collection.".into()))?;
+            validate_relative_collection_path(relative)?;
+            Ok(relative.to_string_lossy().into_owned())
+        })
+        .collect::<Result<Vec<_>>>()?;
     let transactions = root.join(".staging/transactions");
     fs::create_dir_all(&transactions)?;
     let staging = tempfile::tempdir_in(&transactions)?;
@@ -8493,7 +8548,7 @@ fn commit_publication(
         });
     }
     sync_directory(&staged_files)?;
-    let manifest = serde_json::to_vec(&PublicationManifest { entries })?;
+    let manifest = serde_json::to_vec(&PublicationManifest { entries, removals })?;
     let manifest_path = staging.path().join("manifest.json");
     let mut file = File::create(&manifest_path)?;
     file.write_all(&manifest)?;
@@ -8544,6 +8599,21 @@ fn apply_publication(
                 std::io::ErrorKind::Interrupted,
                 "Injected publication interruption after an atomic file replacement.",
             )));
+        }
+    }
+    for removal in manifest.removals {
+        let relative = Path::new(&removal);
+        validate_relative_collection_path(relative)?;
+        let path = root.join(relative);
+        let result = match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(&path),
+            Ok(_) => fs::remove_file(&path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        result?;
+        if let Some(parent) = path.parent() {
+            sync_directory(parent)?;
         }
     }
     Ok(())

@@ -1,5 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, expect, it } from "vitest";
@@ -36,6 +44,74 @@ afterEach(() => {
   document.body.replaceChildren();
   localStorage.clear();
   if (workspace) rmSync(workspace, { recursive: true, force: true });
+});
+
+it("shows a real watched directory disconnect and reconnect while retained originals remain openable", async () => {
+  workspace = mkdtempSync(join(tmpdir(), "knowledge-garden-watch-test-"));
+  const incoming = join(workspace, "incoming");
+  const disconnected = join(workspace, "disconnected");
+  const collection = join(workspace, "collection");
+  mkdirSync(incoming);
+  writeFileSync(join(incoming, "V17.txt"), "Observation V17 at Riverside.");
+  const call = <T>(operation: string, ...args: string[]): T =>
+    JSON.parse(
+      execFileSync(driver, [collection, operation, ...args], {
+        encoding: "utf8",
+        timeout: 10_000,
+      }),
+    );
+  const unsupported = async (): Promise<never> => {
+    throw new Error("Outside this fixture's reader path");
+  };
+  let original: string | undefined;
+  const api: GardenApi = {
+    chooseDirectory: async () => incoming,
+    watchDirectory: async (path) => call("watch", path),
+    listWatchedDirectories: async () => call("watches"),
+    listSources: async (offset) => call("list", String(offset)),
+    openSource: async (id) => call("open", id),
+    openOriginal: async (id) => {
+      original = call("original", id);
+    },
+    onDrop: async () => () => {},
+    chooseFile: unsupported,
+    chooseRepositoryDirectory: unsupported,
+    importSource: unsupported,
+    importRepository: unsupported,
+    importUrl: unsupported,
+    listUrlAcquisitions: async () => [],
+    searchPages: unsupported,
+    queryPages: unsupported,
+    cancelQuery: unsupported,
+    pathGraphRevision: unsupported,
+    explorePaths: unsupported,
+    explorePathDetails: unsupported,
+    openKnowledgePage: unsupported,
+    openOriginalVersion: unsupported,
+    openOriginalAsset: unsupported,
+  };
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Watch directory" }));
+  await screen.findByText(/Directory selected/);
+  call("watch-step");
+  renameSync(incoming, disconnected);
+  call("watch-step");
+  await user.click(screen.getByRole("button", { name: "Sources" }));
+  expect(await screen.findByText(/incoming.*unavailable/)).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: /V17/ }));
+  await user.click(screen.getByRole("link", { name: "Open original" }));
+  expect(readFileSync(original!, "utf8")).toBe("Observation V17 at Riverside.");
+  renameSync(disconnected, incoming);
+  call("watch-step");
+  rmSync(join(incoming, "V17.txt"));
+  call("watch-step");
+  expect(existsSync(original!)).toBe(true);
+  call("watch-step");
+  expect(existsSync(original!)).toBe(false);
+  expect(call<SourceList>("list", "0").sources).toHaveLength(0);
 });
 
 it("imports a real temporary source through the reader and preserves visible content, Markdown, original bytes, restart and index recovery", async () => {

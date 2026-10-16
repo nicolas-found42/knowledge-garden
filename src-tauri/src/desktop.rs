@@ -53,6 +53,21 @@ async fn import_repository(
 }
 
 #[tauri::command]
+async fn watch_directory(
+    engine: State<'_, Engine>,
+    path: String,
+) -> Result<crate::application::watched::WatchedDirectory, String> {
+    with_engine(&engine, move |app| app.watch_directory(path)).await
+}
+
+#[tauri::command]
+async fn list_watched_directories(
+    engine: State<'_, Engine>,
+) -> Result<Vec<crate::application::watched::WatchedDirectory>, String> {
+    with_engine(&engine, |app| app.list_watched_directories()).await
+}
+
+#[tauri::command]
 async fn import_url(engine: State<'_, Engine>, url: String) -> Result<SourcePage, String> {
     with_engine(&engine, move |app| app.import_url(&url)).await
 }
@@ -215,6 +230,9 @@ pub fn run() {
                 .spawn(move || loop {
                     std::thread::sleep(std::time::Duration::from_secs(5));
                     if let Ok(mut app) = worker_app.lock() {
+                        if let Err(error) = app.reconcile_watched_directories(8) {
+                            eprintln!("Directory watcher could not reconcile: {error}");
+                        }
                         if let Err(error) = app.resume_due_url_acquisitions() {
                             eprintln!("URL acquisition queue could not resume work: {error}");
                         }
@@ -256,6 +274,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             import_source,
             import_repository,
+            watch_directory,
+            list_watched_directories,
             import_url,
             list_url_acquisitions,
             open_source,

@@ -59,6 +59,8 @@ export async function mountReader(
   addButton.className = "primary";
   const addRepositoryButton = element("button", "Add repository");
   const addUrlButton = element("button", "Add URL");
+  const watchButton = element("button", "Watch directory");
+  watchButton.hidden = !api.watchDirectory || !api.chooseDirectory;
   toolbar.append(
     brand,
     backButton,
@@ -68,6 +70,7 @@ export async function mountReader(
     addButton,
     addRepositoryButton,
     addUrlButton,
+    watchButton,
   );
   const urlForm = element("form");
   urlForm.className = "url-form";
@@ -1883,6 +1886,10 @@ export async function mountReader(
     if (disposed) return;
     const heading = element("h2", "Sources");
     sources.replaceChildren(heading);
+    const watched = element("section");
+    watched.setAttribute("aria-label", "Watched directories");
+    sources.append(watched);
+    await refreshWatches();
     if (listing.sources.length === 0)
       sources.append(element("p", "No sources yet."));
     for (const source of listing.sources) sources.append(sourceButton(source));
@@ -1904,6 +1911,36 @@ export async function mountReader(
     sourcesButton.setAttribute("aria-expanded", "true");
     sources.querySelector("button")?.focus();
   }
+  async function refreshWatches() {
+    if (!api.listWatchedDirectories) return;
+    const watches = await api.listWatchedDirectories();
+    if (disposed) return;
+    const section = sources.querySelector('[aria-label="Watched directories"]');
+    section?.replaceChildren(
+      ...watches.map((watch) =>
+        element(
+          "p",
+          `${watch.path} · ${watch.state}${watch.state === "scanning" ? ` · ${watch.processed_files} files processed` : ""}${watch.detail ? ` · ${watch.detail}` : ""}${watch.state === "unavailable" ? " · Retained originals and knowledge remain available." : ""}`,
+        ),
+      ),
+    );
+  }
+  watchButton.addEventListener("click", () => {
+    if (watchButton.disabled) return;
+    watchButton.disabled = true;
+    void api.chooseDirectory!()
+      .then(async (path) => {
+        if (!path || disposed) return;
+        await api.watchDirectory!(path);
+        message(
+          "Directory selected. Files will be imported and kept current automatically.",
+        );
+      })
+      .catch(report)
+      .finally(() => {
+        watchButton.disabled = false;
+      });
+  });
   sourcesButton.addEventListener("click", () => {
     if (!sources.hidden) {
       sources.hidden = true;
@@ -1938,6 +1975,7 @@ export async function mountReader(
     }
   }
   const refreshTimer = window.setInterval(() => {
+    if (!sources.hidden) void refreshWatches().catch(report);
     if (!urlForm.hidden) void refreshUrlQueue();
     const query = queryView;
     if (currentView === "query" && query?.revision && !query.stale) {

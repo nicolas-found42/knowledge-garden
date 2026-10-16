@@ -100,6 +100,38 @@ function testApi(): GardenApi {
   };
 }
 
+it("selects a watched directory once and shows unavailability without hiding retained sources", async () => {
+  const chooseDirectory = vi.fn().mockResolvedValue("/Volumes/Field notes");
+  const watchDirectory = vi.fn().mockResolvedValue({});
+  const api = Object.assign(testApi(), {
+    chooseDirectory,
+    watchDirectory,
+    listWatchedDirectories: vi.fn().mockResolvedValue([
+      {
+        watch_id: "field",
+        path: "/Volumes/Field notes",
+        state: "unavailable",
+        detail: "Directory disconnected",
+        processed_files: 2,
+      },
+    ]),
+  });
+  api.listSources = vi
+    .fn()
+    .mockResolvedValue({ sources: [riverside.info], next_offset: null });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Watch directory" }));
+  expect(chooseDirectory).toHaveBeenCalledOnce();
+  expect(watchDirectory).toHaveBeenCalledWith("/Volumes/Field notes");
+  await user.click(screen.getByRole("button", { name: "Sources" }));
+  expect(await screen.findByText(/Field notes.*unavailable/)).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: /Riverside notes/ }));
+  expect(screen.getByRole("article").textContent).toContain("Observation V17");
+});
+
 it("imports a chosen repository, opens its source, and reports excluded paths", async () => {
   const api = testApi();
   api.chooseRepositoryDirectory = vi.fn().mockResolvedValue("/tmp/sample-repo");
