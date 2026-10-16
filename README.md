@@ -41,3 +41,5 @@ npm test
 Application tests supply temporary collections and inspect public import, page navigation, retained originals, Markdown, and restart/rebuild outcomes. Reader tests use deterministic responses at the same desktop command boundary. They do not establish native file-dialog, drag delivery, or live model behavior; see [implementation and validation notes](docs/implementation/local-text-import.md) for the checks actually performed.
 
 See [the durable source contract](docs/implementation/source-contract.md) for storage, identities, recovery, and this slice's limits.
+
+For recording import, local transcription, version-bound timestamp evidence, playback fallback, and measured limits, see [audio recordings](docs/implementation/audio-recordings.md).
