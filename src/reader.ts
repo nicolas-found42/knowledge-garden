@@ -514,12 +514,6 @@ export async function mountReader(
         href === `knowledge-original:${sourceId}`
       ) {
         void api.openOriginal(sourceId).catch(report);
-      } else if (knowledgeMatch) {
-        pushCurrentState();
-        void api
-          .openKnowledgePage(knowledgeMatch[1])
-          .then(showKnowledgePage)
-          .catch(report);
       } else if (sourceMatch) {
         pushCurrentState();
         void api
@@ -556,6 +550,12 @@ export async function mountReader(
             pushCurrentState();
             return api.openKnowledgePage(id).then(showKnowledgePage);
           })
+          .catch(report);
+      } else if (knowledgeMatch) {
+        pushCurrentState();
+        void api
+          .openKnowledgePage(knowledgeMatch[1])
+          .then(showKnowledgePage)
           .catch(report);
       } else {
         message("This reference is preserved in the Markdown page.");
