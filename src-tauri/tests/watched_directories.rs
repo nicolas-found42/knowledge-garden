@@ -782,16 +782,24 @@ fn check_mounted_volume(nested: bool) {
         }
     }
     fn hdiutil(args: &[&str], path: &Path) {
-        let output = Command::new("/usr/bin/hdiutil")
-            .args(args)
-            .arg(path)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "hdiutil: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        for attempt in 0..3 {
+            let output = Command::new("/usr/bin/hdiutil")
+                .args(args)
+                .arg(path)
+                .output()
+                .unwrap();
+            if output.status.success() {
+                return;
+            }
+            let error = String::from_utf8_lossy(&output.stderr);
+            // macOS services can briefly hold a freshly mounted fixture busy.
+            // Require a real, non-forced detach; persistent handles still fail.
+            if args == ["detach"] && error.contains("Resource busy") && attempt < 2 {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                continue;
+            }
+            panic!("hdiutil {args:?}: {error}");
+        }
     }
     let workspace = tempdir().unwrap();
     let image = workspace.path().join("fixture.dmg");
