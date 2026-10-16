@@ -8,7 +8,7 @@ UTF-8 `.txt`, `.text`, `.md`, `.markdown`, and extensionless files are supported
 
 ## Run and build
 
-On macOS, install Rust, Node.js 22.12 or later, CMake, and the [Tauri macOS prerequisites](https://v2.tauri.app/start/prerequisites/#macos). The first macOS build initializes the pinned Whisper source submodule, downloads the pinned large-v3-turbo model, verifies its SHA-256, and packages the model with a static Metal-enabled runner. Runtime transcription is local and makes no model download; the model and runner license details are bundled with the app.
+On Apple Silicon macOS, install Rust via rustup, Node.js 24 (see `.nvmrc`), CMake, and the [Tauri macOS prerequisites](https://v2.tauri.app/start/prerequisites/#macos). rustup selects the pinned toolchain in `rust-toolchain.toml`. The first macOS build initializes the pinned Whisper source submodule, downloads the pinned large-v3-turbo model, verifies its SHA-256, and packages the model with a static Metal-enabled runner. Runtime transcription is local and makes no model download; the model and runner license details are bundled with the app.
 
 ```sh
 npm ci
@@ -18,7 +18,7 @@ npm run tauri dev
 Build the application bundle:
 
 ```sh
-npm run tauri build -- --bundles app
+npm run package:app
 ```
 
 The bundle appears in `src-tauri/target/release/bundle/macos/Knowledge Garden.app`. This development foundation does not configure Developer ID signing or notarization.
@@ -32,12 +32,12 @@ KNOWLEDGE_GARDEN_COLLECTION=/tmp/knowledge-garden-demo npm run tauri dev
 ## Verify
 
 ```sh
-npm run typecheck
-npm run format:check
-npm run check:rust
-npm test
+npm run provision:assets
+npm run check
 ```
 
 Application tests supply temporary collections and inspect public import, page navigation, retained originals, Markdown, and restart/rebuild outcomes. Reader tests use deterministic responses at the same desktop command boundary. They do not establish native file-dialog, drag delivery, or live model behavior; see [implementation and validation notes](docs/implementation/local-text-import.md) for the checks actually performed.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for lint prerequisites, individual development checks, CI, and required pull-request checks on `main`.
 
 See [the durable source contract](docs/implementation/source-contract.md) for storage, identities, recovery, and this slice's limits.

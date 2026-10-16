@@ -1,0 +1,37 @@
+# CI and development tooling
+
+Researched 2026-10-16 against the repository and primary upstream documentation. Recommendations below describe the intended controls; a workflow file alone does not establish that branch protection is enabled or that checks pass.
+
+## Project constraints
+
+The application uses Tauri 2, Rust, strict TypeScript, Vite and Vitest, with npm and Cargo lockfiles. Its first-release target is Apple Silicon macOS ([ADR 0003](../adr/0003-use-tauri-with-a-rust-background-engine.md)). `src-tauri/build.rs` compiles Swift helpers and provisions Whisper on macOS, and asserts the `aarch64` architecture. Audio provisioning initializes the pinned Whisper submodule, verifies the model SHA-256, and builds a static Metal helper ([ADR 0007](../adr/0007-bundle-local-audio-transcription.md), [build script](../../src-tauri/build.rs), [audio provisioning](../../src-tauri/scripts/provision-audio-assets.sh)). The [Tauri configuration](../../src-tauri/tauri.conf.json) bundles both audio and meaning-search resources; [meaning provisioning](../../scripts/provision-meaning-assets.sh) downloads and verifies the model and ARM64 ONNX Runtime library. Native compilation and resource packaging therefore belong in the PR gate.
+
+## Recommended checks
+
+| Lane | Checks and rationale |
+| --- | --- |
+| Linux frontend and static checks | Install with `npm ci`; check formatting, TypeScript types, ESLint, Vitest, and the Vite production build. Run rustfmt without compiling macOS helpers. Validate workflow syntax with actionlint and maintained shell scripts with ShellCheck. |
+| Apple Silicon native checks | Use `macos-15`, initialize submodules, install the pinned Rust toolchain and CMake, run Clippy and Rust tests with `--locked`, provision the resource bundles, then build a debug `.app` bundle. Inspect that expected resources exist inside the bundle. |
+| Required aggregate check | Depend on every mandatory lane, run even when a dependency fails, and explicitly reject any dependency result other than `success`. Give this job a stable, unique name and require it on `main`. |
+
+This split is a project-specific recommendation: frontend feedback stays fast while the shipping platform exercises Swift, Metal, dynamic-library loading and Tauri resources. GitHub documents `macos-15` as ARM64 for both public and private repositories; Intel uses a separate label. Standard ARM macOS runners have limited memory and disk, so cap build parallelism, cancel superseded PR runs and avoid retaining large bundles unnecessarily. [GitHub runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+
+Use Node 24 LTS consistently in development and CI. Commit a `rust-toolchain.toml` pin with rustfmt and Clippy, and update it deliberately. `npm ci` rejects manifest/lock mismatches without updating lockfiles; Cargo's `--locked` rejects dependency-resolution changes. [Node releases](https://nodejs.org/en/about/previous-releases), [rustup overrides](https://rust-lang.github.io/rustup/overrides.html), [npm ci](https://docs.npmjs.com/cli/v11/commands/npm-ci/), [Cargo test](https://doc.rust-lang.org/cargo/commands/cargo-test.html)
+
+Keep Prettier and rustfmt for formatting. Add ESLint's flat configuration with the recommended JavaScript and TypeScript rules; retain TypeScript's compiler check. Typed lint rules can be introduced incrementally using `projectService`. For Cargo 1.97 and later, Clippy recommends `CARGO_BUILD_WARNINGS=deny`; the older `-- -D warnings` mechanism remains supported but invalidates build caches. [typescript-eslint quickstart](https://typescript-eslint.io/getting-started/), [typed linting](https://typescript-eslint.io/getting-started/typed-linting/), [Clippy usage](https://doc.rust-lang.org/clippy/usage.html), [rustfmt](https://github.com/rust-lang/rustfmt)
+
+actionlint checks workflow structure, expressions, job dependencies and runner labels, and can invoke ShellCheck for inline scripts. Use a fixed actionlint release with verified download integrity rather than executing a moving install script. Its installation guide documents artifact attestation verification for supported releases. [actionlint checks](https://github.com/rhysd/actionlint/blob/main/docs/checks.md), [actionlint installation](https://github.com/rhysd/actionlint/blob/main/docs/install.md), [ShellCheck](https://github.com/koalaman/shellcheck)
+
+## Security and maintenance
+
+Use `pull_request` and pushes to `main`, repository-content read permission, no signing credentials, and pinned action revisions. Keep signing, notarization and release publishing in a separate future release workflow. GitHub recommends minimum token privileges and cautions against checking out untrusted PR code in privileged trigger contexts. Full commit SHA pins are the established fallback; GitHub now recommends generated workflow dependency lockfiles for repositories adopting that public-preview feature. Reassess lockfiles after the initial CI is stable. [GitHub secure use](https://docs.github.com/en/actions/reference/security/secure-use), [workflow dependency lockfiles](https://docs.github.com/en/actions/concepts/security/workflow-dependency-lockfiles)
+
+Configure weekly Dependabot updates for npm at `/`, Cargo at `/src-tauri`, and GitHub Actions at `/`. Group compatible minor/patch updates to limit review noise. Rust toolchain updates are also a supported ecosystem. Keep Whisper source/model updates deliberate because their pins, checksums and native behavior must change together. [Dependabot options](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference)
+
+Cache downloads and build output only as an optimization. Key native caches by OS, architecture, toolchain, lockfile and relevant native/provisioning inputs; always revalidate downloaded model checksums. A warm cache must not hide missing setup steps or become the evidence that packaging works. These cache boundaries follow this repository's native build and asset-verification scripts.
+
+## Merge enforcement
+
+After observing a successful workflow run, protect `main` with required PRs, the aggregate CI check, up-to-date branches, administrator enforcement, and disabled force pushes and deletion. Do not add a required approving-review count for a single-owner project unless another reviewer is available. Choose the check's expected GitHub App where supported, and keep job names unique. Protection is available for public repositories on GitHub Free; private repositories require an eligible paid owner plan. Verify the applied repository settings through the GitHub API. [Protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)
+
+An unsigned debug app build verifies compilation and bundle assembly. It does not demonstrate notarization, Gatekeeper acceptance, interactive microphone/photo permissions, transcription accuracy, or release-profile behavior; those remain separate release and native smoke-test concerns. Tauri exposes separate debug, bundle and signing-related build options. [Tauri CLI](https://v2.tauri.app/reference/cli/#build)
