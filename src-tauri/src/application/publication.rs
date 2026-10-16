@@ -12,8 +12,6 @@ struct PublicationEntry {
     staged: String,
     #[serde(default)]
     expected: Option<Vec<u8>>,
-    #[serde(default)]
-    guarded: bool,
 }
 
 pub(super) fn commit_publication(
@@ -40,7 +38,6 @@ pub(super) fn commit_publication(
         entries.push(PublicationEntry {
             destination: relative.to_string_lossy().into_owned(),
             staged,
-            guarded: true,
             expected: bases
                 .get(&destination)
                 .cloned()
@@ -124,18 +121,6 @@ fn apply_publication(
         } else {
             proposed
         };
-        if !entry.guarded {
-            // Migrate old roll-forward manifests, which did not retain a base.
-            // Keep existing bytes before completing their already committed work.
-            if let Ok(owner) = fs::read(&destination) {
-                if owner != proposed {
-                    retain_owner_save(root, &owner)?;
-                }
-            }
-            write_atomic(&destination, &proposed)?;
-            write_atomic(&done, &proposed)?;
-            continue;
-        }
         let held = transaction.join(format!("files/{index:04}.held"));
         let mut desired = proposed.clone();
         // A crash after exchange leaves the displaced save here, durably named

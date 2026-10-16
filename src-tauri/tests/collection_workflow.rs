@@ -1126,6 +1126,10 @@ fn reopening_replays_a_durable_interrupted_publication_as_one_complete_generatio
         .to_string(),
     )
     .unwrap();
+    // Legacy manifests have no saved base. An owner correction made while the
+    // app is interrupted still carries authority into the recovered generation.
+    let owner = current_page.replace("- **duration:** 10 minutes", "- **duration:** 11 minutes");
+    fs::write(&current_page_path, &owner).unwrap();
     drop(app);
 
     let recovered = Application::open(&collection).unwrap();
@@ -1136,6 +1140,13 @@ fn reopening_replays_a_durable_interrupted_publication_as_one_complete_generatio
     );
     let recovered_page = recovered.open_knowledge_page(&event.page_id).unwrap();
     assert!(recovered_page.markdown.contains("15 visits"));
+    assert!(recovered_page
+        .markdown
+        .contains("- **duration:** 11 minutes"));
+    assert!(recovered_page.markdown.contains("manual_correction:"));
+    assert!(fs::read_dir(collection.join("owner-edits"))
+        .unwrap()
+        .any(|entry| fs::read(entry.unwrap().path()).unwrap() == owner.as_bytes()));
     assert!(!collection
         .join(".staging/transactions/interrupted-generation")
         .exists());
