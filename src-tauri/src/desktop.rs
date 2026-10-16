@@ -169,7 +169,7 @@ fn open_retained_original(original: &Path) -> crate::application::Result<()> {
     if original
         .extension()
         .and_then(|value| value.to_str())
-        .is_some_and(crate::application::is_audio_format)
+        .is_some_and(|format| crate::application::is_audio_format(&format.to_ascii_lowercase()))
     {
         // Open recordings directly, without importing them into a Music library
         // or depending on its onboarding and cloud-library configuration.
