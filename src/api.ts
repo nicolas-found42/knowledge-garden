@@ -183,7 +183,8 @@ export interface SearchMatchLocation {
     | "extracted_conversation_projection"
     | "web_visible_text"
     | "audio_transcript"
-    | "extracted_image_projection";
+    | "extracted_image_projection"
+    | "extracted_pdf_projection";
   source_location: string | null;
 }
 
