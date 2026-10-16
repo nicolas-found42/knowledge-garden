@@ -452,10 +452,13 @@ impl Application {
             return Ok(());
         }
         let mut source = self.open_source(source_id)?;
-        source
-            .info
-            .acquisitions
-            .retain(|acquisition| normalized_origin(Path::new(&acquisition.path)) != origin);
+        let mut retained_acquisitions = Vec::new();
+        for acquisition in source.info.acquisitions.drain(..) {
+            if acquisition_origin(&acquisition)? != origin {
+                retained_acquisitions.push(acquisition);
+            }
+        }
+        source.info.acquisitions = retained_acquisitions;
         let contexts = self.source_dir(source_id)?.join("acquisitions");
         let mut removed_contexts = vec![receipt_path.to_owned()];
         if contexts.exists() {
@@ -467,7 +470,7 @@ impl Application {
                     .is_some_and(|extension| extension == "md")
                 {
                     let acquisition: Acquisition = read_record(&entry.path())?;
-                    if normalized_origin(Path::new(&acquisition.path)) == origin {
+                    if acquisition_origin(&acquisition)? == origin {
                         removed_contexts.push(entry.path());
                     }
                 }

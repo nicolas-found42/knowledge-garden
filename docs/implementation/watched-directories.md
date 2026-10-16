@@ -37,6 +37,16 @@ from withdrawing sources. Watching an already imported pathname adopts its sourc
 identity and preserves any independent acquisition origins. Visible Sources and
 open pages refresh as reconciliation progresses.
 
+New repository acquisition records explicitly identify their percent-encoded
+path representation; ordinary picker/watch paths remain raw. Unmarked older
+repository paths without valid percent escapes retain raw-path behavior. An
+unmarked repository path containing a valid percent escape is ambiguous across
+older storage formats: both possible origins are excluded from automatic
+adoption, and withdrawal preserves the source and acquisition records. The watch
+reports the ambiguity as unavailable until the acquisition encoding is explicitly
+resolved. Filesystem existence is never used to guess which interpretation owns
+the retained original.
+
 Confirmed removal withdraws only that source's fact, relationship, and tag support.
 Independent support and external manual corrections survive. A recoverable
 publication transaction writes reconciled Markdown before removing source assets;

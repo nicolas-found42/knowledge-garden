@@ -2,7 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 
-export type AcquisitionMethod = "picker" | "drop" | "url" | "watch";
+export type AcquisitionMethod =
+  "picker" | "drop" | "url" | "watch" | "repository";
 export type ExtractionState =
   | "text_preserved"
   | "structured_text"
@@ -38,6 +39,7 @@ export interface CoveragePart {
 export interface Acquisition {
   path: string;
   method: AcquisitionMethod;
+  path_encoding?: "raw" | "percent_encoded" | null;
   received_at: string;
   requested_url?: string | null;
   final_url?: string | null;
@@ -55,6 +57,11 @@ export interface SourceInfo {
   sha256: string;
   bytes: number;
   format: string;
+  repository?: {
+    repository_id: string;
+    repository_path: string;
+    relative_path: string;
+  } | null;
   current_version_id?: string | null;
   pending_version_id?: string | null;
   update_status?:
@@ -183,7 +190,8 @@ export interface SearchMatchLocation {
     | "extracted_conversation_projection"
     | "web_visible_text"
     | "audio_transcript"
-    | "extracted_image_projection";
+    | "extracted_image_projection"
+    | "extracted_pdf_projection";
   source_location: string | null;
 }
 

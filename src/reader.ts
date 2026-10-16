@@ -463,7 +463,7 @@ export async function mountReader(
       event.preventDefault();
       const href = link.getAttribute("href") ?? "";
       const audioSeekMatch = href.match(
-        /^\?audio_seek=(source-[a-f0-9]{64})&at_ms=(\d+)$/,
+        /^\?audio_seek=(source-[a-f0-9]{64})&at_ms=(\d+)(?:&version=([a-f0-9]{64})&asset=(original(?:\.[a-zA-Z0-9]+)?))?$/,
       );
       const knowledgeMatch = href.match(
         /(?:\.\.\/)?pages\/(page-[a-zA-Z0-9-]+)\.md/,
@@ -479,8 +479,20 @@ export async function mountReader(
       );
       if (audioSeekMatch) {
         const timestampMs = Number(audioSeekMatch[2]);
-        void api
-          .openOriginal(audioSeekMatch[1])
+        if (!Number.isSafeInteger(timestampMs)) {
+          message(
+            "This recording timestamp is unavailable. Open the retained original instead.",
+          );
+          return;
+        }
+        const opening = audioSeekMatch[3]
+          ? api.openOriginalVersion(
+              audioSeekMatch[1],
+              audioSeekMatch[3],
+              audioSeekMatch[4],
+            )
+          : api.openOriginal(audioSeekMatch[1]);
+        void opening
           .then(() => {
             message(
               `Opened the retained recording. Seek to ${Math.floor(timestampMs / 60000)}:${String(Math.floor(timestampMs / 1000) % 60).padStart(2, "0")} in your audio player; precise seeking is unavailable in this reader.`,
@@ -648,6 +660,22 @@ export async function mountReader(
       ["Source identity", next.info.source_id],
       ["Page identity", next.info.page_id],
     ];
+    if (next.info.repository) {
+      rows.push(
+        ["Repository", next.info.repository.repository_path],
+        ["Repository identity", next.info.repository.repository_id],
+        ["File in repository", next.info.repository.relative_path],
+        ["Acquired file revision", `SHA-256 ${next.info.sha256}`],
+        [
+          "Revision basis",
+          "Exact retained file content; a working-folder import does not establish a Git commit or a consistent repository-wide snapshot.",
+        ],
+        [
+          "Code concept coverage",
+          "Rust struct, enum and trait declarations with adjacent /// documentation are candidates for concept pages. Other code remains readable source text; semantic completion covers supported spans only.",
+        ],
+      );
+    }
     if (currentVersion?.state === "superseded") {
       rows.splice(3, 0, [
         "Version status",
@@ -704,7 +732,9 @@ export async function mountReader(
             ? "File drop"
             : acquisition.method === "watch"
               ? "Watched directory"
-              : "URL",
+              : acquisition.method === "repository"
+                ? "Repository folder"
+                : "URL",
       ]);
     }
     const retainedVersions = (next.info.versions_seen ?? []).filter(
@@ -1545,13 +1575,15 @@ export async function mountReader(
       if (result.match_location) {
         const location = result.match_location;
         const basisLabel =
-          location.offset_basis === "web_visible_text"
-            ? "visible web text"
-            : location.offset_basis === "extracted_office_projection"
-              ? "extracted Office text"
-              : location.offset_basis === "extracted_conversation_projection"
-                ? "extracted conversation messages"
-                : "preserved source text";
+          location.offset_basis === "extracted_pdf_projection"
+            ? "extracted PDF text; original opens at the beginning, use the page and region locator"
+            : location.offset_basis === "web_visible_text"
+              ? "visible web text"
+              : location.offset_basis === "extracted_office_projection"
+                ? "extracted Office text"
+                : location.offset_basis === "extracted_conversation_projection"
+                  ? "extracted conversation messages"
+                  : "preserved source text";
         const origin = element(
           "p",
           `Evidence · ${basisLabel} · version ${location.source_version_id?.slice(0, 12) ?? "unknown"}${location.line_start ? ` · line ${location.line_start}` : ""}${location.source_location ? ` · ${location.source_location}` : ""}`,

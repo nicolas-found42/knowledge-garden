@@ -173,7 +173,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let operation = args.get(2).map(String::as_str).ok_or("missing operation")?;
     let live = matches!(
         operation,
-        "live-import" | "url-live-import" | "audio-live-import"
+        "live-import" | "url-live-import" | "audio-live-import" | "repository-live-import"
     );
     if live && std::env::var("KNOWLEDGE_GARDEN_LIVE_SEMANTICS").as_deref() != Ok("1") {
         return Err("live semantic evaluation requires KNOWLEDGE_GARDEN_LIVE_SEMANTICS=1".into());
@@ -236,6 +236,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .unwrap_or(128),
             )?;
             output(app.list_watched_directories()?);
+        }
+        "repository-import" | "repository-live-import" => {
+            let imported = app.import_repository(args.get(3).ok_or("missing repository path")?)?;
+            if live {
+                app.resume_due_semantic_jobs()?;
+            }
+            let pages = imported
+                .sources
+                .iter()
+                .map(|source| app.open_source(&source.source_id))
+                .collect::<Result<Vec<_>, _>>()?;
+            output(json!({"import": imported, "pages": pages}));
         }
         "live-import" => {
             let page = app.import_source(

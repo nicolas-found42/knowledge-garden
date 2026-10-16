@@ -305,6 +305,197 @@ fn watching_an_existing_origin_keeps_its_identity_and_other_acquisitions() {
 }
 
 #[test]
+fn repository_escaped_origins_stay_distinct_through_watching_changes_and_removal() {
+    for (first_name, second_name) in [("a%b.txt", "a%25b.txt"), ("a\\b.txt", "a%5Cb.txt")] {
+        let workspace = tempdir().unwrap();
+        let incoming = workspace.path().join("incoming");
+        fs::create_dir(&incoming).unwrap();
+        let first_path = incoming.join(first_name);
+        let second_path = incoming.join(second_name);
+        fs::write(&first_path, V17).unwrap();
+        fs::write(&second_path, INDEPENDENT).unwrap();
+        let collection = workspace.path().join("collection");
+        let mut app = open(&collection);
+        let imported = app.import_repository(&incoming).unwrap();
+        let encoded_name = |name: &str| name.replace('%', "%25").replace('\\', "%5C");
+        let source_for = |name: &str| {
+            imported
+                .sources
+                .iter()
+                .find(|source| source.relative_path == encoded_name(name))
+                .unwrap()
+                .source_id
+                .clone()
+        };
+        let first_id = source_for(first_name);
+        let second_id = source_for(second_name);
+        assert_ne!(first_id, second_id);
+        app.resume_due_semantic_jobs().unwrap();
+        drop(app);
+        let mut app = open(&collection);
+        // Change before adopting the watch: content deduplication cannot hide a wrong origin key.
+        let changed = INDEPENDENT.replace("revision 1", "revision 2");
+        fs::write(&second_path, &changed).unwrap();
+        app.watch_directory(&incoming).unwrap();
+        scan(&mut app);
+        assert_eq!(app.list_sources(0).unwrap().sources.len(), 2);
+        let first = app.open_source(&first_id).unwrap();
+        let second = app.open_source(&second_id).unwrap();
+        assert_eq!(
+            first.info.versions_seen.len(),
+            1,
+            "wrong origin adopted for {second_name}"
+        );
+        assert_eq!(second.info.versions_seen.len(), 2);
+        assert_eq!(
+            fs::read(app.original_path(&first_id).unwrap()).unwrap(),
+            V17.as_bytes()
+        );
+        fs::remove_file(&second_path).unwrap();
+        scan(&mut app);
+        scan(&mut app);
+        assert!(!app.retained_source_exists(&second_id).unwrap());
+        assert!(app.retained_source_exists(&first_id).unwrap());
+        drop(app);
+        let app = open(&collection);
+        assert_eq!(app.list_sources(0).unwrap().sources.len(), 1);
+        assert_eq!(
+            fs::read(app.original_path(&first_id).unwrap()).unwrap(),
+            V17.as_bytes()
+        );
+    }
+}
+
+#[test]
+fn legacy_repository_origins_remain_raw_and_ambiguous_records_are_preserved() {
+    fn rewrite_repository_acquisition(
+        path: &std::path::Path,
+        raw_path: &str,
+        encoding: Option<&str>,
+    ) {
+        fn update(value: &mut serde_yaml_ng::Value, raw_path: &str, encoding: Option<&str>) {
+            if value["method"].as_str() == Some("repository") {
+                value["path"] = raw_path.into();
+                let fields = value.as_mapping_mut().unwrap();
+                fields.remove(serde_yaml_ng::Value::from("path_encoding"));
+                if let Some(encoding) = encoding {
+                    fields.insert("path_encoding".into(), encoding.into());
+                }
+            }
+        }
+        let markdown = fs::read_to_string(path).unwrap();
+        let (header, body) = markdown
+            .strip_prefix("---\n")
+            .unwrap()
+            .split_once("\n---\n")
+            .unwrap();
+        let mut value: serde_yaml_ng::Value = serde_yaml_ng::from_str(header).unwrap();
+        if let Some(acquisitions) = value["acquisitions"].as_sequence_mut() {
+            for acquisition in acquisitions {
+                update(acquisition, raw_path, encoding);
+            }
+        } else {
+            update(&mut value, raw_path, encoding);
+        }
+        fs::write(
+            path,
+            format!(
+                "---\n{}---\n{body}",
+                serde_yaml_ng::to_string(&value).unwrap()
+            ),
+        )
+        .unwrap();
+    }
+    for ambiguous in [false, true] {
+        let workspace = tempdir().unwrap();
+        let incoming = workspace.path().join("incoming");
+        fs::create_dir(&incoming).unwrap();
+        let names = if ambiguous {
+            ["a%b.txt", "a%25b.txt"]
+        } else {
+            ["a%b.txt", "a\\b.txt"]
+        };
+        let paths = names.map(|name| incoming.join(name));
+        fs::write(&paths[0], V17).unwrap();
+        fs::write(&paths[1], INDEPENDENT).unwrap();
+        let collection = workspace.path().join("collection");
+        let mut app = open(&collection);
+        let imported = app.import_repository(&incoming).unwrap();
+        let ids = names.map(|name| {
+            imported
+                .sources
+                .iter()
+                .find(|source| {
+                    source.relative_path == name.replace('%', "%25").replace('\\', "%5C")
+                })
+                .unwrap()
+                .source_id
+                .clone()
+        });
+        app.watch_directory(&incoming).unwrap();
+        scan(&mut app);
+        let page_paths = ids.each_ref().map(|id| app.page_path(id).unwrap());
+        drop(app);
+        let rewrite = |encoding| {
+            for (page_path, raw_path) in page_paths.iter().zip(&paths) {
+                rewrite_repository_acquisition(page_path, raw_path.to_str().unwrap(), encoding);
+                for entry in fs::read_dir(page_path.parent().unwrap().join("acquisitions")).unwrap()
+                {
+                    rewrite_repository_acquisition(
+                        &entry.unwrap().path(),
+                        raw_path.to_str().unwrap(),
+                        encoding,
+                    );
+                }
+            }
+        };
+        // Simulate the pre-encoding on-disk contract, including acquisition sidecars.
+        rewrite(None);
+        let mut app = open(&collection);
+        fs::write(&paths[1], INDEPENDENT.replace("revision 1", "revision 2")).unwrap();
+        scan(&mut app);
+        assert_eq!(
+            app.open_source(&ids[0]).unwrap().info.versions_seen.len(),
+            1
+        );
+        assert_eq!(
+            app.open_source(&ids[1]).unwrap().info.versions_seen.len(),
+            if ambiguous { 1 } else { 2 }
+        );
+        if ambiguous {
+            let watch = &app.list_watched_directories().unwrap()[0];
+            assert_eq!(watch.state, "unavailable");
+            assert!(watch
+                .detail
+                .as_deref()
+                .unwrap()
+                .contains("ambiguous encoding"));
+        }
+        fs::remove_file(&paths[1]).unwrap();
+        scan(&mut app);
+        scan(&mut app);
+        assert_eq!(app.retained_source_exists(&ids[1]).unwrap(), ambiguous);
+        assert_eq!(
+            fs::read(app.original_path(&ids[0]).unwrap()).unwrap(),
+            V17.as_bytes()
+        );
+        if ambiguous {
+            drop(app);
+            // An explicit raw interpretation removes quarantine without guessing.
+            rewrite(Some("raw"));
+            // Refresh the remaining input so its prior failed-input backoff is
+            // invalidated; otherwise recovery waits for the normal retry deadline.
+            fs::write(&paths[0], V17).unwrap();
+            let mut app = open(&collection);
+            scan(&mut app);
+            scan(&mut app);
+            assert!(!app.retained_source_exists(&ids[1]).unwrap());
+            assert!(app.retained_source_exists(&ids[0]).unwrap());
+        }
+    }
+}
+
+#[test]
 fn identical_watched_acquisitions_share_a_source_until_the_last_origin_is_removed() {
     let workspace = tempdir().unwrap();
     let incoming = workspace.path().join("incoming");

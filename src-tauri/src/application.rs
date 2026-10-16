@@ -31,7 +31,7 @@ const MAX_URL_ATTEMPTS: u32 = 8;
 
 pub const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 
-fn is_audio_format(format: &str) -> bool {
+pub(crate) fn is_audio_format(format: &str) -> bool {
     matches!(
         format,
         "wav" | "wave" | "aiff" | "aif" | "caf" | "m4a" | "mp3" | "aac"
@@ -116,6 +116,8 @@ pub enum ExtractionState {
 pub struct Acquisition {
     pub path: String,
     pub method: AcquisitionMethod,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path_encoding: Option<AcquisitionPathEncoding>,
     /// Milliseconds since the Unix epoch, stored as a string to avoid JS precision loss.
     pub received_at: String,
     #[serde(default)]
@@ -126,6 +128,13 @@ pub struct Acquisition {
     pub http_status: Option<u16>,
     #[serde(default)]
     pub content_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AcquisitionPathEncoding {
+    Raw,
+    PercentEncoded,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -708,6 +717,9 @@ impl Application {
              CREATE TABLE IF NOT EXISTS source_origins (
                  path TEXT PRIMARY KEY, source_id TEXT NOT NULL
              );
+             CREATE TABLE IF NOT EXISTS ambiguous_source_origins (
+                 path TEXT PRIMARY KEY
+             );
              CREATE TABLE IF NOT EXISTS source_versions (
                  source_id TEXT NOT NULL, source_version_id TEXT NOT NULL, format TEXT NOT NULL,
                  PRIMARY KEY(source_id, source_version_id)
@@ -870,7 +882,7 @@ impl Application {
         }
         let repository_id = format!(
             "repository-{:x}",
-            Sha256::digest(root.to_string_lossy().as_bytes())
+            Sha256::digest(root.as_os_str().as_encoded_bytes())
         );
         let mut paths = Vec::new();
         let mut exclusions = Vec::new();
@@ -886,11 +898,11 @@ impl Application {
                     if directory != root
                         && error.kind() == std::io::ErrorKind::PermissionDenied =>
                 {
-                    let relative_path = directory
-                        .strip_prefix(root)
-                        .map_err(|error| GardenError::Invalid(error.to_string()))?
-                        .to_string_lossy()
-                        .replace('\\', "/");
+                    let relative_path = repository_path_text(
+                        directory
+                            .strip_prefix(root)
+                            .map_err(|error| GardenError::Invalid(error.to_string()))?,
+                    );
                     exclusions.push(RepositoryExclusion {
                         relative_path,
                         reason: "unreadable_member".into(),
@@ -904,11 +916,10 @@ impl Application {
                 let path = entry.path();
                 let kind = fs::symlink_metadata(&path)?.file_type();
                 if kind.is_symlink() {
-                    let relative_path = path
-                        .strip_prefix(root)
-                        .map_err(|error| GardenError::Invalid(error.to_string()))?
-                        .to_string_lossy()
-                        .replace('\\', "/");
+                    let relative_path = repository_path_text(
+                        path.strip_prefix(root)
+                            .map_err(|error| GardenError::Invalid(error.to_string()))?,
+                    );
                     exclusions.push(RepositoryExclusion {
                         relative_path,
                         reason: "symbolic_link_not_followed".into(),
@@ -917,11 +928,10 @@ impl Application {
                 }
                 if kind.is_dir() {
                     if entry.file_name() == ".git" {
-                        let relative_path = path
-                            .strip_prefix(root)
-                            .map_err(|error| GardenError::Invalid(error.to_string()))?
-                            .to_string_lossy()
-                            .replace('\\', "/");
+                        let relative_path = repository_path_text(
+                            path.strip_prefix(root)
+                                .map_err(|error| GardenError::Invalid(error.to_string()))?,
+                        );
                         exclusions.push(RepositoryExclusion {
                             relative_path,
                             reason: "repository_metadata_not_imported".into(),
@@ -932,11 +942,10 @@ impl Application {
                 } else if kind.is_file() {
                     paths.push(path);
                 } else {
-                    let relative_path = path
-                        .strip_prefix(root)
-                        .map_err(|error| GardenError::Invalid(error.to_string()))?
-                        .to_string_lossy()
-                        .replace('\\', "/");
+                    let relative_path = repository_path_text(
+                        path.strip_prefix(root)
+                            .map_err(|error| GardenError::Invalid(error.to_string()))?,
+                    );
                     exclusions.push(RepositoryExclusion {
                         relative_path,
                         reason: "special_files_not_imported".into(),
@@ -950,11 +959,10 @@ impl Application {
         exclusions.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
         let mut sources = Vec::with_capacity(paths.len());
         for path in paths {
-            let relative_path = path
-                .strip_prefix(&root)
-                .map_err(|error| GardenError::Invalid(error.to_string()))?
-                .to_string_lossy()
-                .replace('\\', "/");
+            let relative_path = repository_path_text(
+                path.strip_prefix(&root)
+                    .map_err(|error| GardenError::Invalid(error.to_string()))?,
+            );
             match File::open(&path) {
                 Ok(_) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
@@ -975,7 +983,7 @@ impl Application {
             )?;
             page.info.repository = Some(RepositorySourceContext {
                 repository_id: repository_id.clone(),
-                repository_path: root.to_string_lossy().into_owned(),
+                repository_path: repository_path_text(&root),
                 relative_path: relative_path.clone(),
             });
             self.write_source_page(&page)?;
@@ -1146,6 +1154,7 @@ impl Application {
         let acquisition = Acquisition {
             path: requested.clone(),
             method: AcquisitionMethod::Url,
+            path_encoding: None,
             received_at: received_at.to_string(),
             requested_url: Some(requested),
             final_url: Some(final_url),
@@ -1327,8 +1336,14 @@ impl Application {
             .as_millis()
             .to_string();
         let acquisition = acquisition_override.unwrap_or_else(|| Acquisition {
-            path: supplied_path.to_string_lossy().into_owned(),
+            path: if method == AcquisitionMethod::Repository {
+                repository_path_text(&supplied_path)
+            } else {
+                supplied_path.to_string_lossy().into_owned()
+            },
             method,
+            path_encoding: (method == AcquisitionMethod::Repository)
+                .then_some(AcquisitionPathEncoding::PercentEncoded),
             received_at,
             requested_url: None,
             final_url: None,
@@ -1341,7 +1356,7 @@ impl Application {
         identity.update([0]);
         identity.update(digest.as_bytes());
         let content_source_id = format!("source-{:x}", identity.finalize());
-        let existing_origin = self.source_for_origin(&path_key)?;
+        let existing_origin = self.source_for_origin(acquisition_origin(&acquisition)?)?;
         let source_id = if method == AcquisitionMethod::Url {
             existing_origin.unwrap_or_else(|| {
                 let identity = format!("url-origin:{path_key}");
@@ -1368,6 +1383,7 @@ impl Application {
             let acquisition_exists = existing.info.acquisitions.iter().any(|old| {
                 old.path == acquisition.path
                     && old.method == acquisition.method
+                    && old.path_encoding == acquisition.path_encoding
                     && old.requested_url == acquisition.requested_url
                     && old.final_url == acquisition.final_url
             });
@@ -1380,7 +1396,7 @@ impl Application {
                 if !acquisition_exists {
                     write_acquisition(&destination, &acquisition)?;
                 }
-                self.index_acquisition(&acquisition.path, &source_id)?;
+                self.index_acquisition(&acquisition, &source_id)?;
                 return self.open_source(&source_id);
             }
             let version = source_version(
@@ -1415,7 +1431,7 @@ impl Application {
             if !acquisition_exists {
                 write_acquisition(&destination, &acquisition)?;
             }
-            self.index_acquisition(&acquisition.path, &source_id)?;
+            self.index_acquisition(&acquisition, &source_id)?;
             let (extraction, extraction_detail, extraction_coverage) = if audio_format {
                 if let Some(audio) = inspected_audio.as_ref() {
                     (
@@ -1622,6 +1638,8 @@ impl Application {
                             CoverageScope::ImagePixels
                         } else if crate::conversation::is_conversation(&format) {
                             CoverageScope::ConversationMessages
+                        } else if format == "pdf" {
+                            CoverageScope::PdfPages
                         } else if format == "docx" {
                             CoverageScope::MainDocument
                         } else {
@@ -1635,7 +1653,14 @@ impl Application {
                             Some(vec![CoveragePart {
                                 scope,
                                 status: CoverageStatus::Failed,
-                                source_location: Some("package".into()),
+                                source_location: Some(
+                                    if format == "pdf" {
+                                        "PDF document"
+                                    } else {
+                                        "package"
+                                    }
+                                    .into(),
+                                ),
                                 detail,
                             }]),
                         )
@@ -1772,7 +1797,7 @@ impl Application {
             body,
             knowledge_pages: Vec::new(),
         };
-        self.index_acquisition(&page.info.acquisitions[0].path, &page.info.source_id)?;
+        self.index_acquisition(&page.info.acquisitions[0], &page.info.source_id)?;
         self.index_version(&page.info.source_id, &digest, &page.info.format)?;
         self.index_page(&page.info)?;
         Ok(page)
@@ -1802,6 +1827,7 @@ impl Application {
                 if !page.info.acquisitions.iter().any(|old| {
                     old.path == acquisition.path
                         && old.method == acquisition.method
+                        && old.path_encoding == acquisition.path_encoding
                         && old.requested_url == acquisition.requested_url
                         && old.final_url == acquisition.final_url
                 }) {
@@ -3226,7 +3252,7 @@ impl Application {
                     if version_audio {
                         qualify_audio_evidence(&mut draft);
                     }
-                    let is_office = matches!(page.info.format.as_str(), "docx" | "pptx");
+                    let is_office = matches!(page.info.format.as_str(), "docx" | "pptx" | "pdf");
                     let office_facts = draft
                         .facts
                         .iter()
@@ -3281,6 +3307,14 @@ impl Application {
                         let result =
                             crate::photo::validate_draft(&job.source_text, &source_format, &draft)
                                 .map_err(GardenError::Invalid)
+                                .and_then(|()| {
+                                    crate::pdf::validate_draft(
+                                        &job.source_text,
+                                        &source_format,
+                                        &draft,
+                                    )
+                                    .map_err(GardenError::Invalid)
+                                })
                                 .and_then(|()| {
                                     crate::conversation::validate_draft(
                                         &job.source_text,
@@ -3339,7 +3373,27 @@ impl Application {
                                 });
                         match result {
                             Ok(()) => {
-                                promote_candidate_audio(&mut page.info, &job.source_version_id);
+                                if page.info.current_version_id.as_deref()
+                                    == Some(job.source_version_id.as_str())
+                                {
+                                    let promoting_audio =
+                                        page.info.pending_audio_processing.as_ref().is_some_and(
+                                            |audio| {
+                                                audio.source_version_id.as_deref()
+                                                    == Some(job.source_version_id.as_str())
+                                            },
+                                        );
+                                    promote_candidate_audio(&mut page.info, &job.source_version_id);
+                                    // Initial audio already has its version-bound transcript.
+                                    // Rebuilding it here would discard the owner's latest prose.
+                                    // A promoted replacement needs a new current transcript body.
+                                    if promoting_audio {
+                                        page.body = replace_semantic_section(
+                                            &source_body(&page.info, "", None),
+                                            &page.info.knowledge_pages,
+                                        );
+                                    }
+                                }
                                 page.info.semantic_state = "complete".into();
                                 page.info.semantic_error = None;
                                 page.info.semantic_retry_at = None;
@@ -3834,6 +3888,11 @@ impl Application {
                 }
             }
         }
+        let source_version_id = source
+            .info
+            .pending_version_id
+            .as_deref()
+            .unwrap_or(&source.info.sha256);
         if draft.entities.len() > 500
             || draft.facts.len() > 2_000
             || draft.relationships.len() > 2_000
@@ -4017,6 +4076,7 @@ impl Application {
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         "extracted Office projection; offsets are not original package byte offsets"
                     }
+                    EvidenceOffsetBasis::ExtractedPdfProjection => "extracted PDF projection; offsets are not original PDF byte offsets",
                     EvidenceOffsetBasis::ExtractedImageProjection => "extracted image projection; offsets are not original image byte offsets",
                     EvidenceOffsetBasis::ExtractedConversationProjection => "extracted conversation projection; offsets are not original export byte offsets",
                     EvidenceOffsetBasis::WebVisibleText => {
@@ -4041,7 +4101,11 @@ impl Application {
                             .map(|start_ms| {
                                 format!(
                                     " · [Open audio at this timestamp]({})",
-                                    audio_seek_href(&source.info.source_id, start_ms)
+                                    audio_seek_href(
+                                        &source.info.source_id,
+                                        Some((source_version_id, &source.info.asset)),
+                                        start_ms,
+                                    )
                                 )
                             })
                             .unwrap_or_default()
@@ -4052,6 +4116,9 @@ impl Application {
                     EvidenceOffsetBasis::PreservedText => ("source lines", "source bytes"),
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         ("extracted projection lines", "extracted projection bytes")
+                    }
+                    EvidenceOffsetBasis::ExtractedPdfProjection => {
+                        ("PDF projection lines", "PDF projection bytes")
                     }
                     EvidenceOffsetBasis::ExtractedImageProjection => {
                         ("image projection lines", "image projection bytes")
@@ -4119,6 +4186,11 @@ impl Application {
                             .unwrap_or_default(),
                         "The original opens as a fallback; use the OOXML part and location above to find the extracted passage.",
                     ),
+                    EvidenceOffsetBasis::ExtractedPdfProjection => (
+                        "PDF projection lines", "PDF projection bytes",
+                        relationship.evidence.source_location.as_deref().map(|location| format!(" · PDF locator: {location}")).unwrap_or_default(),
+                        "The original opens at the beginning as a disclosed fallback; use the PDF page and PDF-point region above.",
+                    ),
                     EvidenceOffsetBasis::ExtractedImageProjection => (
                         "image projection lines",
                         "image projection bytes",
@@ -4168,7 +4240,11 @@ impl Application {
                             .map(|start_ms| {
                                 format!(
                                     " · [Open audio at this timestamp]({})",
-                                    audio_seek_href(&source.info.source_id, start_ms)
+                                    audio_seek_href(
+                                        &source.info.source_id,
+                                        Some((source_version_id, &source.info.asset)),
+                                        start_ms,
+                                    )
                                 )
                             })
                             .unwrap_or_default()
@@ -4649,6 +4725,22 @@ impl Application {
             } else {
                 None
             };
+        if let Some(projection) = office_projection
+            .as_ref()
+            .filter(|_| candidate.format == "pdf")
+        {
+            if projection.partial
+                || projection
+                    .coverage
+                    .iter()
+                    .any(|part| part.status != CoverageStatus::Complete)
+                || projection.semantic_text != source_text
+            {
+                return Err(GardenError::Invalid(
+                    "Replacement extraction changed or lost coverage before publication; retain prior facts and retry the candidate.".into(),
+                ));
+            }
+        }
         let candidate_bytes = fs::read(candidate_path)?;
         let destination_original = self
             .source_dir(&source.info.source_id)?
@@ -5073,6 +5165,25 @@ impl Application {
         ))
     }
 
+    fn support_audio_seek_href(
+        &self,
+        source_id: &str,
+        support: Option<&SupportRecord>,
+        start_ms: u64,
+    ) -> Result<String> {
+        let Some(record) = support.filter(|record| record.source_version_id != "legacy") else {
+            return Ok(audio_seek_href(source_id, None, start_ms));
+        };
+        let Some((asset, _)) = self.path_support_asset(record)? else {
+            return Ok("unavailable".into());
+        };
+        Ok(audio_seek_href(
+            source_id,
+            Some((&record.source_version_id, &asset)),
+            start_ms,
+        ))
+    }
+
     fn support_links(&self, support: &SupportRecord) -> Result<(String, String)> {
         let Some(short_id) = support.source_id.strip_prefix("source-") else {
             return Ok(("unavailable".into(), "unavailable".into()));
@@ -5331,11 +5442,10 @@ impl Application {
                         let source_id = support
                             .map(|value| value.source_id.as_str())
                             .unwrap_or(&header.source_id);
-                        format!(
-                            " · [Open audio at this timestamp]({})",
-                            audio_seek_href(source_id, start_ms)
-                        )
+                        self.support_audio_seek_href(source_id, support, start_ms)
+                            .map(|href| format!(" · [Open audio at this timestamp]({href})"))
                     })
+                    .transpose()?
                     .unwrap_or_default()
             } else {
                 String::new()
@@ -5400,11 +5510,10 @@ impl Application {
                         let source_id = support
                             .map(|value| value.source_id.as_str())
                             .unwrap_or(&header.source_id);
-                        format!(
-                            " · [Open audio at this timestamp]({})",
-                            audio_seek_href(source_id, start_ms)
-                        )
+                        self.support_audio_seek_href(source_id, support, start_ms)
+                            .map(|href| format!(" · [Open audio at this timestamp]({href})"))
                     })
+                    .transpose()?
                     .unwrap_or_default()
             } else {
                 String::new()
@@ -5639,6 +5748,12 @@ impl Application {
             return Err(GardenError::Invalid(
                 "The retained version's link is not a known original asset.".into(),
             ));
+        }
+        // The first acquisition lives at the source root until a replacement
+        // archives it. Resolve that exact identity through the same containment
+        // checks as ordinary original opening; never substitute another version.
+        if source_version_id == page.info.sha256 && asset == page.info.asset {
+            return self.original_path(source_id);
         }
         let source_bundle = fs::canonicalize(self.source_dir(source_id)?)?;
         let sources_root = fs::canonicalize(self.root.join("sources"))?;
@@ -6103,6 +6218,7 @@ impl Application {
         transaction.execute("DELETE FROM query_page_metadata", [])?;
         transaction.execute("DELETE FROM page_tags", [])?;
         transaction.execute("DELETE FROM source_origins", [])?;
+        transaction.execute("DELETE FROM ambiguous_source_origins", [])?;
         transaction.execute("DELETE FROM source_versions", [])?;
         transaction.execute("DELETE FROM knowledge_pages", [])?;
         transaction.execute("DELETE FROM relationship_edges", [])?;
@@ -6119,17 +6235,7 @@ impl Application {
                 params![page.info.source_id, summary_json(&page.info)?],
             )?;
             for acquisition in &page.info.acquisitions {
-                transaction.execute(
-                    "INSERT OR REPLACE INTO source_origins(path, source_id) VALUES (?1, ?2)",
-                    params![acquisition.path, page.info.source_id],
-                )?;
-                transaction.execute(
-                    "INSERT OR REPLACE INTO source_origins(path, source_id) VALUES (?1, ?2)",
-                    params![
-                        normalized_origin(Path::new(&acquisition.path)).to_string_lossy(),
-                        page.info.source_id
-                    ],
-                )?;
+                index_acquisition_record(&transaction, acquisition, &page.info.source_id)?;
             }
             for version in &page.info.versions_seen {
                 transaction.execute(
@@ -6397,13 +6503,21 @@ impl Application {
         Ok(())
     }
 
-    fn source_for_origin(&self, path: &str) -> Result<Option<String>> {
-        let path = normalized_origin(Path::new(path));
+    fn source_for_origin(&self, path: impl AsRef<Path>) -> Result<Option<String>> {
+        let path = repository_path_text(&normalized_origin(path.as_ref()));
+        let ambiguous: bool = self.index.query_row(
+            "SELECT EXISTS(SELECT 1 FROM ambiguous_source_origins WHERE path=?1)",
+            [&path],
+            |row| row.get(0),
+        )?;
+        if ambiguous {
+            return Err(ambiguous_repository_origin_error());
+        }
         Ok(self
             .index
             .query_row(
                 "SELECT source_id FROM source_origins WHERE path=?1",
-                [path.to_string_lossy()],
+                [path],
                 |row| row.get(0),
             )
             .optional()?)
@@ -6420,19 +6534,8 @@ impl Application {
             .optional()?)
     }
 
-    fn index_acquisition(&self, path: &str, source_id: &str) -> Result<()> {
-        self.index.execute(
-            "INSERT OR REPLACE INTO source_origins(path, source_id) VALUES (?1, ?2)",
-            params![path, source_id],
-        )?;
-        self.index.execute(
-            "INSERT OR REPLACE INTO source_origins(path, source_id) VALUES (?1, ?2)",
-            params![
-                normalized_origin(Path::new(path)).to_string_lossy(),
-                source_id
-            ],
-        )?;
-        Ok(())
+    fn index_acquisition(&self, acquisition: &Acquisition, source_id: &str) -> Result<()> {
+        index_acquisition_record(&self.index, acquisition, source_id)
     }
 
     fn index_version(&self, source_id: &str, version_id: &str, format: &str) -> Result<()> {
@@ -6609,6 +6712,79 @@ fn event_timeline_entry(header: &KnowledgePageHeader) -> crate::timeline::Timeli
                 .unwrap_or(&header.evidence),
         )),
     }
+}
+
+// Repository acquisition paths are escaped display values. Decode those only,
+// then use the same physical origin and injective index key as ordinary imports.
+// In particular, a literal %25 in a picker/watch path must never be decoded.
+fn ambiguous_repository_origin(acquisition: &Acquisition) -> bool {
+    acquisition.method == AcquisitionMethod::Repository
+        && acquisition.path_encoding.is_none()
+        && acquisition.path.as_bytes().windows(3).any(|part| {
+            part[0] == b'%' && part[1].is_ascii_hexdigit() && part[2].is_ascii_hexdigit()
+        })
+}
+
+fn ambiguous_repository_origin_error() -> GardenError {
+    GardenError::Invalid("An older repository path has ambiguous encoding. Its originals are retained; automatic updates and removal are paused until the acquisition encoding is explicitly resolved.".into())
+}
+
+fn decoded_repository_path(path: &str) -> Result<PathBuf> {
+    let bytes = percent_encoding::percent_decode_str(path).collect::<Vec<_>>();
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        Ok(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(PathBuf::from(String::from_utf8(bytes).map_err(|_| {
+            GardenError::Invalid("The repository origin is not valid on this platform.".into())
+        })?))
+    }
+}
+
+fn acquisition_origin(acquisition: &Acquisition) -> Result<PathBuf> {
+    if ambiguous_repository_origin(acquisition) {
+        return Err(ambiguous_repository_origin_error());
+    }
+    let path = if acquisition.method == AcquisitionMethod::Repository
+        && acquisition.path_encoding == Some(AcquisitionPathEncoding::PercentEncoded)
+    {
+        decoded_repository_path(&acquisition.path)?
+    } else {
+        PathBuf::from(&acquisition.path)
+    };
+    Ok(normalized_origin(&path))
+}
+
+fn index_acquisition_record(
+    index: &Connection,
+    acquisition: &Acquisition,
+    source_id: &str,
+) -> Result<()> {
+    if ambiguous_repository_origin(acquisition) {
+        // Both interpretations are quarantined, never aliases to a guessed source.
+        // This derived table is rebuilt on open, independent of insertion order.
+        for path in [
+            PathBuf::from(&acquisition.path),
+            decoded_repository_path(&acquisition.path)?,
+        ] {
+            index.execute(
+                "INSERT OR IGNORE INTO ambiguous_source_origins(path) VALUES (?1)",
+                [repository_path_text(&normalized_origin(&path))],
+            )?;
+        }
+    } else {
+        index.execute(
+            "INSERT OR REPLACE INTO source_origins(path, source_id) VALUES (?1, ?2)",
+            params![
+                repository_path_text(&acquisition_origin(acquisition)?),
+                source_id
+            ],
+        )?;
+    }
+    Ok(())
 }
 
 fn normalized_origin(path: &Path) -> PathBuf {
@@ -7066,6 +7242,7 @@ fn evidence_offset_basis_name(basis: EvidenceOffsetBasis) -> &'static str {
         EvidenceOffsetBasis::WebVisibleText => "web_visible_text",
         EvidenceOffsetBasis::AudioTranscript => "audio_transcript",
         EvidenceOffsetBasis::ExtractedImageProjection => "extracted_image_projection",
+        EvidenceOffsetBasis::ExtractedPdfProjection => "extracted_pdf_projection",
         EvidenceOffsetBasis::ExtractedConversationProjection => "extracted_conversation_projection",
     }
 }
@@ -7254,6 +7431,7 @@ enum EvidenceOffsetBasis {
     WebVisibleText,
     AudioTranscript,
     ExtractedImageProjection,
+    ExtractedPdfProjection,
 }
 
 fn evidence_display_basis(
@@ -7271,6 +7449,11 @@ fn evidence_display_basis(
             "extracted projection lines",
             "extracted projection bytes",
             "The retained original opens as a fallback; use the OOXML part and locator above to find this passage.",
+        ),
+        EvidenceOffsetBasis::ExtractedPdfProjection => (
+            "extracted PDF projection; offsets are not original PDF byte offsets",
+            "PDF projection lines", "PDF projection bytes",
+            "The original opens at the beginning as a disclosed fallback; use the PDF page and PDF-point region above.",
         ),
         EvidenceOffsetBasis::ExtractedImageProjection => (
             "extracted image projection; offsets are not original image byte offsets",
@@ -7530,6 +7713,12 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         {
             EvidenceOffsetBasis::ExtractedImageProjection
         }
+        None if inferred_location
+            .as_deref()
+            .is_some_and(|locator| locator.starts_with("PDF ")) =>
+        {
+            EvidenceOffsetBasis::ExtractedPdfProjection
+        }
         None => EvidenceOffsetBasis::PreservedText,
         Some("preserved_text") => EvidenceOffsetBasis::PreservedText,
         Some("office_projection") | Some("extracted_office_projection") => {
@@ -7538,6 +7727,7 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         Some("web_visible_text") => EvidenceOffsetBasis::WebVisibleText,
         Some("audio_transcript") => EvidenceOffsetBasis::AudioTranscript,
         Some("extracted_image_projection") => EvidenceOffsetBasis::ExtractedImageProjection,
+        Some("extracted_pdf_projection") => EvidenceOffsetBasis::ExtractedPdfProjection,
         Some("extracted_conversation_projection") => {
             EvidenceOffsetBasis::ExtractedConversationProjection
         }
@@ -7779,6 +7969,44 @@ fn decode_generated_fact_value(value: &str) -> Option<String> {
         }
     }
     Some(decoded)
+}
+
+// Percent escapes keep literal percent/backslash names and invalid UTF-8
+// distinct while preserving existing ordinary UTF-8 member identities.
+fn repository_path_text(path: &Path) -> String {
+    match path.to_str() {
+        Some(text) => text.replace('%', "%25").replace('\\', "%5C"),
+        None => percent_encoding::percent_encode(
+            path.as_os_str().as_encoded_bytes(),
+            percent_encoding::NON_ALPHANUMERIC,
+        )
+        .to_string(),
+    }
+}
+
+#[cfg(all(test, unix))]
+mod repository_path_tests {
+    use super::*;
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+    #[test]
+    fn non_utf8_repository_path_encodings_are_injective() {
+        let paths = [
+            OsString::from_vec(vec![b'a', 0xfe]),
+            OsString::from_vec(vec![b'a', 0xff]),
+            OsString::from("%61%FE"),
+            OsString::from("a\\b"),
+            OsString::from("a/b"),
+            OsString::from("a%5Cb"),
+        ];
+        assert_eq!(
+            paths
+                .iter()
+                .map(|path| repository_path_text(Path::new(path)))
+                .collect::<HashSet<_>>()
+                .len(),
+            paths.len()
+        );
+    }
 }
 
 fn escape_markdown(value: &str) -> String {
@@ -8303,7 +8531,14 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
                         .confidence
                         .map(|value| format!("{value:.2}"))
                         .unwrap_or_else(|| "unavailable".into()),
-                    audio_seek_href(&info.source_id, segment.start_ms),
+                    audio_seek_href(
+                        &info.source_id,
+                        Some((
+                            audio.source_version_id.as_deref().unwrap_or(&info.sha256),
+                            &info.asset
+                        )),
+                        segment.start_ms,
+                    ),
                     segment.text.replace('\n', " ")
                 ));
                 cursor_ms = cursor_ms.max(segment.end_ms);
@@ -8349,8 +8584,12 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
     )
 }
 
-fn audio_seek_href(source_id: &str, start_ms: u64) -> String {
-    format!("?audio_seek={source_id}&at_ms={start_ms}")
+fn audio_seek_href(source_id: &str, version: Option<(&str, &str)>, start_ms: u64) -> String {
+    let mut href = format!("?audio_seek={source_id}&at_ms={start_ms}");
+    if let Some((version_id, asset)) = version {
+        href.push_str(&format!("&version={version_id}&asset={asset}"));
+    }
+    href
 }
 
 fn append_pending_audio_body(info: &SourceInfo, body: &mut String) {
