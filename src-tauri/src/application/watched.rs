@@ -100,6 +100,7 @@ impl Application {
     /// A stream is held only for the active directory. Restart replays that directory
     /// using durable receipts, then continues the saved frontier.
     pub fn reconcile_watched_directories(&mut self, work_budget: usize) -> Result<()> {
+        self.recover_pending_publications()?;
         for mut watch in self.list_watched_directories()? {
             if watch.state != "scanning" {
                 start_scan(&mut watch);

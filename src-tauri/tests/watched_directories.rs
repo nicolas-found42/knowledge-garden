@@ -518,6 +518,58 @@ fn interrupted_withdrawal_recovers_markdown_and_asset_removal_together() {
         .any(|page| page.page_id == event.page_id));
 }
 
+#[test]
+fn failed_withdrawal_cannot_replay_over_a_later_reimport_in_the_same_process() {
+    let workspace = tempdir().unwrap();
+    let incoming = workspace.path().join("incoming");
+    fs::create_dir(&incoming).unwrap();
+    let path = incoming.join("V17.txt");
+    fs::write(&path, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    app.watch_directory(&incoming).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let source_id = app.list_sources(0).unwrap().sources[0].source_id.clone();
+    let event = app
+        .open_source(&source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.title == "Observation V17")
+        .unwrap();
+    let page_path = collection.join(event.path);
+    fs::write(
+        &page_path,
+        fs::read_to_string(&page_path)
+            .unwrap()
+            .replace("- **visits:** 12", "- **visits:** 99"),
+    )
+    .unwrap();
+    fs::remove_file(&path).unwrap();
+    scan(&mut app);
+    app.set_publication_failpoint_for_test(1);
+    scan(&mut app);
+    assert_eq!(
+        app.list_watched_directories().unwrap()[0].state,
+        "unavailable"
+    );
+    // Recreate identical content, so it has the same retained source identity.
+    fs::write(&path, V17).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    assert!(app.original_path(&source_id).unwrap().exists());
+    drop(app);
+    let app = open(&collection);
+    assert!(app.retained_source_exists(&source_id).unwrap());
+    assert!(app.original_path(&source_id).unwrap().exists());
+    assert!(app
+        .open_knowledge_page(&event.page_id)
+        .unwrap()
+        .markdown
+        .contains("- **visits:** 99"));
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn mounted_volume_disconnect_empty_mountpoint_and_remount_recover_automatically() {

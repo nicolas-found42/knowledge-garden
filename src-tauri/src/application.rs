@@ -1268,6 +1268,7 @@ impl Application {
         format_override: Option<String>,
         source_identity_scope: Option<String>,
     ) -> Result<SourcePage> {
+        self.recover_pending_publications()?;
         let supplied_path = if path.as_ref().is_absolute() {
             path.as_ref().to_path_buf()
         } else {
@@ -2404,6 +2405,7 @@ impl Application {
         max_jobs: usize,
         now: u128,
     ) -> Result<Vec<SemanticJob>> {
+        self.recover_pending_publications()?;
         let mut due = Vec::new();
         for entry in fs::read_dir(self.root.join("sources"))? {
             if due.len() >= max_jobs {
@@ -3140,6 +3142,7 @@ impl Application {
         job: SemanticJob,
         result: std::result::Result<KnowledgeDraft, ProviderError>,
     ) -> Result<()> {
+        self.recover_pending_publications()?;
         self.staged_publication.clear();
         let mut page = read_page(&self.page_path(&job.source_id)?)?;
         let initial = page.info.current_version_id.is_none();
@@ -3586,6 +3589,7 @@ impl Application {
     /// deliberately performed after persisting `processing`; opening the collection
     /// converts an interrupted window back to pending and retries its stable range.
     pub fn resume_due_audio_jobs(&mut self) -> Result<()> {
+        self.recover_pending_publications()?;
         let now = now_millis()? as u64;
         let mut candidate = None;
         for entry in fs::read_dir(self.root.join("sources"))? {
@@ -6087,6 +6091,9 @@ impl Application {
     }
 
     pub fn rebuild_index(&mut self) -> Result<()> {
+        // A failed publication is a committed intent, even if the process did
+        // not exit. Finish it before capturing edits or rebuilding derived state.
+        recover_publications(&self.root)?;
         self.capture_external_knowledge_edits()?;
         let transaction = self.index.unchecked_transaction()?;
         transaction.execute("DELETE FROM sources", [])?;
@@ -6375,6 +6382,17 @@ impl Application {
 
     fn index_page(&mut self, _info: &SourceInfo) -> Result<()> {
         self.rebuild_index()
+    }
+
+    fn recover_pending_publications(&mut self) -> Result<()> {
+        if let Some(entry) = fs::read_dir(self.root.join(".staging/transactions"))?.next() {
+            entry?;
+            // Cached directory iterators may refer to receipts removed by the
+            // recovered transaction. Reopen them from their durable checkpoints.
+            self.watch_readers.clear();
+            self.rebuild_index()?;
+        }
+        Ok(())
     }
 
     fn source_for_origin(&self, path: &str) -> Result<Option<String>> {

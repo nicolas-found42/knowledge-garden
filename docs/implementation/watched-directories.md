@@ -41,6 +41,9 @@ Confirmed removal withdraws only that source's fact, relationship, and tag suppo
 Independent support and external manual corrections survive. A recoverable
 publication transaction writes reconciled Markdown before removing source assets;
 restart completes an interrupted publication before rebuilding disposable indexes.
+The running application also finishes pending publication intents before accepting
+later imports, directory reconciliation, or semantic/audio work, so an old removal
+cannot replay over a newly reimported source on a subsequent restart.
 Manual pages with no remaining source remain searchable with unavailable evidence.
 
 The existing importer and source-withdrawal path rebuild the collection index and
