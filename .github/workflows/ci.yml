@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -75,7 +75,7 @@ jobs:
           system_profiler SPDisplaysDataType
           xcrun swiftc --version
           cmake --version
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -85,7 +85,7 @@ jobs:
         run: rustup show active-toolchain
       - name: Cache Cargo downloads and native build
         id: cargo-cache
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -99,7 +99,7 @@ jobs:
             native-macos26-${{ runner.os }}-${{ runner.arch }}-
       - name: Cache pinned Whisper model
         id: whisper-cache
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: src-tauri/resources/audio/ggml-large-v3-turbo.bin
           key: whisper-model-${{ hashFiles('src-tauri/scripts/provision-audio-assets.sh') }}
@@ -107,7 +107,7 @@ jobs:
         run: npm run provision:assets
       - name: Save verified Whisper model
         if: ${{ steps.whisper-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: src-tauri/resources/audio/ggml-large-v3-turbo.bin
           key: ${{ steps.whisper-cache.outputs.cache-primary-key }}
@@ -135,7 +135,7 @@ jobs:
           test -x "$resources/audio/whisper-cli"
       - name: Save native cache even after a test failure
         if: ${{ !cancelled() && steps.cargo-cache.outputs.cache-hit != 'true' && steps.rust-lint.outcome == 'success' }}
-        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
