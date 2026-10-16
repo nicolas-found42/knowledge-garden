@@ -636,6 +636,22 @@ export async function mountReader(
       ["Source identity", next.info.source_id],
       ["Page identity", next.info.page_id],
     ];
+    if (next.info.repository) {
+      rows.push(
+        ["Repository", next.info.repository.repository_path],
+        ["Repository identity", next.info.repository.repository_id],
+        ["File in repository", next.info.repository.relative_path],
+        ["Acquired file revision", `SHA-256 ${next.info.sha256}`],
+        [
+          "Revision basis",
+          "Exact retained file content; a working-folder import does not establish a Git commit or a consistent repository-wide snapshot.",
+        ],
+        [
+          "Code concept coverage",
+          "Rust struct, enum and trait declarations with adjacent /// documentation are candidates for concept pages. Other code remains readable source text; semantic completion covers supported spans only.",
+        ],
+      );
+    }
     if (currentVersion?.state === "superseded") {
       rows.splice(3, 0, [
         "Version status",
@@ -690,7 +706,9 @@ export async function mountReader(
           ? "File picker"
           : acquisition.method === "drop"
             ? "File drop"
-            : "URL",
+            : acquisition.method === "repository"
+              ? "Repository folder"
+              : "URL",
       ]);
     }
     const retainedVersions = (next.info.versions_seen ?? []).filter(

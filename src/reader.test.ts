@@ -110,6 +110,26 @@ it("imports a chosen repository, opens its source, and reports excluded paths", 
       { relative_path: "linked.md", reason: "symbolic_link_not_followed" },
     ],
   });
+  api.openSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: {
+      ...riverside.info,
+      repository: {
+        repository_id: "repository-sample",
+        repository_path: "/tmp/sample-repo",
+        relative_path: "docs/README.md",
+      },
+      semantic_state: "complete",
+      current_version_id: "a".repeat(64),
+      acquisitions: [
+        {
+          path: "/tmp/sample-repo/docs/README.md",
+          method: "repository",
+          received_at: "1790784000000",
+        },
+      ],
+    },
+  });
   const root = document.createElement("div");
   document.body.append(root);
   dispose = await mountReader(root, api);
@@ -125,6 +145,13 @@ it("imports a chosen repository, opens its source, and reports excluded paths", 
     "linked.md (symbolic_link_not_followed)",
   );
   expect(api.openSource).toHaveBeenCalledWith("source-riverside");
+  await user.click(screen.getByText("Source information"));
+  expect(screen.getByText("repository-sample")).toBeTruthy();
+  expect(screen.getByText("/tmp/sample-repo")).toBeTruthy();
+  expect(screen.getByText("docs/README.md")).toBeTruthy();
+  expect(screen.getByText(`SHA-256 ${"a".repeat(64)}`)).toBeTruthy();
+  expect(screen.getByText("Repository folder")).toBeTruthy();
+  expect(screen.getByText(/Rust.*struct.*enum.*trait/)).toBeTruthy();
 });
 it.each([
   ["network", "Waiting for network access"],

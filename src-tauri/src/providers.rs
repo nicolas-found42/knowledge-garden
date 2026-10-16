@@ -1148,10 +1148,10 @@ impl SemanticProvider for JevSemanticProvider {
                 property: "description".into(),
                 value: candidate
                     .quote
-                    .trim_start()
-                    .trim_start_matches("///")
-                    .trim()
-                    .to_owned(),
+                    .lines()
+                    .map(|line| line.trim_start().trim_start_matches("///").trim())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
                 evidence: candidate.evidence(),
                 record_key: None,
             });
@@ -2177,7 +2177,7 @@ fn repository_question_candidates(text: &str) -> Vec<Candidate> {
 fn candidates(text: &str) -> Vec<Candidate> {
     let mut result = Vec::new();
     let code_doc_re = regex(
-        r"(?m)^([ \t]*///[ \t]*[^\n]+)\n[ \t]*(?:pub[ \t]+)?(?:struct|enum|trait)[ \t]+([A-Z][A-Za-z0-9_]*)\b",
+        r"(?m)^((?:[ \t]*///[^\r\n]*\r?\n)+)[ \t]*(?:pub[ \t]+)?(?:struct|enum|trait)[ \t]+([A-Z][A-Za-z0-9_]*)\b",
     );
     for captures in code_doc_re.captures_iter(text) {
         let Some(comment) = captures.get(1) else {
@@ -2186,12 +2186,13 @@ fn candidates(text: &str) -> Vec<Candidate> {
         let Some(symbol) = captures.get(2) else {
             continue;
         };
+        let quote = comment.as_str().trim_end_matches(['\r', '\n']);
         result.push(Candidate {
             kind: CandidateKind::CodeConcept,
             value: symbol.as_str().to_owned(),
-            quote: comment.as_str().to_owned(),
+            quote: quote.to_owned(),
             start: comment.start(),
-            end: comment.end(),
+            end: comment.start() + quote.len(),
             qualifier: None,
             origin: origin_for(text, comment.start(), comment.end()),
         });

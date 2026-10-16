@@ -4,6 +4,8 @@ A local Mac application for importing text sources into a durable Markdown colle
 
 Choose **Add source**, or drop a file anywhere in the window. **Sources** opens the collection's page list. **Open original** resolves to the copied asset, and **Source information** reveals acquisition context, identities, and processing coverage. The last opened page is restored on restart. The reader has no authoring editor or chat.
 
+**Add repository** imports a supplied local folder with retained originals and file-scoped evidence. Supported Rust doc comments, explicit Markdown decisions and questions can become navigable knowledge pages. Source information shows the repository, relative file, exact acquired-content revision and coverage limits. See [repository ingestion and validation](docs/implementation/repository-ingestion.md) for the supported forms and native/live checks.
+
 UTF-8 `.txt`, `.text`, `.md`, `.markdown`, and extensionless files are supported, including empty files, BOMs, and CRLF line endings. Text is preserved verbatim in fenced Markdown with original line locations; Markdown source syntax is shown as source text in this slice. Unsupported extensions, invalid UTF-8, and binary control characters produce readable source pages with explicit extraction states. Previews are limited to 2 MiB, but originals are copied completely with bounded memory. Semantic extraction and facts belong to subsequent work.
 
 ## Run and build

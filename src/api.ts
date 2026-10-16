@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 
-export type AcquisitionMethod = "picker" | "drop" | "url";
+export type AcquisitionMethod = "picker" | "drop" | "url" | "repository";
 export type ExtractionState =
   | "text_preserved"
   | "structured_text"
@@ -55,6 +55,11 @@ export interface SourceInfo {
   sha256: string;
   bytes: number;
   format: string;
+  repository?: {
+    repository_id: string;
+    repository_path: string;
+    relative_path: string;
+  } | null;
   current_version_id?: string | null;
   pending_version_id?: string | null;
   update_status?:
