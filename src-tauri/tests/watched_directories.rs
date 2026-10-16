@@ -668,8 +668,180 @@ fn check_mounted_volume(nested: bool) {
             .len(),
         1
     );
+    if nested {
+        let subfolder = mounted.join("ordinary-subfolder");
+        fs::create_dir(&subfolder).unwrap();
+        fs::write(subfolder.join("independent.txt"), INDEPENDENT).unwrap();
+        scan(&mut app);
+        assert_eq!(app.list_sources(0).unwrap().sources.len(), 2);
+        fs::remove_dir_all(&subfolder).unwrap();
+        scan(&mut app);
+        scan(&mut app);
+        assert_eq!(app.list_sources(0).unwrap().sources.len(), 1);
+        assert!(app.retained_source_exists(&source.source_id).unwrap());
+    }
     fs::remove_file(mounted.join("V17.txt")).unwrap();
     scan(&mut app);
     scan(&mut app);
     assert!(!original.exists());
+}
+
+#[test]
+fn corrupt_watch_identity_stays_inspectable_without_blocking_a_healthy_watch() {
+    let workspace = tempdir().unwrap();
+    let collection = workspace.path().join("collection");
+    let bad_root = workspace.path().join("bad");
+    let good_root = workspace.path().join("good");
+    let outside = workspace.path().join("outside");
+    for path in [&bad_root, &good_root, &outside] {
+        fs::create_dir(path).unwrap();
+    }
+    fs::write(good_root.join("report.txt"), V17).unwrap();
+    fs::write(outside.join("index.md"), "external sentinel").unwrap();
+    let mut app = Application::open(&collection).unwrap();
+    let bad = app.watch_directory(&bad_root).unwrap();
+    app.watch_directory(&good_root).unwrap();
+    let record = collection
+        .join("watches")
+        .join(&bad.watch_id)
+        .join("index.md");
+    let crafted = fs::read_to_string(&record)
+        .unwrap()
+        .replace(&bad.watch_id, outside.to_str().unwrap());
+    fs::write(&record, &crafted).unwrap();
+    app.reconcile_watched_directories(128).unwrap();
+    assert_eq!(app.list_sources(0).unwrap().sources.len(), 1);
+    assert!(app
+        .list_watched_directories()
+        .unwrap()
+        .iter()
+        .any(|watch| watch.state == "invalid_record"));
+    assert_eq!(fs::read_to_string(&record).unwrap(), crafted);
+    assert_eq!(
+        fs::read_to_string(outside.join("index.md")).unwrap(),
+        "external sentinel"
+    );
+}
+
+#[test]
+fn removal_recovery_refuses_a_symlinked_collection_ancestor() {
+    use std::os::unix::fs::symlink;
+    let workspace = tempdir().unwrap();
+    let collection = workspace.path().join("collection");
+    drop(Application::open(&collection).unwrap());
+    let outside = workspace.path().join("outside");
+    fs::create_dir_all(outside.join("victim")).unwrap();
+    fs::write(outside.join("victim/sentinel"), "keep me").unwrap();
+    fs::remove_dir(collection.join("sources")).unwrap();
+    symlink(&outside, collection.join("sources")).unwrap();
+    let transaction = collection.join(".staging/transactions/escape");
+    fs::create_dir_all(&transaction).unwrap();
+    fs::write(
+        transaction.join("manifest.json"),
+        r#"{"entries":[],"removals":["sources/victim"]}"#,
+    )
+    .unwrap();
+    assert!(Application::open(&collection).is_err());
+    assert_eq!(
+        fs::read_to_string(outside.join("victim/sentinel")).unwrap(),
+        "keep me"
+    );
+    assert!(transaction.join("manifest.json").exists());
+}
+
+#[test]
+fn multiple_watches_share_one_turn_budget_and_make_fair_progress() {
+    let workspace = tempdir().unwrap();
+    let mut app = Application::open(workspace.path().join("collection")).unwrap();
+    for index in 0..3 {
+        let path = workspace.path().join(index.to_string());
+        fs::create_dir(&path).unwrap();
+        for file in 0..8 {
+            fs::write(path.join(format!("{file}.txt")), format!("{index}-{file}")).unwrap();
+        }
+        app.watch_directory(path).unwrap();
+    }
+    app.reconcile_watched_directories(2).unwrap();
+    assert!(
+        app.list_watched_directories()
+            .unwrap()
+            .iter()
+            .map(|watch| watch.processed_files)
+            .sum::<u64>()
+            <= 2
+    );
+    for _ in 0..8 {
+        app.reconcile_watched_directories(2).unwrap();
+    }
+    assert!(app
+        .list_watched_directories()
+        .unwrap()
+        .iter()
+        .all(|watch| watch.processed_files > 0));
+}
+
+#[test]
+fn failed_file_retry_deadline_survives_restart_and_changes_reset_it() {
+    use std::os::unix::fs::PermissionsExt;
+    let workspace = tempdir().unwrap();
+    let incoming = workspace.path().join("incoming");
+    fs::create_dir(&incoming).unwrap();
+    let source = incoming.join("report.txt");
+    fs::write(&source, V17).unwrap();
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o000)).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open(&collection).unwrap();
+    let watch = app.watch_directory(&incoming).unwrap();
+    scan(&mut app);
+    let retry = fs::read_dir(
+        collection
+            .join("watches")
+            .join(&watch.watch_id)
+            .join("retries"),
+    )
+    .unwrap()
+    .next()
+    .unwrap()
+    .unwrap()
+    .path();
+    let before = fs::read(&retry).unwrap();
+    drop(app);
+    let mut app = Application::open(&collection).unwrap();
+    scan(&mut app);
+    assert_eq!(fs::read(&retry).unwrap(), before);
+    assert!(app.list_sources(0).unwrap().sources.is_empty());
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o644)).unwrap();
+    scan(&mut app);
+    assert_eq!(app.list_sources(0).unwrap().sources.len(), 1);
+    assert!(!retry.exists());
+}
+
+#[test]
+fn unavailable_watch_roots_still_consume_the_shared_turn_budget() {
+    let workspace = tempdir().unwrap();
+    let mut app = Application::open(workspace.path().join("collection")).unwrap();
+    for index in 0..3 {
+        let incoming = workspace.path().join(index.to_string());
+        fs::create_dir(&incoming).unwrap();
+        app.watch_directory(&incoming).unwrap();
+        fs::remove_dir(&incoming).unwrap();
+    }
+    app.reconcile_watched_directories(1).unwrap();
+    assert_eq!(
+        app.list_watched_directories()
+            .unwrap()
+            .iter()
+            .filter(|watch| watch.state == "unavailable")
+            .count(),
+        1
+    );
+    app.reconcile_watched_directories(1).unwrap();
+    assert_eq!(
+        app.list_watched_directories()
+            .unwrap()
+            .iter()
+            .filter(|watch| watch.state == "unavailable")
+            .count(),
+        2
+    );
 }

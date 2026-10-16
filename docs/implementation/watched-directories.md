@@ -58,3 +58,18 @@ deterministic semantic-provider responses, with HFS+ disk images for real mount,
 disconnect, empty-mount-point, and remount checks at both root and nested paths.
 No live model-quality evaluation, physical USB-volume test, or 16 GiB/250,000-source
 performance result is claimed by this slice.
+
+Withdrawal removes entries relative to securely opened directory handles and refuses symlinked ancestors, so replacing an ancestor cannot redirect deletion outside the collection.
+Watch storage identities and persisted relative frontiers are validated before use.
+Malformed watch records remain visible as unavailable records and do not stop
+healthy watches. Failed file imports keep durable exponential retry deadlines
+(from five seconds to five minutes); changed file fingerprints retry immediately.
+One shared turn budget is distributed across watches with rotating priority.
+Volume helper processes have one-second deadlines. UUID discovery is retried only
+while the original device/inode is still authenticated; an unknown changed device
+remains unavailable. Nested mount boundaries compare a directory with its parent.
+Reader refresh responses are guarded by request order and navigation state.
+
+Watched acquisition records and pending withdrawal intents require this version
+or a newer compatible build. Complete recovery and retain a collection backup
+before attempting a downgrade; older builds do not understand these records.

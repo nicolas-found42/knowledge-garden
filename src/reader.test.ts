@@ -133,7 +133,6 @@ it("selects a watched directory once and shows unavailability without hiding ret
 });
 
 it("refreshes watched source discovery, completed pages, and confirmed removal while open", async () => {
-  let refresh: (() => void) | undefined;
   const interval = vi.spyOn(window, "setInterval");
   const api = testApi();
   api.listWatchedDirectories = vi.fn().mockResolvedValue([]);
@@ -141,7 +140,7 @@ it("refreshes watched source discovery, completed pages, and confirmed removal w
   const root = document.createElement("div");
   document.body.append(root);
   dispose = await mountReader(root, api);
-  refresh = interval.mock.calls[0][0] as () => void;
+  const refresh = interval.mock.calls[0][0] as () => void;
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: "Sources" }));
   expect(screen.getByText("No sources yet.")).toBeTruthy();
@@ -1971,4 +1970,121 @@ it("runs current Boolean clauses, clears stale results, cancels old work and res
       }),
     ),
   );
+});
+
+it("ignores older watched source responses and never replaces a newer navigation view", async () => {
+  const interval = vi.spyOn(window, "setInterval");
+  const api = testApi();
+  api.listWatchedDirectories = vi.fn().mockResolvedValue([]);
+  api.listSources = vi
+    .fn()
+    .mockResolvedValue({ sources: [riverside.info], next_offset: null });
+  api.openSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: { ...riverside.info, semantic_state: "complete" },
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Sources" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Riverside notes" }),
+  );
+  const refresh = interval.mock.calls[0][0] as () => void;
+  const replies: ((value: SourcePage) => void)[] = [];
+  api.openSource = vi
+    .fn()
+    .mockImplementation(
+      () => new Promise<SourcePage>((resolve) => replies.push(resolve)),
+    );
+  refresh();
+  refresh();
+  replies[1]({
+    ...riverside,
+    markdown: "newest",
+    body: "# Newest watched text",
+  });
+  expect(
+    await screen.findByRole("heading", { name: "Newest watched text" }),
+  ).toBeTruthy();
+  replies[0]({ ...riverside, markdown: "old", body: "# Older watched text" });
+  await Promise.resolve();
+  expect(
+    screen.queryByRole("heading", { name: "Older watched text" }),
+  ).toBeNull();
+  refresh();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await screen.findByRole("heading", { name: /Search/ });
+  replies[2]({ ...riverside, markdown: "late", body: "# Late watched text" });
+  await Promise.resolve();
+  expect(
+    screen.queryByRole("heading", { name: "Late watched text" }),
+  ).toBeNull();
+});
+
+it("applies a slow watched refresh even when another poll was issued meanwhile", async () => {
+  const interval = vi.spyOn(window, "setInterval");
+  const api = testApi();
+  api.listWatchedDirectories = vi.fn().mockResolvedValue([]);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await screen.findByRole("article");
+  const replies: ((value: SourcePage) => void)[] = [];
+  api.openSource = vi
+    .fn()
+    .mockImplementation(
+      () => new Promise<SourcePage>((resolve) => replies.push(resolve)),
+    );
+  const refresh = interval.mock.calls[0][0] as () => void;
+  refresh();
+  refresh();
+  refresh();
+  replies[0]({
+    ...riverside,
+    markdown: "slow change",
+    body: "# Slow watched response",
+  });
+  expect(
+    await screen.findByRole("heading", { name: "Slow watched response" }),
+  ).toBeTruthy();
+});
+
+it("a newer unchanged watched response supersedes an older changed response", async () => {
+  const interval = vi.spyOn(window, "setInterval");
+  const api = testApi();
+  api.listWatchedDirectories = vi.fn().mockResolvedValue([]);
+  api.importSource = vi.fn().mockResolvedValue(riverside);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await screen.findByRole("article");
+  const replies: ((value: SourcePage) => void)[] = [];
+  api.openSource = vi
+    .fn()
+    .mockImplementation(
+      () => new Promise<SourcePage>((resolve) => replies.push(resolve)),
+    );
+  const refresh = interval.mock.calls[0][0] as () => void;
+  refresh();
+  refresh();
+  replies[1](riverside);
+  await Promise.resolve();
+  await Promise.resolve();
+  replies[0]({
+    ...riverside,
+    markdown: "obsolete",
+    body: "# Obsolete watched source",
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(
+    screen.queryByRole("heading", { name: "Obsolete watched source" }),
+  ).toBeNull();
+  expect(screen.getByRole("article").textContent).toContain("Observation V17");
 });

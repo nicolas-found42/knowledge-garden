@@ -13,6 +13,8 @@ pub struct WatchedDirectory {
     inode: u64,
     #[serde(default)]
     volume_uuid: Option<String>,
+    #[serde(default)]
+    volume_retry_at: u64,
     generation: u64,
     completed_generation: u64,
     pending: Vec<PathBuf>,
@@ -62,6 +64,7 @@ impl Application {
                 device: metadata.dev(),
                 inode: metadata.ino(),
                 volume_uuid: None,
+                volume_retry_at: 0,
                 generation: 0,
                 completed_generation: 0,
                 pending: Vec::new(),
@@ -70,6 +73,7 @@ impl Application {
             }
         };
         // Explicit reselection accepts a changed filesystem identity.
+        validate_watch(&watch, &destination)?;
         watch.device = metadata.dev();
         watch.inode = metadata.ino();
         watch.volume_uuid = volume_uuid(&watch.path);
@@ -85,11 +89,39 @@ impl Application {
         if !root.exists() {
             return Ok(Vec::new());
         }
+        if !fs::symlink_metadata(&root)?.is_dir() {
+            return Err(GardenError::Invalid(
+                "Watch storage is not a real directory.".into(),
+            ));
+        }
         let mut watches = Vec::new();
         for entry in fs::read_dir(root)? {
             let entry = entry?;
             if entry.file_type()?.is_dir() {
-                watches.push(read_record(&entry.path().join("index.md"))?);
+                let loaded = read_record::<WatchedDirectory>(&entry.path().join("index.md"))
+                    .and_then(|watch| {
+                        validate_watch(&watch, &entry.path())?;
+                        Ok(watch)
+                    });
+                watches.push(match loaded {
+                    Ok(watch) => watch,
+                    Err(error) => WatchedDirectory {
+                        watch_id: entry.file_name().to_string_lossy().into_owned(),
+                        path: entry.path(),
+                        state: "invalid_record".into(),
+                        detail: Some(error.to_string()),
+                        processed_files: 0,
+                        device: 0,
+                        inode: 0,
+                        volume_uuid: None,
+                        volume_retry_at: 0,
+                        generation: 0,
+                        completed_generation: 0,
+                        pending: Vec::new(),
+                        active: None,
+                        withdrawing: false,
+                    },
+                });
             }
         }
         watches.sort_by(|a: &WatchedDirectory, b| a.path.cmp(&b.path));
@@ -101,13 +133,28 @@ impl Application {
     /// using durable receipts, then continues the saved frontier.
     pub fn reconcile_watched_directories(&mut self, work_budget: usize) -> Result<()> {
         self.recover_pending_publications()?;
-        for mut watch in self.list_watched_directories()? {
+        let mut watches = self.list_watched_directories()?;
+        let mut remaining = work_budget.min(128);
+        let count = watches.len();
+        if count == 0 || remaining == 0 {
+            return Ok(());
+        }
+        watches.rotate_left(self.watch_cursor % count);
+        self.watch_cursor = (self.watch_cursor + 1) % count;
+        for (index, mut watch) in watches.into_iter().enumerate() {
+            if remaining == 0 {
+                break;
+            }
+            if watch.state == "invalid_record" {
+                continue;
+            }
+            let allowance = (remaining / (count - index)).max(1);
             if watch.state != "scanning" {
                 start_scan(&mut watch);
             }
             let result = (|| {
-                check_root(&mut watch)?;
-                for _ in 0..work_budget.min(128) {
+                for _ in 0..allowance {
+                    remaining -= 1;
                     check_root(&mut watch)?;
                     match self.watch_step(&mut watch) {
                         Ok(false) => break,
@@ -137,6 +184,9 @@ impl Application {
     }
 
     fn save_watch(&self, watch: &WatchedDirectory) -> Result<()> {
+        let directory = self.root.join("watches").join(&watch.watch_id);
+        validate_watch(watch, &directory)?;
+        validate_real_collection_ancestors(&self.root, &directory.join("index.md"))?;
         write_record(
             &self
                 .root
@@ -200,7 +250,7 @@ impl Application {
             .map_err(|_| GardenError::Invalid("Watch entry escaped its directory.".into()))?
             .to_path_buf();
         if kind.is_dir() {
-            if path != self.root && !watch.pending.contains(&relative) {
+            if !path.starts_with(&self.root) && !watch.pending.contains(&relative) {
                 self.check_directory_volume(watch, &path)?;
                 readable_directory(&path)?;
                 watch.pending.push(relative);
@@ -216,8 +266,50 @@ impl Application {
                     return Ok(true);
                 }
             }
-            readable_file(&path)?;
-            let page = self.import_source(&path, AcquisitionMethod::Watch)?;
+            let metadata = fs::symlink_metadata(&path)?;
+            let fingerprint = format!(
+                "{}:{}:{}:{}:{:?}",
+                metadata.dev(),
+                metadata.ino(),
+                metadata.len(),
+                metadata.mode(),
+                metadata.modified().ok()
+            );
+            let retry_path = watch_root
+                .join("retries")
+                .join(receipt_path.file_name().unwrap());
+            let prior = read_record::<FileRetry>(&retry_path)
+                .ok()
+                .filter(|retry| retry.fingerprint == fingerprint);
+            let now = now_millis()?.min(u128::from(u64::MAX)) as u64;
+            if prior.as_ref().is_some_and(|retry| now < retry.retry_at) {
+                return Err(GardenError::Invalid("A failed watch input is waiting for its retry deadline; retained sources are preserved.".into()));
+            }
+            let page = match readable_file(&path)
+                .and_then(|()| self.import_source(&path, AcquisitionMethod::Watch))
+            {
+                Ok(page) => {
+                    if retry_path.exists() {
+                        fs::remove_file(&retry_path)?;
+                    }
+                    page
+                }
+                Err(error) => {
+                    let attempts = prior.map_or(1, |retry| retry.attempts.saturating_add(1));
+                    let delay = 5_000_u64
+                        .saturating_mul(1_u64 << attempts.saturating_sub(1).min(6))
+                        .min(300_000);
+                    write_record(
+                        &retry_path,
+                        &FileRetry {
+                            fingerprint,
+                            attempts,
+                            retry_at: now.saturating_add(delay),
+                        },
+                    )?;
+                    return Err(error);
+                }
+            };
             write_record(
                 &receipt_path,
                 &FileReceipt {
@@ -234,6 +326,7 @@ impl Application {
 
     fn check_receipt(&mut self, watch: &mut WatchedDirectory, path: &Path) -> Result<()> {
         let mut receipt: FileReceipt = read_record(path)?;
+        validate_watch_relative(&receipt.relative_path)?;
         if receipt.seen == watch.generation {
             return Ok(());
         }
@@ -333,7 +426,10 @@ impl Application {
                 } else {
                     volume_uuid(path)
                 },
-                mount_boundary: metadata.dev() != watch.device,
+                mount_boundary: path
+                    .parent()
+                    .and_then(|parent| fs::symlink_metadata(parent).ok())
+                    .is_some_and(|parent| metadata.dev() != parent.dev()),
             },
         )
     }
@@ -528,6 +624,13 @@ fn check_root(watch: &mut WatchedDirectory) -> Result<()> {
     if !same_volume || metadata.ino() != watch.inode || !metadata.is_dir() {
         return Err(GardenError::Invalid("The selected directory is unavailable or has a different filesystem identity. Retained sources are preserved.".into()));
     }
+    if watch.volume_uuid.is_none() && metadata.dev() == watch.device {
+        let now = now_millis()?.min(u128::from(u64::MAX)) as u64;
+        if now >= watch.volume_retry_at {
+            watch.volume_uuid = volume_uuid(&watch.path);
+            watch.volume_retry_at = now.saturating_add(60_000);
+        }
+    }
     watch.device = metadata.dev();
     readable_directory(&watch.path)
 }
@@ -536,11 +639,11 @@ fn check_root(watch: &mut WatchedDirectory) -> Result<()> {
 /// volume UUID as well as the directory inode before accepting that new number.
 /// Unsupported/network filesystems conservatively retain the device/inode check.
 fn volume_uuid(path: &Path) -> Option<String> {
-    let output = std::process::Command::new("/bin/df")
-        .arg("-P")
-        .arg(path)
-        .output()
-        .ok()?;
+    let output = bounded_output(
+        std::process::Command::new("/bin/df").arg("-P").arg(path),
+        std::time::Duration::from_secs(1),
+    )
+    .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -549,10 +652,11 @@ fn volume_uuid(path: &Path) -> Option<String> {
     if !device.starts_with("/dev/") {
         return None;
     }
-    let output = std::process::Command::new("/usr/sbin/diskutil")
-        .args(["info", "-plist", device])
-        .output()
-        .ok()?;
+    let output = bounded_output(
+        std::process::Command::new("/usr/sbin/diskutil").args(["info", "-plist", device]),
+        std::time::Duration::from_secs(1),
+    )
+    .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -618,4 +722,89 @@ fn write_record<T: Serialize>(path: &Path, value: &T) -> Result<()> {
         )
         .as_bytes(),
     )
+}
+
+#[derive(Serialize, Deserialize)]
+struct FileRetry {
+    fingerprint: String,
+    attempts: u32,
+    retry_at: u64,
+}
+
+fn validate_watch_relative(path: &Path) -> Result<()> {
+    if path
+        .components()
+        .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(GardenError::Invalid(
+            "A watch frontier or receipt escaped its selected root.".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_watch(watch: &WatchedDirectory, directory: &Path) -> Result<()> {
+    if watch.watch_id.len() != 64
+        || !watch
+            .watch_id
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        || directory.file_name().and_then(|name| name.to_str()) != Some(watch.watch_id.as_str())
+        || !watch.path.is_absolute()
+        || watch.watch_id
+            != format!(
+                "{:x}",
+                Sha256::digest(watch.path.as_os_str().as_encoded_bytes())
+            )
+    {
+        return Err(GardenError::Invalid(
+            "Watch identity does not match its storage directory and selected path.".into(),
+        ));
+    }
+    for path in watch.pending.iter().chain(watch.active.iter()) {
+        validate_watch_relative(path)?;
+    }
+    Ok(())
+}
+
+fn bounded_output(
+    command: &mut std::process::Command,
+    timeout: std::time::Duration,
+) -> std::io::Result<std::process::Output> {
+    use std::process::Stdio;
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let start = std::time::Instant::now();
+    loop {
+        if child.try_wait()?.is_some() {
+            return child.wait_with_output();
+        }
+        if start.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "Volume lookup exceeded its deadline.",
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn volume_queries_have_a_deadline() {
+        let start = std::time::Instant::now();
+        let error = bounded_output(
+            std::process::Command::new("/bin/sleep").arg("2"),
+            std::time::Duration::from_millis(30),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        assert!(start.elapsed() < std::time::Duration::from_secs(1));
+    }
 }

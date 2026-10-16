@@ -200,6 +200,10 @@ export async function mountReader(
   let sourcesOffset = 0;
   let sourcesFingerprint = "";
   let refreshingSources = false;
+  let sourceRefreshGeneration = 0;
+  let knowledgeRefreshGeneration = 0;
+  let sourceRefreshApplied = 0;
+  let knowledgeRefreshApplied = 0;
   let sourcesGeneration = 0;
   let sourcesNavigationPending = false;
 
@@ -2026,15 +2030,21 @@ export async function mountReader(
       currentView === "knowledge" &&
       knowledgeId
     ) {
+      const generation = ++knowledgeRefreshGeneration;
+      const navigation = searchGeneration;
       void api
         .openKnowledgePage(knowledgeId)
         .then((next) => {
           if (
             disposed ||
-            currentKnowledgePageId !== knowledgeId ||
-            next.markdown === currentKnowledgeMarkdown
+            currentView !== "knowledge" ||
+            generation < knowledgeRefreshApplied ||
+            navigation !== searchGeneration ||
+            currentKnowledgePageId !== knowledgeId
           )
             return;
+          knowledgeRefreshApplied = generation;
+          if (next.markdown === currentKnowledgeMarkdown) return;
           const scrollTop = main.querySelector("article")?.scrollTop ?? 0;
           const focused = document.activeElement as HTMLElement | null;
           const focusId = focused?.dataset.focusId;
@@ -2051,9 +2061,24 @@ export async function mountReader(
         })
         .catch(async (error) => {
           if (
+            disposed ||
+            currentView !== "knowledge" ||
+            generation < knowledgeRefreshApplied ||
+            navigation !== searchGeneration ||
+            currentKnowledgePageId !== knowledgeId
+          )
+            return;
+          if (
+            !disposed &&
+            currentView === "knowledge" &&
+            generation >= knowledgeRefreshApplied &&
+            navigation === searchGeneration &&
             api.retainedSourceExists &&
             currentSourceId &&
             !(await api.retainedSourceExists(currentSourceId)) &&
+            currentView === "knowledge" &&
+            generation >= knowledgeRefreshApplied &&
+            navigation === searchGeneration &&
             currentKnowledgePageId === knowledgeId
           ) {
             clearRemovedPage();
@@ -2112,16 +2137,28 @@ export async function mountReader(
     if (
       !current ||
       disposed ||
+      currentView !== "source" ||
+      currentSourceId !== current.info.source_id ||
       (!api.listWatchedDirectories &&
         ((current.info.semantic_state === "complete" && !updating) ||
           current.info.semantic_state === "failed" ||
           current.info.semantic_state === "unavailable"))
     )
       return;
+    const generation = ++sourceRefreshGeneration;
+    const navigation = searchGeneration;
+    const stillCurrent = () =>
+      !disposed &&
+      currentView === "source" &&
+      currentSourceId === current.info.source_id &&
+      page === current &&
+      generation >= sourceRefreshApplied &&
+      navigation === searchGeneration;
     void api
       .openSource(current.info.source_id)
       .then((next) => {
-        if (disposed || page?.info.source_id !== current.info.source_id) return;
+        if (!stillCurrent()) return;
+        sourceRefreshApplied = generation;
         const detailsWereOpen = main.querySelector("details")?.open ?? false;
         const focusedArticle =
           document.activeElement === main.querySelector("article");
@@ -2143,10 +2180,12 @@ export async function mountReader(
         if (focusedArticle) article?.focus({ preventScroll: true });
       })
       .catch(async (error) => {
+        if (!stillCurrent()) return;
         if (
+          stillCurrent() &&
           api.retainedSourceExists &&
           !(await api.retainedSourceExists(current.info.source_id)) &&
-          page?.info.source_id === current.info.source_id
+          stillCurrent()
         )
           clearRemovedPage();
         else report(error);
