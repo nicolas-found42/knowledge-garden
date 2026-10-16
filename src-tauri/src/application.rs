@@ -3316,9 +3316,16 @@ impl Application {
                                 });
                         match result {
                             Ok(()) => {
-                                promote_candidate_audio(&mut page.info, &job.source_version_id);
-                                if page.info.audio_processing.is_some() {
-                                    page.body = source_body(&page.info, "", None);
+                                if page.info.current_version_id.as_deref()
+                                    == Some(job.source_version_id.as_str())
+                                {
+                                    promote_candidate_audio(&mut page.info, &job.source_version_id);
+                                    if page.info.audio_processing.is_some() {
+                                        page.body = replace_semantic_section(
+                                            &source_body(&page.info, "", None),
+                                            &page.info.knowledge_pages,
+                                        );
+                                    }
                                 }
                                 page.info.semantic_state = "complete".into();
                                 page.info.semantic_error = None;
@@ -3813,6 +3820,11 @@ impl Application {
                 }
             }
         }
+        let source_version_id = source
+            .info
+            .pending_version_id
+            .as_deref()
+            .unwrap_or(&source.info.sha256);
         if draft.entities.len() > 500
             || draft.facts.len() > 2_000
             || draft.relationships.len() > 2_000
@@ -4022,14 +4034,7 @@ impl Application {
                                     " · [Open audio at this timestamp]({})",
                                     audio_seek_href(
                                         &source.info.source_id,
-                                        Some((
-                                            source
-                                                .info
-                                                .pending_version_id
-                                                .as_deref()
-                                                .unwrap_or(&source.info.sha256),
-                                            &source.info.asset
-                                        )),
+                                        Some((source_version_id, &source.info.asset)),
                                         start_ms,
                                     )
                                 )
@@ -4160,14 +4165,7 @@ impl Application {
                                     " · [Open audio at this timestamp]({})",
                                     audio_seek_href(
                                         &source.info.source_id,
-                                        Some((
-                                            source
-                                                .info
-                                                .pending_version_id
-                                                .as_deref()
-                                                .unwrap_or(&source.info.sha256),
-                                            &source.info.asset
-                                        )),
+                                        Some((source_version_id, &source.info.asset)),
                                         start_ms,
                                     )
                                 )

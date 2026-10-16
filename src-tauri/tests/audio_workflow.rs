@@ -871,6 +871,9 @@ fn replacement_recording_resets_transcript_and_transcribes_the_pending_original_
     );
 
     let first_page = app.open_source(&first.info.source_id).unwrap();
+    assert!(first_page
+        .body
+        .contains(&first_page.info.knowledge_pages[0].path));
     assert_eq!(
         fs::read(
             app.original_version_path(&first.info.source_id, &first.info.sha256, "original.wav")
@@ -1012,6 +1015,9 @@ fn replacement_recording_resets_transcript_and_transcribes_the_pending_original_
         Some(replacement_version_id.as_str())
     );
     assert!(published.info.pending_audio_processing.is_none());
+    assert!(published
+        .body
+        .contains(&published.info.knowledge_pages[0].path));
     assert!(published.body.contains("new recording words"));
     assert!(!published.body.contains("old recording words"));
     assert!(published.body.contains(&format!(
@@ -1047,6 +1053,77 @@ fn replacement_recording_resets_transcript_and_transcribes_the_pending_original_
         )
         .unwrap(),
         old_bytes
+    );
+}
+
+#[test]
+fn uncertain_audio_replacement_preserves_published_transcript_and_candidate_after_restart() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("visit.wav");
+    fs::write(&source, b"old waveform").unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open_with_all_providers(
+        &collection,
+        Arc::new(VersionedAudioProvider),
+        Arc::new(LocalExtractor),
+        Arc::new(VersionedAudio {
+            transcribed_assets: Arc::default(),
+        }),
+    )
+    .unwrap();
+    let first = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_audio_jobs().unwrap();
+    let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    let draft = VersionedAudioProvider.form_knowledge(&job.source_text);
+    app.finish_semantic_job(job, draft).unwrap();
+
+    fs::write(&source, b"new waveform").unwrap();
+    let candidate = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    let candidate_version = candidate.info.pending_version_id.unwrap();
+    app.resume_due_audio_jobs().unwrap();
+    let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    let mut draft = VersionedAudioProvider
+        .form_knowledge(&job.source_text)
+        .unwrap();
+    draft.source_update.as_mut().unwrap().role = SourceUpdateRole::Unknown;
+    app.finish_semantic_job(job, Ok(draft)).unwrap();
+    drop(app);
+
+    let restarted = Application::open(&collection).unwrap();
+    let page = restarted.open_source(&first.info.source_id).unwrap();
+    assert_eq!(
+        page.info.current_version_id.as_deref(),
+        Some(first.info.sha256.as_str())
+    );
+    assert_eq!(
+        page.info
+            .audio_processing
+            .as_ref()
+            .unwrap()
+            .source_version_id
+            .as_deref(),
+        Some(first.info.sha256.as_str())
+    );
+    assert_eq!(
+        page.info
+            .pending_audio_processing
+            .as_ref()
+            .unwrap()
+            .source_version_id
+            .as_deref(),
+        Some(candidate_version.as_str())
+    );
+    assert!(page.body.contains("old recording words"));
+    assert!(page.body.contains("Candidate transcript · not published"));
+    assert!(page.body.contains("new recording words"));
+    assert!(!page.body.contains("Source text is empty"));
+    assert_eq!(
+        fs::read(restarted.original_path(&first.info.source_id).unwrap()).unwrap(),
+        b"old waveform"
     );
 }
 
