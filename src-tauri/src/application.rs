@@ -260,6 +260,8 @@ pub struct SourceSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourcePage {
+    #[serde(skip)]
+    disk_markdown: String,
     pub info: SourceInfo,
     pub markdown: String,
     pub body: String,
@@ -515,7 +517,7 @@ pub struct Application {
     extractor: Arc<dyn SourceExtractor>,
     audio_processor: Arc<dyn AudioProcessor>,
     staged_publication: Vec<(PathBuf, Vec<u8>)>,
-    publication_bases: HashMap<PathBuf, Vec<u8>>,
+    publication_bases: std::cell::RefCell<Option<HashMap<PathBuf, Vec<u8>>>>,
     fail_after_publication_files: Option<usize>,
     meaning_search: Option<MeaningSearch>,
     meaning_search_status: String,
@@ -863,7 +865,7 @@ impl Application {
             collection_revision: 0,
             collection_diagnostics: Vec::new(),
             staged_publication: Vec::new(),
-            publication_bases: HashMap::new(),
+            publication_bases: Default::default(),
             fail_after_publication_files: None,
             meaning_search,
             meaning_search_status,
@@ -1808,6 +1810,7 @@ impl Application {
         fs::rename(staging.path(), &destination)?;
         sync_directory(&self.root.join("sources"))?;
         let page = SourcePage {
+            disk_markdown: markdown.clone(),
             info,
             markdown,
             body,
@@ -3203,19 +3206,22 @@ impl Application {
         job: SemanticJob,
         result: std::result::Result<KnowledgeDraft, ProviderError>,
     ) -> Result<()> {
+        let outcome = self.finish_semantic_job_inner(job, result);
+        self.publication_bases.borrow_mut().take();
+        outcome
+    }
+
+    fn finish_semantic_job_inner(
+        &mut self,
+        job: SemanticJob,
+        result: std::result::Result<KnowledgeDraft, ProviderError>,
+    ) -> Result<()> {
         recover_publications(&self.root)?;
         self.staged_publication.clear();
-        self.publication_bases.clear();
-        for path in self.all_knowledge_candidates()? {
-            self.publication_bases.insert(path.clone(), fs::read(path)?);
-        }
-        for entry in fs::read_dir(self.root.join("sources"))? {
-            let path = entry?.path().join("index.md");
-            if path.is_file() {
-                self.publication_bases.insert(path.clone(), fs::read(path)?);
-            }
-        }
-        let mut page = read_page(&self.page_path(&job.source_id)?)?;
+        *self.publication_bases.borrow_mut() = Some(HashMap::new());
+        let source_path = self.page_path(&job.source_id)?;
+        let mut page = read_page(&source_path)?;
+        self.remember_publication_base(&source_path, page.markdown.as_bytes());
         let initial = page.info.current_version_id.is_none();
         let active = if initial {
             page.info.semantic_state == "processing"
@@ -3490,12 +3496,18 @@ impl Application {
                 .collect::<std::collections::HashSet<_>>();
             let files = std::mem::take(&mut self.staged_publication);
             let fail_after = self.fail_after_publication_files.take();
-            commit_publication(&self.root, files, &self.publication_bases, fail_after)?;
+            let bases = self
+                .publication_bases
+                .borrow_mut()
+                .take()
+                .unwrap_or_default();
+            commit_publication(&self.root, files, &bases, fail_after)?;
             for source_id in changed_source_ids {
                 let indexed = read_page(&self.page_path(&source_id)?)?;
                 self.index_page(&indexed.info)?;
             }
         }
+        self.publication_bases.borrow_mut().take();
         self.index_page(&page.info)?;
         Ok(())
     }
@@ -3890,9 +3902,12 @@ impl Application {
     }
 
     fn publish_updated_page(&mut self, page: &SourcePage) -> Result<()> {
-        write_atomic(
-            &self.page_path(&page.info.source_id)?,
-            page.markdown.as_bytes(),
+        let path = self.page_path(&page.info.source_id)?;
+        commit_publication(
+            &self.root,
+            vec![(path.clone(), page.markdown.as_bytes().to_vec())],
+            &HashMap::from([(path, page.disk_markdown.as_bytes().to_vec())]),
+            None,
         )?;
         self.index_page(&page.info)
     }
@@ -4472,6 +4487,7 @@ impl Application {
                 continue;
             }
             let mut replaced_source = read_page(&path)?;
+            self.remember_publication_base(&path, replaced_source.markdown.as_bytes());
             let mut may_still_support_current_knowledge = false;
             for summary in &replaced_source.info.knowledge_pages {
                 let markdown = if let Some(markdown) = contents.get(&summary.page_id) {
@@ -5275,6 +5291,14 @@ impl Application {
         Ok((format!("../sources/{short_id}/index.md"), asset_path))
     }
 
+    fn remember_publication_base(&self, path: &Path, bytes: &[u8]) {
+        if let Some(bases) = self.publication_bases.borrow_mut().as_mut() {
+            bases
+                .entry(path.to_path_buf())
+                .or_insert_with(|| bytes.to_vec());
+        }
+    }
+
     fn capture_manual_fact_corrections(
         &self,
         header: &mut KnowledgePageHeader,
@@ -5291,6 +5315,7 @@ impl Application {
         labels: &std::collections::HashMap<String, String>,
     ) -> Result<bool> {
         let markdown = fs::read_to_string(path)?;
+        self.remember_publication_base(path, markdown.as_bytes());
         let Some((_, body)) = markdown.split_once("\n---\n") else {
             return Ok(false);
         };
@@ -5706,7 +5731,13 @@ impl Application {
 
     fn write_source_page(&self, page: &SourcePage) -> Result<()> {
         let markdown = serialize_page(&page.info, &page.body)?;
-        write_atomic(&self.page_path(&page.info.source_id)?, markdown.as_bytes())
+        let path = self.page_path(&page.info.source_id)?;
+        commit_publication(
+            &self.root,
+            vec![(path.clone(), markdown.into_bytes())],
+            &HashMap::from([(path, page.disk_markdown.as_bytes().to_vec())]),
+            None,
+        )
     }
 
     pub fn page_path(&self, source_id: &str) -> Result<PathBuf> {
@@ -8827,6 +8858,7 @@ fn read_page(path: &Path) -> Result<SourcePage> {
     );
     let knowledge_pages = info.knowledge_pages.clone();
     Ok(SourcePage {
+        disk_markdown: markdown.clone(),
         info,
         markdown,
         body,

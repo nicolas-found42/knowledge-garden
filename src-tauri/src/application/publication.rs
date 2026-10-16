@@ -54,7 +54,9 @@ pub(super) fn commit_publication(
     sync_directory(staging.path())?;
     let transaction_path = staging.keep();
     sync_directory(&transactions)?;
-    apply_publication(root, &transaction_path, fail_after_files)?;
+    if !apply_publication(root, &transaction_path, fail_after_files)? {
+        return Err(GardenError::Invalid("Publication is retained for automatic recovery while a page identity is missing or ambiguous.".into()));
+    }
     fs::remove_dir_all(transaction_path)?;
     sync_directory(&transactions)
 }
@@ -70,8 +72,8 @@ pub(super) fn recover_publications(root: &Path) -> Result<()> {
         if !path.is_dir() {
             continue;
         }
-        if path.join("manifest.json").exists() {
-            apply_publication(root, &path, None)?;
+        if path.join("manifest.json").exists() && !apply_publication(root, &path, None)? {
+            continue;
         }
         fs::remove_dir_all(path)?;
     }
@@ -82,21 +84,46 @@ fn apply_publication(
     root: &Path,
     transaction: &Path,
     fail_after_files: Option<usize>,
-) -> Result<()> {
+) -> Result<bool> {
     let manifest: PublicationManifest =
         serde_json::from_slice(&fs::read(transaction.join("manifest.json"))?)?;
     if fail_after_files == Some(0) {
         return interrupted();
     }
+    let mut complete = true;
     for (index, entry) in manifest.entries.into_iter().enumerate() {
         validate_relative_collection_path(Path::new(&entry.destination))?;
         validate_relative_staging_path(Path::new(&entry.staged))?;
         let done = transaction.join(format!("files/{index:04}.done"));
-        if done.exists() && fs::read(root.join(&entry.destination)).ok() == fs::read(&done).ok() {
+        let proposed = fs::read(transaction.join(&entry.staged))?;
+        let Some(destination) = publication_destination(root, &entry, &proposed)? else {
+            complete = false;
+            continue;
+        };
+        let mut ancestor = destination.as_path();
+        while !ancestor.exists() {
+            ancestor = ancestor.parent().ok_or_else(|| {
+                GardenError::Invalid("A publication path has no collection ancestor.".into())
+            })?;
+        }
+        if !fs::canonicalize(ancestor)?.starts_with(root) {
+            return Err(GardenError::Invalid(
+                "A publication destination escaped the collection through a link.".into(),
+            ));
+        }
+        if done.exists() && fs::read(&destination).ok() == fs::read(&done).ok() {
             continue;
         }
-        let destination = root.join(&entry.destination);
-        let proposed = fs::read(transaction.join(&entry.staged))?;
+        let proposed = if let Ok(text) = std::str::from_utf8(&proposed) {
+            reconciliation::rebase_links(
+                &entry.destination,
+                &destination.strip_prefix(root).unwrap().to_string_lossy(),
+                text,
+            )
+            .into_bytes()
+        } else {
+            proposed
+        };
         if !entry.guarded {
             // Migrate old roll-forward manifests, which did not retain a base.
             // Keep existing bytes before completing their already committed work.
@@ -184,10 +211,52 @@ fn apply_publication(
             return interrupted();
         }
     }
-    Ok(())
+    Ok(complete)
 }
 
-fn interrupted() -> Result<()> {
+fn publication_destination(
+    root: &Path,
+    entry: &PublicationEntry,
+    proposed: &[u8],
+) -> Result<Option<PathBuf>> {
+    let fallback = root.join(&entry.destination);
+    if !entry.destination.starts_with("pages/") {
+        return Ok(Some(fallback));
+    }
+    let Some(header) = std::str::from_utf8(proposed)
+        .ok()
+        .and_then(|text| parse_knowledge_header(text).ok())
+    else {
+        return Ok(Some(fallback));
+    };
+    let mut directories = vec![root.join("pages")];
+    let mut matches = Vec::new();
+    while let Some(directory) = directories.pop() {
+        if !directory.is_dir() {
+            continue;
+        }
+        for item in fs::read_dir(directory)? {
+            let item = item?;
+            let kind = item.file_type()?;
+            if kind.is_dir() {
+                directories.push(item.path());
+            } else if kind.is_file()
+                && item.path().extension().is_some_and(|ext| ext == "md")
+                && read_knowledge_header(&item.path())
+                    .is_ok_and(|candidate| candidate.page_id == header.page_id)
+            {
+                matches.push(item.path());
+            }
+        }
+    }
+    match matches.as_slice() {
+        [path] => Ok(Some(path.clone())),
+        [] if entry.expected.is_none() && !fallback.exists() => Ok(Some(fallback)),
+        _ => Ok(None),
+    }
+}
+
+fn interrupted<T>() -> Result<T> {
     Err(GardenError::Io(std::io::Error::new(
         std::io::ErrorKind::Interrupted,
         "Injected publication interruption after an atomic file replacement.",

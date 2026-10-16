@@ -237,6 +237,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
             output(app.list_watched_directories()?);
         }
+        "collection-status" => output(app.collection_status()),
+        "resolve-link" => output(app.resolve_page_link(
+            args.get(3).ok_or("missing page identity")?,
+            args.get(4).ok_or("missing link")?,
+        )?),
         "repository-import" | "repository-live-import" => {
             let imported = app.import_repository(args.get(3).ok_or("missing repository path")?)?;
             if live {

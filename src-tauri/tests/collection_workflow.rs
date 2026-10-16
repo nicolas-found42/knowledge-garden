@@ -6142,3 +6142,99 @@ fn replaced_page_directory_and_interrupted_reconciliation_recover_links() {
     );
     assert!(!collection.join(&page.path).exists());
 }
+
+#[test]
+fn page_moved_during_interrupted_publication_is_updated_at_its_new_path() {
+    let workspace = tempdir().unwrap();
+    let collection = workspace.path().join("collection");
+    let source = workspace.path().join("V17.txt");
+    fs::write(&source, REVISION_1).unwrap();
+    let mut app = Application::open_with_semantic_provider(
+        &collection,
+        Arc::new(RecordedProvider::once(Ok(replacement_recording(
+            REVISION_1, 12, true,
+        )))),
+    )
+    .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let event = app
+        .open_source(&imported.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|p| p.kind == "event")
+        .unwrap();
+    fs::write(&source, REVISION_2).unwrap();
+    app.import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    app.set_publication_failpoint_for_test(0);
+    assert!(app
+        .finish_semantic_job(job, Ok(replacement_recording(REVISION_2, 15, false)))
+        .is_err());
+    let moved = collection.join("pages/Interrupted rename.md");
+    fs::rename(collection.join(&event.path), &moved).unwrap();
+    drop(app);
+    let app = Application::open(&collection).unwrap();
+    assert!(!collection.join(&event.path).exists());
+    assert!(app
+        .open_knowledge_page(&event.page_id)
+        .unwrap()
+        .markdown
+        .contains("- **visit count:** 15 visits"));
+    assert_eq!(
+        app.open_source(&imported.info.source_id)
+            .unwrap()
+            .knowledge_pages
+            .iter()
+            .find(|p| p.page_id == event.page_id)
+            .unwrap()
+            .path,
+        "pages/Interrupted rename.md"
+    );
+}
+
+#[test]
+fn link_repair_preserves_literal_content_and_already_adjusted_editor_links() {
+    let workspace = tempdir().unwrap();
+    let collection = workspace.path().join("collection");
+    let source = workspace.path().join("notes.txt");
+    fs::write(
+        &source,
+        "Office source document states a fixed observation.",
+    )
+    .unwrap();
+    let mut app =
+        Application::open_with_semantic_provider(&collection, Arc::new(WholeInputProvider))
+            .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let page = app
+        .open_source(&imported.info.source_id)
+        .unwrap()
+        .knowledge_pages[0]
+        .clone();
+    let old_name = Path::new(&page.path).file_name().unwrap().to_str().unwrap();
+    let literals = format!("```markdown\n[code]({old_name})\n```\n\n`[inline]({old_name})`\n\n    [indented]({old_name})\n");
+    let reading = collection.join("pages/Reading.md");
+    fs::write(&reading, format!("[live]({old_name})\n\n{literals}")).unwrap();
+    while !app.reconcile_collection(100).unwrap().complete {}
+    fs::create_dir_all(collection.join("pages/nested")).unwrap();
+    fs::write(collection.join("pages/Other.md"), "Owner note").unwrap();
+    let moved = collection.join("pages/nested/Owner.md");
+    fs::rename(collection.join(&page.path), &moved).unwrap();
+    let moved_text = fs::read_to_string(&moved).unwrap() + "\n[Already fixed](../Other.md)\n";
+    fs::write(&moved, moved_text).unwrap();
+    while !app.reconcile_collection(100).unwrap().complete {}
+    let current = fs::read_to_string(&reading).unwrap();
+    assert!(current.contains("[live](nested/Owner.md)"), "{current}");
+    assert!(current.contains(&literals), "{current}");
+    assert!(fs::read_to_string(&moved)
+        .unwrap()
+        .contains("[Already fixed](../Other.md)"));
+}
