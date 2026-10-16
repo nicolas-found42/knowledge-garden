@@ -2469,3 +2469,51 @@ fn native_undecodable_recording_keeps_exact_original_and_explicit_failed_coverag
         .knowledge_pages
         .is_empty());
 }
+
+#[test]
+fn semantic_audio_publication_preserves_owner_notes_added_after_transcription() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("visit.wav");
+    fs::write(&source, b"old waveform").unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open_with_all_providers(
+        &collection,
+        Arc::new(VersionedAudioProvider),
+        Arc::new(LocalExtractor),
+        Arc::new(VersionedAudio {
+            transcribed_assets: Arc::default(),
+        }),
+    )
+    .unwrap();
+    let first = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_audio_jobs().unwrap();
+    let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    let page_path = app.page_path(&first.info.source_id).unwrap();
+    let owner_note = "Owner note: preserve this recording's consent context exactly.";
+    let owner_markdown = fs::read_to_string(&page_path)
+        .unwrap()
+        .replace("# visit\n", "# Owner's recording title\n")
+        + "\n\n## Owner notes\n\n"
+        + owner_note
+        + "\n";
+    fs::write(&page_path, owner_markdown).unwrap();
+    let draft = VersionedAudioProvider.form_knowledge(&job.source_text);
+    app.finish_semantic_job(job, draft).unwrap();
+    drop(app);
+    let reopened = Application::open(&collection).unwrap();
+    let page = reopened.open_source(&first.info.source_id).unwrap();
+    assert!(
+        page.body.contains(owner_note),
+        "owner note was lost: {}",
+        page.body
+    );
+    assert!(page.body.contains("# Owner's recording title\n"));
+    assert!(page.body.contains("old recording words"));
+    assert!(page.body.contains(&page.info.knowledge_pages[0].path));
+    assert!(page.body.contains(&format!(
+        "?audio_seek={}&at_ms=0&version={}&asset=original.wav",
+        first.info.source_id, first.info.sha256
+    )));
+}

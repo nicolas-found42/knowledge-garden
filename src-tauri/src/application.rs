@@ -3319,8 +3319,18 @@ impl Application {
                                 if page.info.current_version_id.as_deref()
                                     == Some(job.source_version_id.as_str())
                                 {
+                                    let promoting_audio =
+                                        page.info.pending_audio_processing.as_ref().is_some_and(
+                                            |audio| {
+                                                audio.source_version_id.as_deref()
+                                                    == Some(job.source_version_id.as_str())
+                                            },
+                                        );
                                     promote_candidate_audio(&mut page.info, &job.source_version_id);
-                                    if page.info.audio_processing.is_some() {
+                                    // Initial audio already has its version-bound transcript.
+                                    // Rebuilding it here would discard the owner's latest prose.
+                                    // A promoted replacement needs a new current transcript body.
+                                    if promoting_audio {
                                         page.body = replace_semantic_section(
                                             &source_body(&page.info, "", None),
                                             &page.info.knowledge_pages,
