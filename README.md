@@ -8,7 +8,7 @@ UTF-8 `.txt`, `.text`, `.md`, `.markdown`, and extensionless files are supported
 
 ## Run and build
 
-On Apple Silicon macOS, install Rust via rustup, Node.js 24 (see `.nvmrc`), CMake, and the [Tauri macOS prerequisites](https://v2.tauri.app/start/prerequisites/#macos). rustup selects the pinned toolchain in `rust-toolchain.toml`. The first macOS build initializes the pinned Whisper source submodule, downloads the pinned large-v3-turbo model, verifies its SHA-256, and packages the model with a static Metal-enabled runner. Runtime transcription is local and makes no model download; the model and runner license details are bundled with the app.
+On Apple Silicon macOS 26 or later, install Xcode 26 Command Line Tools, Rust via rustup, Node.js 24 (see `.nvmrc`), CMake, and the [Tauri macOS prerequisites](https://v2.tauri.app/start/prerequisites/#macos). The native helper uses macOS 26 speech APIs. rustup selects the pinned toolchain in `rust-toolchain.toml`. The first macOS build initializes the pinned Whisper source submodule, downloads the pinned large-v3-turbo model, verifies its SHA-256, and packages the model with a static Metal-enabled runner. Runtime transcription is local and makes no model download; the model and runner license details are bundled with the app.
 
 ```sh
 npm ci
