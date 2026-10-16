@@ -30,7 +30,7 @@ const MAX_URL_ATTEMPTS: u32 = 8;
 
 pub const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 
-fn is_audio_format(format: &str) -> bool {
+pub(crate) fn is_audio_format(format: &str) -> bool {
     matches!(
         format,
         "wav" | "wave" | "aiff" | "aif" | "caf" | "m4a" | "mp3" | "aac"
@@ -1615,6 +1615,8 @@ impl Application {
                             CoverageScope::ImagePixels
                         } else if crate::conversation::is_conversation(&format) {
                             CoverageScope::ConversationMessages
+                        } else if format == "pdf" {
+                            CoverageScope::PdfPages
                         } else if format == "docx" {
                             CoverageScope::MainDocument
                         } else {
@@ -1628,7 +1630,14 @@ impl Application {
                             Some(vec![CoveragePart {
                                 scope,
                                 status: CoverageStatus::Failed,
-                                source_location: Some("package".into()),
+                                source_location: Some(
+                                    if format == "pdf" {
+                                        "PDF document"
+                                    } else {
+                                        "package"
+                                    }
+                                    .into(),
+                                ),
                                 detail,
                             }]),
                         )
@@ -3203,7 +3212,7 @@ impl Application {
                     if version_audio {
                         qualify_audio_evidence(&mut draft);
                     }
-                    let is_office = matches!(page.info.format.as_str(), "docx" | "pptx");
+                    let is_office = matches!(page.info.format.as_str(), "docx" | "pptx" | "pdf");
                     let office_facts = draft
                         .facts
                         .iter()
@@ -3258,6 +3267,14 @@ impl Application {
                         let result =
                             crate::photo::validate_draft(&job.source_text, &source_format, &draft)
                                 .map_err(GardenError::Invalid)
+                                .and_then(|()| {
+                                    crate::pdf::validate_draft(
+                                        &job.source_text,
+                                        &source_format,
+                                        &draft,
+                                    )
+                                    .map_err(GardenError::Invalid)
+                                })
                                 .and_then(|()| {
                                     crate::conversation::validate_draft(
                                         &job.source_text,
@@ -3316,7 +3333,27 @@ impl Application {
                                 });
                         match result {
                             Ok(()) => {
-                                promote_candidate_audio(&mut page.info, &job.source_version_id);
+                                if page.info.current_version_id.as_deref()
+                                    == Some(job.source_version_id.as_str())
+                                {
+                                    let promoting_audio =
+                                        page.info.pending_audio_processing.as_ref().is_some_and(
+                                            |audio| {
+                                                audio.source_version_id.as_deref()
+                                                    == Some(job.source_version_id.as_str())
+                                            },
+                                        );
+                                    promote_candidate_audio(&mut page.info, &job.source_version_id);
+                                    // Initial audio already has its version-bound transcript.
+                                    // Rebuilding it here would discard the owner's latest prose.
+                                    // A promoted replacement needs a new current transcript body.
+                                    if promoting_audio {
+                                        page.body = replace_semantic_section(
+                                            &source_body(&page.info, "", None),
+                                            &page.info.knowledge_pages,
+                                        );
+                                    }
+                                }
                                 page.info.semantic_state = "complete".into();
                                 page.info.semantic_error = None;
                                 page.info.semantic_retry_at = None;
@@ -3810,6 +3847,11 @@ impl Application {
                 }
             }
         }
+        let source_version_id = source
+            .info
+            .pending_version_id
+            .as_deref()
+            .unwrap_or(&source.info.sha256);
         if draft.entities.len() > 500
             || draft.facts.len() > 2_000
             || draft.relationships.len() > 2_000
@@ -3993,6 +4035,7 @@ impl Application {
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         "extracted Office projection; offsets are not original package byte offsets"
                     }
+                    EvidenceOffsetBasis::ExtractedPdfProjection => "extracted PDF projection; offsets are not original PDF byte offsets",
                     EvidenceOffsetBasis::ExtractedImageProjection => "extracted image projection; offsets are not original image byte offsets",
                     EvidenceOffsetBasis::ExtractedConversationProjection => "extracted conversation projection; offsets are not original export byte offsets",
                     EvidenceOffsetBasis::WebVisibleText => {
@@ -4017,7 +4060,11 @@ impl Application {
                             .map(|start_ms| {
                                 format!(
                                     " · [Open audio at this timestamp]({})",
-                                    audio_seek_href(&source.info.source_id, start_ms)
+                                    audio_seek_href(
+                                        &source.info.source_id,
+                                        Some((source_version_id, &source.info.asset)),
+                                        start_ms,
+                                    )
                                 )
                             })
                             .unwrap_or_default()
@@ -4028,6 +4075,9 @@ impl Application {
                     EvidenceOffsetBasis::PreservedText => ("source lines", "source bytes"),
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         ("extracted projection lines", "extracted projection bytes")
+                    }
+                    EvidenceOffsetBasis::ExtractedPdfProjection => {
+                        ("PDF projection lines", "PDF projection bytes")
                     }
                     EvidenceOffsetBasis::ExtractedImageProjection => {
                         ("image projection lines", "image projection bytes")
@@ -4095,6 +4145,11 @@ impl Application {
                             .unwrap_or_default(),
                         "The original opens as a fallback; use the OOXML part and location above to find the extracted passage.",
                     ),
+                    EvidenceOffsetBasis::ExtractedPdfProjection => (
+                        "PDF projection lines", "PDF projection bytes",
+                        relationship.evidence.source_location.as_deref().map(|location| format!(" · PDF locator: {location}")).unwrap_or_default(),
+                        "The original opens at the beginning as a disclosed fallback; use the PDF page and PDF-point region above.",
+                    ),
                     EvidenceOffsetBasis::ExtractedImageProjection => (
                         "image projection lines",
                         "image projection bytes",
@@ -4144,7 +4199,11 @@ impl Application {
                             .map(|start_ms| {
                                 format!(
                                     " · [Open audio at this timestamp]({})",
-                                    audio_seek_href(&source.info.source_id, start_ms)
+                                    audio_seek_href(
+                                        &source.info.source_id,
+                                        Some((source_version_id, &source.info.asset)),
+                                        start_ms,
+                                    )
                                 )
                             })
                             .unwrap_or_default()
@@ -4625,6 +4684,22 @@ impl Application {
             } else {
                 None
             };
+        if let Some(projection) = office_projection
+            .as_ref()
+            .filter(|_| candidate.format == "pdf")
+        {
+            if projection.partial
+                || projection
+                    .coverage
+                    .iter()
+                    .any(|part| part.status != CoverageStatus::Complete)
+                || projection.semantic_text != source_text
+            {
+                return Err(GardenError::Invalid(
+                    "Replacement extraction changed or lost coverage before publication; retain prior facts and retry the candidate.".into(),
+                ));
+            }
+        }
         let candidate_bytes = fs::read(candidate_path)?;
         let destination_original = self
             .source_dir(&source.info.source_id)?
@@ -5049,6 +5124,25 @@ impl Application {
         ))
     }
 
+    fn support_audio_seek_href(
+        &self,
+        source_id: &str,
+        support: Option<&SupportRecord>,
+        start_ms: u64,
+    ) -> Result<String> {
+        let Some(record) = support.filter(|record| record.source_version_id != "legacy") else {
+            return Ok(audio_seek_href(source_id, None, start_ms));
+        };
+        let Some((asset, _)) = self.path_support_asset(record)? else {
+            return Ok("unavailable".into());
+        };
+        Ok(audio_seek_href(
+            source_id,
+            Some((&record.source_version_id, &asset)),
+            start_ms,
+        ))
+    }
+
     fn support_links(&self, support: &SupportRecord) -> Result<(String, String)> {
         let Some(short_id) = support.source_id.strip_prefix("source-") else {
             return Ok(("unavailable".into(), "unavailable".into()));
@@ -5307,11 +5401,10 @@ impl Application {
                         let source_id = support
                             .map(|value| value.source_id.as_str())
                             .unwrap_or(&header.source_id);
-                        format!(
-                            " · [Open audio at this timestamp]({})",
-                            audio_seek_href(source_id, start_ms)
-                        )
+                        self.support_audio_seek_href(source_id, support, start_ms)
+                            .map(|href| format!(" · [Open audio at this timestamp]({href})"))
                     })
+                    .transpose()?
                     .unwrap_or_default()
             } else {
                 String::new()
@@ -5376,11 +5469,10 @@ impl Application {
                         let source_id = support
                             .map(|value| value.source_id.as_str())
                             .unwrap_or(&header.source_id);
-                        format!(
-                            " · [Open audio at this timestamp]({})",
-                            audio_seek_href(source_id, start_ms)
-                        )
+                        self.support_audio_seek_href(source_id, support, start_ms)
+                            .map(|href| format!(" · [Open audio at this timestamp]({href})"))
                     })
+                    .transpose()?
                     .unwrap_or_default()
             } else {
                 String::new()
@@ -5615,6 +5707,12 @@ impl Application {
             return Err(GardenError::Invalid(
                 "The retained version's link is not a known original asset.".into(),
             ));
+        }
+        // The first acquisition lives at the source root until a replacement
+        // archives it. Resolve that exact identity through the same containment
+        // checks as ordinary original opening; never substitute another version.
+        if source_version_id == page.info.sha256 && asset == page.info.asset {
+            return self.original_path(source_id);
         }
         let source_bundle = fs::canonicalize(self.source_dir(source_id)?)?;
         let sources_root = fs::canonicalize(self.root.join("sources"))?;
@@ -6958,6 +7056,7 @@ fn evidence_offset_basis_name(basis: EvidenceOffsetBasis) -> &'static str {
         EvidenceOffsetBasis::WebVisibleText => "web_visible_text",
         EvidenceOffsetBasis::AudioTranscript => "audio_transcript",
         EvidenceOffsetBasis::ExtractedImageProjection => "extracted_image_projection",
+        EvidenceOffsetBasis::ExtractedPdfProjection => "extracted_pdf_projection",
         EvidenceOffsetBasis::ExtractedConversationProjection => "extracted_conversation_projection",
     }
 }
@@ -7146,6 +7245,7 @@ enum EvidenceOffsetBasis {
     WebVisibleText,
     AudioTranscript,
     ExtractedImageProjection,
+    ExtractedPdfProjection,
 }
 
 fn evidence_display_basis(
@@ -7163,6 +7263,11 @@ fn evidence_display_basis(
             "extracted projection lines",
             "extracted projection bytes",
             "The retained original opens as a fallback; use the OOXML part and locator above to find this passage.",
+        ),
+        EvidenceOffsetBasis::ExtractedPdfProjection => (
+            "extracted PDF projection; offsets are not original PDF byte offsets",
+            "PDF projection lines", "PDF projection bytes",
+            "The original opens at the beginning as a disclosed fallback; use the PDF page and PDF-point region above.",
         ),
         EvidenceOffsetBasis::ExtractedImageProjection => (
             "extracted image projection; offsets are not original image byte offsets",
@@ -7422,6 +7527,12 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         {
             EvidenceOffsetBasis::ExtractedImageProjection
         }
+        None if inferred_location
+            .as_deref()
+            .is_some_and(|locator| locator.starts_with("PDF ")) =>
+        {
+            EvidenceOffsetBasis::ExtractedPdfProjection
+        }
         None => EvidenceOffsetBasis::PreservedText,
         Some("preserved_text") => EvidenceOffsetBasis::PreservedText,
         Some("office_projection") | Some("extracted_office_projection") => {
@@ -7430,6 +7541,7 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         Some("web_visible_text") => EvidenceOffsetBasis::WebVisibleText,
         Some("audio_transcript") => EvidenceOffsetBasis::AudioTranscript,
         Some("extracted_image_projection") => EvidenceOffsetBasis::ExtractedImageProjection,
+        Some("extracted_pdf_projection") => EvidenceOffsetBasis::ExtractedPdfProjection,
         Some("extracted_conversation_projection") => {
             EvidenceOffsetBasis::ExtractedConversationProjection
         }
@@ -8233,7 +8345,14 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
                         .confidence
                         .map(|value| format!("{value:.2}"))
                         .unwrap_or_else(|| "unavailable".into()),
-                    audio_seek_href(&info.source_id, segment.start_ms),
+                    audio_seek_href(
+                        &info.source_id,
+                        Some((
+                            audio.source_version_id.as_deref().unwrap_or(&info.sha256),
+                            &info.asset
+                        )),
+                        segment.start_ms,
+                    ),
                     segment.text.replace('\n', " ")
                 ));
                 cursor_ms = cursor_ms.max(segment.end_ms);
@@ -8279,8 +8398,12 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
     )
 }
 
-fn audio_seek_href(source_id: &str, start_ms: u64) -> String {
-    format!("?audio_seek={source_id}&at_ms={start_ms}")
+fn audio_seek_href(source_id: &str, version: Option<(&str, &str)>, start_ms: u64) -> String {
+    let mut href = format!("?audio_seek={source_id}&at_ms={start_ms}");
+    if let Some((version_id, asset)) = version {
+        href.push_str(&format!("&version={version_id}&asset={asset}"));
+    }
+    href
 }
 
 fn append_pending_audio_body(info: &SourceInfo, body: &mut String) {

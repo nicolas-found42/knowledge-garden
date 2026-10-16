@@ -946,6 +946,33 @@ describe("collection reader", () => {
       screen.getByText(/precise seeking is unavailable in this reader/),
     ).toBeTruthy();
   });
+
+  it("opens the supporting recording version for an audio evidence timestamp", async () => {
+    const api = testApi();
+    const digest = "b".repeat(64);
+    const version = "c".repeat(64);
+    vi.mocked(api.importSource).mockResolvedValue({
+      ...riverside,
+      body: `# Recording evidence\n\n[Open audio at this timestamp](?audio_seek=source-${digest}&at_ms=65432&version=${version}&asset=original.wav)`,
+    });
+    const root = document.createElement("div");
+    document.body.append(root);
+    dispose = await mountReader(root, api);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Add source" }));
+    await user.click(
+      await screen.findByRole("link", { name: "Open audio at this timestamp" }),
+    );
+    await waitFor(() =>
+      expect(api.openOriginalVersion).toHaveBeenCalledWith(
+        `source-${digest}`,
+        version,
+        "original.wav",
+      ),
+    );
+    expect(api.openOriginal).not.toHaveBeenCalled();
+    expect(screen.getByText(/Seek to 1:05 in your audio player/)).toBeTruthy();
+  });
 });
 
 it("imports dropped files and restores the selected page after reopening the reader", async () => {
@@ -1738,6 +1765,7 @@ it("constructs a grouped typed Boolean query through keyboard controls with expl
   expect(
     await screen.findByRole("group", { name: "Boolean query expression" }),
   ).toBeTruthy();
+  expect(document.activeElement).toBe(screen.getByLabelText("Group operator"));
   await user.selectOptions(screen.getByLabelText("Group operator"), "or");
   await user.click(screen.getByRole("button", { name: "Add path clause" }));
   await user.type(
@@ -1748,7 +1776,21 @@ it("constructs a grouped typed Boolean query through keyboard controls with expl
     screen.getAllByLabelText("Hop direction")[0],
     "against_arrow",
   );
-  await user.click(screen.getAllByRole("button", { name: "Add hop" })[0]);
+  // The builder starts with one path; Add path clause creates a second.
+  expect(screen.getAllByLabelText("Relationship type")).toHaveLength(2);
+  screen.getAllByRole("button", { name: "Add hop" })[0].focus();
+  await user.keyboard("{Enter}");
+  expect(document.activeElement).toBe(
+    screen.getAllByRole("button", { name: "Add hop" })[0],
+  );
+  expect(screen.getAllByLabelText("Relationship type")).toHaveLength(3);
+  // Remove the new hop: one hop remains in each of the two path clauses.
+  await user.keyboard("{Shift>}{Tab}{/Shift}{Enter}");
+  expect(screen.getAllByLabelText("Relationship type")).toHaveLength(2);
+  expect(document.activeElement).toBe(
+    screen.getAllByRole("button", { name: "Add hop" })[0],
+  );
+  await user.keyboard("{Enter}");
   await user.type(
     screen.getAllByLabelText("Relationship type")[1],
     "occurred_at",
@@ -1764,6 +1806,24 @@ it("constructs a grouped typed Boolean query through keyboard controls with expl
   expect(
     screen.getByText(/NOT removes pages from the known indexed set/),
   ).toBeTruthy();
+  screen.getByRole("button", { name: "Add group" }).focus();
+  await user.keyboard("{Enter}");
+  expect(document.activeElement?.textContent).toBe("Remove clause");
+  await user.tab();
+  await user.keyboard("{Enter}");
+  expect(document.activeElement?.textContent).toBe("Remove NOT");
+  await user.keyboard("{Enter}");
+  expect(document.activeElement?.textContent).toBe("Wrap in NOT");
+  await user.tab({ shift: true });
+  await user.keyboard("{Enter}");
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Add path clause" }),
+  );
+  screen.getByRole("button", { name: "Clear query" }).focus();
+  await user.keyboard("{Enter}");
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Clear query" }),
+  );
 });
 
 it("runs current Boolean clauses, clears stale results, cancels old work and restores selected query with Back", async () => {
@@ -1868,5 +1928,73 @@ it("runs current Boolean clauses, clears stale results, cancels old work and res
         continuation: null,
       }),
     ),
+  );
+});
+
+it("opens a PDF search span in source context with a disclosed original-location fallback", async () => {
+  const api = testApi();
+  const locator =
+    "PDF page 2 region 1; PDF points bottom-left x=48,y=680,width=370,height=20; rotation=90; channel=ocr";
+  const source: SourcePage = {
+    ...riverside,
+    info: { ...riverside.info, format: "pdf", asset: "original.pdf" },
+    body: `# Scanned report\n\n[Open original](original.pdf)\n\n## PDF page 2\n\n[${locator}] V17 lasted 10 minutes, excluding setup time. (OCR transcription; unverified)\n\nThe original opens at the beginning as a disclosed fallback; use the page number and PDF-point region above.`,
+  };
+  api.openSource = vi.fn().mockResolvedValue(source);
+  api.searchPages = vi.fn().mockResolvedValue({
+    pages: [
+      {
+        page_id: source.info.page_id,
+        source_id: source.info.source_id,
+        page_type: "source",
+        title: "Scanned report",
+        kind: "source",
+        excerpt: "V17 lasted 10 minutes, excluding setup time.",
+        tags: [],
+        format: "pdf",
+        event_date: null,
+        extraction: "structured_text",
+        processing_status: "complete",
+        matched_by: "keyword",
+        match_location: {
+          record_id: "duration",
+          source_id: source.info.source_id,
+          source_version_id: "pdf-version",
+          quote: "V17 lasted 10 minutes, excluding setup time.",
+          byte_start: 140,
+          byte_end: 182,
+          line_start: 2,
+          line_end: 2,
+          offset_basis: "extracted_pdf_projection",
+          source_location: locator,
+        },
+      },
+    ],
+    next_offset: null,
+    available_tags: [],
+    available_formats: ["pdf"],
+    available_statuses: ["complete"],
+  } satisfies PageSearchResults);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  expect(
+    await screen.findByText(
+      /Evidence · extracted PDF text; original opens at the beginning/,
+    ),
+  ).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Scanned report" }));
+  expect(
+    await screen.findByRole("heading", { name: "PDF page 2" }),
+  ).toBeTruthy();
+  expect(screen.getByText(/OCR transcription; unverified/)).toBeTruthy();
+  expect(root.querySelector("mark")?.textContent).toContain(
+    "V17 lasted 10 minutes",
+  );
+  await user.click(screen.getByRole("link", { name: "Open original" }));
+  await waitFor(() =>
+    expect(api.openOriginal).toHaveBeenCalledWith(source.info.source_id),
   );
 });

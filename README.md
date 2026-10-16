@@ -43,3 +43,5 @@ Application tests supply temporary collections and inspect public import, page n
 See [CONTRIBUTING.md](CONTRIBUTING.md) for lint prerequisites, individual development checks, CI, and required pull-request checks on `main`.
 
 See [the durable source contract](docs/implementation/source-contract.md) for storage, identities, recovery, and this slice's limits.
+
+For recording import, local transcription, version-bound timestamp evidence, playback fallback, and measured limits, see [audio recordings](docs/implementation/audio-recordings.md).
