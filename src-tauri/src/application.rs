@@ -30,7 +30,7 @@ const MAX_URL_ATTEMPTS: u32 = 8;
 
 pub const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 
-fn is_audio_format(format: &str) -> bool {
+pub(crate) fn is_audio_format(format: &str) -> bool {
     matches!(
         format,
         "wav" | "wave" | "aiff" | "aif" | "caf" | "m4a" | "mp3" | "aac"
@@ -3316,7 +3316,27 @@ impl Application {
                                 });
                         match result {
                             Ok(()) => {
-                                promote_candidate_audio(&mut page.info, &job.source_version_id);
+                                if page.info.current_version_id.as_deref()
+                                    == Some(job.source_version_id.as_str())
+                                {
+                                    let promoting_audio =
+                                        page.info.pending_audio_processing.as_ref().is_some_and(
+                                            |audio| {
+                                                audio.source_version_id.as_deref()
+                                                    == Some(job.source_version_id.as_str())
+                                            },
+                                        );
+                                    promote_candidate_audio(&mut page.info, &job.source_version_id);
+                                    // Initial audio already has its version-bound transcript.
+                                    // Rebuilding it here would discard the owner's latest prose.
+                                    // A promoted replacement needs a new current transcript body.
+                                    if promoting_audio {
+                                        page.body = replace_semantic_section(
+                                            &source_body(&page.info, "", None),
+                                            &page.info.knowledge_pages,
+                                        );
+                                    }
+                                }
                                 page.info.semantic_state = "complete".into();
                                 page.info.semantic_error = None;
                                 page.info.semantic_retry_at = None;
@@ -3810,6 +3830,11 @@ impl Application {
                 }
             }
         }
+        let source_version_id = source
+            .info
+            .pending_version_id
+            .as_deref()
+            .unwrap_or(&source.info.sha256);
         if draft.entities.len() > 500
             || draft.facts.len() > 2_000
             || draft.relationships.len() > 2_000
@@ -4017,7 +4042,11 @@ impl Application {
                             .map(|start_ms| {
                                 format!(
                                     " · [Open audio at this timestamp]({})",
-                                    audio_seek_href(&source.info.source_id, start_ms)
+                                    audio_seek_href(
+                                        &source.info.source_id,
+                                        Some((source_version_id, &source.info.asset)),
+                                        start_ms,
+                                    )
                                 )
                             })
                             .unwrap_or_default()
@@ -4144,7 +4173,11 @@ impl Application {
                             .map(|start_ms| {
                                 format!(
                                     " · [Open audio at this timestamp]({})",
-                                    audio_seek_href(&source.info.source_id, start_ms)
+                                    audio_seek_href(
+                                        &source.info.source_id,
+                                        Some((source_version_id, &source.info.asset)),
+                                        start_ms,
+                                    )
                                 )
                             })
                             .unwrap_or_default()
@@ -5049,6 +5082,25 @@ impl Application {
         ))
     }
 
+    fn support_audio_seek_href(
+        &self,
+        source_id: &str,
+        support: Option<&SupportRecord>,
+        start_ms: u64,
+    ) -> Result<String> {
+        let Some(record) = support.filter(|record| record.source_version_id != "legacy") else {
+            return Ok(audio_seek_href(source_id, None, start_ms));
+        };
+        let Some((asset, _)) = self.path_support_asset(record)? else {
+            return Ok("unavailable".into());
+        };
+        Ok(audio_seek_href(
+            source_id,
+            Some((&record.source_version_id, &asset)),
+            start_ms,
+        ))
+    }
+
     fn support_links(&self, support: &SupportRecord) -> Result<(String, String)> {
         let Some(short_id) = support.source_id.strip_prefix("source-") else {
             return Ok(("unavailable".into(), "unavailable".into()));
@@ -5307,11 +5359,10 @@ impl Application {
                         let source_id = support
                             .map(|value| value.source_id.as_str())
                             .unwrap_or(&header.source_id);
-                        format!(
-                            " · [Open audio at this timestamp]({})",
-                            audio_seek_href(source_id, start_ms)
-                        )
+                        self.support_audio_seek_href(source_id, support, start_ms)
+                            .map(|href| format!(" · [Open audio at this timestamp]({href})"))
                     })
+                    .transpose()?
                     .unwrap_or_default()
             } else {
                 String::new()
@@ -5376,11 +5427,10 @@ impl Application {
                         let source_id = support
                             .map(|value| value.source_id.as_str())
                             .unwrap_or(&header.source_id);
-                        format!(
-                            " · [Open audio at this timestamp]({})",
-                            audio_seek_href(source_id, start_ms)
-                        )
+                        self.support_audio_seek_href(source_id, support, start_ms)
+                            .map(|href| format!(" · [Open audio at this timestamp]({href})"))
                     })
+                    .transpose()?
                     .unwrap_or_default()
             } else {
                 String::new()
@@ -5615,6 +5665,12 @@ impl Application {
             return Err(GardenError::Invalid(
                 "The retained version's link is not a known original asset.".into(),
             ));
+        }
+        // The first acquisition lives at the source root until a replacement
+        // archives it. Resolve that exact identity through the same containment
+        // checks as ordinary original opening; never substitute another version.
+        if source_version_id == page.info.sha256 && asset == page.info.asset {
+            return self.original_path(source_id);
         }
         let source_bundle = fs::canonicalize(self.source_dir(source_id)?)?;
         let sources_root = fs::canonicalize(self.root.join("sources"))?;
@@ -8195,7 +8251,14 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
                         .confidence
                         .map(|value| format!("{value:.2}"))
                         .unwrap_or_else(|| "unavailable".into()),
-                    audio_seek_href(&info.source_id, segment.start_ms),
+                    audio_seek_href(
+                        &info.source_id,
+                        Some((
+                            audio.source_version_id.as_deref().unwrap_or(&info.sha256),
+                            &info.asset
+                        )),
+                        segment.start_ms,
+                    ),
                     segment.text.replace('\n', " ")
                 ));
                 cursor_ms = cursor_ms.max(segment.end_ms);
@@ -8241,8 +8304,12 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
     )
 }
 
-fn audio_seek_href(source_id: &str, start_ms: u64) -> String {
-    format!("?audio_seek={source_id}&at_ms={start_ms}")
+fn audio_seek_href(source_id: &str, version: Option<(&str, &str)>, start_ms: u64) -> String {
+    let mut href = format!("?audio_seek={source_id}&at_ms={start_ms}");
+    if let Some((version_id, asset)) = version {
+        href.push_str(&format!("&version={version_id}&asset={asset}"));
+    }
+    href
 }
 
 fn append_pending_audio_body(info: &SourceInfo, body: &mut String) {
