@@ -371,6 +371,9 @@ fn repair_links(
             return href.to_owned();
         };
         if let Some(destination) = aliases.get(&target) {
+            if destination == &target {
+                return href.to_owned();
+            }
             let suffix = href.find(['#', '?']).map(|at| &href[at..]).unwrap_or("");
             return format!("{}{suffix}", relative_link(from, destination));
         }
