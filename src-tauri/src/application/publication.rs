@@ -325,7 +325,18 @@ fn merge_owner_save(
                     escape_markdown(&updated.property.replace('_', " ")),
                     escape_markdown(&value)
                 );
-                body = body.replace(&before, &after);
+                let identity = format!("\n  - Fact identity: `{}`", updated.fact_id);
+                let suffix = updated
+                    .qualifier
+                    .as_deref()
+                    .map(|q| format!(" ({})", escape_markdown(q)))
+                    .unwrap_or_default();
+                // Match the complete generated row and its durable identity;
+                // equal values and value prefixes may belong to other facts.
+                body = body.replace(
+                    &format!("{before}{suffix}{identity}"),
+                    &format!("{after}{suffix}{identity}"),
+                );
                 updated.value = value.clone();
                 updated.manual_correction = Some(ManualFactCorrection { value });
                 updated.origin = "manual_correction".into();
@@ -461,4 +472,42 @@ fn exchange(_left: &Path, _right: &Path) -> std::io::Result<()> {
         std::io::ErrorKind::Unsupported,
         "Conflict-safe publication currently requires the macOS release target.",
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn concurrent_correction_updates_only_the_identified_complete_fact_row() {
+        let root = tempfile::tempdir().unwrap();
+        let evidence = serde_json::json!({"quote":"count", "byte_start":0,"byte_end":5,"line_start":1,"line_end":1,"origin":"source","qualifier":null});
+        let facts = [("fact-one", "1"), ("fact-prefix", "12"), ("fact-equal", "1")].map(|(id, value)| serde_json::json!({"fact_id":id,"subject_page_id":"page-test","property":"count","value":value,"qualifier":null,"origin":"source","evidence":evidence}));
+        let mut header: KnowledgePageHeader = serde_json::from_value(serde_json::json!({"schema":1,"page_id":"page-test","source_id":"source-test","title":"Test","kind":"event","evidence":evidence,"facts":facts})).unwrap();
+        let body = "\n# Test\n\n- **count:** 1\n  - Fact identity: `fact-one`\n- **count:** 12\n  - Fact identity: `fact-prefix`\n- **count:** 1\n  - Fact identity: `fact-equal`\n";
+        let proposed = format!(
+            "---\n{}---\n{body}",
+            serde_yaml_ng::to_string(&header).unwrap()
+        );
+        header.facts[0].manual_correction = Some(ManualFactCorrection { value: "9".into() });
+        let owner = format!(
+            "---\n{}---\n{body}",
+            serde_yaml_ng::to_string(&header).unwrap()
+        );
+        let merged = merge_owner_save(
+            root.path(),
+            proposed.as_bytes(),
+            Some(proposed.as_bytes()),
+            owner.as_bytes(),
+        )
+        .unwrap();
+        let merged = String::from_utf8(merged).unwrap();
+        assert!(merged.contains("- **count:** 9\n  - Fact identity: `fact-one`"));
+        assert!(merged.contains("- **count:** 12\n  - Fact identity: `fact-prefix`"));
+        assert!(merged.contains("- **count:** 1\n  - Fact identity: `fact-equal`"));
+        let header = parse_knowledge_header(&merged).unwrap();
+        assert_eq!(header.facts[0].value, "9");
+        assert_eq!(header.facts[1].value, "12");
+        assert_eq!(header.facts[2].value, "1");
+    }
 }
