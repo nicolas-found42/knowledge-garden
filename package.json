@@ -8,6 +8,8 @@
     "build": "npm run typecheck && vite build",
     "typecheck": "tsc --noEmit",
     "test:ui": "vitest run",
+    "test:ui:unit": "vitest run src/reader.test.ts",
+    "test:ui:integration": "vitest run src/application.test.ts",
     "test:rust": "cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets",
     "provision:assets": "./scripts/provision-meaning-assets.sh && ./src-tauri/scripts/provision-audio-assets.sh",
     "package:app": "npm run provision:assets && tauri build --bundles app -- --locked",
