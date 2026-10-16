@@ -48,10 +48,15 @@ Every pull request targeting `main` runs `.github/workflows/ci.yml`. Its Linux
 job validates frontend code and tooling, including reader unit tests. Its macOS
 ARM job provisions assets, runs native checks and tests plus frontend integration
 tests against the real Rust application driver, and builds the app bundle. The
-`CI required` job
-runs after both and fails unless both succeeded, including when a dependency
+`CI required` job runs after both and fails unless both succeeded, including when a dependency
 was skipped or cancelled. There are no path filters that exempt documentation
 or tooling changes from the gate. Superseded runs are cancelled automatically.
+
+Native CI runs Rust tests serially on the standard three-core runner. The AAC
+inference case runs first; the remaining test invocation excludes only that
+already-executed case. The full pinned model, two-minute segment deadline and
+transcript assertions remain intact. Verified model downloads and compiled
+dependencies are saved even if a later test fails.
 
 The repository's `main` protection requires a pull request, an up-to-date branch,
 `CI required` from GitHub Actions, and resolved review conversations, including

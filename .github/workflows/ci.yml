@@ -60,6 +60,7 @@ jobs:
       CARGO_BUILD_JOBS: "2"
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
+      RUST_TEST_THREADS: "1"
       MACOSX_DEPLOYMENT_TARGET: "26.0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -70,6 +71,8 @@ jobs:
         run: |
           test "$(uname -m)" = arm64
           test "$(sw_vers -productVersion | cut -d . -f1)" -ge 26
+          sysctl -n hw.logicalcpu
+          system_profiler SPDisplaysDataType
           xcrun swiftc --version
           cmake --version
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -81,7 +84,8 @@ jobs:
       - name: Install pinned Rust toolchain
         run: rustup show active-toolchain
       - name: Cache Cargo downloads and native build
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        id: cargo-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: |
             ~/.cargo/registry
@@ -94,16 +98,28 @@ jobs:
           restore-keys: |
             native-macos26-${{ runner.os }}-${{ runner.arch }}-
       - name: Cache pinned Whisper model
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        id: whisper-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: src-tauri/resources/audio/ggml-large-v3-turbo.bin
           key: whisper-model-${{ hashFiles('src-tauri/scripts/provision-audio-assets.sh') }}
       - name: Provision and verify model assets
         run: npm run provision:assets
+      - name: Save verified Whisper model
+        if: ${{ steps.whisper-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: src-tauri/resources/audio/ggml-large-v3-turbo.bin
+          key: ${{ steps.whisper-cache.outputs.cache-primary-key }}
       - name: Lint Rust
+        id: rust-lint
         run: npm run check:rust
       - name: Test Rust and native integrations
-        run: npm run test:rust
+        # Run the slow AAC case first so a hosted inference deadline failure
+        # surfaces promptly. The remaining invocation excludes only that case.
+        run: |
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --test audio_workflow pinned_local_whisper_accepts_aac_m4a_through_application_import -- --exact
+          npm run test:rust -- -- --skip pinned_local_whisper_accepts_aac_m4a_through_application_import
       - name: Test frontend against native application driver
         run: npm run test:ui:integration
       - name: Build app bundle
@@ -117,6 +133,18 @@ jobs:
           test -s "$resources/meaning/manifest.json"
           test -s "$resources/audio/ggml-large-v3-turbo.bin"
           test -x "$resources/audio/whisper-cli"
+      - name: Save native cache even after a test failure
+        if: ${{ !cancelled() && steps.cargo-cache.outputs.cache-hit != 'true' && steps.rust-lint.outcome == 'success' }}
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target/debug/.fingerprint
+            src-tauri/target/debug/build
+            src-tauri/target/debug/deps
+            src-tauri/target/whisper-static-metal
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
 
   required:
     name: CI required
