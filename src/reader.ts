@@ -147,7 +147,6 @@ export async function mountReader(
   const pendingPathDetails = new Set<string>();
   let currentSearch: PageSearchRequest | null = null;
   let currentSelectedPageId: string | null = null;
-  let searchResults: PageSearchResults | null = null;
   let currentTimeline: TimelineRequest | null = null;
   let selectedTimelineEntry: string | null = null;
   type NavigationState =
@@ -1323,7 +1322,6 @@ export async function mountReader(
     results: PageSearchResults,
     request: PageSearchRequest,
   ) {
-    searchResults = results;
     currentSearch = { ...request, tags: [...request.tags] };
     currentSelectedPageId = null;
     currentView = "search";
