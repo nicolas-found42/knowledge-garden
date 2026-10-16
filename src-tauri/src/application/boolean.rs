@@ -130,7 +130,7 @@ fn clauses(
     *count += 1;
     if *count > 64 || depth > 16 {
         return Err(GardenError::Invalid(
-            "A query supports up to 64 clauses and 16 nested groups.".into(),
+            "A query supports up to 64 expression nodes (including groups and clauses) and 16 nested groups.".into(),
         ));
     }
     match expression {

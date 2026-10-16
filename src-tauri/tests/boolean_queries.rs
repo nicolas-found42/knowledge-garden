@@ -122,10 +122,37 @@ fn mixed_boolean_hops_scopes_and_known_set_negation_have_exact_authored_results(
     assert!(app.open_source(&pending_source.info.source_id).is_ok());
     assert!(app.open_knowledge_page(&id("Theo")).is_ok());
     let cleared = collect(&mut app, request(json!({"op":"and","children":[]})));
-    assert_eq!(cleared.len(), excluded.len() + 1);
-    assert!(cleared
+    let mut expected_clear = excluded
         .iter()
-        .any(|p| p.page_id == pending_source.info.page_id));
+        .map(|page| page.page_id.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    expected_clear.insert(pending_source.info.page_id.clone());
+    assert_eq!(
+        cleared
+            .iter()
+            .map(|page| page.page_id.clone())
+            .collect::<std::collections::BTreeSet<_>>(),
+        expected_clear
+    );
+    // The limit counts the root group plus every leaf, so 63 leaves fit.
+    let constraints = vec![json!({"op":"constraint","constraint":{}}); 63];
+    assert_eq!(
+        collect(
+            &mut app,
+            request(json!({"op":"and","children":constraints}))
+        )
+        .iter()
+        .map(|page| page.page_id.clone())
+        .collect::<std::collections::BTreeSet<_>>(),
+        expected_clear
+    );
+    let oversized =
+        request(json!({"op":"and","children":vec![json!({"op":"constraint","constraint":{}});64]}));
+    assert!(app
+        .query_pages(oversized)
+        .unwrap_err()
+        .to_string()
+        .contains("64 expression nodes"));
     let mut formatted = path.clone();
     formatted["endpoint"] = json!({"format":"txt","processing_status":"complete"});
     assert_eq!(

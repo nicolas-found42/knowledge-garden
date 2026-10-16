@@ -1722,12 +1722,15 @@ it("constructs a grouped typed Boolean query through keyboard controls with expl
     screen.getAllByLabelText("Hop direction")[0],
     "against_arrow",
   );
+  // The builder starts with one path; Add path clause creates a second.
+  expect(screen.getAllByLabelText("Relationship type")).toHaveLength(2);
   screen.getAllByRole("button", { name: "Add hop" })[0].focus();
   await user.keyboard("{Enter}");
   expect(document.activeElement).toBe(
     screen.getAllByRole("button", { name: "Add hop" })[0],
   );
-  // Shift-Tab stays in this path so the new hop can be removed by keyboard.
+  expect(screen.getAllByLabelText("Relationship type")).toHaveLength(3);
+  // Remove the new hop: one hop remains in each of the two path clauses.
   await user.keyboard("{Shift>}{Tab}{/Shift}{Enter}");
   expect(screen.getAllByLabelText("Relationship type")).toHaveLength(2);
   expect(document.activeElement).toBe(
