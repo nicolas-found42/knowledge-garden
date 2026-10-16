@@ -2,7 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 
-export type AcquisitionMethod = "picker" | "drop" | "url" | "repository";
+export type AcquisitionMethod =
+  "picker" | "drop" | "url" | "watch" | "repository";
 export type ExtractionState =
   | "text_preserved"
   | "structured_text"
@@ -38,6 +39,7 @@ export interface CoveragePart {
 export interface Acquisition {
   path: string;
   method: AcquisitionMethod;
+  path_encoding?: "raw" | "percent_encoded" | null;
   received_at: string;
   requested_url?: string | null;
   final_url?: string | null;
@@ -364,6 +366,9 @@ export interface TimelineResults {
 
 /** The reader's application boundary. Desktop paths never come from page HTML. */
 export interface GardenApi {
+  chooseDirectory?(): Promise<string | null>;
+  watchDirectory?(path: string): Promise<WatchedDirectory>;
+  listWatchedDirectories?(): Promise<WatchedDirectory[]>;
   timeline?(request: TimelineRequest): Promise<TimelineResults>;
   chooseFile(): Promise<string | null>;
   chooseRepositoryDirectory(): Promise<string | null>;
@@ -379,6 +384,7 @@ export interface GardenApi {
   explorePaths(request: PathExploreRequest): Promise<PathExploreResponse>;
   explorePathDetails(request: PathDetailsRequest): Promise<PathDetailsResponse>;
   openSource(sourceId: string): Promise<SourcePage>;
+  retainedSourceExists?(sourceId: string): Promise<boolean>;
   openKnowledgePage(pageId: string): Promise<KnowledgePage>;
   openOriginal(sourceId: string): Promise<void>;
   previewOriginal?(sourceId: string): Promise<string>;
@@ -391,6 +397,14 @@ export interface GardenApi {
   onDrop(handler: (paths: string[]) => void): Promise<() => void>;
 }
 
+export interface WatchedDirectory {
+  watch_id: string;
+  path: string;
+  state: "scanning" | "watching" | "unavailable";
+  detail: string | null;
+  processed_files: number;
+}
+
 export interface UrlAcquisitionStatus {
   url: string;
   attempts: number;
@@ -401,6 +415,16 @@ export interface UrlAcquisitionStatus {
 }
 
 export const desktopApi: GardenApi = {
+  async chooseDirectory() {
+    const selected = await open({
+      multiple: false,
+      directory: true,
+      title: "Watch directory",
+    });
+    return typeof selected === "string" ? selected : null;
+  },
+  watchDirectory: (path) => invoke("watch_directory", { path }),
+  listWatchedDirectories: () => invoke("list_watched_directories"),
   async chooseFile() {
     const selected = await open({
       multiple: false,
@@ -429,6 +453,8 @@ export const desktopApi: GardenApi = {
   explorePaths: (request) => invoke("explore_paths", { request }),
   explorePathDetails: (request) => invoke("explore_path_details", { request }),
   openSource: (sourceId) => invoke("open_source", { sourceId }),
+  retainedSourceExists: (sourceId) =>
+    invoke("retained_source_exists", { sourceId }),
   openKnowledgePage: (pageId) => invoke("open_knowledge_page", { pageId }),
   openOriginal: (sourceId) => invoke("open_original", { sourceId }),
   previewOriginal: (sourceId) => invoke("preview_original", { sourceId }),
