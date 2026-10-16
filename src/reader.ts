@@ -450,7 +450,7 @@ export async function mountReader(
       event.preventDefault();
       const href = link.getAttribute("href") ?? "";
       const audioSeekMatch = href.match(
-        /^\?audio_seek=(source-[a-f0-9]{64})&at_ms=(\d+)$/,
+        /^\?audio_seek=(source-[a-f0-9]{64})&at_ms=(\d+)(?:&version=([a-f0-9]{64})&asset=(original(?:\.[a-zA-Z0-9]+)?))?$/,
       );
       const knowledgeMatch = href.match(
         /(?:\.\.\/)?pages\/(page-[a-zA-Z0-9-]+)\.md/,
@@ -466,8 +466,20 @@ export async function mountReader(
       );
       if (audioSeekMatch) {
         const timestampMs = Number(audioSeekMatch[2]);
-        void api
-          .openOriginal(audioSeekMatch[1])
+        if (!Number.isSafeInteger(timestampMs)) {
+          message(
+            "This recording timestamp is unavailable. Open the retained original instead.",
+          );
+          return;
+        }
+        const opening = audioSeekMatch[3]
+          ? api.openOriginalVersion(
+              audioSeekMatch[1],
+              audioSeekMatch[3],
+              audioSeekMatch[4],
+            )
+          : api.openOriginal(audioSeekMatch[1]);
+        void opening
           .then(() => {
             message(
               `Opened the retained recording. Seek to ${Math.floor(timestampMs / 60000)}:${String(Math.floor(timestampMs / 1000) % 60).padStart(2, "0")} in your audio player; precise seeking is unavailable in this reader.`,

@@ -919,6 +919,33 @@ describe("collection reader", () => {
       screen.getByText(/precise seeking is unavailable in this reader/),
     ).toBeTruthy();
   });
+
+  it("opens the supporting recording version for an audio evidence timestamp", async () => {
+    const api = testApi();
+    const digest = "b".repeat(64);
+    const version = "c".repeat(64);
+    vi.mocked(api.importSource).mockResolvedValue({
+      ...riverside,
+      body: `# Recording evidence\n\n[Open audio at this timestamp](?audio_seek=source-${digest}&at_ms=65432&version=${version}&asset=original.wav)`,
+    });
+    const root = document.createElement("div");
+    document.body.append(root);
+    dispose = await mountReader(root, api);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Add source" }));
+    await user.click(
+      await screen.findByRole("link", { name: "Open audio at this timestamp" }),
+    );
+    await waitFor(() =>
+      expect(api.openOriginalVersion).toHaveBeenCalledWith(
+        `source-${digest}`,
+        version,
+        "original.wav",
+      ),
+    );
+    expect(api.openOriginal).not.toHaveBeenCalled();
+    expect(screen.getByText(/Seek to 1:05 in your audio player/)).toBeTruthy();
+  });
 });
 
 it("imports dropped files and restores the selected page after reopening the reader", async () => {
