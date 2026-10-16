@@ -47,3 +47,16 @@ publication pending for an automatic retry instead of silently discarding a save
 These guarantees concern ordinary file saves, including atomic replacement.
 They do not claim arbitrary Markdown structure interpretation, interoperability
 qualification with every Obsidian plugin, or live semantic-model quality.
+
+## Validation environment
+
+Validated on October 16, 2026 on Apple Silicon arm64, macOS 26.6 (25G72),
+using the repository's pinned dependencies and bundled native/model assets.
+Public Application fixtures use deterministic semantic responses. The mounted
+reader also exercises the real Rust Application through its process adapter.
+Coverage includes page moves and display names, atomic conflicting saves,
+malformed and duplicate identities, directory replacement, ordinary links and
+literal Markdown, legacy journals, and injected publication/reconciliation
+interruptions. Commands: `npm test`, `npm run check:rust`,
+`npm run format:check`, and `npm run build`. This is automated application
+validation, without an installed-app/Obsidian or live semantic-quality claim.
