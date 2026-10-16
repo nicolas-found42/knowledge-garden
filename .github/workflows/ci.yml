@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  frontend:
+    name: Frontend and tooling
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+      - name: Check formatting
+        run: npm run format:check
+      - name: Lint TypeScript
+        run: npm run lint
+      - name: Check types and production frontend build
+        run: npm run build
+      - name: Test frontend units
+        run: npm run test:ui:unit
+      - name: Check shell scripts
+        run: npm run check:shell
+      - name: Check GitHub Actions workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+  native:
+    name: macOS ARM native
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      # Keep native compilation within the standard hosted runner's memory.
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      RUST_TEST_THREADS: "1"
+      MACOSX_DEPLOYMENT_TARGET: "26.0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Verify native prerequisites
+        run: |
+          test "$(uname -m)" = arm64
+          test "$(sw_vers -productVersion | cut -d . -f1)" -ge 26
+          sysctl -n hw.logicalcpu
+          system_profiler SPDisplaysDataType
+          xcrun swiftc --version
+          cmake --version
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+      - name: Cache Cargo downloads and native build
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target/debug/.fingerprint
+            src-tauri/target/debug/build
+            src-tauri/target/debug/deps
+            src-tauri/target/whisper-static-metal
+          key: native-macos26-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'src-tauri/Cargo.lock', 'src-tauri/scripts/provision-audio-assets.sh') }}
+          restore-keys: |
+            native-macos26-${{ runner.os }}-${{ runner.arch }}-
+      - name: Cache pinned Whisper model
+        id: whisper-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: src-tauri/resources/audio/ggml-large-v3-turbo.bin
+          key: whisper-model-${{ hashFiles('src-tauri/scripts/provision-audio-assets.sh') }}
+      - name: Provision and verify model assets
+        run: npm run provision:assets
+      - name: Save verified Whisper model
+        if: ${{ steps.whisper-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: src-tauri/resources/audio/ggml-large-v3-turbo.bin
+          key: ${{ steps.whisper-cache.outputs.cache-primary-key }}
+      - name: Lint Rust
+        id: rust-lint
+        run: npm run check:rust
+      - name: Test Rust and native integrations
+        # Run the slow AAC case first so a hosted inference deadline failure
+        # surfaces promptly. The remaining invocation excludes only that case.
+        run: |
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --test audio_workflow pinned_local_whisper_accepts_aac_m4a_through_application_import -- --exact
+          npm run test:rust -- -- --skip pinned_local_whisper_accepts_aac_m4a_through_application_import
+      - name: Test frontend against native application driver
+        run: npm run test:ui:integration
+      - name: Build app bundle
+        # Debug still exercises Tauri bundling and resource inclusion, and reuses
+        # the tested Cargo profile on the standard runner. No release signing.
+        run: npm run tauri -- build --debug --ci --no-sign --bundles app -- --locked
+      - name: Verify bundled resources
+        run: |
+          resources="src-tauri/target/debug/bundle/macos/Knowledge Garden.app/Contents/Resources"
+          test -s "$resources/meaning/model.onnx"
+          test -s "$resources/meaning/manifest.json"
+          test -s "$resources/audio/ggml-large-v3-turbo.bin"
+          test -x "$resources/audio/whisper-cli"
+      - name: Save native cache even after a test failure
+        if: ${{ !cancelled() && steps.cargo-cache.outputs.cache-hit != 'true' && steps.rust-lint.outcome == 'success' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target/debug/.fingerprint
+            src-tauri/target/debug/build
+            src-tauri/target/debug/deps
+            src-tauri/target/whisper-static-metal
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+
+  required:
+    name: CI required
+    if: ${{ always() }}
+    needs: [frontend, native]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every check to succeed
+        env:
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          NATIVE_RESULT: ${{ needs.native.result }}
+        run: |
+          test "$FRONTEND_RESULT" = success
+          test "$NATIVE_RESULT" = success
