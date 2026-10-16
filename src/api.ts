@@ -376,6 +376,7 @@ export interface GardenApi {
   explorePaths(request: PathExploreRequest): Promise<PathExploreResponse>;
   explorePathDetails(request: PathDetailsRequest): Promise<PathDetailsResponse>;
   openSource(sourceId: string): Promise<SourcePage>;
+  retainedSourceExists?(sourceId: string): Promise<boolean>;
   openKnowledgePage(pageId: string): Promise<KnowledgePage>;
   openOriginal(sourceId: string): Promise<void>;
   previewOriginal?(sourceId: string): Promise<string>;
@@ -444,6 +445,8 @@ export const desktopApi: GardenApi = {
   explorePaths: (request) => invoke("explore_paths", { request }),
   explorePathDetails: (request) => invoke("explore_path_details", { request }),
   openSource: (sourceId) => invoke("open_source", { sourceId }),
+  retainedSourceExists: (sourceId) =>
+    invoke("retained_source_exists", { sourceId }),
   openKnowledgePage: (pageId) => invoke("open_knowledge_page", { pageId }),
   openOriginal: (sourceId) => invoke("open_original", { sourceId }),
   previewOriginal: (sourceId) => invoke("preview_original", { sourceId }),

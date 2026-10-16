@@ -85,6 +85,14 @@ async fn open_source(engine: State<'_, Engine>, source_id: String) -> Result<Sou
 }
 
 #[tauri::command]
+async fn retained_source_exists(
+    engine: State<'_, Engine>,
+    source_id: String,
+) -> Result<bool, String> {
+    with_engine(&engine, move |app| app.retained_source_exists(&source_id)).await
+}
+
+#[tauri::command]
 async fn open_knowledge_page(
     engine: State<'_, Engine>,
     page_id: String,
@@ -279,6 +287,7 @@ pub fn run() {
             import_url,
             list_url_acquisitions,
             open_source,
+            retained_source_exists,
             open_knowledge_page,
             list_sources,
             search_pages,

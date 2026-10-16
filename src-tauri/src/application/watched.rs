@@ -108,8 +108,18 @@ impl Application {
                 check_root(&mut watch)?;
                 for _ in 0..work_budget.min(128) {
                     check_root(&mut watch)?;
-                    if !self.watch_step(&mut watch)? {
-                        break;
+                    match self.watch_step(&mut watch) {
+                        Ok(false) => break,
+                        Ok(true) => {}
+                        Err(error) if !watch.withdrawing => {
+                            // Keep discovering unrelated files, but this scan can
+                            // never supply absence evidence. Retry on the next pass.
+                            watch.detail = Some(error.to_string());
+                            if !self.watch_readers.contains_key(&watch.watch_id) {
+                                watch.active = None;
+                            }
+                        }
+                        Err(error) => return Err(error),
                     }
                     self.save_watch(&watch)?;
                 }
@@ -144,6 +154,10 @@ impl Application {
             } else {
                 let active = watch.active.take().or_else(|| watch.pending.pop());
                 let Some(active) = active else {
+                    if watch.detail.is_some() {
+                        watch.state = "unavailable".into();
+                        return Ok(false);
+                    }
                     watch.withdrawing = true;
                     return Ok(true);
                 };
@@ -202,13 +216,7 @@ impl Application {
                 }
             }
             readable_file(&path)?;
-            let page = self.import_source_with_identity(
-                &path,
-                AcquisitionMethod::Watch,
-                None,
-                None,
-                Some(format!("watch:{}:{}", watch.watch_id, relative.display())),
-            )?;
+            let page = self.import_source(&path, AcquisitionMethod::Watch)?;
             write_record(
                 &receipt_path,
                 &FileReceipt {
@@ -263,7 +271,7 @@ impl Application {
             }
         }
         if receipt.missing == Some(watch.completed_generation) && watch.completed_generation != 0 {
-            self.withdraw_watched_source(&receipt.source_id, path)?;
+            self.withdraw_watched_source(&receipt.source_id, &source_path, path)?;
         } else if receipt.missing != Some(watch.generation) {
             receipt.missing = Some(watch.generation);
             write_record(path, &receipt)?;
@@ -329,13 +337,85 @@ impl Application {
         )
     }
 
-    fn withdraw_watched_source(&mut self, source_id: &str, receipt_path: &Path) -> Result<()> {
+    fn withdraw_watched_source(
+        &mut self,
+        source_id: &str,
+        origin: &Path,
+        receipt_path: &Path,
+    ) -> Result<()> {
+        let origin = normalized_origin(origin);
+        if !self.retained_source_exists(source_id)? {
+            // An overlapping watch already withdrew this same source.
+            commit_publication_with_removals(
+                &self.root,
+                Vec::new(),
+                vec![receipt_path.to_owned()],
+                None,
+            )?;
+            return Ok(());
+        }
+        let mut source = self.open_source(source_id)?;
+        source
+            .info
+            .acquisitions
+            .retain(|acquisition| normalized_origin(Path::new(&acquisition.path)) != origin);
+        let contexts = self.source_dir(source_id)?.join("acquisitions");
+        let mut removed_contexts = vec![receipt_path.to_owned()];
+        if contexts.exists() {
+            for entry in fs::read_dir(contexts)? {
+                let entry = entry?;
+                if entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "md")
+                {
+                    let acquisition: Acquisition = read_record(&entry.path())?;
+                    if normalized_origin(Path::new(&acquisition.path)) == origin {
+                        removed_contexts.push(entry.path());
+                    }
+                }
+            }
+        }
+        if !source.info.acquisitions.is_empty() {
+            // An established source can have other independent acquisition origins.
+            // Selecting a watch adopts its identity without owning those origins.
+            let files = vec![(
+                self.page_path(source_id)?,
+                serialize_page(&source.info, &source.body)?.into_bytes(),
+            )];
+            commit_publication_with_removals(
+                &self.root,
+                files,
+                removed_contexts,
+                self.fail_after_publication_files.take(),
+            )?;
+            return self.rebuild_index();
+        }
         self.capture_external_knowledge_edits()?;
         let removed = HashSet::from([source_id.to_owned()]);
         let mut files = Vec::new();
         let mut changed_owners = HashMap::<String, SourcePage>::new();
         let mut removals = vec![self.source_dir(source_id)?, receipt_path.to_owned()];
-        for path in self.knowledge_paths()? {
+        let paths = self.knowledge_paths()?;
+        let mut referenced = HashMap::new();
+        for path in &paths {
+            let header = read_knowledge_header(path)?;
+            for relationship in header.relationships {
+                if let Some(support) = relationship
+                    .supports
+                    .iter()
+                    .find(|support| support.source_id != source_id)
+                {
+                    for page_id in [relationship.from_page_id, relationship.to_page_id] {
+                        referenced.insert(
+                            page_id,
+                            (support.source_id.clone(), support.evidence.clone()),
+                        );
+                    }
+                }
+            }
+        }
+        for path in paths {
             let mut header = read_knowledge_header(&path)?;
             ensure_legacy_supports(&mut header);
             if !knowledge_header_supported_by(&header, source_id) && header.source_id != source_id {
@@ -352,6 +432,7 @@ impl Application {
                 && header.uninterpreted_owner_edits.is_empty()
                 && header.owner_metadata.is_empty()
                 && header.external_edit_status.is_none()
+                && !referenced.contains_key(&header.page_id)
             {
                 removals.push(path);
                 continue;
@@ -373,7 +454,8 @@ impl Application {
                             .flat_map(|tag| &tag.supports)
                             .next()
                             .map(|support| (support.source_id.clone(), support.evidence.clone()))
-                    });
+                    })
+                    .or_else(|| referenced.get(&header.page_id).cloned());
                 if let Some((owner, evidence)) = support {
                     header.source_id = owner;
                     header.evidence = evidence;

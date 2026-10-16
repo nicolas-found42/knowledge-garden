@@ -223,6 +223,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Application::open(args.get(1).ok_or("missing test collection")?)?
     };
     match operation {
+        "source-exists" => {
+            output(app.retained_source_exists(args.get(3).ok_or("missing source")?)?)
+        }
         "watch" => output(app.watch_directory(args.get(3).ok_or("missing directory")?)?),
         "watches" => output(app.list_watched_directories()?),
         "watch-step" => {

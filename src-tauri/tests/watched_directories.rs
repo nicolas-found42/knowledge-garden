@@ -1,3 +1,4 @@
+use knowledge_garden::application::AcquisitionMethod;
 use knowledge_garden::application::Application;
 use knowledge_garden::application::PageSearchRequest;
 use knowledge_garden::semantic::{
@@ -155,6 +156,14 @@ fn actual_removal_withdraws_only_sole_support_and_preserves_external_manual_auth
                 .any(|page| page.page_id == event.page_id),
             corrected
         );
+        assert_eq!(
+            app.timeline(knowledge_garden::timeline::TimelineRequest::default())
+                .unwrap()
+                .entries
+                .iter()
+                .any(|entry| entry.page_id == event.page_id),
+            corrected
+        );
         assert!(app
             .search_pages(PageSearchRequest {
                 query: "10 minutes".into(),
@@ -239,6 +248,106 @@ fn interrupted_discovery_disconnect_reconnect_and_confirmed_removal_preserve_ret
             .len(),
         1
     );
+}
+
+#[test]
+fn watching_an_existing_origin_keeps_its_identity_and_other_acquisitions() {
+    for independent in [false, true] {
+        let workspace = tempdir().unwrap();
+        let incoming = workspace.path().join("incoming");
+        let nested = incoming.join("nested");
+        fs::create_dir_all(&nested).unwrap();
+        let path = nested.join("V17.txt");
+        fs::write(&path, V17).unwrap();
+        let mut app = open(&workspace.path().join("collection"));
+        let initial = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+        app.resume_due_semantic_jobs().unwrap();
+        if independent {
+            let other = workspace.path().join("independent.txt");
+            fs::write(&other, V17).unwrap();
+            assert_eq!(
+                app.import_source(other, AcquisitionMethod::Picker)
+                    .unwrap()
+                    .info
+                    .source_id,
+                initial.info.source_id
+            );
+        }
+        app.watch_directory(&incoming).unwrap();
+        scan(&mut app);
+        assert_eq!(app.list_sources(0).unwrap().sources.len(), 1);
+        assert_eq!(
+            app.open_source(&initial.info.source_id)
+                .unwrap()
+                .info
+                .versions_seen
+                .len(),
+            1
+        );
+        fs::remove_dir_all(&nested).unwrap();
+        scan(&mut app);
+        scan(&mut app);
+        assert_eq!(
+            app.retained_source_exists(&initial.info.source_id).unwrap(),
+            independent
+        );
+        if independent {
+            let retained = app.open_source(&initial.info.source_id).unwrap();
+            assert_eq!(retained.info.acquisitions.len(), 1);
+            assert!(retained
+                .info
+                .acquisitions
+                .iter()
+                .all(|acquisition| acquisition.path != path.to_string_lossy()));
+            assert!(app.original_path(&initial.info.source_id).unwrap().exists());
+        }
+    }
+}
+
+#[test]
+fn identical_watched_acquisitions_share_a_source_until_the_last_origin_is_removed() {
+    let workspace = tempdir().unwrap();
+    let incoming = workspace.path().join("incoming");
+    fs::create_dir(&incoming).unwrap();
+    fs::write(incoming.join("first.txt"), V17).unwrap();
+    fs::write(incoming.join("copy.txt"), V17).unwrap();
+    let mut app = Application::open(workspace.path().join("collection")).unwrap();
+    app.watch_directory(&incoming).unwrap();
+    scan(&mut app);
+    assert_eq!(app.list_sources(0).unwrap().sources.len(), 1);
+    let source_id = app.list_sources(0).unwrap().sources[0].source_id.clone();
+    assert_eq!(
+        app.open_source(&source_id).unwrap().info.acquisitions.len(),
+        2
+    );
+    app.rebuild_index().unwrap();
+    fs::write(
+        incoming.join("copy.txt"),
+        V17.replace("revision 1", "revision 2"),
+    )
+    .unwrap();
+    scan(&mut app);
+    assert_eq!(app.list_sources(0).unwrap().sources.len(), 1);
+    assert_eq!(
+        app.open_source(&source_id)
+            .unwrap()
+            .info
+            .versions_seen
+            .len(),
+        2
+    );
+    fs::remove_file(incoming.join("first.txt")).unwrap();
+    scan(&mut app);
+    scan(&mut app);
+    assert!(app.retained_source_exists(&source_id).unwrap());
+    assert_eq!(
+        app.open_source(&source_id).unwrap().info.acquisitions.len(),
+        1
+    );
+    fs::remove_file(incoming.join("copy.txt")).unwrap();
+    scan(&mut app);
+    scan(&mut app);
+    assert!(!app.retained_source_exists(&source_id).unwrap());
 }
 
 #[test]
@@ -337,12 +446,13 @@ fn unreadable_subdirectory_and_unreadable_files_cannot_supply_deletion_evidence(
         fs::Permissions::from_mode(0o000),
     )
     .unwrap();
+    fs::write(incoming.join("later.txt"), "A later readable source.").unwrap();
     scan(&mut app);
     assert_eq!(
         app.list_watched_directories().unwrap()[0].state,
         "unavailable"
     );
-    assert_eq!(app.list_sources(0).unwrap().sources.len(), 2);
+    assert_eq!(app.list_sources(0).unwrap().sources.len(), 3);
     fs::set_permissions(
         incoming.join("other.txt"),
         fs::Permissions::from_mode(0o644),
@@ -411,6 +521,12 @@ fn interrupted_withdrawal_recovers_markdown_and_asset_removal_together() {
 #[cfg(target_os = "macos")]
 #[test]
 fn mounted_volume_disconnect_empty_mountpoint_and_remount_recover_automatically() {
+    check_mounted_volume(false);
+    check_mounted_volume(true);
+}
+
+#[cfg(target_os = "macos")]
+fn check_mounted_volume(nested: bool) {
     use std::path::{Path, PathBuf};
     use std::process::Command;
     struct Mounted(PathBuf);
@@ -436,7 +552,9 @@ fn mounted_volume_disconnect_empty_mountpoint_and_remount_recover_automatically(
     }
     let workspace = tempdir().unwrap();
     let image = workspace.path().join("fixture.dmg");
-    let mounted = workspace.path().join("mounted");
+    let incoming = workspace.path().join("incoming");
+    fs::create_dir(&incoming).unwrap();
+    let mounted = incoming.join("mounted");
     hdiutil(
         &[
             "create",
@@ -467,7 +585,8 @@ fn mounted_volume_disconnect_empty_mountpoint_and_remount_recover_automatically(
     let _guard = Mounted(mounted.clone());
     fs::write(mounted.join("V17.txt"), V17).unwrap();
     let mut app = Application::open(workspace.path().join("collection")).unwrap();
-    app.watch_directory(&mounted).unwrap();
+    app.watch_directory(if nested { &incoming } else { &mounted })
+        .unwrap();
     scan(&mut app);
     let source = app
         .list_sources(0)

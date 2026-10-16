@@ -1345,12 +1345,7 @@ impl Application {
                 format!("source-{:x}", Sha256::digest(identity.as_bytes()))
             })
         } else if let Some(scope) = source_identity_scope {
-            let prefix = if method == AcquisitionMethod::Watch {
-                "watched-source"
-            } else {
-                "repository-source"
-            };
-            let identity = format!("{prefix}:{format}:{scope}");
+            let identity = format!("repository-source:{format}:{scope}");
             format!("source-{:x}", Sha256::digest(identity.as_bytes()))
         } else {
             existing_origin
@@ -1800,9 +1795,15 @@ impl Application {
                         GardenError::Invalid("An acquisition record is unreadable.".into())
                     })?
                     .0;
-                page.info
-                    .acquisitions
-                    .push(serde_yaml_ng::from_str(header)?);
+                let acquisition: Acquisition = serde_yaml_ng::from_str(header)?;
+                if !page.info.acquisitions.iter().any(|old| {
+                    old.path == acquisition.path
+                        && old.method == acquisition.method
+                        && old.requested_url == acquisition.requested_url
+                        && old.final_url == acquisition.final_url
+                }) {
+                    page.info.acquisitions.push(acquisition);
+                }
             }
             page.info
                 .acquisitions
@@ -1810,6 +1811,14 @@ impl Application {
         }
         page.knowledge_pages = page.info.knowledge_pages.clone();
         Ok(page)
+    }
+
+    pub fn retained_source_exists(&self, source_id: &str) -> Result<bool> {
+        match fs::metadata(self.page_path(source_id)?) {
+            Ok(metadata) => Ok(metadata.is_file()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error.into()),
+        }
     }
 
     pub fn open_knowledge_page(&self, page_id: &str) -> Result<KnowledgePage> {
@@ -6095,6 +6104,7 @@ impl Application {
                 continue;
             }
             let page = read_page(&entry.path().join("index.md"))?;
+            let page = self.open_source(&page.info.source_id)?;
             transaction.execute(
                 "INSERT INTO sources (source_id, summary) VALUES (?1, ?2)",
                 params![page.info.source_id, summary_json(&page.info)?],
@@ -6103,6 +6113,13 @@ impl Application {
                 transaction.execute(
                     "INSERT OR REPLACE INTO source_origins(path, source_id) VALUES (?1, ?2)",
                     params![acquisition.path, page.info.source_id],
+                )?;
+                transaction.execute(
+                    "INSERT OR REPLACE INTO source_origins(path, source_id) VALUES (?1, ?2)",
+                    params![
+                        normalized_origin(Path::new(&acquisition.path)).to_string_lossy(),
+                        page.info.source_id
+                    ],
                 )?;
             }
             for version in &page.info.versions_seen {
@@ -6125,45 +6142,7 @@ impl Application {
                 if header.source_id != page.info.source_id {
                     continue;
                 }
-                let date_facts = header
-                    .facts
-                    .iter()
-                    .filter(|fact| {
-                        ["event_date", "occurred_on", "date"]
-                            .iter()
-                            .any(|property| fact.property.eq_ignore_ascii_case(property))
-                    })
-                    .collect::<Vec<_>>();
-                let date = crate::timeline::qualify_dates(
-                    &date_facts
-                        .iter()
-                        .map(|fact| fact.value.as_str())
-                        .collect::<Vec<_>>(),
-                );
-                let date_fact = date_facts.first().copied();
-                let entry = crate::timeline::TimelineEntry {
-                    entry_id: format!("event:{}", header.page_id),
-                    page_id: header.page_id.clone(),
-                    source_id: header.source_id.clone(),
-                    title: header.title.clone(),
-                    kind: header.kind.clone(),
-                    date_label: date.label,
-                    date_start: date.start,
-                    date_end: date.end,
-                    precision: date.precision,
-                    date_status: date.status,
-                    qualifier: date_fact.and_then(|fact| fact.qualifier.clone()),
-                    support: Some(search_location(
-                        &date_fact
-                            .map(|fact| fact.fact_id.clone())
-                            .unwrap_or_else(|| header.page_id.clone()),
-                        &header.source_id,
-                        None,
-                        date_fact
-                            .map(|fact| &fact.evidence)
-                            .unwrap_or(&header.evidence),
-                    )),
-                };
+                let entry = event_timeline_entry(&header);
                 transaction.execute("INSERT INTO timeline_entries(entry_id,date_meaning,date_start,date_end,entry) VALUES (?1,'source_event',?2,?3,?4)", params![entry.entry_id, entry.date_start, entry.date_end, serde_json::to_string(&entry)?])?;
             }
         }
@@ -6180,6 +6159,11 @@ impl Application {
                     .exists()
                 {
                     // Authoritative owner edits outlive removal of their last source.
+                    if header.kind == "event" {
+                        let mut entry = event_timeline_entry(&header);
+                        entry.support = None;
+                        transaction.execute("INSERT INTO timeline_entries(entry_id,date_meaning,date_start,date_end,entry) VALUES (?1,'source_event',?2,?3,?4)", params![entry.entry_id, entry.date_start, entry.date_end, serde_json::to_string(&entry)?])?;
+                    }
                     write_search_documents(
                         &transaction,
                         &[SearchDocument {
@@ -6394,11 +6378,12 @@ impl Application {
     }
 
     fn source_for_origin(&self, path: &str) -> Result<Option<String>> {
+        let path = normalized_origin(Path::new(path));
         Ok(self
             .index
             .query_row(
                 "SELECT source_id FROM source_origins WHERE path=?1",
-                [path],
+                [path.to_string_lossy()],
                 |row| row.get(0),
             )
             .optional()?)
@@ -6419,6 +6404,13 @@ impl Application {
         self.index.execute(
             "INSERT OR REPLACE INTO source_origins(path, source_id) VALUES (?1, ?2)",
             params![path, source_id],
+        )?;
+        self.index.execute(
+            "INSERT OR REPLACE INTO source_origins(path, source_id) VALUES (?1, ?2)",
+            params![
+                normalized_origin(Path::new(path)).to_string_lossy(),
+                source_id
+            ],
         )?;
         Ok(())
     }
@@ -6555,6 +6547,68 @@ fn summary_json(info: &SourceInfo) -> Result<String> {
         extraction: info.extraction,
     })
     .map_err(|e| GardenError::Invalid(e.to_string()))
+}
+
+fn event_timeline_entry(header: &KnowledgePageHeader) -> crate::timeline::TimelineEntry {
+    let date_facts = header
+        .facts
+        .iter()
+        .filter(|fact| {
+            ["event_date", "occurred_on", "date"]
+                .iter()
+                .any(|property| fact.property.eq_ignore_ascii_case(property))
+        })
+        .collect::<Vec<_>>();
+    let date = crate::timeline::qualify_dates(
+        &date_facts
+            .iter()
+            .map(|fact| fact.value.as_str())
+            .collect::<Vec<_>>(),
+    );
+    let date_fact = date_facts.first().copied();
+    crate::timeline::TimelineEntry {
+        entry_id: format!("event:{}", header.page_id),
+        page_id: header.page_id.clone(),
+        source_id: header.source_id.clone(),
+        title: header.title.clone(),
+        kind: header.kind.clone(),
+        date_label: date.label,
+        date_start: date.start,
+        date_end: date.end,
+        precision: date.precision,
+        date_status: date.status,
+        qualifier: date_fact.and_then(|fact| fact.qualifier.clone()),
+        support: Some(search_location(
+            &date_fact
+                .map(|fact| fact.fact_id.clone())
+                .unwrap_or_else(|| header.page_id.clone()),
+            &header.source_id,
+            None,
+            date_fact
+                .map(|fact| &fact.evidence)
+                .unwrap_or(&header.evidence),
+        )),
+    }
+}
+
+fn normalized_origin(path: &Path) -> PathBuf {
+    let mut ancestor = path;
+    let mut missing = Vec::new();
+    loop {
+        if let Ok(mut canonical) = fs::canonicalize(ancestor) {
+            for name in missing.into_iter().rev() {
+                canonical.push(name);
+            }
+            return canonical;
+        }
+        match (ancestor.parent(), ancestor.file_name()) {
+            (Some(parent), Some(name)) => {
+                missing.push(name);
+                ancestor = parent;
+            }
+            _ => return path.to_owned(),
+        }
+    }
 }
 
 fn classify_source(

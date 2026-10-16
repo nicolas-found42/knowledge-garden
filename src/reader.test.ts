@@ -132,6 +132,103 @@ it("selects a watched directory once and shows unavailability without hiding ret
   expect(screen.getByRole("article").textContent).toContain("Observation V17");
 });
 
+it("refreshes watched source discovery, completed pages, and confirmed removal while open", async () => {
+  let refresh: (() => void) | undefined;
+  const interval = vi.spyOn(window, "setInterval");
+  const api = testApi();
+  api.listWatchedDirectories = vi.fn().mockResolvedValue([]);
+  api.retainedSourceExists = vi.fn().mockResolvedValue(true);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  refresh = interval.mock.calls[0][0] as () => void;
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Sources" }));
+  expect(screen.getByText("No sources yet.")).toBeTruthy();
+  api.listSources = vi
+    .fn()
+    .mockResolvedValue({ sources: [riverside.info], next_offset: null });
+  api.openSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: { ...riverside.info, semantic_state: "complete" },
+  });
+  refresh!();
+  await user.click(
+    await screen.findByRole("button", { name: "Riverside notes" }),
+  );
+  expect(await screen.findByRole("article")).toBeTruthy();
+  api.openSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: { ...riverside.info, semantic_state: "complete" },
+    markdown: "Changed source",
+    body: "# New automatic source version",
+  });
+  refresh!();
+  expect(
+    await screen.findByRole("heading", {
+      name: "New automatic source version",
+    }),
+  ).toBeTruthy();
+  api.listSources = vi
+    .fn()
+    .mockResolvedValue({ sources: [], next_offset: null });
+  api.openSource = vi.fn().mockRejectedValue(new Error("Source removed"));
+  api.retainedSourceExists = vi.fn().mockResolvedValue(false);
+  refresh!();
+  expect(
+    await screen.findByText(
+      /This source was removed from its watched directory/,
+    ),
+  ).toBeTruthy();
+});
+
+it("keeps explicit source pagination when an older background refresh finishes later", async () => {
+  const interval = vi.spyOn(window, "setInterval");
+  const api = testApi();
+  api.listSources = vi
+    .fn()
+    .mockResolvedValue({ sources: [riverside.info], next_offset: 50 });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Sources" }));
+  let finishOld:
+    | ((value: {
+        sources: (typeof riverside.info)[];
+        next_offset: number;
+      }) => void)
+    | undefined;
+  api.listSources = vi.fn().mockImplementation((offset: number) =>
+    offset === 0
+      ? new Promise((resolve) => {
+          finishOld = resolve;
+        })
+      : Promise.resolve({
+          sources: [
+            {
+              ...riverside.info,
+              title: "Later source",
+              source_id: "source-later",
+            },
+          ],
+          next_offset: null,
+        }),
+  );
+  (interval.mock.calls[0][0] as () => void)();
+  await user.click(screen.getByRole("button", { name: "More sources" }));
+  expect(
+    await screen.findByRole("button", { name: "Later source" }),
+  ).toBeTruthy();
+  finishOld!({ sources: [riverside.info], next_offset: 50 });
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: "Riverside notes" }),
+    ).toBeNull(),
+  );
+  expect(screen.getByRole("button", { name: "Later source" })).toBeTruthy();
+});
+
 it("imports a chosen repository, opens its source, and reports excluded paths", async () => {
   const api = testApi();
   api.chooseRepositoryDirectory = vi.fn().mockResolvedValue("/tmp/sample-repo");
