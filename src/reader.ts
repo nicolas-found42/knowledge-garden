@@ -470,10 +470,10 @@ export async function mountReader(
         /(?:\.\.\/)?sources\/([a-f0-9]{64})\/index\.md/,
       );
       const versionedOriginalMatch = href.match(
-        /^(?:\.\.\/)?sources\/([a-f0-9]{64})\/versions\/([a-f0-9]{64})\/(original(?:\.[a-zA-Z0-9]+)?)$/,
+        /^(?:\.\.\/)*sources\/([a-f0-9]{64})\/versions\/([a-f0-9]{64})\/(original(?:\.[a-zA-Z0-9]+)?)$/,
       );
       const originalMatch = href.match(
-        /^(?:\.\.\/)?sources\/([a-f0-9]{64})\/(original(?:\.[a-zA-Z0-9]+)?)$/,
+        /^(?:\.\.\/)*sources\/([a-f0-9]{64})\/(original(?:\.[a-zA-Z0-9]+)?)$/,
       );
       if (audioSeekMatch) {
         const timestampMs = Number(audioSeekMatch[2]);
@@ -515,16 +515,20 @@ export async function mountReader(
           .openOriginalAsset(`source-${originalMatch[1]}`, originalMatch[2])
           .catch(report);
       } else if (
-        currentKnowledgePageId &&
+        (currentKnowledgePageId || page?.info.page_id) &&
         api.resolvePageLink &&
         /\.md(?:[?#]|$)/i.test(href) &&
         !/^[a-z]+:/i.test(href)
       ) {
-        const origin = currentKnowledgePageId;
+        const origin = (currentKnowledgePageId ?? page?.info.page_id)!;
         void api
           .resolvePageLink(origin, href)
           .then((id) => {
-            if (disposed || currentKnowledgePageId !== origin) return;
+            if (
+              disposed ||
+              (currentKnowledgePageId ?? page?.info.page_id) !== origin
+            )
+              return;
             pushCurrentState();
             return api.openKnowledgePage(id).then(showKnowledgePage);
           })

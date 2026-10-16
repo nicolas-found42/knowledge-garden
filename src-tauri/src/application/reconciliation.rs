@@ -74,7 +74,7 @@ impl Application {
                             .unwrap()
                             .to_string_lossy()
                             .into_owned(),
-                        text,
+                        format!("{:x}", Sha256::digest(text.as_bytes())),
                     );
                 }
             }
@@ -85,7 +85,9 @@ impl Application {
         let scan = self.collection_scan.take().unwrap();
         let digest = format!("{:x}", Sha256::digest(serde_json::to_vec(&scan.files)?));
         if self.collection_digest.as_ref() != Some(&digest) {
-            self.reconcile_snapshot(scan.files)?;
+            if !self.reconcile_snapshot(scan.files)? {
+                return Ok(self.reconciliation_status(false));
+            }
             self.rebuild_index()?;
             self.collection_digest = Some(digest);
             self.collection_revision += 1;
@@ -105,7 +107,7 @@ impl Application {
         }
     }
 
-    fn reconcile_snapshot(&mut self, files: BTreeMap<String, String>) -> Result<()> {
+    fn reconcile_snapshot(&mut self, files: BTreeMap<String, String>) -> Result<bool> {
         let ledger_path = self.root.join(".reconciliation/paths.md");
         let previous: Ledger = if ledger_path.exists() {
             let text = read_bounded_text(&ledger_path, MAX_PAGE_BYTES)?;
@@ -125,16 +127,20 @@ impl Application {
         };
         let mut candidates = BTreeMap::<String, Vec<String>>::new();
         let mut diagnostics = Vec::new();
-        for (path, text) in &files {
-            if path.starts_with("sources/") && path.ends_with("/index.md") {
-                if read_page(&self.root.join(path)).is_err() {
-                    diagnostics.push(CollectionDiagnostic { kind: "malformed_metadata".into(), paths: vec![path.clone()], detail: "Source metadata is unreadable; the original file and retained assets remain preserved.".into() });
-                }
+        for path in files.keys() {
+            let Ok(text) = read_bounded_text(&self.root.join(path), MAX_PAGE_BYTES) else {
+                return Ok(false);
+            };
+            if path.starts_with("sources/")
+                && path.ends_with("/index.md")
+                && read_page(&self.root.join(path)).is_err()
+            {
+                diagnostics.push(CollectionDiagnostic { kind: "malformed_metadata".into(), paths: vec![path.clone()], detail: "Source metadata is unreadable; the original file and retained assets remain preserved.".into() });
             }
             if !path.starts_with("pages/") {
                 continue;
             }
-            match parse_knowledge_header(text) {
+            match parse_knowledge_header(&text) {
                 Ok(header) => {
                     if !header.uninterpreted_owner_edits.is_empty() {
                         diagnostics.push(CollectionDiagnostic { kind: "retained_owner_save".into(), paths: header.uninterpreted_owner_edits.clone(), detail: "Exact owner saves retained with uncertainty. Supported manual corrections remain authoritative; unedited facts continue updating.".into() });
@@ -173,22 +179,24 @@ impl Application {
         // that the new occupant should become the target of an old incoming link.
         aliases.retain(|old, new| old == new || !files.contains_key(old));
         let mut writes = Vec::new();
-        // A replacement during a scan is not a complete generation. Retry from
-        // the current tree instead of inferring deletion from stale entries.
-        for (path, text) in &files {
-            if fs::read(self.root.join(path)).ok().as_deref() != Some(text.as_bytes()) {
-                self.collection_digest = None;
-                return Ok(());
+        let mut bases = HashMap::new();
+        for (path, fingerprint) in &files {
+            if path.starts_with("sources/") && !path.ends_with("/index.md") {
+                continue;
             }
-        }
-        for (path, text) in &files {
+            let Ok(text) = read_bounded_text(&self.root.join(path), MAX_PAGE_BYTES) else {
+                return Ok(false);
+            };
+            if format!("{:x}", Sha256::digest(text.as_bytes())) != *fingerprint {
+                return Ok(false);
+            }
             let is_ambiguous = candidates
                 .values()
                 .any(|paths| paths.len() > 1 && paths.contains(path));
             if is_ambiguous
                 || (path.starts_with("pages/")
                     && text.starts_with("---\n")
-                    && parse_knowledge_header(text).is_err())
+                    && parse_knowledge_header(&text).is_err())
             {
                 continue;
             }
@@ -202,7 +210,12 @@ impl Application {
                         .map(|_| old.as_str())
                 })
                 .unwrap_or(path);
-            let rebased = rebase_links(origin, path, text);
+            let rebased = map_markdown_links(&text, |href| {
+                if resolve_relative(path, href).is_some_and(|target| files.contains_key(&target)) {
+                    return href.to_owned();
+                }
+                rebase_href(origin, path, href)
+            });
             let mut repaired = repair_links(path, &rebased, &aliases, &files, &mut diagnostics);
             if path.starts_with("sources/") && path.ends_with("/index.md") {
                 if let Ok(mut page) = read_page(&self.root.join(path)) {
@@ -212,7 +225,7 @@ impl Application {
                             .get(&summary.page_id)
                             .filter(|paths| paths.len() == 1)
                         {
-                            let header = parse_knowledge_header(&files[&paths[0]])?;
+                            let header = read_knowledge_header(&self.root.join(&paths[0]))?;
                             changed |= summary.path != paths[0] || summary.title != header.title;
                             summary.path = paths[0].clone();
                             summary.title = header.title;
@@ -227,23 +240,24 @@ impl Application {
                     }
                 }
             }
-            if repaired != *text {
+            if repaired != text {
+                bases.insert(self.root.join(path), text.into_bytes());
                 writes.push((self.root.join(path), repaired.into_bytes()));
             }
         }
         let ledger_text = format!("---\n{}---\n\n# Page locations\n\nLast unambiguous paths, used to repair ordinary links after moves. Markdown pages remain authoritative.\n", serde_yaml_ng::to_string(&ledger)?);
+        if ledger_path.exists() {
+            bases.insert(ledger_path.clone(), fs::read(&ledger_path)?);
+        }
         writes.push((ledger_path, ledger_text.into_bytes()));
         commit_publication(
             &self.root,
             writes,
-            &files
-                .iter()
-                .map(|(path, text)| (self.root.join(path), text.as_bytes().to_vec()))
-                .collect(),
+            &bases,
             self.fail_after_publication_files.take(),
         )?;
         self.collection_diagnostics = diagnostics;
-        Ok(())
+        Ok(true)
     }
 
     pub fn collection_file_path(&self, relative: &str) -> Result<PathBuf> {
@@ -269,7 +283,20 @@ impl Application {
 
     /// Resolve a relative ordinary Markdown link at the reader boundary.
     pub fn resolve_page_link(&self, page_id: &str, href: &str) -> Result<String> {
-        let from = self.knowledge_path(page_id)?;
+        let source_path = self
+            .index
+            .query_row(
+                "SELECT summary FROM sources WHERE json_extract(summary, '$.page_id') = ?1",
+                [page_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let from = if let Some(summary) = source_path {
+            let summary: SourceSummary = serde_json::from_str(&summary)?;
+            self.page_path(&summary.source_id)?
+        } else {
+            self.knowledge_path(page_id)?
+        };
         let relative = from.strip_prefix(&self.root).unwrap().to_string_lossy();
         let target = resolve_relative(&relative, href)
             .ok_or_else(|| GardenError::Invalid("This link is outside the collection.".into()))?;
@@ -334,37 +361,141 @@ fn repair_links(
     files: &BTreeMap<String, String>,
     diagnostics: &mut Vec<CollectionDiagnostic>,
 ) -> String {
-    let links = regex::Regex::new(r"\]\(([^\s)]+)([^)]*)\)|(?m)^\[[^\]\n]+\]:\s*(\S+)").unwrap();
-    links.replace_all(text, |capture: &regex::Captures<'_>| {
-        let matched = capture.get(1).or_else(|| capture.get(3)).unwrap();
-        let href = matched.as_str();
-        let Some(target) = resolve_relative(from, href) else { return capture[0].to_owned() };
+    map_markdown_links(text, |href| {
+        let Some(target) = resolve_relative(from, href) else {
+            return href.to_owned();
+        };
         if let Some(destination) = aliases.get(&target) {
-            let suffix = href.find(['#','?']).map(|at| &href[at..]).unwrap_or("");
-            let replaced = format!("{}{suffix}", relative_link(from, destination));
-            return capture[0].replacen(href, &replaced, 1);
+            let suffix = href.find(['#', '?']).map(|at| &href[at..]).unwrap_or("");
+            return format!("{}{suffix}", relative_link(from, destination));
         }
         if target.ends_with(".md") && !files.contains_key(&target) {
-            diagnostics.push(CollectionDiagnostic { kind: "unresolved_target".into(), paths: vec![from.into(), target], detail: "The ordinary Markdown target is missing or ambiguous; the link was preserved.".into() });
+            diagnostics.push(CollectionDiagnostic {
+                kind: "unresolved_target".into(),
+                paths: vec![from.into(), target],
+                detail:
+                    "The ordinary Markdown target is missing or ambiguous; the link was preserved."
+                        .into(),
+            });
         }
-        capture[0].to_owned()
-    }).into_owned()
+        href.to_owned()
+    })
+}
+
+fn rebase_href(from: &str, to: &str, href: &str) -> String {
+    let Some(target) = resolve_relative(from, href) else {
+        return href.to_owned();
+    };
+    let suffix = href.find(['#', '?']).map(|at| &href[at..]).unwrap_or("");
+    format!("{}{suffix}", relative_link(to, &target))
 }
 
 pub(super) fn rebase_links(from: &str, to: &str, text: &str) -> String {
     if from == to {
         return text.to_owned();
     }
-    let links = regex::Regex::new(r"\]\(([^\s)]+)([^)]*)\)|(?m)^\[[^\]\n]+\]:\s*(\S+)").unwrap();
-    links
-        .replace_all(text, |capture: &regex::Captures<'_>| {
-            let matched = capture.get(1).or_else(|| capture.get(3)).unwrap();
-            let href = matched.as_str();
-            let Some(target) = resolve_relative(from, href) else {
-                return capture[0].to_owned();
-            };
-            let suffix = href.find(['#', '?']).map(|at| &href[at..]).unwrap_or("");
-            capture[0].replacen(href, &format!("{}{suffix}", relative_link(to, &target)), 1)
-        })
-        .into_owned()
+    map_markdown_links(text, |href| rebase_href(from, to, href))
+}
+
+/// Rewrite only Markdown destinations, never YAML, fenced/indented code, or
+/// inline code. Unsupported constructs remain unchanged and readable.
+fn map_markdown_links(text: &str, mut rewrite: impl FnMut(&str) -> String) -> String {
+    static LINKS: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let links = LINKS.get_or_init(|| {
+        regex::Regex::new(r"\]\((<[^>\n]+>|[^\s)]+)([^)]*)\)|(?m)^\[[^\]\n]+\]:\s*(<[^>\n]+>|\S+)")
+            .unwrap()
+    });
+    let mut result = String::with_capacity(text.len());
+    let mut yaml = text.starts_with("---\n");
+    let mut fence = None::<(u8, usize)>;
+    let mut ticks = None::<usize>;
+    for (index, line) in text.split_inclusive('\n').enumerate() {
+        if yaml {
+            result.push_str(line);
+            if index > 0 && line.trim_end() == "---" {
+                yaml = false;
+            }
+            continue;
+        }
+        let trimmed = line.trim_start_matches(' ');
+        let indent = line.len() - trimmed.len();
+        let marker = trimmed.as_bytes().first().copied().unwrap_or(0);
+        let run = trimmed.bytes().take_while(|byte| *byte == marker).count();
+        if let Some((character, count)) = fence {
+            result.push_str(line);
+            if indent <= 3
+                && marker == character
+                && run >= count
+                && trimmed[run..].trim().is_empty()
+            {
+                fence = None;
+            }
+            continue;
+        }
+        if indent <= 3 && matches!(marker, b'`' | b'~') && run >= 3 {
+            fence = Some((marker, run));
+            result.push_str(line);
+            continue;
+        }
+        if indent >= 4 || line.starts_with('\t') {
+            result.push_str(line);
+            continue;
+        }
+        let mut start = 0;
+        let mut at = 0;
+        while at < line.len() {
+            if line.as_bytes()[at] != b'`' {
+                at += 1;
+                continue;
+            }
+            let count = line.as_bytes()[at..]
+                .iter()
+                .take_while(|byte| **byte == b'`')
+                .count();
+            if ticks.is_none() {
+                result.push_str(
+                    &links.replace_all(&line[start..at], |capture: &regex::Captures<'_>| {
+                        replace_destination(capture, &mut rewrite)
+                    }),
+                );
+                start = at;
+                ticks = Some(count);
+            } else if ticks == Some(count) {
+                result.push_str(&line[start..at + count]);
+                start = at + count;
+                ticks = None;
+            }
+            at += count;
+        }
+        if ticks.is_some() {
+            result.push_str(&line[start..]);
+        } else {
+            result.push_str(
+                &links.replace_all(&line[start..], |capture: &regex::Captures<'_>| {
+                    replace_destination(capture, &mut rewrite)
+                }),
+            );
+        }
+    }
+    result
+}
+
+fn replace_destination(
+    capture: &regex::Captures<'_>,
+    rewrite: &mut impl FnMut(&str) -> String,
+) -> String {
+    let matched = capture.get(1).or_else(|| capture.get(3)).unwrap();
+    let raw = matched.as_str();
+    let angle = raw.starts_with('<') && raw.ends_with('>');
+    let href = if angle { &raw[1..raw.len() - 1] } else { raw };
+    let replacement = rewrite(href);
+    let replacement = if angle {
+        format!("<{replacement}>")
+    } else {
+        replacement
+    };
+    let offset = matched.start() - capture.get(0).unwrap().start();
+    let mut result = capture[0].to_owned();
+    result.replace_range(offset..offset + raw.len(), &replacement);
+    result
 }

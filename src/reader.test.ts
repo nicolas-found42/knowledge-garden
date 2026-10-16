@@ -1868,12 +1868,10 @@ it("shows inspectable external-file diagnostics and resolves renamed ordinary li
         ? "# Owner title"
         : "# Reading\n\n[Renamed observation](Owner%20folder/Renamed.md#facts)",
   }));
-  api.importSource = vi
-    .fn()
-    .mockResolvedValue({
-      ...riverside,
-      body: "# Source\n\n[Reading](pages/page-reading.md)",
-    });
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    body: "# Source\n\n[Reading](pages/page-reading.md)",
+  });
   const root = document.createElement("div");
   document.body.append(root);
   dispose = await mountReader(root, api);

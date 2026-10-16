@@ -223,6 +223,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Application::open(args.get(1).ok_or("missing test collection")?)?
     };
     match operation {
+        "collection-status" => output(app.collection_status()),
+        "resolve-link" => output(app.resolve_page_link(
+            args.get(3).ok_or("missing page identity")?,
+            args.get(4).ok_or("missing link")?,
+        )?),
         "live-import" => {
             let page = app.import_source(
                 args.get(3).ok_or("missing fixture path")?,
