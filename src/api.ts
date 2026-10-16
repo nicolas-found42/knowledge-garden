@@ -356,8 +356,17 @@ export interface TimelineResults {
   next_offset: number | null;
 }
 
+export interface CollectionStatus {
+  complete: boolean;
+  revision: number;
+  diagnostics: Array<{ kind: string; paths: string[]; detail: string }>;
+}
+
 /** The reader's application boundary. Desktop paths never come from page HTML. */
 export interface GardenApi {
+  openCollectionFile?(path: string): Promise<void>;
+  collectionStatus?(): Promise<CollectionStatus>;
+  resolvePageLink?(pageId: string, href: string): Promise<string>;
   timeline?(request: TimelineRequest): Promise<TimelineResults>;
   chooseFile(): Promise<string | null>;
   chooseRepositoryDirectory(): Promise<string | null>;
@@ -395,6 +404,10 @@ export interface UrlAcquisitionStatus {
 }
 
 export const desktopApi: GardenApi = {
+  openCollectionFile: (path) => invoke("open_collection_file", { path }),
+  collectionStatus: () => invoke("collection_status"),
+  resolvePageLink: (pageId, href) =>
+    invoke("resolve_page_link", { pageId, href }),
   async chooseFile() {
     const selected = await open({
       multiple: false,

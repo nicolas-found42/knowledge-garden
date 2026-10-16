@@ -5857,3 +5857,288 @@ fn owner_page_move_preserves_identity_search_and_navigation_after_restart() {
     assert!(target.exists());
     assert!(!collection.join(&page.path).exists());
 }
+
+#[test]
+fn external_rename_repairs_ordinary_links_and_display_names_without_reimport() {
+    let workspace = tempdir().unwrap();
+    let collection = workspace.path().join("collection");
+    let source = workspace.path().join("notes.txt");
+    fs::write(
+        &source,
+        "Office source document states a fixed observation.",
+    )
+    .unwrap();
+    let mut app =
+        Application::open_with_semantic_provider(&collection, Arc::new(WholeInputProvider))
+            .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let page = app
+        .open_source(&imported.info.source_id)
+        .unwrap()
+        .knowledge_pages[0]
+        .clone();
+    let backlink = collection.join("pages/Reading.md");
+    let old_name = Path::new(&page.path).file_name().unwrap().to_str().unwrap();
+    fs::write(
+        &backlink,
+        format!("Owner prose [observation]({old_name}#facts)\n"),
+    )
+    .unwrap();
+    app.reconcile_collection(100).unwrap();
+    let target = collection.join("pages/Owner folder/Renamed document.md");
+    fs::create_dir_all(target.parent().unwrap()).unwrap();
+    let original = fs::read_to_string(collection.join(&page.path)).unwrap();
+    fs::write(
+        collection.join(&page.path),
+        original.replace("title: Office source document", "title: Owner title"),
+    )
+    .unwrap();
+    fs::rename(collection.join(&page.path), &target).unwrap();
+    for _ in 0..20 {
+        if app.reconcile_collection(1).unwrap().complete {
+            break;
+        }
+    }
+    assert_eq!(
+        app.open_knowledge_page(&page.page_id).unwrap().title,
+        "Owner title"
+    );
+    let reading = fs::read_to_string(&backlink).unwrap();
+    assert!(
+        reading.contains("(Owner%20folder/Renamed%20document.md#facts)"),
+        "{reading}"
+    );
+    assert_eq!(
+        app.open_source(&imported.info.source_id)
+            .unwrap()
+            .knowledge_pages[0]
+            .path,
+        "pages/Owner folder/Renamed document.md"
+    );
+    assert!(!collection.join(&page.path).exists());
+    drop(app);
+    let mut app = Application::open(&collection).unwrap();
+    assert!(app
+        .search_pages(PageSearchRequest {
+            query: "Owner title".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .pages
+        .iter()
+        .any(|p| p.page_id == page.page_id));
+}
+
+#[test]
+fn duplicate_and_malformed_pages_are_inspectable_and_never_recreated_at_canonical_path() {
+    let workspace = tempdir().unwrap();
+    let collection = workspace.path().join("collection");
+    let source = workspace.path().join("notes.txt");
+    fs::write(
+        &source,
+        "Office source document states a fixed observation.",
+    )
+    .unwrap();
+    let mut app =
+        Application::open_with_semantic_provider(&collection, Arc::new(WholeInputProvider))
+            .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let page = app
+        .open_source(&imported.info.source_id)
+        .unwrap()
+        .knowledge_pages[0]
+        .clone();
+    let owner = fs::read(collection.join(&page.path)).unwrap();
+    fs::rename(
+        collection.join(&page.path),
+        collection.join("pages/First.md"),
+    )
+    .unwrap();
+    fs::write(collection.join("pages/Second.md"), &owner).unwrap();
+    fs::write(
+        collection.join("pages/Broken.md"),
+        "---\npage_id: [\n---\nOwner bytes\n",
+    )
+    .unwrap();
+    let mut status = app.reconcile_collection(100).unwrap();
+    while !status.complete {
+        status = app.reconcile_collection(100).unwrap();
+    }
+    assert!(status
+        .diagnostics
+        .iter()
+        .any(|d| d.kind == "duplicate_identity" && d.paths.len() == 2));
+    assert!(status
+        .diagnostics
+        .iter()
+        .any(|d| d.kind == "malformed_metadata" && d.paths == ["pages/Broken.md"]));
+    assert!(app
+        .open_knowledge_page(&page.page_id)
+        .unwrap_err()
+        .to_string()
+        .contains("ambiguous"));
+    assert!(!collection.join(&page.path).exists());
+    assert_eq!(fs::read(collection.join("pages/First.md")).unwrap(), owner);
+    assert_eq!(fs::read(collection.join("pages/Second.md")).unwrap(), owner);
+    fs::remove_file(collection.join("pages/Second.md")).unwrap();
+    for _ in 0..20 {
+        if app.reconcile_collection(100).unwrap().complete {
+            break;
+        }
+    }
+    assert_eq!(
+        app.open_knowledge_page(&page.page_id).unwrap().page_id,
+        page.page_id
+    );
+}
+
+#[test]
+fn concurrent_atomic_owner_save_survives_publication_crash_and_source_refresh() {
+    for boundary in [0, 1, 2, 3, usize::MAX] {
+        let workspace = tempdir().unwrap();
+        let collection = workspace.path().join("collection");
+        let source = workspace.path().join("V17.txt");
+        let first = "Complete report, revision 1 dated May 18, 2024.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 12. Duration: 10 minutes.\n";
+        let second = "Complete report, revision 2 dated May 20, 2024. This report completely replaces revision 1 of this same observation record.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 15. Duration: 12 minutes.\n";
+        fs::write(&source, first).unwrap();
+        let mut app = Application::open_with_semantic_provider(
+            &collection,
+            Arc::new(RecordedProvider::once(Ok(replacement_recording(
+                first, 12, true,
+            )))),
+        )
+        .unwrap();
+        let imported = app
+            .import_source(&source, AcquisitionMethod::Picker)
+            .unwrap();
+        app.resume_due_semantic_jobs().unwrap();
+        let event = app
+            .open_source(&imported.info.source_id)
+            .unwrap()
+            .knowledge_pages
+            .into_iter()
+            .find(|p| p.title == "Observation V17")
+            .unwrap();
+        let path = collection.join(&event.path);
+        let before = fs::read_to_string(&path).unwrap();
+        let owner = before.replace("- **duration:** 10 minutes", "- **duration:** 11 minutes")
+            + "\nOwner concurrent note: playback checked.\n";
+        fs::write(&source, second).unwrap();
+        app.import_source(&source, AcquisitionMethod::Picker)
+            .unwrap();
+        let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+        app.set_publication_failpoint_for_test(boundary);
+        assert!(app
+            .finish_semantic_job(
+                job,
+                Ok(replacement_recording_with_duration(
+                    second,
+                    15,
+                    true,
+                    "12 minutes"
+                ))
+            )
+            .is_err());
+        let temporary = path.with_extension("save");
+        fs::write(&temporary, &owner).unwrap();
+        fs::rename(temporary, &path).unwrap();
+        drop(app);
+        let mut app = Application::open(&collection).unwrap();
+        let page = app.open_knowledge_page(&event.page_id).unwrap();
+        assert!(
+            page.markdown.contains("- **duration:** 11 minutes"),
+            "boundary {boundary}: {}",
+            page.markdown
+        );
+        assert!(
+            page.markdown.contains("- **visit count:** 15 visits"),
+            "boundary {boundary}: {}",
+            page.markdown
+        );
+        let preserved = fs::read_dir(collection.join("owner-edits"))
+            .unwrap()
+            .any(|e| fs::read(e.unwrap().path()).unwrap() == owner.as_bytes());
+        assert!(preserved, "boundary {boundary}: exact owner bytes missing");
+        assert!(!app
+            .search_pages(PageSearchRequest {
+                query: "12 minutes".into(),
+                ..Default::default()
+            })
+            .unwrap()
+            .pages
+            .iter()
+            .any(|p| p.page_id == event.page_id));
+        assert_eq!(
+            app.open_source(&imported.info.source_id)
+                .unwrap()
+                .info
+                .semantic_state,
+            "complete"
+        );
+    }
+}
+
+#[test]
+fn replaced_page_directory_and_interrupted_reconciliation_recover_links() {
+    let workspace = tempdir().unwrap();
+    let collection = workspace.path().join("collection");
+    let source = workspace.path().join("notes.txt");
+    fs::write(
+        &source,
+        "Office source document states a fixed observation.",
+    )
+    .unwrap();
+    let mut app =
+        Application::open_with_semantic_provider(&collection, Arc::new(WholeInputProvider))
+            .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let page = app
+        .open_source(&imported.info.source_id)
+        .unwrap()
+        .knowledge_pages[0]
+        .clone();
+    while !app.reconcile_collection(100).unwrap().complete {}
+    let replacement = collection.join("replacement");
+    fs::create_dir_all(&replacement).unwrap();
+    fs::copy(collection.join(&page.path), replacement.join("Renamed.md")).unwrap();
+    fs::rename(collection.join("pages"), collection.join("owner-backup")).unwrap();
+    fs::rename(replacement, collection.join("pages")).unwrap();
+    assert!(!app.reconcile_collection(1).unwrap().complete);
+    app.set_publication_failpoint_for_test(1);
+    let mut interrupted = false;
+    for _ in 0..100 {
+        if app.reconcile_collection(2).is_err() {
+            interrupted = true;
+            break;
+        }
+    }
+    assert!(interrupted);
+    drop(app);
+    let app = Application::open(&collection).unwrap();
+    assert_eq!(
+        app.open_knowledge_page(&page.page_id).unwrap().page_id,
+        page.page_id
+    );
+    assert_eq!(
+        app.open_source(&imported.info.source_id)
+            .unwrap()
+            .knowledge_pages[0]
+            .path,
+        "pages/Renamed.md"
+    );
+    assert_eq!(
+        app.resolve_page_link(&page.page_id, "Renamed.md#facts")
+            .unwrap(),
+        page.page_id
+    );
+    assert!(!collection.join(&page.path).exists());
+}

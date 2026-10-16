@@ -1843,3 +1843,48 @@ it("runs current Boolean clauses, clears stale results, cancels old work and res
     ),
   );
 });
+
+it("shows inspectable external-file diagnostics and resolves renamed ordinary links", async () => {
+  const api = testApi();
+  api.collectionStatus = vi.fn().mockResolvedValue({
+    revision: 1,
+    complete: true,
+    diagnostics: [
+      {
+        kind: "duplicate_identity",
+        paths: ["pages/First.md", "pages/Second.md"],
+        detail: "Neither file is selected; original content is preserved.",
+      },
+    ],
+  });
+  api.resolvePageLink = vi.fn().mockResolvedValue("page-owner");
+  api.openKnowledgePage = vi.fn().mockImplementation(async (id: string) => ({
+    page_id: id,
+    source_id: riverside.info.source_id,
+    title: id === "page-owner" ? "Owner title" : "Reading",
+    kind: "document",
+    markdown:
+      id === "page-owner"
+        ? "# Owner title"
+        : "# Reading\n\n[Renamed observation](Owner%20folder/Renamed.md#facts)",
+  }));
+  api.importSource = vi
+    .fn()
+    .mockResolvedValue({
+      ...riverside,
+      body: "# Source\n\n[Reading](pages/page-reading.md)",
+    });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  expect(await screen.findByText(/pages\/First.md/)).toBeTruthy();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(await screen.findByRole("link", { name: "Reading" }));
+  await user.click(
+    await screen.findByRole("link", { name: "Renamed observation" }),
+  );
+  expect(
+    await screen.findByRole("article", { name: "Owner title" }),
+  ).toBeTruthy();
+});

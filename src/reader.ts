@@ -105,7 +105,17 @@ export async function mountReader(
     ),
   );
   main.append(empty);
-  root.replaceChildren(toolbar, notice, urlForm, sources, main);
+  const collectionDiagnostics = element("details");
+  collectionDiagnostics.hidden = true;
+  collectionDiagnostics.setAttribute("aria-label", "External file diagnostics");
+  root.replaceChildren(
+    toolbar,
+    notice,
+    collectionDiagnostics,
+    urlForm,
+    sources,
+    main,
+  );
   let page: SourcePage | null = null;
   let currentKnowledgePageId: string | null = null;
   let currentSourceId: string | null = null;
@@ -503,6 +513,21 @@ export async function mountReader(
       } else if (originalMatch) {
         void api
           .openOriginalAsset(`source-${originalMatch[1]}`, originalMatch[2])
+          .catch(report);
+      } else if (
+        currentKnowledgePageId &&
+        api.resolvePageLink &&
+        /\.md(?:[?#]|$)/i.test(href) &&
+        !/^[a-z]+:/i.test(href)
+      ) {
+        const origin = currentKnowledgePageId;
+        void api
+          .resolvePageLink(origin, href)
+          .then((id) => {
+            if (disposed || currentKnowledgePageId !== origin) return;
+            pushCurrentState();
+            return api.openKnowledgePage(id).then(showKnowledgePage);
+          })
           .catch(report);
       } else {
         message("This reference is preserved in the Markdown page.");
@@ -1937,7 +1962,59 @@ export async function mountReader(
       report(error);
     }
   }
+  let collectionRevision: number | null = null;
+  let refreshingCollection = false;
+  async function refreshCollection() {
+    if (!api.collectionStatus || refreshingCollection || disposed) return;
+    refreshingCollection = true;
+    try {
+      const status = await api.collectionStatus();
+      if (disposed) return;
+      collectionDiagnostics.hidden = status.diagnostics.length === 0;
+      collectionDiagnostics.replaceChildren(
+        element("summary", "External file diagnostics"),
+      );
+      for (const diagnostic of status.diagnostics.slice(0, 100)) {
+        const row = element(
+          "p",
+          `${diagnostic.paths.join(", ")}: ${diagnostic.detail}`,
+        );
+        if (api.openCollectionFile)
+          for (const path of diagnostic.paths) {
+            const open = element("button", `Open ${path}`);
+            open.addEventListener(
+              "click",
+              () => void api.openCollectionFile!(path).catch(report),
+            );
+            row.append(open);
+          }
+        collectionDiagnostics.append(row);
+      }
+      const changed =
+        collectionRevision !== null && status.revision !== collectionRevision;
+      collectionRevision = status.revision;
+      if (!changed || !status.complete) return;
+      const knowledgeId = currentKnowledgePageId;
+      if (knowledgeId) {
+        const next = await api.openKnowledgePage(knowledgeId);
+        if (!disposed && currentKnowledgePageId === knowledgeId) {
+          const scroll = main.querySelector("article")?.scrollTop ?? 0;
+          showKnowledgePage(next);
+          const article = main.querySelector("article");
+          if (article) article.scrollTop = scroll;
+        }
+      } else if (currentView === "search" && currentSearch) {
+        await runSearch(currentSearch, false);
+      }
+    } catch (error) {
+      report(error);
+    } finally {
+      refreshingCollection = false;
+    }
+  }
+  await refreshCollection();
   const refreshTimer = window.setInterval(() => {
+    void refreshCollection();
     if (!urlForm.hidden) void refreshUrlQueue();
     const query = queryView;
     if (currentView === "query" && query?.revision && !query.stale) {

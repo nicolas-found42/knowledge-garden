@@ -1,5 +1,7 @@
 //! Public, disk-backed collection operations. Markdown and originals are authoritative.
 pub mod boolean;
+mod publication;
+pub mod reconciliation;
 use crate::extraction::{LocalExtractor, SourceExtractor};
 use crate::meaning::{MeaningFilters, MeaningSearch};
 use crate::media::{
@@ -12,6 +14,7 @@ use crate::semantic::{
     SourceUpdateRole,
 };
 use fs2::FileExt;
+use publication::{commit_publication, recover_publications};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -186,6 +189,8 @@ pub struct SourceVersion {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceInfo {
+    #[serde(flatten)]
+    pub owner_metadata: std::collections::BTreeMap<String, serde_yaml_ng::Value>,
     pub schema: u32,
     pub source_id: String,
     pub page_id: String,
@@ -499,9 +504,14 @@ pub struct Application {
     extractor: Arc<dyn SourceExtractor>,
     audio_processor: Arc<dyn AudioProcessor>,
     staged_publication: Vec<(PathBuf, Vec<u8>)>,
+    publication_bases: HashMap<PathBuf, Vec<u8>>,
     fail_after_publication_files: Option<usize>,
     meaning_search: Option<MeaningSearch>,
     meaning_search_status: String,
+    collection_scan: Option<reconciliation::Scan>,
+    collection_digest: Option<String>,
+    collection_revision: u64,
+    collection_diagnostics: Vec<reconciliation::CollectionDiagnostic>,
     // Declared last so the collection lock releases after the index and providers drop.
     _lock: CollectionLock,
 }
@@ -832,13 +842,18 @@ impl Application {
             semantic_provider,
             extractor,
             audio_processor,
+            collection_scan: None,
+            collection_digest: None,
+            collection_revision: 0,
+            collection_diagnostics: Vec::new(),
             staged_publication: Vec::new(),
+            publication_bases: HashMap::new(),
             fail_after_publication_files: None,
             meaning_search,
             meaning_search_status,
             _lock: CollectionLock(lock),
         };
-        app.rebuild_index()?;
+        while !app.reconcile_collection(1000)?.complete {}
         app.recover_interrupted_url_acquisitions()?;
         app.recover_interrupted_audio_jobs()?;
         Ok(app)
@@ -1666,6 +1681,7 @@ impl Application {
             text.lines().count()
         };
         let info = SourceInfo {
+            owner_metadata: Default::default(),
             schema: 1,
             source_id,
             page_id: format!("page-{}", Uuid::new_v4()),
@@ -1772,6 +1788,7 @@ impl Application {
     }
 
     pub fn open_source(&self, source_id: &str) -> Result<SourcePage> {
+        recover_publications(&self.root)?;
         let mut page = read_page(&self.page_path(source_id)?)?;
         let contexts = self.source_dir(source_id)?.join("acquisitions");
         if contexts.exists() {
@@ -1804,6 +1821,7 @@ impl Application {
     }
 
     pub fn open_knowledge_page(&self, page_id: &str) -> Result<KnowledgePage> {
+        recover_publications(&self.root)?;
         if !page_id.starts_with("page-")
             || !page_id
                 .bytes()
@@ -1817,11 +1835,10 @@ impl Application {
         read_knowledge_page(&path)
     }
 
-    fn knowledge_paths(&self) -> Result<Vec<PathBuf>> {
-        let mut pending = vec![self.root.join("pages")];
+    fn all_knowledge_candidates(&self) -> Result<Vec<PathBuf>> {
+        let mut directories = vec![self.root.join("pages")];
         let mut paths = Vec::new();
-        let mut identities = HashMap::<String, Vec<PathBuf>>::new();
-        while let Some(directory) = pending.pop() {
+        while let Some(directory) = directories.pop() {
             if !directory.is_dir() {
                 continue;
             }
@@ -1829,21 +1846,28 @@ impl Application {
                 let entry = entry?;
                 let kind = entry.file_type()?;
                 if kind.is_dir() {
-                    pending.push(entry.path());
+                    directories.push(entry.path());
                 } else if kind.is_file() && entry.path().extension().is_some_and(|ext| ext == "md")
                 {
-                    let path = entry.path();
-                    if let Ok(header) = read_knowledge_header(&path) {
-                        identities.entry(header.page_id).or_default().push(path);
-                    }
+                    paths.push(entry.path());
                 }
             }
         }
-        for (_, candidates) in identities {
-            if candidates.len() == 1 {
-                paths.extend(candidates);
+        Ok(paths)
+    }
+
+    fn knowledge_paths(&self) -> Result<Vec<PathBuf>> {
+        let mut identities = HashMap::<String, Vec<PathBuf>>::new();
+        for path in self.all_knowledge_candidates()? {
+            if let Ok(header) = read_knowledge_header(&path) {
+                identities.entry(header.page_id).or_default().push(path);
             }
         }
+        let mut paths = identities
+            .into_values()
+            .filter(|paths| paths.len() == 1)
+            .flatten()
+            .collect::<Vec<_>>();
         paths.sort();
         Ok(paths)
     }
@@ -1853,6 +1877,15 @@ impl Application {
             if read_knowledge_header(&path)?.page_id == page_id {
                 return Ok(path);
             }
+        }
+        if self
+            .all_knowledge_candidates()?
+            .iter()
+            .any(|path| read_knowledge_header(path).is_ok_and(|header| header.page_id == page_id))
+        {
+            return Err(GardenError::Invalid(format!(
+                "Knowledge identity {page_id} is ambiguous; original files remain preserved."
+            )));
         }
         let canonical = self.root.join("pages").join(format!("{page_id}.md"));
         if canonical.exists() {
@@ -3122,7 +3155,18 @@ impl Application {
         job: SemanticJob,
         result: std::result::Result<KnowledgeDraft, ProviderError>,
     ) -> Result<()> {
+        recover_publications(&self.root)?;
         self.staged_publication.clear();
+        self.publication_bases.clear();
+        for path in self.all_knowledge_candidates()? {
+            self.publication_bases.insert(path.clone(), fs::read(path)?);
+        }
+        for entry in fs::read_dir(self.root.join("sources"))? {
+            let path = entry?.path().join("index.md");
+            if path.is_file() {
+                self.publication_bases.insert(path.clone(), fs::read(path)?);
+            }
+        }
         let mut page = read_page(&self.page_path(&job.source_id)?)?;
         let initial = page.info.current_version_id.is_none();
         let active = if initial {
@@ -3370,7 +3414,7 @@ impl Application {
                 .collect::<std::collections::HashSet<_>>();
             let files = std::mem::take(&mut self.staged_publication);
             let fail_after = self.fail_after_publication_files.take();
-            commit_publication(&self.root, files, fail_after)?;
+            commit_publication(&self.root, files, &self.publication_bases, fail_after)?;
             for source_id in changed_source_ids {
                 let indexed = read_page(&self.page_path(&source_id)?)?;
                 self.index_page(&indexed.info)?;
@@ -4277,6 +4321,7 @@ impl Application {
                     &replaced_sources,
                 )?;
                 header.tags = self.reconcile_tags(old.tags, header.tags, &replaced_sources);
+                header.title = old.title;
                 header.owner_content = old.owner_content;
                 header.uninterpreted_owner_edits = old.uninterpreted_owner_edits;
                 header.owner_metadata = old.owner_metadata;
@@ -5240,6 +5285,7 @@ impl Application {
         // it, avoiding a complete label-file scan for every retained page.
         let labels = self.knowledge_page_labels()?;
         for path in paths {
+            let expected = fs::read(&path)?;
             let mut header = read_knowledge_header(&path)?;
             ensure_legacy_supports(&mut header);
             if self.capture_manual_fact_corrections_with_labels(&mut header, &path, &labels)? {
@@ -5248,7 +5294,12 @@ impl Application {
                     &std::collections::HashMap::new(),
                     &labels,
                 )?;
-                write_atomic(&path, markdown.as_bytes())?;
+                commit_publication(
+                    &self.root,
+                    vec![(path.clone(), markdown.into_bytes())],
+                    &HashMap::from([(path, expected)]),
+                    None,
+                )?;
             }
         }
         Ok(())
@@ -5412,6 +5463,10 @@ impl Application {
                 body.push('\n');
             }
         }
+        let canonical = format!("pages/{}.md", header.page_id);
+        let path = self.knowledge_path(&header.page_id)?;
+        let actual = path.strip_prefix(&self.root).unwrap().to_string_lossy();
+        body = reconciliation::rebase_links(&canonical, &actual, &body);
         let yaml = serde_yaml_ng::to_string(&header)?;
         Ok(format!("---\n{yaml}---\n\n{body}"))
     }
@@ -6085,7 +6140,9 @@ impl Application {
             if !entry.file_type()?.is_dir() {
                 continue;
             }
-            let page = read_page(&entry.path().join("index.md"))?;
+            let Ok(page) = read_page(&entry.path().join("index.md")) else {
+                continue;
+            };
             transaction.execute(
                 "INSERT INTO sources (source_id, summary) VALUES (?1, ?2)",
                 params![page.info.source_id, summary_json(&page.info)?],
@@ -6485,8 +6542,8 @@ impl Application {
                 page_id: summary.page_id.clone(),
                 source_id: header.source_id.clone(),
                 page_type: "knowledge".into(),
-                title: summary.title.clone(),
-                kind: summary.kind.clone(),
+                title: header.title.clone(),
+                kind: header.kind.clone(),
                 content: body.clone(),
                 format: source_page.info.format.clone(),
                 extraction: source_page.info.extraction,
@@ -7639,7 +7696,7 @@ fn replace_semantic_section(body: &str, pages: &[KnowledgePageSummary]) -> Strin
             section.push_str(&format!(
                 "- [{}]({}) ({})\n",
                 escape_markdown(&page.title),
-                page.path,
+                format!("../../{}", page.path).replace(' ', "%20"),
                 escape_markdown(&page.kind)
             ));
         }
@@ -8449,103 +8506,6 @@ fn bind_legacy_audio_version(
 
 fn sync_directory(path: &Path) -> Result<()> {
     File::open(path)?.sync_all()?;
-    Ok(())
-}
-
-#[derive(Serialize, Deserialize)]
-struct PublicationManifest {
-    entries: Vec<PublicationEntry>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct PublicationEntry {
-    destination: String,
-    staged: String,
-}
-
-fn commit_publication(
-    root: &Path,
-    files: Vec<(PathBuf, Vec<u8>)>,
-    fail_after_files: Option<usize>,
-) -> Result<()> {
-    if files.is_empty() {
-        return Ok(());
-    }
-    let transactions = root.join(".staging/transactions");
-    fs::create_dir_all(&transactions)?;
-    let staging = tempfile::tempdir_in(&transactions)?;
-    let staged_files = staging.path().join("files");
-    fs::create_dir_all(&staged_files)?;
-    let mut entries = Vec::with_capacity(files.len());
-    for (index, (destination, bytes)) in files.into_iter().enumerate() {
-        let relative = destination.strip_prefix(root).map_err(|_| {
-            GardenError::Invalid("A publication path escaped the collection.".into())
-        })?;
-        validate_relative_collection_path(relative)?;
-        let staged = format!("files/{index:04}");
-        let path = staging.path().join(&staged);
-        let mut file = File::create(&path)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        entries.push(PublicationEntry {
-            destination: relative.to_string_lossy().into_owned(),
-            staged,
-        });
-    }
-    sync_directory(&staged_files)?;
-    let manifest = serde_json::to_vec(&PublicationManifest { entries })?;
-    let manifest_path = staging.path().join("manifest.json");
-    let mut file = File::create(&manifest_path)?;
-    file.write_all(&manifest)?;
-    file.sync_all()?;
-    sync_directory(staging.path())?;
-    let transaction_path = staging.keep();
-    sync_directory(&transactions)?;
-    apply_publication(root, &transaction_path, fail_after_files)?;
-    fs::remove_dir_all(&transaction_path)?;
-    sync_directory(&transactions)
-}
-
-fn recover_publications(root: &Path) -> Result<()> {
-    let transactions = root.join(".staging/transactions");
-    fs::create_dir_all(&transactions)?;
-    for entry in fs::read_dir(&transactions)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
-            continue;
-        }
-        let path = entry.path();
-        if !path.join("manifest.json").exists() {
-            fs::remove_dir_all(path)?;
-            continue;
-        }
-        apply_publication(root, &path, None)?;
-        fs::remove_dir_all(path)?;
-    }
-    sync_directory(&transactions)
-}
-
-fn apply_publication(
-    root: &Path,
-    transaction: &Path,
-    fail_after_files: Option<usize>,
-) -> Result<()> {
-    let manifest: PublicationManifest =
-        serde_json::from_slice(&fs::read(transaction.join("manifest.json"))?)?;
-    for (index, entry) in manifest.entries.into_iter().enumerate() {
-        let destination = Path::new(&entry.destination);
-        let staged = Path::new(&entry.staged);
-        validate_relative_collection_path(destination)?;
-        validate_relative_staging_path(staged)?;
-        let bytes = fs::read(transaction.join(staged))?;
-        write_atomic(&root.join(destination), &bytes)?;
-        if fail_after_files == Some(index + 1) {
-            return Err(GardenError::Io(std::io::Error::new(
-                std::io::ErrorKind::Interrupted,
-                "Injected publication interruption after an atomic file replacement.",
-            )));
-        }
-    }
     Ok(())
 }
 

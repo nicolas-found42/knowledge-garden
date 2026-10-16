@@ -36,6 +36,39 @@ async fn with_engine<T: Send + 'static>(
 }
 
 #[tauri::command]
+async fn open_collection_file(engine: State<'_, Engine>, path: String) -> Result<(), String> {
+    with_engine(&engine, move |app| {
+        let path = app.collection_file_path(&path)?;
+        let status = std::process::Command::new("/usr/bin/open")
+            .arg(path)
+            .status()?;
+        if !status.success() {
+            return Err(crate::application::GardenError::Invalid(
+                "macOS could not open this preserved Markdown file.".into(),
+            ));
+        }
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn collection_status(
+    engine: State<'_, Engine>,
+) -> Result<crate::application::reconciliation::ReconciliationStatus, String> {
+    with_engine(&engine, |app| Ok(app.collection_status())).await
+}
+
+#[tauri::command]
+async fn resolve_page_link(
+    engine: State<'_, Engine>,
+    page_id: String,
+    href: String,
+) -> Result<String, String> {
+    with_engine(&engine, move |app| app.resolve_page_link(&page_id, &href)).await
+}
+
+#[tauri::command]
 async fn import_source(
     engine: State<'_, Engine>,
     path: String,
@@ -215,6 +248,9 @@ pub fn run() {
                 .spawn(move || loop {
                     std::thread::sleep(std::time::Duration::from_secs(5));
                     if let Ok(mut app) = worker_app.lock() {
+                        if let Err(error) = app.reconcile_collection(256) {
+                            eprintln!("Collection reconciliation will retry: {error}");
+                        }
                         if let Err(error) = app.resume_due_url_acquisitions() {
                             eprintln!("URL acquisition queue could not resume work: {error}");
                         }
@@ -254,6 +290,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            open_collection_file,
+            collection_status,
+            resolve_page_link,
             import_source,
             import_repository,
             import_url,
