@@ -5181,6 +5181,13 @@ impl Application {
         labels: &std::collections::HashMap<String, String>,
     ) -> Result<bool> {
         let markdown = fs::read_to_string(path)?;
+        let current = parse_knowledge_header(&markdown)?;
+        if current.page_id != header.page_id {
+            return Err(GardenError::Invalid("A page identity changed during reconciliation; original content is preserved for a fresh scan.".into()));
+        }
+        // Metadata and the publication base must describe the same owner save.
+        *header = current;
+        ensure_legacy_supports(header);
         self.remember_publication_base(path, markdown.as_bytes());
         let Some((_, body)) = markdown.split_once("\n---\n") else {
             return Ok(false);
