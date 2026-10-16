@@ -246,10 +246,15 @@ impl Application {
             }
         }
         let ledger_text = format!("---\n{}---\n\n# Page locations\n\nLast unambiguous paths, used to repair ordinary links after moves. Markdown pages remain authoritative.\n", serde_yaml_ng::to_string(&ledger)?);
-        if ledger_path.exists() {
-            bases.insert(ledger_path.clone(), fs::read(&ledger_path)?);
+        let ledger_bytes = fs::read(&ledger_path).ok();
+        if ledger_bytes.as_deref() != Some(ledger_text.as_bytes())
+            && (!ledger.pages.is_empty() || ledger_bytes.is_some())
+        {
+            if let Some(bytes) = ledger_bytes {
+                bases.insert(ledger_path.clone(), bytes);
+            }
+            writes.push((ledger_path, ledger_text.into_bytes()));
         }
-        writes.push((ledger_path, ledger_text.into_bytes()));
         commit_publication(
             &self.root,
             writes,
