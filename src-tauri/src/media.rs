@@ -191,6 +191,7 @@ impl AudioProcessor for WhisperAudioProcessor {
         }
         let output_prefix = directory.path().join("transcript");
         let whisper_log = directory.path().join("whisper.log");
+        // The pinned CLI caps its default threads to available CPUs (up to four).
         run_whisper(
             vec![
                 "-m".into(),
@@ -199,8 +200,6 @@ impl AudioProcessor for WhisperAudioProcessor {
                 path_string(&wav_path)?,
                 "-l".into(),
                 "en".into(),
-                "-t".into(),
-                "4".into(),
                 "-oj".into(),
                 "-np".into(),
                 "-of".into(),

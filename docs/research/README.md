@@ -4,6 +4,8 @@ Main index for research collections. Each collection keeps its synthesis, source
 
 ## Collections
 
+Project tooling: [CI and development tooling](ci-and-dev-tooling.md) (2026-10-16) records the stack-specific CI, security and merge-enforcement research.
+
 | Collection | Scope | Evidence |
 | --- | --- | --- |
 | [Initial brainstorm](initial-brainstorm/README.md) | A personal Markdown wiki and knowledge graph using Jev to ingest, maintain, retrieve and query knowledge | Research dated 2026-09-29; the original 57-call baseline, 725 successful additional SDK evaluations, a five-catalog repository inventory and 18 distinct pinned implementation inspections |

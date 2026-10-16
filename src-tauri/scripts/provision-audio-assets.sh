@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-TAURI_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-REPO_DIR=$(CDPATH= cd -- "$TAURI_DIR/.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+TAURI_DIR=$(CDPATH='' cd -- "$SCRIPT_DIR/.." && pwd)
+REPO_DIR=$(CDPATH='' cd -- "$TAURI_DIR/.." && pwd)
 SOURCE_DIR="$TAURI_DIR/vendor/whisper.cpp"
 ASSET_DIR="$TAURI_DIR/resources/audio"
 BUILD_DIR="$TAURI_DIR/target/whisper-static-metal"
