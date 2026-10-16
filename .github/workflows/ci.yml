@@ -44,8 +44,8 @@ jobs:
         run: npm run lint
       - name: Check types and production frontend build
         run: npm run build
-      - name: Test frontend
-        run: npm run test:ui
+      - name: Test frontend units
+        run: npm run test:ui:unit
       - name: Check shell scripts
         run: npm run check:shell
       - name: Check GitHub Actions workflows
@@ -53,13 +53,14 @@ jobs:
 
   native:
     name: macOS ARM native
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 60
     env:
       # Keep native compilation within the standard hosted runner's memory.
       CARGO_BUILD_JOBS: "2"
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
+      MACOSX_DEPLOYMENT_TARGET: "26.0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -68,6 +69,7 @@ jobs:
       - name: Verify native prerequisites
         run: |
           test "$(uname -m)" = arm64
+          test "$(sw_vers -productVersion | cut -d . -f1)" -ge 26
           xcrun swiftc --version
           cmake --version
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -88,9 +90,9 @@ jobs:
             src-tauri/target/debug/build
             src-tauri/target/debug/deps
             src-tauri/target/whisper-static-metal
-          key: native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'src-tauri/Cargo.lock', 'src-tauri/scripts/provision-audio-assets.sh') }}
+          key: native-macos26-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'src-tauri/Cargo.lock', 'src-tauri/scripts/provision-audio-assets.sh') }}
           restore-keys: |
-            native-${{ runner.os }}-${{ runner.arch }}-
+            native-macos26-${{ runner.os }}-${{ runner.arch }}-
       - name: Cache pinned Whisper model
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
@@ -102,6 +104,8 @@ jobs:
         run: npm run check:rust
       - name: Test Rust and native integrations
         run: npm run test:rust
+      - name: Test frontend against native application driver
+        run: npm run test:ui:integration
       - name: Build app bundle
         # Debug still exercises Tauri bundling and resource inclusion, and reuses
         # the tested Cargo profile on the standard runner. No release signing.
