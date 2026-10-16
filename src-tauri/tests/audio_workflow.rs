@@ -870,6 +870,25 @@ fn replacement_recording_resets_transcript_and_transcribes_the_pending_original_
         "complete"
     );
 
+    let first_page = app.open_source(&first.info.source_id).unwrap();
+    assert_eq!(
+        fs::read(
+            app.original_version_path(&first.info.source_id, &first.info.sha256, "original.wav")
+                .unwrap()
+        )
+        .unwrap(),
+        old_bytes
+    );
+    let first_audio_link = format!(
+        "?audio_seek={}&at_ms=0&version={}&asset=original.wav",
+        first.info.source_id, first.info.sha256
+    );
+    assert!(first_page.body.contains(&first_audio_link));
+    let first_knowledge = app
+        .open_knowledge_page(&first_page.info.knowledge_pages[0].page_id)
+        .unwrap();
+    assert!(first_knowledge.markdown.contains(&first_audio_link));
+
     fs::write(&source, new_bytes).unwrap();
     let replacement = app
         .import_source(&source, AcquisitionMethod::Picker)
@@ -993,6 +1012,12 @@ fn replacement_recording_resets_transcript_and_transcribes_the_pending_original_
         Some(replacement_version_id.as_str())
     );
     assert!(published.info.pending_audio_processing.is_none());
+    assert!(published.body.contains("new recording words"));
+    assert!(!published.body.contains("old recording words"));
+    assert!(published.body.contains(&format!(
+        "?audio_seek={}&at_ms=0&version={replacement_version_id}&asset=original.wav",
+        first.info.source_id
+    )));
     assert_eq!(
         fs::read(app.original_path(&replacement.info.source_id).unwrap()).unwrap(),
         new_bytes
@@ -1005,6 +1030,20 @@ fn replacement_recording_resets_transcript_and_transcribes_the_pending_original_
                 "original.wav"
             )
             .unwrap()
+        )
+        .unwrap(),
+        old_bytes
+    );
+
+    drop(app);
+    let restarted = Application::open(&collection).unwrap();
+    // A previously displayed passage must still open the bytes that supported it,
+    // even after replacement publication and collection restart.
+    assert_eq!(
+        fs::read(
+            restarted
+                .original_version_path(&first.info.source_id, &first.info.sha256, "original.wav")
+                .unwrap()
         )
         .unwrap(),
         old_bytes
