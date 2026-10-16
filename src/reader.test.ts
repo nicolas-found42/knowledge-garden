@@ -522,7 +522,7 @@ it("searches durable page results with combined filters and restores the exact r
     available_formats: ["txt"],
     available_statuses: ["complete", "pending"],
   };
-  api.searchPages = vi.fn(async (_request: PageSearchRequest) => results);
+  api.searchPages = vi.fn(async () => results);
   api.openSource = vi.fn().mockResolvedValue({
     ...riverside,
     info: {

@@ -27,6 +27,7 @@ beforeAll(() => {
     "cargo",
     [
       "build",
+      "--locked",
       "--quiet",
       "--manifest-path",
       manifest,
