@@ -1541,13 +1541,15 @@ export async function mountReader(
       if (result.match_location) {
         const location = result.match_location;
         const basisLabel =
-          location.offset_basis === "web_visible_text"
-            ? "visible web text"
-            : location.offset_basis === "extracted_office_projection"
-              ? "extracted Office text"
-              : location.offset_basis === "extracted_conversation_projection"
-                ? "extracted conversation messages"
-                : "preserved source text";
+          location.offset_basis === "extracted_pdf_projection"
+            ? "extracted PDF text; original opens at the beginning, use the page and region locator"
+            : location.offset_basis === "web_visible_text"
+              ? "visible web text"
+              : location.offset_basis === "extracted_office_projection"
+                ? "extracted Office text"
+                : location.offset_basis === "extracted_conversation_projection"
+                  ? "extracted conversation messages"
+                  : "preserved source text";
         const origin = element(
           "p",
           `Evidence · ${basisLabel} · version ${location.source_version_id?.slice(0, 12) ?? "unknown"}${location.line_start ? ` · line ${location.line_start}` : ""}${location.source_location ? ` · ${location.source_location}` : ""}`,

@@ -1615,6 +1615,8 @@ impl Application {
                             CoverageScope::ImagePixels
                         } else if crate::conversation::is_conversation(&format) {
                             CoverageScope::ConversationMessages
+                        } else if format == "pdf" {
+                            CoverageScope::PdfPages
                         } else if format == "docx" {
                             CoverageScope::MainDocument
                         } else {
@@ -1628,7 +1630,14 @@ impl Application {
                             Some(vec![CoveragePart {
                                 scope,
                                 status: CoverageStatus::Failed,
-                                source_location: Some("package".into()),
+                                source_location: Some(
+                                    if format == "pdf" {
+                                        "PDF document"
+                                    } else {
+                                        "package"
+                                    }
+                                    .into(),
+                                ),
                                 detail,
                             }]),
                         )
@@ -3203,7 +3212,7 @@ impl Application {
                     if version_audio {
                         qualify_audio_evidence(&mut draft);
                     }
-                    let is_office = matches!(page.info.format.as_str(), "docx" | "pptx");
+                    let is_office = matches!(page.info.format.as_str(), "docx" | "pptx" | "pdf");
                     let office_facts = draft
                         .facts
                         .iter()
@@ -3258,6 +3267,14 @@ impl Application {
                         let result =
                             crate::photo::validate_draft(&job.source_text, &source_format, &draft)
                                 .map_err(GardenError::Invalid)
+                                .and_then(|()| {
+                                    crate::pdf::validate_draft(
+                                        &job.source_text,
+                                        &source_format,
+                                        &draft,
+                                    )
+                                    .map_err(GardenError::Invalid)
+                                })
                                 .and_then(|()| {
                                     crate::conversation::validate_draft(
                                         &job.source_text,
@@ -4018,6 +4035,7 @@ impl Application {
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         "extracted Office projection; offsets are not original package byte offsets"
                     }
+                    EvidenceOffsetBasis::ExtractedPdfProjection => "extracted PDF projection; offsets are not original PDF byte offsets",
                     EvidenceOffsetBasis::ExtractedImageProjection => "extracted image projection; offsets are not original image byte offsets",
                     EvidenceOffsetBasis::ExtractedConversationProjection => "extracted conversation projection; offsets are not original export byte offsets",
                     EvidenceOffsetBasis::WebVisibleText => {
@@ -4057,6 +4075,9 @@ impl Application {
                     EvidenceOffsetBasis::PreservedText => ("source lines", "source bytes"),
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         ("extracted projection lines", "extracted projection bytes")
+                    }
+                    EvidenceOffsetBasis::ExtractedPdfProjection => {
+                        ("PDF projection lines", "PDF projection bytes")
                     }
                     EvidenceOffsetBasis::ExtractedImageProjection => {
                         ("image projection lines", "image projection bytes")
@@ -4123,6 +4144,11 @@ impl Application {
                             .map(|location| format!(" · original locator: {location}"))
                             .unwrap_or_default(),
                         "The original opens as a fallback; use the OOXML part and location above to find the extracted passage.",
+                    ),
+                    EvidenceOffsetBasis::ExtractedPdfProjection => (
+                        "PDF projection lines", "PDF projection bytes",
+                        relationship.evidence.source_location.as_deref().map(|location| format!(" · PDF locator: {location}")).unwrap_or_default(),
+                        "The original opens at the beginning as a disclosed fallback; use the PDF page and PDF-point region above.",
                     ),
                     EvidenceOffsetBasis::ExtractedImageProjection => (
                         "image projection lines",
@@ -4658,6 +4684,22 @@ impl Application {
             } else {
                 None
             };
+        if let Some(projection) = office_projection
+            .as_ref()
+            .filter(|_| candidate.format == "pdf")
+        {
+            if projection.partial
+                || projection
+                    .coverage
+                    .iter()
+                    .any(|part| part.status != CoverageStatus::Complete)
+                || projection.semantic_text != source_text
+            {
+                return Err(GardenError::Invalid(
+                    "Replacement extraction changed or lost coverage before publication; retain prior facts and retry the candidate.".into(),
+                ));
+            }
+        }
         let candidate_bytes = fs::read(candidate_path)?;
         let destination_original = self
             .source_dir(&source.info.source_id)?
@@ -7014,6 +7056,7 @@ fn evidence_offset_basis_name(basis: EvidenceOffsetBasis) -> &'static str {
         EvidenceOffsetBasis::WebVisibleText => "web_visible_text",
         EvidenceOffsetBasis::AudioTranscript => "audio_transcript",
         EvidenceOffsetBasis::ExtractedImageProjection => "extracted_image_projection",
+        EvidenceOffsetBasis::ExtractedPdfProjection => "extracted_pdf_projection",
         EvidenceOffsetBasis::ExtractedConversationProjection => "extracted_conversation_projection",
     }
 }
@@ -7202,6 +7245,7 @@ enum EvidenceOffsetBasis {
     WebVisibleText,
     AudioTranscript,
     ExtractedImageProjection,
+    ExtractedPdfProjection,
 }
 
 fn evidence_display_basis(
@@ -7219,6 +7263,11 @@ fn evidence_display_basis(
             "extracted projection lines",
             "extracted projection bytes",
             "The retained original opens as a fallback; use the OOXML part and locator above to find this passage.",
+        ),
+        EvidenceOffsetBasis::ExtractedPdfProjection => (
+            "extracted PDF projection; offsets are not original PDF byte offsets",
+            "PDF projection lines", "PDF projection bytes",
+            "The original opens at the beginning as a disclosed fallback; use the PDF page and PDF-point region above.",
         ),
         EvidenceOffsetBasis::ExtractedImageProjection => (
             "extracted image projection; offsets are not original image byte offsets",
@@ -7478,6 +7527,12 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         {
             EvidenceOffsetBasis::ExtractedImageProjection
         }
+        None if inferred_location
+            .as_deref()
+            .is_some_and(|locator| locator.starts_with("PDF ")) =>
+        {
+            EvidenceOffsetBasis::ExtractedPdfProjection
+        }
         None => EvidenceOffsetBasis::PreservedText,
         Some("preserved_text") => EvidenceOffsetBasis::PreservedText,
         Some("office_projection") | Some("extracted_office_projection") => {
@@ -7486,6 +7541,7 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         Some("web_visible_text") => EvidenceOffsetBasis::WebVisibleText,
         Some("audio_transcript") => EvidenceOffsetBasis::AudioTranscript,
         Some("extracted_image_projection") => EvidenceOffsetBasis::ExtractedImageProjection,
+        Some("extracted_pdf_projection") => EvidenceOffsetBasis::ExtractedPdfProjection,
         Some("extracted_conversation_projection") => {
             EvidenceOffsetBasis::ExtractedConversationProjection
         }
