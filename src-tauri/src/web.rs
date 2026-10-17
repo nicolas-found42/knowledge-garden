@@ -62,7 +62,7 @@ impl TokenSink for HtmlSink {
                             let href = tag
                                 .attrs
                                 .iter()
-                                .find(|attribute| attribute.name.local.as_ref() == "href")
+                                .find(|attribute| attribute.name.local.to_string() == "href")
                                 .map(|attribute| attribute.value.to_string())
                                 .unwrap_or_default();
                             *self.anchor.borrow_mut() = Some((href, String::new()));
