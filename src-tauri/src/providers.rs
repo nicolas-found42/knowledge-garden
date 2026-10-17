@@ -309,9 +309,10 @@ impl SemanticProvider for JevSemanticProvider {
             return self.form_conversation_knowledge(source_text);
         }
         let photo_mode = source_text.starts_with("[PHOTO ");
+        let pdf_mode = source_text.starts_with("[PDF ");
         let audio_mode =
             source_text.starts_with("Machine-generated transcript from retained audio.");
-        let mut candidates = if photo_mode {
+        let mut candidates = if photo_mode || pdf_mode {
             Vec::new()
         } else {
             let mut candidates = candidates(source_text);
@@ -371,7 +372,7 @@ impl SemanticProvider for JevSemanticProvider {
                 CandidateKind::Count if candidate.origin == "quoted" => "Does the source explicitly quote or report the qualified count described by this candidate? Judge whether the source contains that quoted assertion, not whether the count was independently observed.",
                 CandidateKind::Reference => "Does the supplied text contain this exact URL as a reference occurrence? Do not infer or fetch its destination content.",
                 CandidateKind::PhotoStatement => "Does this exact native photo channel statement contain useful evidence for a photo page? Preserve the exact text and channel qualifiers. Metadata/captions are unauthenticated, OCR is transcription rather than a verified event, and classification is uncertain model interpretation. Include an explicit unknown capture date rather than inventing one. Do not infer people, dates, counts or scene objects beyond this channel statement.",
-                CandidateKind::OfficeStatement => "Is this exact extracted Office passage a meaningful source statement worth representing on a source knowledge page? This includes qualified table measurements, short visible count/value fragments, and speaker-note instructions or corrections; do not drop them merely because they are provisional, conditional, or not a complete sentence. Preserve table headers, every qualification, and visible-slide versus speaker-note origin. Do not convert a proposed correction or conditional instruction into a completed event. Reject headings or labels alone. Judge what the source states, not whether it is true in the world.",
+                CandidateKind::OfficeStatement => "Is this exact extracted document passage a meaningful source statement worth representing on a source knowledge page? This includes qualified table measurements, short visible count/value fragments, and speaker-note instructions or corrections; do not drop them merely because they are provisional, conditional, or not a complete sentence. Preserve table headers, every qualification, and visible-slide versus speaker-note origin. Do not convert a proposed correction or conditional instruction into a completed event. Reject headings or labels alone. Judge what the source states, not whether it is true in the world.",
                 _ => "Does this exact source span support the candidate as a statement made by the source? Do not judge whether the statement is true in the world.",
             };
             questions.insert(format!("support_{i}"), json!({
@@ -772,6 +773,23 @@ impl SemanticProvider for JevSemanticProvider {
             });
         }
         draft.source_update = Some(validated.source_update.clone().unwrap());
+        if pdf_mode {
+            let update = draft.source_update.as_mut().unwrap();
+            for evidence in [
+                Some(&mut update.evidence),
+                update.source_date_evidence.as_mut(),
+                update.source_revision_evidence.as_mut(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                evidence.origin =
+                    office_channel_at(source_text, evidence.byte_start).unwrap_or_default();
+                if evidence.origin == "ocr" {
+                    evidence.qualifier = Some("OCR transcription; unverified".into());
+                }
+            }
+        }
         draft.decisions.push(SemanticDecision {
             question: "source_update_role".into(),
             model: model.clone(),
@@ -1114,6 +1132,8 @@ impl SemanticProvider for JevSemanticProvider {
                 "observed_pixels" => "image_pixels",
                 "file_metadata" => "image_metadata",
                 "supplied_caption" => "image_caption",
+                "ocr" if !photo_mode => "document_statement",
+                "pdf_text" => "document_statement",
                 "ocr" => "image_text",
                 "generated_interpretation" => "image_interpretation",
                 "table" => "table_row",
@@ -1148,10 +1168,13 @@ impl SemanticProvider for JevSemanticProvider {
                 property: "description".into(),
                 value: candidate
                     .quote
-                    .trim_start()
-                    .trim_start_matches("///")
-                    .trim()
-                    .to_owned(),
+                    .lines()
+                    .map(|line| {
+                        let content = line.trim_start().strip_prefix("///").unwrap_or(line);
+                        content.strip_prefix(' ').unwrap_or(content)
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
                 evidence: candidate.evidence(),
                 record_key: None,
             });
@@ -1661,6 +1684,16 @@ fn validated_noul(
 }
 
 fn source_spans(text: &str) -> Vec<SourceSpan> {
+    if text.starts_with("[PDF ") {
+        return office_statement_candidates(text)
+            .into_iter()
+            .map(|candidate| SourceSpan {
+                quote: candidate.quote,
+                start: candidate.start,
+                end: candidate.end,
+            })
+            .collect();
+    }
     let mut spans = Vec::new();
     let mut start = 0;
     for (index, character) in text.char_indices() {
@@ -1729,6 +1762,14 @@ fn report_revision_candidates(text: &str) -> Vec<ReportRevisionCandidate> {
         .captures_iter(text)
         .filter_map(|captures| {
             let full = captures.get(0)?;
+            if text.starts_with("[PDF ") {
+                let line_start = text[..full.start()]
+                    .rfind('\n')
+                    .map_or(0, |index| index + 1);
+                if text[line_start..full.start()].contains(" (OCR transcription;") {
+                    return None;
+                }
+            }
             let revision = captures.get(1)?.as_str().parse::<u64>().ok()?;
             (revision > 0).then(|| ReportRevisionCandidate {
                 revision,
@@ -1815,6 +1856,7 @@ fn office_statement_candidates(text: &str) -> Vec<Candidate> {
             if matches!(
                 channel,
                 "main_document"
+                    | "pdf_text"
                     | "table"
                     | "slide_text"
                     | "slide_text_table"
@@ -1840,7 +1882,8 @@ fn office_statement_candidates(text: &str) -> Vec<Candidate> {
                         | "file_metadata"
                         | "supplied_caption"
                         | "ocr"
-                        | "generated_interpretation" => channel,
+                        | "generated_interpretation"
+                        | "pdf_text" => channel,
                         _ => "document_body",
                     };
                     result.push(Candidate {
@@ -1855,7 +1898,7 @@ fn office_statement_candidates(text: &str) -> Vec<Candidate> {
                             "ocr" => "OCR transcription; confidence and region retained; not a verified event or identity",
                             "generated_interpretation" => "uncertain classifier interpretation; not a verified pixel observation",
                             _ => "decoded dimensions; named identities unknown",
-                        }.into()) } else { office_qualification(quote) },
+                        }.into()) } else if line.starts_with("[PDF ") && channel == "ocr" { Some(format!("OCR transcription; unverified{}", office_qualification(quote).map(|q| format!("; {q}")).unwrap_or_default())) } else { office_qualification(quote) },
                         origin: origin.into(),
                     });
                 }
@@ -1872,7 +1915,8 @@ fn office_line_channel(line: &str) -> Option<(&str, usize)> {
     let channel = marker
         .strip_prefix("PPTX ")
         .or_else(|| marker.strip_prefix("DOCX "))
-        .or_else(|| marker.strip_prefix("PHOTO "))?;
+        .or_else(|| marker.strip_prefix("PHOTO "))
+        .or_else(|| marker.strip_prefix("PDF "))?;
     let (_, channel) = channel.rsplit_once("; channel=")?;
     Some((channel, closing + 2))
 }
@@ -1902,6 +1946,22 @@ fn photo_record_key(text: &str, offset: usize, channel: &str) -> String {
     format!("photo:{channel}:{}", office_key_slug(qualifier_key))
 }
 
+// PDF has no stable paragraph IDs. Scope prose anchors to a page/column and
+// disambiguate repeated prefixes by source order; unrelated inserted lines do
+// not shift their identity. Layout changes can still require realignment.
+fn pdf_statement_prefix(quote: &str) -> String {
+    office_key_slug(
+        &quote
+            .split(" (OCR transcription;")
+            .next()
+            .unwrap_or_default()
+            .split_whitespace()
+            .take(2)
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
+
 fn office_record_key(text: &str, offset: usize, channel: &str, quote: &str) -> Option<String> {
     let line_start = text[..offset].rfind('\n').map_or(0, |index| index + 1);
     let line_end = text[offset..]
@@ -1911,6 +1971,30 @@ fn office_record_key(text: &str, offset: usize, channel: &str, quote: &str) -> O
         .find(']')
         .and_then(|closing| text[line_start + 1..line_start + closing].split_once(' '))
         .map(|(_, marker)| marker)?;
+    if text[line_start..].starts_with("[PDF ") {
+        let page = marker.split(" region ").next()?;
+        let column = marker.split("; column=").nth(1)?.split(';').next()?;
+        let prefix = pdf_statement_prefix(quote);
+        let occurrence = text[..line_start]
+            .lines()
+            .filter(|line| {
+                let Some((locator, body)) = line.split_once("] ") else {
+                    return false;
+                };
+                locator.starts_with(&format!("[PDF {page} region "))
+                    && locator.contains(&format!("; column={column};"))
+                    && pdf_statement_prefix(body) == prefix
+            })
+            .count()
+            + 1;
+        return Some(format!(
+            "pdf:{}:column-{}:{}:occurrence-{}",
+            office_key_slug(page),
+            column,
+            prefix,
+            occurrence
+        ));
+    }
     let heading = office_heading_context(text, line_start);
 
     // OOXML paragraph and shape IDs are stable identities owned by the source package.
@@ -2177,7 +2261,7 @@ fn repository_question_candidates(text: &str) -> Vec<Candidate> {
 fn candidates(text: &str) -> Vec<Candidate> {
     let mut result = Vec::new();
     let code_doc_re = regex(
-        r"(?m)^([ \t]*///[ \t]*[^\n]+)\n[ \t]*(?:pub[ \t]+)?(?:struct|enum|trait)[ \t]+([A-Z][A-Za-z0-9_]*)\b",
+        r"(?m)^(?:\x{FEFF})?((?:[ \t]*///(?:[^/\r\n][^\r\n]*)?\r?\n)+)[ \t]*(?:pub[ \t]+)?(?:struct|enum|trait)[ \t]+([A-Z][A-Za-z0-9_]*)\b",
     );
     for captures in code_doc_re.captures_iter(text) {
         let Some(comment) = captures.get(1) else {
@@ -2186,12 +2270,13 @@ fn candidates(text: &str) -> Vec<Candidate> {
         let Some(symbol) = captures.get(2) else {
             continue;
         };
+        let quote = comment.as_str().trim_end_matches(['\r', '\n']);
         result.push(Candidate {
             kind: CandidateKind::CodeConcept,
             value: symbol.as_str().to_owned(),
-            quote: comment.as_str().to_owned(),
+            quote: quote.to_owned(),
             start: comment.start(),
-            end: comment.end(),
+            end: comment.start() + quote.len(),
             qualifier: None,
             origin: origin_for(text, comment.start(), comment.end()),
         });

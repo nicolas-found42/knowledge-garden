@@ -130,7 +130,7 @@ fn clauses(
     *count += 1;
     if *count > 64 || depth > 16 {
         return Err(GardenError::Invalid(
-            "A query supports up to 64 clauses and 16 nested groups.".into(),
+            "A query supports up to 64 expression nodes (including groups and clauses) and 16 nested groups.".into(),
         ));
     }
     match expression {
@@ -415,7 +415,7 @@ impl Application {
                 continue;
             }
             let (matches, leaves) =
-                self.boolean_matches_expression(&id, &request.expression, &page, &mut 0)?;
+                self.boolean_matches_expression(&id, &request.expression, &page, &mut 0, false)?;
             if !matches {
                 continue;
             }
@@ -457,26 +457,37 @@ impl Application {
         expression: &BooleanExpression,
         page: &PageMetadata,
         ordinal: &mut usize,
+        negated: bool,
     ) -> Result<(bool, Vec<usize>)> {
         match expression {
             BooleanExpression::Path { .. } => {
                 let leaf = *ordinal;
                 *ordinal += 1;
                 let found=self.index.query_row("SELECT EXISTS(SELECT 1 FROM boolean_matches WHERE query_id=?1 AND leaf=?2 AND page_id=?3)",params![id,leaf as i64,page.page_id],|r|r.get::<_,bool>(0))?;
-                Ok((found, if found { vec![leaf] } else { vec![] }))
+                Ok((
+                    found != negated,
+                    if found && !negated {
+                        vec![leaf]
+                    } else {
+                        vec![]
+                    },
+                ))
             }
-            BooleanExpression::Constraint { constraint } => Ok((constraint.matches(page), vec![])),
+            BooleanExpression::Constraint { constraint } => {
+                Ok((constraint.matches(page) != negated, vec![]))
+            }
             BooleanExpression::Not { child } => {
-                let (found, _) = self.boolean_matches_expression(id, child, page, ordinal)?;
-                Ok((!found, vec![]))
+                self.boolean_matches_expression(id, child, page, ordinal, !negated)
             }
             BooleanExpression::And { children } | BooleanExpression::Or { children } => {
-                let conjunction = matches!(expression, BooleanExpression::And { .. });
+                // Push NOT through groups (De Morgan) so even-negated positive
+                // paths keep their evidence, while absence never creates a path.
+                let conjunction = matches!(expression, BooleanExpression::And { .. }) != negated;
                 let mut matched = conjunction;
                 let mut leaves = Vec::new();
                 for child in children {
                     let (found, child_leaves) =
-                        self.boolean_matches_expression(id, child, page, ordinal)?;
+                        self.boolean_matches_expression(id, child, page, ordinal, negated)?;
                     if conjunction {
                         matched &= found;
                     } else {
