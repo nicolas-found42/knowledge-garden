@@ -331,9 +331,8 @@ fn repository_identity_file_source_and_content_versions_stay_distinct_across_rei
         "repository-fixture-credential".into(),
         Arc::new(RepositoryConceptTransport(AtomicUsize::new(0))),
     ));
-    let mut app =
-        Application::open_with_semantic_provider(workspace.path().join("collection"), provider)
-            .unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open_with_semantic_provider(&collection, provider).unwrap();
     let first_import = app.import_repository(&first_repository).unwrap();
     app.resume_due_semantic_jobs().unwrap();
     let first_file = first_import
@@ -433,6 +432,29 @@ fn repository_identity_file_source_and_content_versions_stay_distinct_across_rei
         .unwrap(),
         revised.as_bytes()
     );
+    drop(app);
+    let reopened = Application::open(&collection).unwrap();
+    let restored = reopened.open_source(&first_file.source_id).unwrap();
+    assert_eq!(restored.info.repository, revised_page.info.repository);
+    assert_eq!(
+        restored.info.current_version_id.as_deref(),
+        Some(first_version.as_str())
+    );
+    assert!(revised_page.info.pending_version_id.is_none());
+    assert!(restored
+        .info
+        .versions_seen
+        .iter()
+        .any(|version| version.source_version_id == revised_version.source_version_id));
+    assert_eq!(
+        restored.info.current_version_id,
+        revised_page.info.current_version_id
+    );
+    assert_eq!(
+        restored.info.pending_version_id,
+        revised_page.info.pending_version_id
+    );
+    assert_eq!(restored.info.versions_seen.len(), 2);
 }
 
 #[test]
@@ -537,6 +559,104 @@ fn repository_scripts_are_retained_as_text_without_execution() {
     assert!(
         !marker.exists(),
         "repository scripts are source data, not commands"
+    );
+}
+
+#[test]
+fn repository_code_description_preserves_all_adjacent_doc_lines_and_qualifications() {
+    let workspace = tempdir().unwrap();
+    let repository = workspace.path().join("repository");
+    fs::create_dir_all(&repository).unwrap();
+    let code = "\u{feff}/// Reuses parsed plans.\r\n/// Only temporary test processes use this cache.\r\n///     let cache = Cache;\r\npub struct Cache;\r\n";
+    fs::write(repository.join("cache.rs"), code).unwrap();
+    let provider = Arc::new(JevSemanticProvider::with_transport(
+        "fixture".into(),
+        Arc::new(RepositoryConceptTransport(AtomicUsize::new(0))),
+    ));
+    let collection = workspace.path().join("collection");
+    let mut app = Application::open_with_semantic_provider(&collection, provider).unwrap();
+    let imported = app.import_repository(&repository).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let source = app.open_source(&imported.sources[0].source_id).unwrap();
+    let concept = source
+        .knowledge_pages
+        .iter()
+        .find(|page| page.title == "Cache")
+        .unwrap();
+    let page = app.open_knowledge_page(&concept.page_id).unwrap();
+    let header: serde_yaml_ng::Value = serde_yaml_ng::from_str(
+        page.markdown
+            .strip_prefix("---\n")
+            .unwrap()
+            .split_once("\n---\n")
+            .unwrap()
+            .0,
+    )
+    .unwrap();
+    let description = header["facts"]
+        .as_sequence()
+        .unwrap()
+        .iter()
+        .find(|fact| fact["property"] == "description")
+        .unwrap();
+    assert_eq!(description["value"].as_str().unwrap(), "Reuses parsed plans.\nOnly temporary test processes use this cache.\n    let cache = Cache;");
+    let normalized = code;
+    let start = description["evidence"]["byte_start"].as_u64().unwrap() as usize;
+    let end = description["evidence"]["byte_end"].as_u64().unwrap() as usize;
+    assert_eq!(
+        &normalized[start..end],
+        description["evidence"]["quote"].as_str().unwrap()
+    );
+    assert!(
+        page.markdown.contains("Reuses parsed plans."),
+        "{}",
+        page.markdown
+    );
+    assert!(page
+        .markdown
+        .contains("Only temporary test processes use this cache."));
+    assert!(
+        page.markdown.contains("source lines 1–3"),
+        "{}",
+        page.markdown
+    );
+    assert_eq!(
+        fs::read(app.original_path(&source.info.source_id).unwrap()).unwrap(),
+        code.as_bytes()
+    );
+    let concept_id = concept.page_id.clone();
+    drop(app);
+    let mut reopened = Application::open(&collection).unwrap();
+    let results = reopened
+        .search_pages(knowledge_garden::application::PageSearchRequest {
+            query: "temporary".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let location = results
+        .pages
+        .iter()
+        .find(|result| result.page_id == concept_id)
+        .unwrap()
+        .match_location
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        location.source_version_id.as_deref(),
+        Some(
+            source
+                .info
+                .current_version_id
+                .as_deref()
+                .expect("source revision must exist")
+        )
+    );
+    assert_eq!(location.source_location.as_deref(), Some("cache.rs"));
+    assert_eq!(location.line_start, 1);
+    assert_eq!(location.line_end, 3);
+    assert_eq!(
+        reopened.open_knowledge_page(&concept_id).unwrap().markdown,
+        page.markdown
     );
 }
 
@@ -919,4 +1039,75 @@ fn repository_adr_decision_preserves_its_multiline_scope_qualification() {
         page.markdown
     );
     assert!(!page.markdown.contains("Tests remain isolated."));
+}
+
+#[cfg(unix)]
+#[test]
+fn repository_paths_retain_distinct_raw_names_and_repositories() {
+    use std::ffi::OsString;
+    let workspace = tempdir().unwrap();
+    let mut app = Application::open(workspace.path().join("collection")).unwrap();
+    let mut repository_ids = std::collections::HashSet::new();
+    for name in ["first", "second"] {
+        let repository = workspace.path().join(name);
+        fs::create_dir_all(repository.join("a")).unwrap();
+        for name in [
+            OsString::from("a/b.rs"),
+            OsString::from("a\\b.rs"),
+            OsString::from("a%5Cb.rs"),
+        ] {
+            fs::write(repository.join(name), "/// A cache.\npub struct Cache;\n").unwrap();
+        }
+        let imported = app.import_repository(&repository).unwrap();
+        assert!(repository_ids.insert(imported.repository_id.clone()));
+        assert_eq!(imported.sources.len(), 3);
+        assert_eq!(
+            imported
+                .sources
+                .iter()
+                .map(|s| &s.source_id)
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            3
+        );
+        assert_eq!(
+            imported
+                .sources
+                .iter()
+                .map(|s| &s.relative_path)
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            3
+        );
+        let repeated = app.import_repository(&repository).unwrap();
+        assert_eq!(
+            serde_json::to_value(repeated).unwrap(),
+            serde_json::to_value(imported).unwrap()
+        );
+    }
+}
+
+#[test]
+fn repository_ordinary_four_slash_comments_do_not_form_code_concepts() {
+    let workspace = tempdir().unwrap();
+    let repository = workspace.path().join("repository");
+    fs::create_dir(&repository).unwrap();
+    fs::write(
+        repository.join("cache.rs"),
+        "//// Ordinary comment.\npub struct Cache;\n",
+    )
+    .unwrap();
+    let transport = Arc::new(RepositoryConceptTransport(AtomicUsize::new(0)));
+    let provider = Arc::new(JevSemanticProvider::with_transport(
+        "fixture".into(),
+        transport.clone(),
+    ));
+    let mut app =
+        Application::open_with_semantic_provider(workspace.path().join("collection"), provider)
+            .unwrap();
+    let imported = app.import_repository(&repository).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let source = app.open_source(&imported.sources[0].source_id).unwrap();
+    assert!(source.knowledge_pages.is_empty());
+    assert_eq!(transport.0.load(Ordering::SeqCst), 0);
 }
