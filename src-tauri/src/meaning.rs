@@ -1,6 +1,7 @@
 //! Local English meaning retrieval. This module has no network-capable code;
 //! the model, tokenizer, and native inference library must already be installed.
 use ort::{
+    environment::Environment,
     session::{builder::GraphOptimizationLevel, Session},
     value::Tensor,
 };
@@ -30,7 +31,7 @@ const INDEX_IDENTITY: &str = "meaning-index/v1;BAAI/bge-base-en-v1.5@a5beb1e3e68
 // local fixture cutoff, not a calibrated probability or general quality claim.
 const MINIMUM_COSINE_SIMILARITY: f32 = 0.45;
 
-static ORT_INIT: OnceLock<Result<(), String>> = OnceLock::new();
+static ORT_INIT: OnceLock<Result<Environment, String>> = OnceLock::new();
 
 pub struct MeaningSearch {
     session: Session,
@@ -78,21 +79,18 @@ impl MeaningSearch {
         verify_sha(&tokenizer_path, TOKENIZER_SHA256)?;
         verify_sha(&runtime_path, RUNTIME_SHA256)?;
         let runtime = runtime_path.clone();
-        ORT_INIT
+        let environment = ORT_INIT
             .get_or_init(|| {
-                if ort::init_from(runtime)
+                ort::init_from(runtime)
                     .map_err(|error| format!("Could not load local ONNX Runtime: {error}"))?
-                    .commit()
-                {
-                    Ok(())
-                } else {
-                    Err("Could not initialize local ONNX Runtime.".into())
-                }
+                    .build()
+                    .map_err(|error| format!("Could not initialize local ONNX Runtime: {error}"))
             })
-            .clone()?;
+            .clone()
+            .map_err(|error| error.clone())?;
         let tokenizer = Tokenizer::from_file(&tokenizer_path)
             .map_err(|error| format!("The local meaning tokenizer is unreadable: {error}"))?;
-        let mut session = Session::builder()
+        let mut session = Session::builder(&environment)
             .map_err(|error| format!("Could not prepare local meaning model: {error}"))?
             .with_optimization_level(GraphOptimizationLevel::Level3)
             .map_err(|error| format!("Could not configure local meaning model: {error}"))?
