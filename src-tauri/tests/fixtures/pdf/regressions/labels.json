@@ -1,0 +1,36 @@
+{
+  "pale.pdf": {
+    "page": 1,
+    "fact": "V17 recorded 15 visits.",
+    "missing_region": {
+      "PDF_points_bottom_left": [
+        80,
+        300,
+        440,
+        100
+      ],
+      "text_authored_before_degradation": "Unrecoverable qualification: duration not verified.",
+      "expected": "partial coverage; do not fabricate degraded text"
+    }
+  },
+  "inline-raster.pdf": {
+    "page": 1,
+    "fact": "V17 recorded 15 visits at Riverside.",
+    "raster_words": "15 visits",
+    "raster_box_PDF_points_bottom_left": [
+      132,
+      729,
+      68,
+      12
+    ],
+    "expected": "retain inline raster words or mark explicit partial coverage; never complete with count omitted"
+  },
+  "repeated-prefix.pdf": {
+    "page": 1,
+    "facts": [
+      "The project has 15 visits.",
+      "The project has 10 minutes."
+    ],
+    "expected": "both statements on one knowledge page with distinct durable fact identities"
+  }
+}

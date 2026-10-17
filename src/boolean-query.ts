@@ -78,6 +78,7 @@ export function renderBooleanQuery(
   panel.className = "boolean-query";
   panel.setAttribute("aria-label", "Boolean query builder");
   const controls = node("div");
+  const editors = new Map<BooleanExpression, HTMLElement>();
   const representation = node("pre");
   representation.setAttribute("aria-label", "Visible Boolean query");
   representation.setAttribute("aria-live", "polite");
@@ -221,6 +222,7 @@ export function renderBooleanQuery(
     remove?: () => void,
   ): HTMLElement {
     const box = node("fieldset");
+    editors.set(expression, box);
     box.append(
       node(
         "legend",
@@ -231,23 +233,19 @@ export function renderBooleanQuery(
             : "Boolean group",
       ),
     );
-    if (remove)
-      box.append(
-        button("Remove clause", () => {
-          remove();
-          changed();
-          drawControls();
-        }),
-      );
+    if (remove) box.append(button("Remove clause", remove));
     box.append(
       button(expression.op === "not" ? "Remove NOT" : "Wrap in NOT", () => {
-        replace(
+        const replacement =
           expression.op === "not"
             ? expression.child
-            : { op: "not", child: expression },
-        );
+            : ({ op: "not", child: expression } as const);
+        replace(replacement);
         changed();
-        drawControls();
+        drawControls(
+          replacement,
+          expression.op === "not" ? "Wrap in NOT" : "Remove NOT",
+        );
       }),
     );
     if (expression.op === "and" || expression.op === "or") {
@@ -263,14 +261,18 @@ export function renderBooleanQuery(
           editor(
             child,
             (e) => (expression.children[i] = e),
-            () => expression.children.splice(i, 1),
+            () => {
+              expression.children.splice(i, 1);
+              changed();
+              drawControls(expression, "Add path clause");
+            },
           ),
         ),
       );
       const add = (e: BooleanExpression) => {
         expression.children.push(e);
         changed();
-        drawControls();
+        drawControls(e);
       };
       box.append(
         button("Add path clause", () =>
@@ -313,7 +315,7 @@ export function renderBooleanQuery(
           button("Remove hop", () => {
             expression.hops.splice(i, 1);
             changed();
-            drawControls();
+            drawControls(expression, "Add hop");
           }),
         );
         box.append(row);
@@ -322,7 +324,7 @@ export function renderBooleanQuery(
         button("Add hop", () => {
           expression.hops.push({ kind: "", direction: "with_arrow" });
           changed();
-          drawControls();
+          drawControls(expression, "Add hop");
         }),
       );
       const scope = node("div");
@@ -355,7 +357,8 @@ export function renderBooleanQuery(
           : "";
   }
   const initialStart = findStart(state.request.expression);
-  function drawControls() {
+  function drawControls(focus?: BooleanExpression, buttonLabel?: string) {
+    editors.clear();
     const expression = editor(
       state.request.expression,
       (e) => (state.request.expression = e),
@@ -387,9 +390,16 @@ export function renderBooleanQuery(
         state.request = newQuery(initialStart).request;
         state.request.expression = { op: "and", children: [] };
         changed();
-        drawControls();
+        drawControls(undefined, "Clear query");
       }),
     );
+    const scope = focus ? editors.get(focus) : controls;
+    if (buttonLabel)
+      [...(scope?.querySelectorAll<HTMLButtonElement>(":scope > button") ?? [])]
+        .find((button) => button.textContent === buttonLabel)
+        ?.focus();
+    else if (focus)
+      scope?.querySelector<HTMLElement>("input, select, button")?.focus();
   }
   async function inspect(
     result: BooleanQueryResult,
@@ -554,6 +564,7 @@ export function renderBooleanQuery(
         `[data-focus-id="query-result:${CSS.escape(state.selected)}"]`,
       )
       ?.focus();
+  else controls.querySelector<HTMLElement>("select, input")?.focus();
   return {
     invalidate() {
       if (!state.stale) {
