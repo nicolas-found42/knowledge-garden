@@ -1,5 +1,6 @@
 //! Public, disk-backed collection operations. Markdown and originals are authoritative.
 pub mod boolean;
+pub mod watched;
 use crate::extraction::{LocalExtractor, SourceExtractor};
 use crate::meaning::{MeaningFilters, MeaningSearch};
 use crate::media::{
@@ -70,6 +71,7 @@ pub enum AcquisitionMethod {
     Drop,
     Url,
     Repository,
+    Watch,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -114,6 +116,8 @@ pub enum ExtractionState {
 pub struct Acquisition {
     pub path: String,
     pub method: AcquisitionMethod,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path_encoding: Option<AcquisitionPathEncoding>,
     /// Milliseconds since the Unix epoch, stored as a string to avoid JS precision loss.
     pub received_at: String,
     #[serde(default)]
@@ -124,6 +128,13 @@ pub struct Acquisition {
     pub http_status: Option<u16>,
     #[serde(default)]
     pub content_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AcquisitionPathEncoding {
+    Raw,
+    PercentEncoded,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -502,6 +513,8 @@ pub struct Application {
     fail_after_publication_files: Option<usize>,
     meaning_search: Option<MeaningSearch>,
     meaning_search_status: String,
+    watch_readers: HashMap<String, fs::ReadDir>,
+    watch_cursor: usize,
     // Declared last so the collection lock releases after the index and providers drop.
     _lock: CollectionLock,
 }
@@ -704,6 +717,9 @@ impl Application {
              CREATE TABLE IF NOT EXISTS source_origins (
                  path TEXT PRIMARY KEY, source_id TEXT NOT NULL
              );
+             CREATE TABLE IF NOT EXISTS ambiguous_source_origins (
+                 path TEXT PRIMARY KEY
+             );
              CREATE TABLE IF NOT EXISTS source_versions (
                  source_id TEXT NOT NULL, source_version_id TEXT NOT NULL, format TEXT NOT NULL,
                  PRIMARY KEY(source_id, source_version_id)
@@ -836,6 +852,8 @@ impl Application {
             fail_after_publication_files: None,
             meaning_search,
             meaning_search_status,
+            watch_readers: HashMap::new(),
+            watch_cursor: 0,
             _lock: CollectionLock(lock),
         };
         app.rebuild_index()?;
@@ -1136,6 +1154,7 @@ impl Application {
         let acquisition = Acquisition {
             path: requested.clone(),
             method: AcquisitionMethod::Url,
+            path_encoding: None,
             received_at: received_at.to_string(),
             requested_url: Some(requested),
             final_url: Some(final_url),
@@ -1260,6 +1279,7 @@ impl Application {
         format_override: Option<String>,
         source_identity_scope: Option<String>,
     ) -> Result<SourcePage> {
+        self.recover_pending_publications()?;
         let supplied_path = if path.as_ref().is_absolute() {
             path.as_ref().to_path_buf()
         } else {
@@ -1322,6 +1342,8 @@ impl Application {
                 supplied_path.to_string_lossy().into_owned()
             },
             method,
+            path_encoding: (method == AcquisitionMethod::Repository)
+                .then_some(AcquisitionPathEncoding::PercentEncoded),
             received_at,
             requested_url: None,
             final_url: None,
@@ -1334,7 +1356,7 @@ impl Application {
         identity.update([0]);
         identity.update(digest.as_bytes());
         let content_source_id = format!("source-{:x}", identity.finalize());
-        let existing_origin = self.source_for_origin(&path_key)?;
+        let existing_origin = self.source_for_origin(acquisition_origin(&acquisition)?)?;
         let source_id = if method == AcquisitionMethod::Url {
             existing_origin.unwrap_or_else(|| {
                 let identity = format!("url-origin:{path_key}");
@@ -1361,6 +1383,7 @@ impl Application {
             let acquisition_exists = existing.info.acquisitions.iter().any(|old| {
                 old.path == acquisition.path
                     && old.method == acquisition.method
+                    && old.path_encoding == acquisition.path_encoding
                     && old.requested_url == acquisition.requested_url
                     && old.final_url == acquisition.final_url
             });
@@ -1373,7 +1396,7 @@ impl Application {
                 if !acquisition_exists {
                     write_acquisition(&destination, &acquisition)?;
                 }
-                self.index_acquisition(&acquisition.path, &source_id)?;
+                self.index_acquisition(&acquisition, &source_id)?;
                 return self.open_source(&source_id);
             }
             let version = source_version(
@@ -1408,7 +1431,7 @@ impl Application {
             if !acquisition_exists {
                 write_acquisition(&destination, &acquisition)?;
             }
-            self.index_acquisition(&acquisition.path, &source_id)?;
+            self.index_acquisition(&acquisition, &source_id)?;
             let (extraction, extraction_detail, extraction_coverage) = if audio_format {
                 if let Some(audio) = inspected_audio.as_ref() {
                     (
@@ -1774,7 +1797,7 @@ impl Application {
             body,
             knowledge_pages: Vec::new(),
         };
-        self.index_acquisition(&page.info.acquisitions[0].path, &page.info.source_id)?;
+        self.index_acquisition(&page.info.acquisitions[0], &page.info.source_id)?;
         self.index_version(&page.info.source_id, &digest, &page.info.format)?;
         self.index_page(&page.info)?;
         Ok(page)
@@ -1800,9 +1823,16 @@ impl Application {
                         GardenError::Invalid("An acquisition record is unreadable.".into())
                     })?
                     .0;
-                page.info
-                    .acquisitions
-                    .push(serde_yaml_ng::from_str(header)?);
+                let acquisition: Acquisition = serde_yaml_ng::from_str(header)?;
+                if !page.info.acquisitions.iter().any(|old| {
+                    old.path == acquisition.path
+                        && old.method == acquisition.method
+                        && old.path_encoding == acquisition.path_encoding
+                        && old.requested_url == acquisition.requested_url
+                        && old.final_url == acquisition.final_url
+                }) {
+                    page.info.acquisitions.push(acquisition);
+                }
             }
             page.info
                 .acquisitions
@@ -1810,6 +1840,14 @@ impl Application {
         }
         page.knowledge_pages = page.info.knowledge_pages.clone();
         Ok(page)
+    }
+
+    pub fn retained_source_exists(&self, source_id: &str) -> Result<bool> {
+        match fs::metadata(self.page_path(source_id)?) {
+            Ok(metadata) => Ok(metadata.is_file()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error.into()),
+        }
     }
 
     pub fn open_knowledge_page(&self, page_id: &str) -> Result<KnowledgePage> {
@@ -2395,6 +2433,7 @@ impl Application {
         max_jobs: usize,
         now: u128,
     ) -> Result<Vec<SemanticJob>> {
+        self.recover_pending_publications()?;
         let mut due = Vec::new();
         for entry in fs::read_dir(self.root.join("sources"))? {
             if due.len() >= max_jobs {
@@ -3131,6 +3170,7 @@ impl Application {
         job: SemanticJob,
         result: std::result::Result<KnowledgeDraft, ProviderError>,
     ) -> Result<()> {
+        self.recover_pending_publications()?;
         self.staged_publication.clear();
         let mut page = read_page(&self.page_path(&job.source_id)?)?;
         let initial = page.info.current_version_id.is_none();
@@ -3605,6 +3645,7 @@ impl Application {
     /// deliberately performed after persisting `processing`; opening the collection
     /// converts an interrupted window back to pending and retries its stable range.
     pub fn resume_due_audio_jobs(&mut self) -> Result<()> {
+        self.recover_pending_publications()?;
         let now = now_millis()? as u64;
         let mut candidate = None;
         for entry in fs::read_dir(self.root.join("sources"))? {
@@ -6167,6 +6208,9 @@ impl Application {
     }
 
     pub fn rebuild_index(&mut self) -> Result<()> {
+        // A failed publication is a committed intent, even if the process did
+        // not exit. Finish it before capturing edits or rebuilding derived state.
+        recover_publications(&self.root)?;
         self.capture_external_knowledge_edits()?;
         let transaction = self.index.unchecked_transaction()?;
         transaction.execute("DELETE FROM sources", [])?;
@@ -6174,6 +6218,7 @@ impl Application {
         transaction.execute("DELETE FROM query_page_metadata", [])?;
         transaction.execute("DELETE FROM page_tags", [])?;
         transaction.execute("DELETE FROM source_origins", [])?;
+        transaction.execute("DELETE FROM ambiguous_source_origins", [])?;
         transaction.execute("DELETE FROM source_versions", [])?;
         transaction.execute("DELETE FROM knowledge_pages", [])?;
         transaction.execute("DELETE FROM relationship_edges", [])?;
@@ -6184,15 +6229,13 @@ impl Application {
                 continue;
             }
             let page = read_page(&entry.path().join("index.md"))?;
+            let page = self.open_source(&page.info.source_id)?;
             transaction.execute(
                 "INSERT INTO sources (source_id, summary) VALUES (?1, ?2)",
                 params![page.info.source_id, summary_json(&page.info)?],
             )?;
             for acquisition in &page.info.acquisitions {
-                transaction.execute(
-                    "INSERT OR REPLACE INTO source_origins(path, source_id) VALUES (?1, ?2)",
-                    params![acquisition.path, page.info.source_id],
-                )?;
+                index_acquisition_record(&transaction, acquisition, &page.info.source_id)?;
             }
             for version in &page.info.versions_seen {
                 transaction.execute(
@@ -6214,45 +6257,7 @@ impl Application {
                 if header.source_id != page.info.source_id {
                     continue;
                 }
-                let date_facts = header
-                    .facts
-                    .iter()
-                    .filter(|fact| {
-                        ["event_date", "occurred_on", "date"]
-                            .iter()
-                            .any(|property| fact.property.eq_ignore_ascii_case(property))
-                    })
-                    .collect::<Vec<_>>();
-                let date = crate::timeline::qualify_dates(
-                    &date_facts
-                        .iter()
-                        .map(|fact| fact.value.as_str())
-                        .collect::<Vec<_>>(),
-                );
-                let date_fact = date_facts.first().copied();
-                let entry = crate::timeline::TimelineEntry {
-                    entry_id: format!("event:{}", header.page_id),
-                    page_id: header.page_id.clone(),
-                    source_id: header.source_id.clone(),
-                    title: header.title.clone(),
-                    kind: header.kind.clone(),
-                    date_label: date.label,
-                    date_start: date.start,
-                    date_end: date.end,
-                    precision: date.precision,
-                    date_status: date.status,
-                    qualifier: date_fact.and_then(|fact| fact.qualifier.clone()),
-                    support: Some(search_location(
-                        &date_fact
-                            .map(|fact| fact.fact_id.clone())
-                            .unwrap_or_else(|| header.page_id.clone()),
-                        &header.source_id,
-                        None,
-                        date_fact
-                            .map(|fact| &fact.evidence)
-                            .unwrap_or(&header.evidence),
-                    )),
-                };
+                let entry = event_timeline_entry(&header);
                 transaction.execute("INSERT INTO timeline_entries(entry_id,date_meaning,date_start,date_end,entry) VALUES (?1,'source_event',?2,?3,?4)", params![entry.entry_id, entry.date_start, entry.date_end, serde_json::to_string(&entry)?])?;
             }
         }
@@ -6263,6 +6268,36 @@ impl Application {
                     continue;
                 }
                 let header = read_knowledge_header(&path)?;
+                if !self
+                    .source_dir(&header.source_id)?
+                    .join("index.md")
+                    .exists()
+                {
+                    // Authoritative owner edits outlive removal of their last source.
+                    if header.kind == "event" {
+                        let mut entry = event_timeline_entry(&header);
+                        entry.support = None;
+                        transaction.execute("INSERT INTO timeline_entries(entry_id,date_meaning,date_start,date_end,entry) VALUES (?1,'source_event',?2,?3,?4)", params![entry.entry_id, entry.date_start, entry.date_end, serde_json::to_string(&entry)?])?;
+                    }
+                    write_search_documents(
+                        &transaction,
+                        &[SearchDocument {
+                            page_id: header.page_id.clone(),
+                            source_id: header.source_id.clone(),
+                            page_type: "knowledge".into(),
+                            title: header.title.clone(),
+                            kind: header.kind.clone(),
+                            content: knowledge_search_content(&header),
+                            format: "md".into(),
+                            extraction: ExtractionState::TextPreserved,
+                            processing_status: "source_unavailable".into(),
+                            event_date: event_date_from_facts(&header.facts),
+                            tags: header.tags.clone(),
+                            doc_kind: "page".into(),
+                            match_location: None,
+                        }],
+                    )?;
+                }
                 transaction.execute(
                     "INSERT OR REPLACE INTO knowledge_pages(page_id, title, kind) VALUES (?1, ?2, ?3)",
                     params![header.page_id, header.title, header.kind],
@@ -6457,7 +6492,27 @@ impl Application {
         self.rebuild_index()
     }
 
-    fn source_for_origin(&self, path: &str) -> Result<Option<String>> {
+    fn recover_pending_publications(&mut self) -> Result<()> {
+        if let Some(entry) = fs::read_dir(self.root.join(".staging/transactions"))?.next() {
+            entry?;
+            // Cached directory iterators may refer to receipts removed by the
+            // recovered transaction. Reopen them from their durable checkpoints.
+            self.watch_readers.clear();
+            self.rebuild_index()?;
+        }
+        Ok(())
+    }
+
+    fn source_for_origin(&self, path: impl AsRef<Path>) -> Result<Option<String>> {
+        let path = repository_path_text(&normalized_origin(path.as_ref()));
+        let ambiguous: bool = self.index.query_row(
+            "SELECT EXISTS(SELECT 1 FROM ambiguous_source_origins WHERE path=?1)",
+            [&path],
+            |row| row.get(0),
+        )?;
+        if ambiguous {
+            return Err(ambiguous_repository_origin_error());
+        }
         Ok(self
             .index
             .query_row(
@@ -6479,12 +6534,8 @@ impl Application {
             .optional()?)
     }
 
-    fn index_acquisition(&self, path: &str, source_id: &str) -> Result<()> {
-        self.index.execute(
-            "INSERT OR REPLACE INTO source_origins(path, source_id) VALUES (?1, ?2)",
-            params![path, source_id],
-        )?;
-        Ok(())
+    fn index_acquisition(&self, acquisition: &Acquisition, source_id: &str) -> Result<()> {
+        index_acquisition_record(&self.index, acquisition, source_id)
     }
 
     fn index_version(&self, source_id: &str, version_id: &str, format: &str) -> Result<()> {
@@ -6619,6 +6670,141 @@ fn summary_json(info: &SourceInfo) -> Result<String> {
         extraction: info.extraction,
     })
     .map_err(|e| GardenError::Invalid(e.to_string()))
+}
+
+fn event_timeline_entry(header: &KnowledgePageHeader) -> crate::timeline::TimelineEntry {
+    let date_facts = header
+        .facts
+        .iter()
+        .filter(|fact| {
+            ["event_date", "occurred_on", "date"]
+                .iter()
+                .any(|property| fact.property.eq_ignore_ascii_case(property))
+        })
+        .collect::<Vec<_>>();
+    let date = crate::timeline::qualify_dates(
+        &date_facts
+            .iter()
+            .map(|fact| fact.value.as_str())
+            .collect::<Vec<_>>(),
+    );
+    let date_fact = date_facts.first().copied();
+    crate::timeline::TimelineEntry {
+        entry_id: format!("event:{}", header.page_id),
+        page_id: header.page_id.clone(),
+        source_id: header.source_id.clone(),
+        title: header.title.clone(),
+        kind: header.kind.clone(),
+        date_label: date.label,
+        date_start: date.start,
+        date_end: date.end,
+        precision: date.precision,
+        date_status: date.status,
+        qualifier: date_fact.and_then(|fact| fact.qualifier.clone()),
+        support: Some(search_location(
+            &date_fact
+                .map(|fact| fact.fact_id.clone())
+                .unwrap_or_else(|| header.page_id.clone()),
+            &header.source_id,
+            None,
+            date_fact
+                .map(|fact| &fact.evidence)
+                .unwrap_or(&header.evidence),
+        )),
+    }
+}
+
+// Repository acquisition paths are escaped display values. Decode those only,
+// then use the same physical origin and injective index key as ordinary imports.
+// In particular, a literal %25 in a picker/watch path must never be decoded.
+fn ambiguous_repository_origin(acquisition: &Acquisition) -> bool {
+    acquisition.method == AcquisitionMethod::Repository
+        && acquisition.path_encoding.is_none()
+        && acquisition.path.as_bytes().windows(3).any(|part| {
+            part[0] == b'%' && part[1].is_ascii_hexdigit() && part[2].is_ascii_hexdigit()
+        })
+}
+
+fn ambiguous_repository_origin_error() -> GardenError {
+    GardenError::Invalid("An older repository path has ambiguous encoding. Its originals are retained; automatic updates and removal are paused until the acquisition encoding is explicitly resolved.".into())
+}
+
+fn decoded_repository_path(path: &str) -> Result<PathBuf> {
+    let bytes = percent_encoding::percent_decode_str(path).collect::<Vec<_>>();
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        Ok(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(PathBuf::from(String::from_utf8(bytes).map_err(|_| {
+            GardenError::Invalid("The repository origin is not valid on this platform.".into())
+        })?))
+    }
+}
+
+fn acquisition_origin(acquisition: &Acquisition) -> Result<PathBuf> {
+    if ambiguous_repository_origin(acquisition) {
+        return Err(ambiguous_repository_origin_error());
+    }
+    let path = if acquisition.method == AcquisitionMethod::Repository
+        && acquisition.path_encoding == Some(AcquisitionPathEncoding::PercentEncoded)
+    {
+        decoded_repository_path(&acquisition.path)?
+    } else {
+        PathBuf::from(&acquisition.path)
+    };
+    Ok(normalized_origin(&path))
+}
+
+fn index_acquisition_record(
+    index: &Connection,
+    acquisition: &Acquisition,
+    source_id: &str,
+) -> Result<()> {
+    if ambiguous_repository_origin(acquisition) {
+        // Both interpretations are quarantined, never aliases to a guessed source.
+        // This derived table is rebuilt on open, independent of insertion order.
+        for path in [
+            PathBuf::from(&acquisition.path),
+            decoded_repository_path(&acquisition.path)?,
+        ] {
+            index.execute(
+                "INSERT OR IGNORE INTO ambiguous_source_origins(path) VALUES (?1)",
+                [repository_path_text(&normalized_origin(&path))],
+            )?;
+        }
+    } else {
+        index.execute(
+            "INSERT OR REPLACE INTO source_origins(path, source_id) VALUES (?1, ?2)",
+            params![
+                repository_path_text(&acquisition_origin(acquisition)?),
+                source_id
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn normalized_origin(path: &Path) -> PathBuf {
+    let mut ancestor = path;
+    let mut missing = Vec::new();
+    loop {
+        if let Ok(mut canonical) = fs::canonicalize(ancestor) {
+            for name in missing.into_iter().rev() {
+                canonical.push(name);
+            }
+            return canonical;
+        }
+        match (ancestor.parent(), ancestor.file_name()) {
+            (Some(parent), Some(name)) => {
+                missing.push(name);
+                ancestor = parent;
+            }
+            _ => return path.to_owned(),
+        }
+    }
 }
 
 fn classify_source(
@@ -8616,6 +8802,8 @@ fn sync_directory(path: &Path) -> Result<()> {
 #[derive(Serialize, Deserialize)]
 struct PublicationManifest {
     entries: Vec<PublicationEntry>,
+    #[serde(default)]
+    removals: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -8629,9 +8817,28 @@ fn commit_publication(
     files: Vec<(PathBuf, Vec<u8>)>,
     fail_after_files: Option<usize>,
 ) -> Result<()> {
-    if files.is_empty() {
+    commit_publication_with_removals(root, files, Vec::new(), fail_after_files)
+}
+
+fn commit_publication_with_removals(
+    root: &Path,
+    files: Vec<(PathBuf, Vec<u8>)>,
+    removals: Vec<PathBuf>,
+    fail_after_files: Option<usize>,
+) -> Result<()> {
+    if files.is_empty() && removals.is_empty() {
         return Ok(());
     }
+    let removals = removals
+        .into_iter()
+        .map(|path| {
+            let relative = path
+                .strip_prefix(root)
+                .map_err(|_| GardenError::Invalid("A removal escaped the collection.".into()))?;
+            validate_relative_collection_path(relative)?;
+            Ok(relative.to_string_lossy().into_owned())
+        })
+        .collect::<Result<Vec<_>>>()?;
     let transactions = root.join(".staging/transactions");
     fs::create_dir_all(&transactions)?;
     let staging = tempfile::tempdir_in(&transactions)?;
@@ -8654,7 +8861,7 @@ fn commit_publication(
         });
     }
     sync_directory(&staged_files)?;
-    let manifest = serde_json::to_vec(&PublicationManifest { entries })?;
+    let manifest = serde_json::to_vec(&PublicationManifest { entries, removals })?;
     let manifest_path = staging.path().join("manifest.json");
     let mut file = File::create(&manifest_path)?;
     file.write_all(&manifest)?;
@@ -8707,18 +8914,98 @@ fn apply_publication(
             )));
         }
     }
+    for removal in manifest.removals {
+        let relative = Path::new(&removal);
+        validate_relative_collection_path(relative)?;
+        remove_collection_entry(root, relative)?;
+    }
+    Ok(())
+}
+
+// Hold each parent directory open and refuse symlinks at every traversal.
+// Replacing a path ancestor cannot redirect removal to a different tree.
+fn remove_collection_entry(root: &Path, relative: &Path) -> std::io::Result<()> {
+    use rustix::fs::{openat, Mode, OFlags, CWD};
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let mut directory = openat(CWD, root, flags, Mode::empty())?;
+    for component in relative.parent().unwrap_or(Path::new("")).components() {
+        match openat(&directory, component.as_os_str(), flags, Mode::empty()) {
+            Ok(next) => directory = next,
+            Err(rustix::io::Errno::NOENT) => return Ok(()),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    let name = std::ffi::CString::new(relative.file_name().unwrap().as_encoded_bytes())?;
+    remove_entry_at(&directory, &name, 0)?;
+    File::from(directory).sync_all()
+}
+
+fn remove_entry_at(
+    directory: &impl std::os::fd::AsFd,
+    name: &std::ffi::CStr,
+    depth: usize,
+) -> std::io::Result<()> {
+    use rustix::fs::{openat, unlinkat, AtFlags, Dir, Mode, OFlags};
+    if depth > 256 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Removal directory nesting exceeds its recovery bound.",
+        ));
+    }
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    match openat(directory, name, flags, Mode::empty()) {
+        Ok(child) => {
+            let mut entries = Dir::read_from(&child)?;
+            while let Some(entry) = entries.read() {
+                let entry = entry?;
+                let name = entry.file_name();
+                if name.to_bytes() != b"." && name.to_bytes() != b".." {
+                    remove_entry_at(&child, name, depth + 1)?;
+                }
+            }
+            unlinkat(directory, name, AtFlags::REMOVEDIR)?;
+        }
+        Err(rustix::io::Errno::NOENT) => {}
+        Err(rustix::io::Errno::NOTDIR | rustix::io::Errno::LOOP) => {
+            match unlinkat(directory, name, AtFlags::empty()) {
+                Ok(()) | Err(rustix::io::Errno::NOENT) => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
+fn validate_real_collection_ancestors(root: &Path, destination: &Path) -> Result<()> {
+    let parent = destination
+        .parent()
+        .ok_or_else(|| GardenError::Invalid("Missing collection parent.".into()))?;
+    let relative = parent
+        .strip_prefix(root)
+        .map_err(|_| GardenError::Invalid("Path escaped collection.".into()))?;
+    let mut path = root.to_path_buf();
+    for component in relative.components() {
+        if !matches!(component, std::path::Component::Normal(_)) {
+            return Err(GardenError::Invalid("Invalid collection ancestor.".into()));
+        }
+        path.push(component);
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_dir() => {},
+            Ok(_) => return Err(GardenError::Invalid("A collection ancestor is a symlink or is not a directory; publication remains pending.".into())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        }
+    }
     Ok(())
 }
 
 fn validate_relative_collection_path(path: &Path) -> Result<()> {
     if path.as_os_str().is_empty()
         || path.is_absolute()
-        || path.components().any(|component| {
-            matches!(
-                component,
-                std::path::Component::ParentDir | std::path::Component::RootDir
-            )
-        })
+        || path
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
     {
         return Err(GardenError::Invalid(
             "A publication path is outside the collection.".into(),
@@ -8735,4 +9022,26 @@ fn validate_relative_staging_path(path: &Path) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod publication_removal_tests {
+    use super::*;
+    #[test]
+    fn removal_keeps_its_open_parent_when_an_ancestor_is_swapped() {
+        use std::os::unix::fs::symlink;
+        let workspace = tempfile::tempdir().unwrap();
+        let parent = workspace.path().join("sources");
+        let outside = workspace.path().join("outside");
+        for directory in [&parent, &outside] {
+            fs::create_dir_all(directory.join("victim")).unwrap();
+            fs::write(directory.join("victim/sentinel"), "retain outside").unwrap();
+        }
+        let held = File::open(&parent).unwrap();
+        fs::rename(&parent, workspace.path().join("moved-sources")).unwrap();
+        symlink(&outside, &parent).unwrap();
+        remove_entry_at(&held, &std::ffi::CString::new("victim").unwrap(), 0).unwrap();
+        assert!(outside.join("victim/sentinel").is_file());
+        assert!(!workspace.path().join("moved-sources/victim").exists());
+    }
 }

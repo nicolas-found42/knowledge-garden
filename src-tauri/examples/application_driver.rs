@@ -223,6 +223,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Application::open(args.get(1).ok_or("missing test collection")?)?
     };
     match operation {
+        "source-exists" => {
+            output(app.retained_source_exists(args.get(3).ok_or("missing source")?)?)
+        }
+        "watch" => output(app.watch_directory(args.get(3).ok_or("missing directory")?)?),
+        "watches" => output(app.list_watched_directories()?),
+        "watch-step" => {
+            app.reconcile_watched_directories(
+                args.get(3)
+                    .map(|value| value.parse())
+                    .transpose()?
+                    .unwrap_or(128),
+            )?;
+            output(app.list_watched_directories()?);
+        }
         "repository-import" | "repository-live-import" => {
             let imported = app.import_repository(args.get(3).ok_or("missing repository path")?)?;
             if live {

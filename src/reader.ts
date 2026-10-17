@@ -59,6 +59,8 @@ export async function mountReader(
   addButton.className = "primary";
   const addRepositoryButton = element("button", "Add repository");
   const addUrlButton = element("button", "Add URL");
+  const watchButton = element("button", "Watch directory");
+  watchButton.hidden = !api.watchDirectory || !api.chooseDirectory;
   toolbar.append(
     brand,
     backButton,
@@ -68,6 +70,7 @@ export async function mountReader(
     addButton,
     addRepositoryButton,
     addUrlButton,
+    watchButton,
   );
   const urlForm = element("form");
   urlForm.className = "url-form";
@@ -108,6 +111,7 @@ export async function mountReader(
   root.replaceChildren(toolbar, notice, urlForm, sources, main);
   let page: SourcePage | null = null;
   let currentKnowledgePageId: string | null = null;
+  let currentKnowledgeMarkdown: string | null = null;
   let currentSourceId: string | null = null;
   let currentView:
     | "empty"
@@ -193,6 +197,15 @@ export async function mountReader(
   let busy = false;
   let disposed = false;
   let searchGeneration = 0;
+  let sourcesOffset = 0;
+  let sourcesFingerprint = "";
+  let refreshingSources = false;
+  let sourceRefreshGeneration = 0;
+  let knowledgeRefreshGeneration = 0;
+  let sourceRefreshApplied = 0;
+  let knowledgeRefreshApplied = 0;
+  let sourcesGeneration = 0;
+  let sourcesNavigationPending = false;
 
   async function runTimeline(request: TimelineRequest) {
     if (!api.timeline) return;
@@ -717,9 +730,11 @@ export async function mountReader(
           ? "File picker"
           : acquisition.method === "drop"
             ? "File drop"
-            : acquisition.method === "repository"
-              ? "Repository folder"
-              : "URL",
+            : acquisition.method === "watch"
+              ? "Watched directory"
+              : acquisition.method === "repository"
+                ? "Repository folder"
+                : "URL",
       ]);
     }
     const retainedVersions = (next.info.versions_seen ?? []).filter(
@@ -770,6 +785,7 @@ export async function mountReader(
   function showKnowledgePage(next: KnowledgePage) {
     page = null;
     currentKnowledgePageId = next.page_id;
+    currentKnowledgeMarkdown = next.markdown;
     currentSourceId = next.source_id;
     currentView = "knowledge";
     const article = showMarkdown(next.markdown, next.title, next.source_id);
@@ -1901,6 +1917,7 @@ export async function mountReader(
 
   function sourceButton(source: SourceSummary) {
     const button = element("button", source.title);
+    button.dataset.sourceId = source.source_id;
     button.addEventListener("click", () => {
       message("");
       void api.openSource(source.source_id).then(showPage).catch(report);
@@ -1908,11 +1925,37 @@ export async function mountReader(
     return button;
   }
 
-  async function loadSources(offset: number) {
-    const listing = await api.listSources(offset);
-    if (disposed) return;
+  async function loadSources(offset: number, focus = true) {
+    const generation = ++sourcesGeneration;
+    if (focus) sourcesNavigationPending = true;
+    let listing;
+    try {
+      listing = await api.listSources(offset);
+    } finally {
+      if (focus && generation === sourcesGeneration)
+        sourcesNavigationPending = false;
+    }
+    if (
+      disposed ||
+      generation !== sourcesGeneration ||
+      (!focus && sources.hidden)
+    )
+      return;
+    const fingerprint = JSON.stringify([offset, listing]);
+    if (!focus && fingerprint === sourcesFingerprint) {
+      await refreshWatches();
+      return;
+    }
+    sourcesOffset = offset;
+    sourcesFingerprint = fingerprint;
+    const focusedId = (document.activeElement as HTMLElement | null)?.dataset
+      .sourceId;
     const heading = element("h2", "Sources");
     sources.replaceChildren(heading);
+    const watched = element("section");
+    watched.setAttribute("aria-label", "Watched directories");
+    sources.append(watched);
+    void refreshWatches().catch(report);
     if (listing.sources.length === 0)
       sources.append(element("p", "No sources yet."));
     for (const source of listing.sources) sources.append(sourceButton(source));
@@ -1932,8 +1975,44 @@ export async function mountReader(
     }
     sources.hidden = false;
     sourcesButton.setAttribute("aria-expanded", "true");
-    sources.querySelector("button")?.focus();
+    if (focus) sources.querySelector("button")?.focus();
+    else if (focusedId)
+      sources
+        .querySelector<HTMLElement>(
+          `[data-source-id="${CSS.escape(focusedId)}"]`,
+        )
+        ?.focus();
   }
+  async function refreshWatches() {
+    if (!api.listWatchedDirectories) return;
+    const watches = await api.listWatchedDirectories();
+    if (disposed) return;
+    const section = sources.querySelector('[aria-label="Watched directories"]');
+    section?.replaceChildren(
+      ...watches.map((watch) =>
+        element(
+          "p",
+          `${watch.path} · ${watch.state}${watch.state === "scanning" ? ` · ${watch.processed_files} files processed` : ""}${watch.detail ? ` · ${watch.detail}` : ""}${watch.state === "unavailable" ? " · Retained originals and knowledge remain available." : ""}`,
+        ),
+      ),
+    );
+  }
+  watchButton.addEventListener("click", () => {
+    if (watchButton.disabled) return;
+    watchButton.disabled = true;
+    void api.chooseDirectory!()
+      .then(async (path) => {
+        if (!path || disposed) return;
+        await api.watchDirectory!(path);
+        message(
+          "Directory selected. Files will be imported and kept current automatically.",
+        );
+      })
+      .catch(report)
+      .finally(() => {
+        watchButton.disabled = false;
+      });
+  });
   sourcesButton.addEventListener("click", () => {
     if (!sources.hidden) {
       sources.hidden = true;
@@ -1968,7 +2047,77 @@ export async function mountReader(
     }
   }
   const refreshTimer = window.setInterval(() => {
+    if (!sources.hidden && !refreshingSources && !sourcesNavigationPending) {
+      refreshingSources = true;
+      void loadSources(sourcesOffset, false)
+        .catch(report)
+        .finally(() => {
+          refreshingSources = false;
+        });
+    }
     if (!urlForm.hidden) void refreshUrlQueue();
+    const knowledgeId = currentKnowledgePageId;
+    if (
+      api.listWatchedDirectories &&
+      currentView === "knowledge" &&
+      knowledgeId
+    ) {
+      const generation = ++knowledgeRefreshGeneration;
+      const navigation = searchGeneration;
+      void api
+        .openKnowledgePage(knowledgeId)
+        .then((next) => {
+          if (
+            disposed ||
+            currentView !== "knowledge" ||
+            generation < knowledgeRefreshApplied ||
+            navigation !== searchGeneration ||
+            currentKnowledgePageId !== knowledgeId
+          )
+            return;
+          knowledgeRefreshApplied = generation;
+          if (next.markdown === currentKnowledgeMarkdown) return;
+          const scrollTop = main.querySelector("article")?.scrollTop ?? 0;
+          const focused = document.activeElement as HTMLElement | null;
+          const focusId = focused?.dataset.focusId;
+          showKnowledgePage(next);
+          const article = main.querySelector("article");
+          if (article) article.scrollTop = scrollTop;
+          if (focusId)
+            main
+              .querySelector<HTMLElement>(
+                `[data-focus-id="${CSS.escape(focusId)}"]`,
+              )
+              ?.focus({ preventScroll: true });
+          else if (focused?.isConnected) focused.focus({ preventScroll: true });
+        })
+        .catch(async (error) => {
+          if (
+            disposed ||
+            currentView !== "knowledge" ||
+            generation < knowledgeRefreshApplied ||
+            navigation !== searchGeneration ||
+            currentKnowledgePageId !== knowledgeId
+          )
+            return;
+          if (
+            !disposed &&
+            currentView === "knowledge" &&
+            generation >= knowledgeRefreshApplied &&
+            navigation === searchGeneration &&
+            api.retainedSourceExists &&
+            currentSourceId &&
+            !(await api.retainedSourceExists(currentSourceId)) &&
+            currentView === "knowledge" &&
+            generation >= knowledgeRefreshApplied &&
+            navigation === searchGeneration &&
+            currentKnowledgePageId === knowledgeId
+          ) {
+            clearRemovedPage();
+          } else report(error);
+        })
+        .catch(report);
+    }
     const query = queryView;
     if (currentView === "query" && query?.revision && !query.stale) {
       const revision = query.revision;
@@ -2020,15 +2169,28 @@ export async function mountReader(
     if (
       !current ||
       disposed ||
-      (current.info.semantic_state === "complete" && !updating) ||
-      current.info.semantic_state === "failed" ||
-      current.info.semantic_state === "unavailable"
+      currentView !== "source" ||
+      currentSourceId !== current.info.source_id ||
+      (!api.listWatchedDirectories &&
+        ((current.info.semantic_state === "complete" && !updating) ||
+          current.info.semantic_state === "failed" ||
+          current.info.semantic_state === "unavailable"))
     )
       return;
+    const generation = ++sourceRefreshGeneration;
+    const navigation = searchGeneration;
+    const stillCurrent = () =>
+      !disposed &&
+      currentView === "source" &&
+      currentSourceId === current.info.source_id &&
+      page === current &&
+      generation >= sourceRefreshApplied &&
+      navigation === searchGeneration;
     void api
       .openSource(current.info.source_id)
       .then((next) => {
-        if (disposed || page?.info.source_id !== current.info.source_id) return;
+        if (!stillCurrent()) return;
+        sourceRefreshApplied = generation;
         const detailsWereOpen = main.querySelector("details")?.open ?? false;
         const focusedArticle =
           document.activeElement === main.querySelector("article");
@@ -2037,6 +2199,7 @@ export async function mountReader(
           next.info.semantic_state === current.info.semantic_state &&
           next.info.update_status === current.info.update_status &&
           next.info.semantic_error === current.info.semantic_error &&
+          next.markdown === current.markdown &&
           next.info.knowledge_pages.length ===
             current.info.knowledge_pages.length
         )
@@ -2048,8 +2211,33 @@ export async function mountReader(
         if (details) details.open = detailsWereOpen;
         if (focusedArticle) article?.focus({ preventScroll: true });
       })
+      .catch(async (error) => {
+        if (!stillCurrent()) return;
+        if (
+          stillCurrent() &&
+          api.retainedSourceExists &&
+          !(await api.retainedSourceExists(current.info.source_id)) &&
+          stillCurrent()
+        )
+          clearRemovedPage();
+        else report(error);
+      })
       .catch(report);
   }, 3000);
+  function clearRemovedPage() {
+    if (disposed) return;
+    page = null;
+    currentKnowledgePageId = null;
+    currentSourceId = null;
+    currentView = "empty";
+    main.replaceChildren(
+      element(
+        "p",
+        "This source was removed from its watched directory. Its solely supported knowledge has been removed.",
+      ),
+    );
+    message("Source removed after confirmed directory reconciliation.");
+  }
   return () => {
     disposed = true;
     window.clearInterval(refreshTimer);
