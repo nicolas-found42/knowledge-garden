@@ -897,7 +897,7 @@ fn replacement_recording_resets_transcript_and_transcribes_the_pending_original_
         .import_source(&source, AcquisitionMethod::Picker)
         .unwrap();
     assert_eq!(replacement.info.source_id, first.info.source_id);
-    let replacement_version_id = format!("{:x}", sha2::Sha256::digest(new_bytes));
+    let replacement_version_id = hex::encode(sha2::Sha256::digest(new_bytes));
     let prior_audio = replacement.info.audio_processing.as_ref().unwrap();
     assert_eq!(prior_audio.state, "complete");
     assert_eq!(
