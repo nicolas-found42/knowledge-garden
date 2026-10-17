@@ -550,7 +550,7 @@ impl Application {
         let offset = i64::try_from(request.offset)
             .map_err(|_| GardenError::Invalid("Timeline offset is too large.".into()))?;
         let mut statement = self.index.prepare(&format!("SELECT entry FROM timeline_entries WHERE date_meaning='source_event' ORDER BY date_start IS NULL, date_start {order}, date_end {order}, entry_id ASC LIMIT ?1 OFFSET ?2"))?;
-        let rows = statement.query_map(params![PAGE_SIZE + 1, offset], |row| {
+        let rows = statement.query_map(params![(PAGE_SIZE + 1) as i64, offset], |row| {
             row.get::<_, String>(0)
         })?;
         let mut entries = rows
@@ -5789,7 +5789,7 @@ impl Application {
         let mut statement = self
             .index
             .prepare("SELECT summary FROM sources ORDER BY source_id LIMIT ?1 OFFSET ?2")?;
-        let rows = statement.query_map(params![PAGE_SIZE + 1, offset_i64], |row| {
+        let rows = statement.query_map(params![(PAGE_SIZE + 1) as i64, offset_i64], |row| {
             row.get::<_, String>(0)
         })?;
         let mut sources = Vec::new();
