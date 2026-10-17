@@ -11,7 +11,7 @@ use crate::{
     semantic::{KnowledgePage, SemanticProvider},
 };
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 use tauri::{Manager, State};
@@ -53,6 +53,21 @@ async fn import_repository(
 }
 
 #[tauri::command]
+async fn watch_directory(
+    engine: State<'_, Engine>,
+    path: String,
+) -> Result<crate::application::watched::WatchedDirectory, String> {
+    with_engine(&engine, move |app| app.watch_directory(path)).await
+}
+
+#[tauri::command]
+async fn list_watched_directories(
+    engine: State<'_, Engine>,
+) -> Result<Vec<crate::application::watched::WatchedDirectory>, String> {
+    with_engine(&engine, |app| app.list_watched_directories()).await
+}
+
+#[tauri::command]
 async fn import_url(engine: State<'_, Engine>, url: String) -> Result<SourcePage, String> {
     with_engine(&engine, move |app| app.import_url(&url)).await
 }
@@ -67,6 +82,14 @@ async fn list_url_acquisitions(
 #[tauri::command]
 async fn open_source(engine: State<'_, Engine>, source_id: String) -> Result<SourcePage, String> {
     with_engine(&engine, move |app| app.open_source(&source_id)).await
+}
+
+#[tauri::command]
+async fn retained_source_exists(
+    engine: State<'_, Engine>,
+    source_id: String,
+) -> Result<bool, String> {
+    with_engine(&engine, move |app| app.retained_source_exists(&source_id)).await
 }
 
 #[tauri::command]
@@ -127,15 +150,7 @@ async fn explore_path_details(
 async fn open_original(engine: State<'_, Engine>, source_id: String) -> Result<(), String> {
     with_engine(&engine, move |app| {
         let original = app.original_path(&source_id)?;
-        let status = std::process::Command::new("/usr/bin/open")
-            .arg(original)
-            .status()?;
-        if !status.success() {
-            return Err(crate::application::GardenError::Invalid(
-                "macOS could not open the retained original.".into(),
-            ));
-        }
-        Ok(())
+        open_retained_original(&original)
     })
     .await
 }
@@ -154,15 +169,7 @@ async fn open_original_version(
 ) -> Result<(), String> {
     with_engine(&engine, move |app| {
         let original = app.original_version_path(&source_id, &source_version_id, &asset)?;
-        let status = std::process::Command::new("/usr/bin/open")
-            .arg(original)
-            .status()?;
-        if !status.success() {
-            return Err(crate::application::GardenError::Invalid(
-                "macOS could not open the retained original version.".into(),
-            ));
-        }
-        Ok(())
+        open_retained_original(&original)
     })
     .await
 }
@@ -175,17 +182,28 @@ async fn open_original_asset(
 ) -> Result<(), String> {
     with_engine(&engine, move |app| {
         let original = app.original_asset_path(&source_id, &asset)?;
-        let status = std::process::Command::new("/usr/bin/open")
-            .arg(original)
-            .status()?;
-        if !status.success() {
-            return Err(crate::application::GardenError::Invalid(
-                "macOS could not open the retained original asset.".into(),
-            ));
-        }
-        Ok(())
+        open_retained_original(&original)
     })
     .await
+}
+
+fn open_retained_original(original: &Path) -> crate::application::Result<()> {
+    let mut command = std::process::Command::new("/usr/bin/open");
+    if original
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|format| crate::application::is_audio_format(&format.to_ascii_lowercase()))
+    {
+        // Open recordings directly, without importing them into a Music library
+        // or depending on its onboarding and cloud-library configuration.
+        command.args(["-a", "QuickTime Player"]);
+    }
+    if !command.arg(original).status()?.success() {
+        return Err(crate::application::GardenError::Invalid(
+            "macOS could not open the retained original.".into(),
+        ));
+    }
+    Ok(())
 }
 
 pub fn run() {
@@ -215,6 +233,9 @@ pub fn run() {
                 .spawn(move || loop {
                     std::thread::sleep(std::time::Duration::from_secs(5));
                     if let Ok(mut app) = worker_app.lock() {
+                        if let Err(error) = app.reconcile_watched_directories(8) {
+                            eprintln!("Directory watcher could not reconcile: {error}");
+                        }
                         if let Err(error) = app.resume_due_url_acquisitions() {
                             eprintln!("URL acquisition queue could not resume work: {error}");
                         }
@@ -256,9 +277,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             import_source,
             import_repository,
+            watch_directory,
+            list_watched_directories,
             import_url,
             list_url_acquisitions,
             open_source,
+            retained_source_exists,
             open_knowledge_page,
             list_sources,
             search_pages,
