@@ -755,10 +755,7 @@ fn validate_watch(watch: &WatchedDirectory, directory: &Path) -> Result<()> {
         || directory.file_name().and_then(|name| name.to_str()) != Some(watch.watch_id.as_str())
         || !watch.path.is_absolute()
         || watch.watch_id
-            != format!(
-                "{}",
-                hex::encode(Sha256::digest(watch.path.as_os_str().as_encoded_bytes()))
-            )
+            != hex::encode(Sha256::digest(watch.path.as_os_str().as_encoded_bytes()))
     {
         return Err(GardenError::Invalid(
             "Watch identity does not match its storage directory and selected path.".into(),
