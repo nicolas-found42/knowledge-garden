@@ -47,7 +47,7 @@ impl Application {
                 "Choose a directory outside the collection.".into(),
             ));
         }
-        let watch_id = format!("{:x}", Sha256::digest(path.as_os_str().as_encoded_bytes()));
+        let watch_id = hex::encode(Sha256::digest(path.as_os_str().as_encoded_bytes()));
         let destination = self.root.join("watches").join(&watch_id);
         fs::create_dir_all(destination.join("files"))?;
         fs::create_dir_all(destination.join("directories"))?;
@@ -257,8 +257,8 @@ impl Application {
             }
         } else if kind.is_file() {
             let receipt_path = watch_root.join("files").join(format!(
-                "{:x}.md",
-                Sha256::digest(relative.as_os_str().as_encoded_bytes())
+                "{}.md",
+                hex::encode(Sha256::digest(relative.as_os_str().as_encoded_bytes()))
             ));
             if receipt_path.exists() {
                 let receipt: FileReceipt = read_record(&receipt_path)?;
@@ -386,8 +386,8 @@ impl Application {
             .join(&watch.watch_id)
             .join("directories")
             .join(format!(
-                "{:x}.md",
-                Sha256::digest(relative.as_os_str().as_encoded_bytes())
+                "{}.md",
+                hex::encode(Sha256::digest(relative.as_os_str().as_encoded_bytes()))
             ));
         let old = if receipt_path.exists() {
             Some(read_record::<DirectoryVolume>(&receipt_path)?)
@@ -756,8 +756,8 @@ fn validate_watch(watch: &WatchedDirectory, directory: &Path) -> Result<()> {
         || !watch.path.is_absolute()
         || watch.watch_id
             != format!(
-                "{:x}",
-                Sha256::digest(watch.path.as_os_str().as_encoded_bytes())
+                "{}",
+                hex::encode(Sha256::digest(watch.path.as_os_str().as_encoded_bytes()))
             )
     {
         return Err(GardenError::Invalid(
