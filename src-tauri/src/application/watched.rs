@@ -447,6 +447,7 @@ impl Application {
                 &self.root,
                 Vec::new(),
                 vec![receipt_path.to_owned()],
+                &HashMap::new(),
                 None,
             )?;
             return Ok(());
@@ -487,6 +488,7 @@ impl Application {
                 &self.root,
                 files,
                 removed_contexts,
+                &HashMap::new(),
                 self.fail_after_publication_files.take(),
             )?;
             return self.rebuild_index();
@@ -602,7 +604,7 @@ impl Application {
             ));
         }
         let fail_after = self.fail_after_publication_files.take();
-        commit_publication_with_removals(&self.root, files, removals, fail_after)?;
+        commit_publication_with_removals(&self.root, files, removals, &HashMap::new(), fail_after)?;
         self.rebuild_index()
     }
 }
