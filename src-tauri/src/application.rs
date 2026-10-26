@@ -1,8 +1,8 @@
 //! Public, disk-backed collection operations. Markdown and originals are authoritative.
 pub mod boolean;
-pub mod watched;
 mod publication;
 pub mod reconciliation;
+pub mod watched;
 use crate::extraction::{LocalExtractor, SourceExtractor};
 use crate::meaning::{MeaningFilters, MeaningSearch};
 use crate::media::{
@@ -15,7 +15,10 @@ use crate::semantic::{
     SourceUpdateRole,
 };
 use fs2::FileExt;
-use publication::{commit_publication, recover_publications};
+use publication::{
+    commit_publication, commit_publication_with_removals, recover_publications,
+    validate_real_collection_ancestors,
+};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -8896,7 +8899,6 @@ fn sync_directory(path: &Path) -> Result<()> {
     Ok(())
 }
 
-
 fn validate_relative_collection_path(path: &Path) -> Result<()> {
     if path.as_os_str().is_empty()
         || path.is_absolute()
@@ -8919,26 +8921,4 @@ fn validate_relative_staging_path(path: &Path) -> Result<()> {
         ));
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod publication_removal_tests {
-    use super::*;
-    #[test]
-    fn removal_keeps_its_open_parent_when_an_ancestor_is_swapped() {
-        use std::os::unix::fs::symlink;
-        let workspace = tempfile::tempdir().unwrap();
-        let parent = workspace.path().join("sources");
-        let outside = workspace.path().join("outside");
-        for directory in [&parent, &outside] {
-            fs::create_dir_all(directory.join("victim")).unwrap();
-            fs::write(directory.join("victim/sentinel"), "retain outside").unwrap();
-        }
-        let held = File::open(&parent).unwrap();
-        fs::rename(&parent, workspace.path().join("moved-sources")).unwrap();
-        symlink(&outside, &parent).unwrap();
-        remove_entry_at(&held, &std::ffi::CString::new("victim").unwrap(), 0).unwrap();
-        assert!(outside.join("victim/sentinel").is_file());
-        assert!(!workspace.path().join("moved-sources/victim").exists());
-    }
 }

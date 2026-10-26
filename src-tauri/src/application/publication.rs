@@ -5,6 +5,8 @@ use super::*;
 #[derive(Serialize, Deserialize)]
 struct PublicationManifest {
     entries: Vec<PublicationEntry>,
+    #[serde(default)]
+    removals: Vec<String>,
 }
 #[derive(Serialize, Deserialize)]
 struct PublicationEntry {
@@ -20,9 +22,29 @@ pub(super) fn commit_publication(
     bases: &HashMap<PathBuf, Vec<u8>>,
     fail_after_files: Option<usize>,
 ) -> Result<()> {
-    if files.is_empty() {
+    commit_publication_with_removals(root, files, Vec::new(), bases, fail_after_files)
+}
+
+pub(super) fn commit_publication_with_removals(
+    root: &Path,
+    files: Vec<(PathBuf, Vec<u8>)>,
+    removals: Vec<PathBuf>,
+    bases: &HashMap<PathBuf, Vec<u8>>,
+    fail_after_files: Option<usize>,
+) -> Result<()> {
+    if files.is_empty() && removals.is_empty() {
         return Ok(());
     }
+    let removals = removals
+        .into_iter()
+        .map(|path| {
+            let relative = path
+                .strip_prefix(root)
+                .map_err(|_| GardenError::Invalid("A removal escaped the collection.".into()))?;
+            validate_relative_collection_path(relative)?;
+            Ok(relative.to_string_lossy().into_owned())
+        })
+        .collect::<Result<Vec<_>>>()?;
     let transactions = root.join(".staging/transactions");
     fs::create_dir_all(&transactions)?;
     let staging = tempfile::tempdir_in(&transactions)?;
@@ -46,7 +68,7 @@ pub(super) fn commit_publication(
     }
     write_atomic(
         &staging.path().join("manifest.json"),
-        &serde_json::to_vec(&PublicationManifest { entries })?,
+        &serde_json::to_vec(&PublicationManifest { entries, removals })?,
     )?;
     sync_directory(staging.path())?;
     let transaction_path = staging.keep();
@@ -88,6 +110,7 @@ fn apply_publication(
         return interrupted();
     }
     let mut complete = true;
+    let removals = manifest.removals;
     for (index, entry) in manifest.entries.into_iter().enumerate() {
         validate_relative_collection_path(Path::new(&entry.destination))?;
         validate_relative_staging_path(Path::new(&entry.staged))?;
@@ -194,6 +217,14 @@ fn apply_publication(
         write_atomic(&done, &desired)?;
         if fail_after_files == Some(index + 1) {
             return interrupted();
+        }
+    }
+    // A retained publication keeps its removals until every page identity resolves.
+    if complete {
+        for removal in removals {
+            let relative = Path::new(&removal);
+            validate_relative_collection_path(relative)?;
+            remove_collection_entry(root, relative)?;
         }
     }
     Ok(complete)
@@ -509,5 +540,105 @@ mod tests {
         assert_eq!(header.facts[0].value, "9");
         assert_eq!(header.facts[1].value, "12");
         assert_eq!(header.facts[2].value, "1");
+    }
+}
+
+// Hold each parent directory open and refuse symlinks at every traversal.
+// Replacing a path ancestor cannot redirect removal to a different tree.
+fn remove_collection_entry(root: &Path, relative: &Path) -> std::io::Result<()> {
+    use rustix::fs::{openat, Mode, OFlags, CWD};
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let mut directory = openat(CWD, root, flags, Mode::empty())?;
+    for component in relative.parent().unwrap_or(Path::new("")).components() {
+        match openat(&directory, component.as_os_str(), flags, Mode::empty()) {
+            Ok(next) => directory = next,
+            Err(rustix::io::Errno::NOENT) => return Ok(()),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    let name = std::ffi::CString::new(relative.file_name().unwrap().as_encoded_bytes())?;
+    remove_entry_at(&directory, &name, 0)?;
+    File::from(directory).sync_all()
+}
+
+fn remove_entry_at(
+    directory: &impl std::os::fd::AsFd,
+    name: &std::ffi::CStr,
+    depth: usize,
+) -> std::io::Result<()> {
+    use rustix::fs::{openat, unlinkat, AtFlags, Dir, Mode, OFlags};
+    if depth > 256 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Removal directory nesting exceeds its recovery bound.",
+        ));
+    }
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    match openat(directory, name, flags, Mode::empty()) {
+        Ok(child) => {
+            let mut entries = Dir::read_from(&child)?;
+            while let Some(entry) = entries.read() {
+                let entry = entry?;
+                let name = entry.file_name();
+                if name.to_bytes() != b"." && name.to_bytes() != b".." {
+                    remove_entry_at(&child, name, depth + 1)?;
+                }
+            }
+            unlinkat(directory, name, AtFlags::REMOVEDIR)?;
+        }
+        Err(rustix::io::Errno::NOENT) => {}
+        Err(rustix::io::Errno::NOTDIR | rustix::io::Errno::LOOP) => {
+            match unlinkat(directory, name, AtFlags::empty()) {
+                Ok(()) | Err(rustix::io::Errno::NOENT) => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
+pub(super) fn validate_real_collection_ancestors(root: &Path, destination: &Path) -> Result<()> {
+    let parent = destination
+        .parent()
+        .ok_or_else(|| GardenError::Invalid("Missing collection parent.".into()))?;
+    let relative = parent
+        .strip_prefix(root)
+        .map_err(|_| GardenError::Invalid("Path escaped collection.".into()))?;
+    let mut path = root.to_path_buf();
+    for component in relative.components() {
+        if !matches!(component, std::path::Component::Normal(_)) {
+            return Err(GardenError::Invalid("Invalid collection ancestor.".into()));
+        }
+        path.push(component);
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_dir() => {},
+            Ok(_) => return Err(GardenError::Invalid("A collection ancestor is a symlink or is not a directory; publication remains pending.".into())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod publication_removal_tests {
+    use super::*;
+    #[test]
+    fn removal_keeps_its_open_parent_when_an_ancestor_is_swapped() {
+        use std::os::unix::fs::symlink;
+        let workspace = tempfile::tempdir().unwrap();
+        let parent = workspace.path().join("sources");
+        let outside = workspace.path().join("outside");
+        for directory in [&parent, &outside] {
+            fs::create_dir_all(directory.join("victim")).unwrap();
+            fs::write(directory.join("victim/sentinel"), "retain outside").unwrap();
+        }
+        let held = File::open(&parent).unwrap();
+        fs::rename(&parent, workspace.path().join("moved-sources")).unwrap();
+        symlink(&outside, &parent).unwrap();
+        remove_entry_at(&held, &std::ffi::CString::new("victim").unwrap(), 0).unwrap();
+        assert!(outside.join("victim/sentinel").is_file());
+        assert!(!workspace.path().join("moved-sources/victim").exists());
     }
 }
