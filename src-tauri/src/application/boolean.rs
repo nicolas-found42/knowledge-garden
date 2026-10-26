@@ -281,10 +281,10 @@ impl Application {
         let mut diagnostics = Vec::new();
         while work_units < request.work_budget && results.len() < request.page_size {
             work_units += 1;
-            let frontier=self.index.query_row("SELECT sequence,leaf,page_id,depth,last_edge,node_id FROM boolean_frontier WHERE query_id=?1 ORDER BY sequence LIMIT 1",[&id],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,usize>(3)?,r.get::<_,String>(4)?,r.get::<_,Option<String>>(5)?))).optional()?;
+            let frontier=self.index.query_row("SELECT sequence,leaf,page_id,depth,last_edge,node_id FROM boolean_frontier WHERE query_id=?1 ORDER BY sequence LIMIT 1",[&id],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?,r.get::<_,String>(4)?,r.get::<_,Option<String>>(5)?))).optional()?;
             if let Some((sequence, leaf, page_id, depth, last_edge, parent)) = frontier {
                 let path = &paths[leaf as usize];
-                let hop = &path.hops[depth];
+                let hop = &path.hops[depth as usize];
                 let sql = if hop.direction == TraversalDirection::WithArrow {
                     "SELECT relationship_id,from_page_id,to_page_id,relationship_json FROM relationship_edges WHERE from_page_id=?1 AND relationship_id>?2 ORDER BY relationship_id LIMIT 1"
                 } else {
@@ -336,7 +336,7 @@ impl Application {
                     });
                     continue;
                 };
-                let final_hop = depth + 1 == path.hops.len();
+                let final_hop = depth as usize + 1 == path.hops.len();
                 if !(if final_hop {
                     &path.endpoint
                 } else {
