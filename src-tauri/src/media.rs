@@ -351,7 +351,7 @@ fn run_whisper(arguments: Vec<String>, stderr_path: &Path) -> Result<(), String>
     let helper = directory.join("whisper-cli");
     let digest_path = directory.join("whisper-cli.sha256");
     if !helper.is_file()
-        || fs::read_to_string(&digest_path).unwrap_or_default().trim() != format!("{:x}", digest)
+        || fs::read_to_string(&digest_path).unwrap_or_default().trim() != hex::encode(digest)
     {
         let temporary = directory.join("whisper-cli-tmp");
         fs::write(&temporary, bytes).map_err(|error| {
@@ -363,7 +363,7 @@ fn run_whisper(arguments: Vec<String>, stderr_path: &Path) -> Result<(), String>
         fs::rename(&temporary, &helper).map_err(|error| {
             format!("The bundled local speech helper could not be installed: {error}")
         })?;
-        fs::write(digest_path, format!("{:x}", digest)).map_err(|error| {
+        fs::write(digest_path, hex::encode(digest)).map_err(|error| {
             format!("The local speech helper version could not be recorded: {error}")
         })?;
     }
@@ -474,7 +474,7 @@ fn native_helper_path() -> Result<std::path::PathBuf, String> {
     let path = directory.join("media-helper");
     let digest_path = directory.join("media-helper.sha256");
     let installed_digest = fs::read_to_string(&digest_path).unwrap_or_default();
-    if !path.is_file() || installed_digest.trim() != format!("{:x}", digest) {
+    if !path.is_file() || installed_digest.trim() != hex::encode(digest) {
         let temporary = directory.join("media-helper-tmp");
         fs::write(&temporary, bytes)
             .map_err(|error| format!("The native audio helper could not be extracted: {error}"))?;
@@ -483,7 +483,7 @@ fn native_helper_path() -> Result<std::path::PathBuf, String> {
         })?;
         fs::rename(&temporary, &path)
             .map_err(|error| format!("The native audio helper could not be installed: {error}"))?;
-        fs::write(digest_path, format!("{:x}", digest)).map_err(|error| {
+        fs::write(digest_path, hex::encode(digest)).map_err(|error| {
             format!("The native audio helper version could not be recorded: {error}")
         })?;
     }

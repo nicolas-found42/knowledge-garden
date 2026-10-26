@@ -508,10 +508,7 @@ fn explicitly_supplied_urls_retain_origins_without_crawling_and_can_be_retried()
     );
     let retained = std::fs::read(app.original_path(&large.info.source_id).unwrap()).unwrap();
     assert_eq!(retained.len(), 36 * 1024 * 1024);
-    assert_eq!(
-        format!("{:x}", Sha256::digest(&retained)),
-        large.info.sha256
-    );
+    assert_eq!(hex::encode(Sha256::digest(&retained)), large.info.sha256);
 
     let invalid_html = app
         .import_url(&format!("{}/invalid.html", fixture.base_url))
@@ -627,7 +624,7 @@ fn restart_on_eighth_processing_attempt_does_not_schedule_a_ninth_request() {
 
     // Recreate the durable public URL-status record at the process-crash boundary:
     // the eighth HTTP request was marked processing, but no response was committed.
-    let digest = format!("{:x}", Sha256::digest(url.as_bytes()));
+    let digest = hex::encode(Sha256::digest(url.as_bytes()));
     let status_dir = collection.path().join("url-acquisitions");
     std::fs::create_dir_all(&status_dir).unwrap();
     std::fs::write(
@@ -832,4 +829,13 @@ fn office_hyperlink_occurrences_are_source_located_references() {
             "{name}"
         );
     }
+}
+
+#[test]
+fn sha256_identity_hex_remains_lowercase_and_unchanged_across_digest_upgrade() {
+    use sha2::Digest;
+    assert_eq!(
+        hex::encode(sha2::Sha256::digest(b"abc")),
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
 }

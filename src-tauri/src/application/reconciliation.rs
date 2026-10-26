@@ -74,7 +74,7 @@ impl Application {
                             .unwrap()
                             .to_string_lossy()
                             .into_owned(),
-                        format!("{:x}", Sha256::digest(text.as_bytes())),
+                        hex::encode(Sha256::digest(text.as_bytes())),
                     );
                 }
             }
@@ -83,7 +83,7 @@ impl Application {
             return Ok(self.reconciliation_status(false));
         }
         let scan = self.collection_scan.take().unwrap();
-        let digest = format!("{:x}", Sha256::digest(serde_json::to_vec(&scan.files)?));
+        let digest = hex::encode(Sha256::digest(serde_json::to_vec(&scan.files)?));
         if self.collection_digest.as_ref() != Some(&digest) {
             if !self.reconcile_snapshot(scan.files)? {
                 return Ok(self.reconciliation_status(false));
@@ -187,7 +187,7 @@ impl Application {
             let Ok(text) = read_bounded_text(&self.root.join(path), MAX_PAGE_BYTES) else {
                 return Ok(false);
             };
-            if format!("{:x}", Sha256::digest(text.as_bytes())) != *fingerprint {
+            if hex::encode(Sha256::digest(text.as_bytes())) != *fingerprint {
                 return Ok(false);
             }
             let is_ambiguous = candidates

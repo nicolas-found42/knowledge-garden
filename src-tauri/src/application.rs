@@ -901,8 +901,8 @@ impl Application {
             return Err(GardenError::Invalid("Choose a repository folder.".into()));
         }
         let repository_id = format!(
-            "repository-{:x}",
-            Sha256::digest(root.as_os_str().as_encoded_bytes())
+            "repository-{}",
+            hex::encode(Sha256::digest(root.as_os_str().as_encoded_bytes()))
         );
         let mut paths = Vec::new();
         let mut exclusions = Vec::new();
@@ -1193,7 +1193,7 @@ impl Application {
         let digest = Sha256::digest(url.as_bytes());
         self.root
             .join("url-acquisitions")
-            .join(format!("{:x}.json", digest))
+            .join(format!("{}.json", hex::encode(digest)))
     }
 
     fn read_url_status(&self, url: &str) -> Result<Option<UrlAcquisitionStatus>> {
@@ -1347,7 +1347,7 @@ impl Application {
             }
         }
         output.sync_all()?;
-        let digest = format!("{:x}", hasher.finalize());
+        let digest = hex::encode(hasher.finalize());
         // A format label changes extraction coverage and the retained asset name.
         // Keep exact-byte imports together only when that label also agrees.
         let received_at = SystemTime::now()
@@ -1375,16 +1375,22 @@ impl Application {
         identity.update(format.as_bytes());
         identity.update([0]);
         identity.update(digest.as_bytes());
-        let content_source_id = format!("source-{:x}", identity.finalize());
+        let content_source_id = format!("source-{}", hex::encode(identity.finalize()));
         let existing_origin = self.source_for_origin(acquisition_origin(&acquisition)?)?;
         let source_id = if method == AcquisitionMethod::Url {
             existing_origin.unwrap_or_else(|| {
                 let identity = format!("url-origin:{path_key}");
-                format!("source-{:x}", Sha256::digest(identity.as_bytes()))
+                format!(
+                    "source-{}",
+                    hex::encode(Sha256::digest(identity.as_bytes()))
+                )
             })
         } else if let Some(scope) = source_identity_scope {
             let identity = format!("repository-source:{format}:{scope}");
-            format!("source-{:x}", Sha256::digest(identity.as_bytes()))
+            format!(
+                "source-{}",
+                hex::encode(Sha256::digest(identity.as_bytes()))
+            )
         } else {
             existing_origin
                 .or(self.source_for_version(&digest, &format)?)
@@ -5432,7 +5438,10 @@ impl Application {
         // avoid recursively embedding earlier snapshots in each new owner save.
         // A generated rescan is not a new owner save.
         if missing_generated_content && body != generated_body {
-            let retained_edit = format!("owner-edits/{:x}.md", Sha256::digest(markdown.as_bytes()));
+            let retained_edit = format!(
+                "owner-edits/{}.md",
+                hex::encode(Sha256::digest(markdown.as_bytes()))
+            );
             if !header.uninterpreted_owner_edits.contains(&retained_edit) {
                 write_atomic(&self.root.join(&retained_edit), markdown.as_bytes())?;
                 header.uninterpreted_owner_edits.push(retained_edit);
@@ -6571,7 +6580,7 @@ impl Application {
                     digest.update([3]);
                 }
             }
-            format!("{:x}", digest.finalize())
+            hex::encode(digest.finalize())
         };
         transaction.execute(
             "INSERT INTO relationship_graph_meta(singleton, revision) VALUES (1, ?1) ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision",
@@ -7388,7 +7397,7 @@ fn write_acquisition(destination: &Path, acquisition: &Acquisition) -> Result<()
     fs::create_dir_all(&contexts)?;
     // One requested URL can have several independently acquired redirect contexts.
     // Preserve each record instead of overwriting or colliding with its predecessor.
-    let key = format!("{:x}", Sha256::digest(serde_json::to_vec(acquisition)?));
+    let key = hex::encode(Sha256::digest(serde_json::to_vec(acquisition)?));
     let mut record = tempfile::NamedTempFile::new_in(&contexts)?;
     write!(
         record,
@@ -7886,7 +7895,7 @@ fn stable_page_id(entity: &EntityDraft, source_id: &str, source_text: Option<&st
         digest.update([0]);
         digest.update(source_id.as_bytes());
     }
-    format!("page-{:x}", digest.finalize())
+    format!("page-{}", hex::encode(digest.finalize()))
 }
 
 fn explicitly_distinct_event_text(source_text: &str, evidence: &EvidenceDraft) -> bool {
@@ -7973,7 +7982,7 @@ fn stable_fact_id(subject_page_id: &str, property: &str, record_key: Option<&str
         digest.update([0]);
         digest.update(record_key.trim().to_lowercase().as_bytes());
     }
-    format!("fact-{:x}", digest.finalize())
+    format!("fact-{}", hex::encode(digest.finalize()))
 }
 
 fn stable_relationship_id(from_page_id: &str, to_page_id: &str, kind: &str) -> String {
@@ -7983,7 +7992,7 @@ fn stable_relationship_id(from_page_id: &str, to_page_id: &str, kind: &str) -> S
     digest.update(kind.trim().to_lowercase().as_bytes());
     digest.update([0]);
     digest.update(to_page_id.as_bytes());
-    format!("relationship-{:x}", digest.finalize())
+    format!("relationship-{}", hex::encode(digest.finalize()))
 }
 
 fn write_atomic_from_file(path: &Path, source: &Path) -> Result<()> {
@@ -8252,7 +8261,7 @@ fn stable_audio_segment_id(version_id: &str, window_start_ms: u64, ordinal: usiz
     digest.update(version_id.as_bytes());
     digest.update(window_start_ms.to_be_bytes());
     digest.update((ordinal as u64).to_be_bytes());
-    format!("audio-segment-{:x}", digest.finalize())
+    format!("audio-segment-{}", hex::encode(digest.finalize()))
 }
 
 fn audio_semantic_text(audio: &AudioProcessingInfo) -> String {
