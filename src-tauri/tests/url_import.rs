@@ -864,7 +864,7 @@ fn quit_during_final_url_attempt_does_not_exhaust_recovery() {
     let server = thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
         let mut request = [0; 4096];
-        stream.read(&mut request).unwrap();
+        assert!(stream.read(&mut request).unwrap() > 0);
         started.send(()).unwrap();
         proceed.recv().unwrap();
         stream.write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
