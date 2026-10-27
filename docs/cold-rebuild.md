@@ -28,7 +28,8 @@ restart and verify malformed and missing metadata remain intact and visible as
 recovery gaps.
 
 Reconciliation scans directory entries with an explicit per-call budget and the
-SQLite index update is transactional. The final index rebuild and initial open
+SQLite index update is transactional. A temporary file-backed SQLite lookup resolves
+unique page paths once per rebuild instead of rescanning every page for each source. The final index rebuild and initial open
 still complete a whole-collection pass synchronously; this does **not** yet meet a
 bounded end-to-end rebuild requirement at release scale. Interruption and large
 collection responsiveness require further work and qualification; do not treat

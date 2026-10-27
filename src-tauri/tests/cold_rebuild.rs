@@ -156,3 +156,42 @@ fn malformed_supporting_source_keeps_its_knowledge_and_does_not_block_rebuild() 
 fn mismatched_support_identity_does_not_point_to_an_unrelated_original() {
     exercise_damaged_support(true);
 }
+
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn rebuilding_preserves_navigation_to_non_utf8_owner_page_paths() {
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt, sync::Arc};
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("collection");
+    let input = temp.path().join("fieldwork.txt");
+    fs::write(&input, labeled::TEXT).unwrap();
+    let mut app =
+        Application::open_with_semantic_provider(&root, Arc::new(labeled::LabeledGraph)).unwrap();
+    let source = app
+        .import_source(&input, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let source = app.open_source(&source.info.source_id).unwrap();
+    let page = source
+        .knowledge_pages
+        .iter()
+        .find(|p| p.title == "Riverside")
+        .unwrap();
+    let moved = root
+        .join("pages")
+        .join(OsString::from_vec(b"owner-\xff.md".to_vec()));
+    fs::rename(root.join(&page.path), &moved).unwrap();
+    app.rebuild_index().unwrap();
+    assert_eq!(
+        app.open_knowledge_page(&page.page_id).unwrap().page_id,
+        page.page_id
+    );
+    let matches = app
+        .search_pages(PageSearchRequest {
+            query: "Riverside".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(matches.pages.iter().any(|p| p.page_id == page.page_id));
+    assert!(moved.exists());
+}

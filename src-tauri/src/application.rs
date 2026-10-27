@@ -6678,7 +6678,26 @@ impl Application {
         // not exit. Finish it before capturing edits or rebuilding derived state.
         recover_publications(&self.root)?;
         self.capture_external_knowledge_edits()?;
+        // Resolve identities once per generation instead of rescanning every page
+        // for each source. Keep the lookup in SQLite so it remains disposable.
+        let knowledge_paths = self.knowledge_paths()?;
+        self.index.execute_batch("PRAGMA temp_store=FILE;")?;
         let transaction = self.index.unchecked_transaction()?;
+        transaction.execute_batch(
+            "CREATE TEMP TABLE rebuild_page_paths(page_id TEXT PRIMARY KEY, path TEXT NOT NULL);",
+        )?;
+        let mut has_non_utf8_paths = false;
+        for path in &knowledge_paths {
+            if let Some(path_text) = path.to_str() {
+                let header = read_knowledge_header(path)?;
+                transaction.execute(
+                    "INSERT INTO rebuild_page_paths(page_id,path) VALUES (?1,?2)",
+                    params![header.page_id, path_text],
+                )?;
+            } else {
+                has_non_utf8_paths = true;
+            }
+        }
         transaction.execute("DELETE FROM sources", [])?;
         transaction.execute("DELETE FROM page_search", [])?;
         transaction.execute("DELETE FROM query_page_metadata", [])?;
@@ -6712,17 +6731,18 @@ impl Application {
             }
             index_collection_activity(&transaction, &page.info)?;
             collection::index_source(&transaction, &page.info)?;
-            let documents = self.search_documents_for_source(&page.info)?;
+            let documents =
+                self.search_documents_for_source(&page.info, &transaction, has_non_utf8_paths)?;
             write_search_documents(&transaction, &documents)?;
         }
         transaction.execute("DELETE FROM collection_source_pages WHERE NOT EXISTS (SELECT 1 FROM sources WHERE sources.source_id=collection_source_pages.source_id)",[])?;
         let pages_dir = self.root.join("pages");
         if pages_dir.is_dir() {
-            for path in self.knowledge_paths()? {
+            for path in &knowledge_paths {
                 if path.extension().and_then(|extension| extension.to_str()) != Some("md") {
                     continue;
                 }
-                let header = read_knowledge_header(&path)?;
+                let header = read_knowledge_header(path)?;
                 let source_indexed: bool = transaction.query_row(
                     "SELECT EXISTS(SELECT 1 FROM sources WHERE source_id = ?1)",
                     [&header.source_id],
@@ -6955,6 +6975,7 @@ impl Application {
             "INSERT INTO relationship_graph_meta(singleton, revision) VALUES (1, ?1) ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision",
             [graph_revision],
         )?;
+        transaction.execute_batch("DROP TABLE rebuild_page_paths;")?;
         transaction.commit()?;
         if let Some(meaning) = self.meaning_search.as_mut() {
             match meaning.sync(&self.index) {
@@ -7033,7 +7054,12 @@ impl Application {
             .join(&version.asset))
     }
 
-    fn search_documents_for_source(&self, info: &SourceInfo) -> Result<Vec<SearchDocument>> {
+    fn search_documents_for_source(
+        &self,
+        info: &SourceInfo,
+        lookup: &Connection,
+        has_non_utf8_paths: bool,
+    ) -> Result<Vec<SearchDocument>> {
         let source_page = read_page(&self.page_path(&info.source_id)?)?;
         let mut knowledge = Vec::new();
         let status = if self.original_path(&info.source_id).is_err() {
@@ -7042,9 +7068,22 @@ impl Application {
             processing_status(&source_page.info)
         };
         for summary in &source_page.info.knowledge_pages {
-            let Ok(path) = self.knowledge_path(&summary.page_id) else {
-                // A damaged or duplicate owner page stays on disk and unavailable
-                // by identity; it must not prevent unrelated sources from indexing.
+            let indexed_path: Option<String> = lookup
+                .query_row(
+                    "SELECT path FROM rebuild_page_paths WHERE page_id=?1",
+                    [&summary.page_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            let path = if let Some(path) = indexed_path {
+                PathBuf::from(path)
+            } else if has_non_utf8_paths {
+                let Ok(path) = self.knowledge_path(&summary.page_id) else {
+                    continue;
+                };
+                path
+            } else {
+                // Damaged and duplicate pages remain unavailable by identity.
                 continue;
             };
             let markdown = match read_bounded_text(&path, MAX_PAGE_BYTES) {
@@ -7058,7 +7097,7 @@ impl Application {
             // A reconciled page is linked from every source that supports it.
             // Index the canonical page once, under its stable owning source,
             // while its Markdown already contains the current support set.
-            if header.source_id != source_page.info.source_id {
+            if header.page_id != summary.page_id || header.source_id != source_page.info.source_id {
                 continue;
             }
             let body = knowledge_search_content(&header);
