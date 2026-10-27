@@ -82,12 +82,12 @@ export function renderCollection(
         query: state.query,
         offset,
       });
-      if (!panel.isConnected || current !== generation) return;
+      if (!panel.isConnected || current !== generation) return false;
       const unchanged =
         state.result?.revision === result.revision &&
         state.offset === offset &&
         JSON.stringify(state.result.groups) === JSON.stringify(result.groups);
-      if (unchanged && !scopeChanged) return;
+      if (unchanged && !scopeChanged) return true;
       const priorRevision = state.result?.revision;
       const reopen =
         !scopeChanged && state.offset === offset ? [...wanted.values()] : [];
@@ -98,19 +98,19 @@ export function renderCollection(
       state.offset = offset;
       state.result = result;
       draw();
-      for (const previous of reopen)
-        if (
-          result.groups.some(
-            (group) => group.group_id === previous.group.group_id,
-          ) ||
-          previous.group.group_id.startsWith("source:")
-        )
-          void members(
-            previous.group,
+      await Promise.all(
+        reopen.map((previous) =>
+          members(
+            result.groups.find((g) => g.group_id === previous.group.group_id) ??
+              previous.group,
             result.revision === priorRevision ? previous.offset : 0,
-          );
+          ),
+        ),
+      );
+      return true;
     } catch (error) {
       if (panel.isConnected && current === generation) report(error);
+      return false;
     }
   }
   async function members(group: CollectionGroup, offset = 0) {
@@ -333,24 +333,28 @@ export function renderCollection(
       list.append(entry);
     }
     panel.append(list);
-    for (const expanded of Object.values(state.expanded).filter((value) =>
-      value.group.group_id.startsWith("source:"),
+    for (const expanded of Object.values(state.expanded).filter(
+      (value) =>
+        value.group.group_id.startsWith("source:") ||
+        !state.result?.groups.some((g) => g.group_id === value.group.group_id),
     )) {
       const neighborhood = node("section");
       neighborhood.setAttribute(
         "aria-label",
-        `Source neighborhood: ${expanded.group.label}`,
+        `Expanded scope: ${expanded.group.label}`,
       );
       neighborhood.append(
         node("h2", expanded.group.label),
         button(
-          "Collapse source neighborhood",
+          "Collapse expanded scope",
           () => collapse(expanded.group.group_id),
           `collection-close-${expanded.group.group_id}`,
         ),
         node(
           "p",
-          "Pages supported by this retained source; open each page for its evidence and qualifications.",
+          expanded.group.group_id.startsWith("source:")
+            ? "Pages supported by this retained source; open each page for its evidence and qualifications."
+            : "Saved expanded scope outside this group page; membership is evaluated against current knowledge.",
         ),
       );
       for (const item of expanded.members.items)
@@ -536,6 +540,6 @@ export function renderCollection(
     panel.append(figure);
   }
   draw();
-  void groups(state.offset);
-  return { refresh: () => groups(state.offset) };
+  const ready = groups(state.offset);
+  return { ready, refresh: () => groups(state.offset) };
 }

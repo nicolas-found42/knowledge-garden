@@ -482,7 +482,67 @@ export interface GapInspection {
   gaps: KnowledgeGap[];
   truncated: boolean;
 }
+export interface ViewTarget {
+  title?: string;
+  source_id: string | null;
+  page_id: string | null;
+}
+export interface SavedGroup {
+  group_id: string;
+  label: string;
+}
+export interface SavedViewDefinition {
+  active:
+    | "collection"
+    | "search"
+    | "query"
+    | "timeline"
+    | "paths"
+    | "comparison"
+    | "source"
+    | "knowledge";
+  search: PageSearchRequest | null;
+  query: BooleanQueryRequest | null;
+  collection: {
+    axis: CollectionAxis;
+    query: string;
+    presentation: "reading" | "research" | "canvas";
+    expanded_groups: SavedGroup[];
+    selected: ViewTarget | null;
+  } | null;
+  timeline: TimelineRequest | null;
+  paths: {
+    start_page_id: string;
+    start_title: string;
+    max_hops: number;
+    selected_target_page_id: string | null;
+  } | null;
+  comparison: Array<{ source_id: string; title: string; line_start: number }>;
+  target: ViewTarget | null;
+}
+export interface SavedView {
+  view_id: string;
+  name: string;
+  definition: SavedViewDefinition;
+  warnings: string[];
+  resolved_groups: SavedGroup[];
+  resolved_references: CollectionItem[];
+}
+export interface SavedViews {
+  views: Array<{ view_id: string; name: string; path: string }>;
+  next_offset: number | null;
+  diagnostics: Array<{ path: string; detail: string }>;
+}
+
 export interface GardenApi {
+  listSavedViews?(query: string, offset: number): Promise<SavedViews>;
+  createSavedView?(
+    name: string,
+    definition: SavedViewDefinition,
+  ): Promise<SavedView>;
+  openSavedView?(viewId: string): Promise<SavedView>;
+  renameSavedView?(viewId: string, name: string): Promise<SavedView>;
+  removeSavedView?(viewId: string): Promise<void>;
   comparisonSide?(request: ComparisonRequest): Promise<ComparisonSide>;
   openComparisonOriginal?(request: ComparisonRequest): Promise<void>;
 
@@ -549,6 +609,14 @@ export interface UrlAcquisitionStatus {
 }
 
 export const desktopApi: GardenApi = {
+  listSavedViews: (query, offset) =>
+    invoke("list_saved_views", { query, offset }),
+  createSavedView: (name, definition) =>
+    invoke("create_saved_view", { name, definition }),
+  openSavedView: (viewId) => invoke("open_saved_view", { viewId }),
+  renameSavedView: (viewId, name) =>
+    invoke("rename_saved_view", { viewId, name }),
+  removeSavedView: (viewId) => invoke("remove_saved_view", { viewId }),
   timeline: (request) => invoke("timeline", { request }),
   comparisonSide: (request) => invoke("comparison_side", { request }),
   openComparisonOriginal: (request) =>

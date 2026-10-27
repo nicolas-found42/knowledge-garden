@@ -266,6 +266,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "timeline" => output(app.timeline(serde_json::from_str(
             args.get(3).ok_or("missing timeline request")?,
         )?)?),
+        "views" => output(app.list_saved_views(
+            args.get(3).map(String::as_str).unwrap_or(""),
+            args.get(4).map(|s| s.parse()).transpose()?.unwrap_or(0),
+        )?),
+        "save-view" => output(app.create_saved_view(
+            args.get(3).ok_or("missing view name")?,
+            serde_json::from_str(args.get(4).ok_or("missing view criteria")?)?,
+        )?),
+        "open-view" => output(app.open_saved_view(args.get(3).ok_or("missing view identity")?)?),
+        "rename-view" => output(app.rename_saved_view(
+            args.get(3).ok_or("missing view identity")?,
+            args.get(4).ok_or("missing view name")?,
+        )?),
+        "remove-view" => {
+            app.remove_saved_view(args.get(3).ok_or("missing view identity")?)?;
+            output(());
+        }
         "collection-status" => output(app.collection_status()),
         "resolve-link" => output(app.resolve_page_link(
             args.get(3).ok_or("missing page identity")?,

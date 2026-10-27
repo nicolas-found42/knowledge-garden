@@ -1,3 +1,4 @@
+import { savedViewsPanel } from "./saved-views";
 import { gapInspector } from "./gaps";
 import {
   newComparisonView,
@@ -14,6 +15,8 @@ import { newQuery, renderBooleanQuery, type QueryView } from "./boolean-query";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import type {
+  SavedViewDefinition,
+  ViewTarget,
   AcquisitionMethod,
   GardenApi,
   ExploredPath,
@@ -67,6 +70,15 @@ export async function mountReader(
   searchButton.dataset.focusId = "toolbar-search";
   const timelineButton = element("button", "Timeline");
   timelineButton.hidden = !api.timeline;
+  const savedButton = element("button", "Saved views");
+  savedButton.hidden =
+    !api.listSavedViews ||
+    !api.createSavedView ||
+    !api.openSavedView ||
+    !api.renameSavedView ||
+    !api.removeSavedView;
+  const savedHost = element("aside");
+  savedHost.hidden = true;
   const sourcesButton = element("button", "Sources");
   sourcesButton.setAttribute("aria-expanded", "false");
   const addButton = element("button", "Add source");
@@ -81,6 +93,7 @@ export async function mountReader(
     collectionButton,
     searchButton,
     timelineButton,
+    savedButton,
     sourcesButton,
     addButton,
     addRepositoryButton,
@@ -133,6 +146,7 @@ export async function mountReader(
     toolbar,
     notice,
     comparisonTray,
+    savedHost,
     collectionDiagnostics,
     urlForm,
     sources,
@@ -191,6 +205,226 @@ export async function mountReader(
   let comparisonController: ReturnType<typeof renderComparison> | null = null;
   let comparisonIntent = 0;
   let comparisonCandidate: { sourceId: string; title: string } | null = null;
+  const savedPanel = savedViewsPanel(
+    savedHost,
+    api,
+    captureSavedView,
+    openSavedView,
+    report,
+  );
+  savedButton.addEventListener("click", () => savedPanel.toggle());
+  function captureSavedView(): SavedViewDefinition | null {
+    if (
+      currentView === "empty" ||
+      main.querySelector("[data-saved-view-unavailable]")
+    )
+      return null;
+    const target = (
+      sourceId: string | null,
+      pageId: string | null,
+      title?: string,
+    ): ViewTarget | null =>
+      sourceId
+        ? { source_id: sourceId, page_id: null, title }
+        : pageId
+          ? { source_id: null, page_id: pageId, title }
+          : null;
+    return structuredClone({
+      active: currentView,
+      search: currentSearch ? { ...currentSearch, offset: 0 } : null,
+      query:
+        queryView && (currentView === "query" || queryView.revision !== null)
+          ? { ...queryView.request, continuation: null }
+          : null,
+      collection: {
+        axis: currentCollection.axis,
+        query: currentCollection.query,
+        presentation: currentCollection.presentation,
+        expanded_groups: Object.values(currentCollection.expanded).map((v) => ({
+          group_id: v.group.group_id,
+          label: v.group.label,
+        })),
+        selected: currentCollection.selected
+          ? target(
+              currentCollection.selected.page_type === "source"
+                ? currentCollection.selected.source_id
+                : null,
+              currentCollection.selected.page_id,
+              currentCollection.selected.title,
+            )
+          : null,
+      },
+      timeline: currentTimeline ? { ...currentTimeline, offset: 0 } : null,
+      paths: currentPathExplore
+        ? {
+            start_page_id: currentPathExplore.startPageId,
+            start_title: currentPathExplore.startTitle,
+            max_hops: currentPathExplore.maxHops,
+            selected_target_page_id: currentPathExplore.selectedTargetPageId,
+          }
+        : null,
+      comparison: currentComparison.selections.flatMap((v) =>
+        v
+          ? [{ source_id: v.sourceId, title: v.title, line_start: v.lineStart }]
+          : [],
+      ),
+      target:
+        currentView === "source"
+          ? target(currentSourceId, null, page?.info.title)
+          : currentView === "knowledge"
+            ? target(
+                null,
+                currentKnowledgePageId,
+                main.querySelector("article")?.getAttribute("aria-label") ??
+                  undefined,
+              )
+            : null,
+    });
+  }
+  async function openSavedView(id: string): Promise<string | null> {
+    const intent = ++searchGeneration;
+    const saved = await api.openSavedView!(id).catch((error) => {
+      if (disposed || intent !== searchGeneration) return null;
+      throw error;
+    });
+    if (!saved) return null;
+    if (disposed || intent !== searchGeneration) return null;
+    pushCurrentState();
+    queryController?.stop();
+    const definition = saved.definition;
+    currentSearch = definition.search;
+    currentTimeline = definition.timeline;
+    currentCollection = newCollectionView();
+    if (definition.collection) {
+      const c = definition.collection;
+      Object.assign(currentCollection, {
+        axis: c.axis,
+        query: c.query,
+        draftQuery: c.query,
+        presentation: c.presentation,
+      });
+      for (const group of saved.resolved_groups)
+        currentCollection.expanded[group.group_id] = {
+          group: { ...group, members: 0 },
+          offset: 0,
+          members: {
+            items: [],
+            next_offset: null,
+            revision: "",
+            changed: false,
+          },
+        };
+      const selected = c.selected;
+      currentCollection.selected =
+        saved.resolved_references.find((r) =>
+          selected?.source_id
+            ? r.page_type === "source" && r.source_id === selected.source_id
+            : r.page_id === selected?.page_id,
+        ) ?? null;
+    }
+    currentComparison = newComparisonView();
+    definition.comparison.forEach((v, index) => {
+      const title =
+        saved.resolved_references.find(
+          (r) => r.page_type === "source" && r.source_id === v.source_id,
+        )?.title ?? v.title;
+      currentComparison.selections[index as 0 | 1] = {
+        ...comparisonSelection(v.source_id, title),
+        lineStart: v.line_start,
+        draftLine: String(v.line_start),
+      };
+    });
+    queryView = definition.query
+      ? { ...newQuery(""), request: definition.query }
+      : null;
+    const paths = definition.paths;
+    currentPathExplore = paths
+      ? {
+          startPageId: paths.start_page_id,
+          startTitle:
+            saved.resolved_references.find(
+              (r) => r.page_id === paths.start_page_id,
+            )?.title ?? paths.start_title,
+          maxHops: paths.max_hops,
+          pageSize: PATH_PAGE_SIZE,
+          relationshipWorkBudget: PATH_WORK_BUDGET,
+          requestCursor: null,
+          graphRevision: null,
+          response: null,
+          displayedPaths: [],
+          diagnostics: [],
+          detailsByTarget: {},
+          selectedTargetPageId: paths.selected_target_page_id,
+          scrollTop: 0,
+          staleCursor: false,
+        }
+      : null;
+    updateComparisonTray();
+    // Only evaluated criteria survive. Cursors, revisions and old results are never restored.
+    let pending: Promise<unknown> = Promise.resolve();
+    let generation = searchGeneration;
+    try {
+      if (definition.active === "search" && currentSearch)
+        pending = runSearch(currentSearch, false);
+      else if (definition.active === "timeline" && currentTimeline)
+        pending = runTimeline(currentTimeline);
+      else if (definition.active === "collection")
+        pending = showCollection().ready;
+      else if (definition.active === "comparison")
+        pending = showComparison().ready;
+      else if (definition.active === "query" && queryView) {
+        showBooleanQuery(queryView);
+        pending = queryController!.run();
+      } else if (definition.active === "paths" && currentPathExplore)
+        pending = requestPathPage(currentPathExplore, null);
+      else if (definition.active === "source" && definition.target?.source_id) {
+        const next = await api.openSource(definition.target.source_id);
+        if (disposed || intent !== searchGeneration) return null;
+        showPage(next);
+      } else if (
+        definition.active === "knowledge" &&
+        definition.target?.page_id
+      ) {
+        const next = await api.openKnowledgePage(definition.target.page_id);
+        if (disposed || intent !== searchGeneration) return null;
+        showKnowledgePage(next);
+      } else
+        throw new Error(
+          "The saved view's surface is unavailable. Its criteria were preserved.",
+        );
+      generation = searchGeneration;
+      const applied = await pending;
+      if (disposed || generation !== searchGeneration || applied === false)
+        return null;
+      message(
+        saved.warnings.length
+          ? saved.warnings.join(" ")
+          : `Opened saved view “${saved.name}” against current knowledge.`,
+      );
+      return saved.name;
+    } catch (error) {
+      if (disposed || generation !== searchGeneration) return null;
+      currentView = definition.active;
+      currentSourceId = null;
+      currentKnowledgePageId = null;
+      currentKnowledgeMarkdown = null;
+      page = null;
+      const unavailable = element("section");
+      unavailable.dataset.savedViewUnavailable = "true";
+      unavailable.append(
+        element("h1", `Saved view “${saved.name}” is unavailable`),
+        element("p", String(error)),
+        element(
+          "p",
+          saved.warnings.join(" ") ||
+            "The stored criteria remain intact. Use Back to return or inspect its Markdown in Saved views.",
+        ),
+      );
+      main.replaceChildren(unavailable);
+      syncBackButton();
+      throw error;
+    }
+  }
   type NavigationState =
     | {
         kind: "comparison";
@@ -403,6 +637,7 @@ export async function mountReader(
       report,
     );
     syncBackButton();
+    return collectionController;
   }
 
   async function runTimeline(request: TimelineRequest) {
@@ -1301,6 +1536,7 @@ export async function mountReader(
   }
 
   function showBooleanQuery(state: QueryView) {
+    ++searchGeneration;
     queryController?.stop();
     queryView = state;
     currentView = "query";
@@ -1630,6 +1866,7 @@ export async function mountReader(
     focusSelected = false,
     preserveScroll = false,
   ) {
+    ++searchGeneration;
     const requestGeneration = ++pathRequestGeneration;
     currentPathExplore = state;
     currentView = "paths";
@@ -2279,13 +2516,15 @@ export async function mountReader(
   });
   timelineButton.addEventListener("click", () => {
     pushCurrentState();
-    void runTimeline({
-      date_meaning: "source_event",
-      order: "ascending",
-      query: "",
-      tags: [],
-      offset: 0,
-    }).catch(report);
+    void runTimeline(
+      currentTimeline ?? {
+        date_meaning: "source_event",
+        order: "ascending",
+        query: "",
+        tags: [],
+        offset: 0,
+      },
+    ).catch(report);
   });
   collectionButton.addEventListener("click", () => {
     if (currentView !== "collection") pushCurrentState();
@@ -2293,7 +2532,7 @@ export async function mountReader(
   });
   searchButton.addEventListener("click", () => {
     void runSearch(
-      {
+      currentSearch ?? {
         query: "",
         tags: [],
         date_from: null,

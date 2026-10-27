@@ -1,0 +1,9 @@
+# Saved views
+
+Use **Saved views → Save current applied view** to name a reading or exploration arrangement. Merely searching, comparing, changing a timeline, or opening this panel writes no saved definition. Names can be found, opened, renamed, and removed in this panel; removal moves the intact Markdown into `.trash/views/`.
+
+Each `views/*.md` file has a stable UUID identity, a meaningful name, ordinary links to referenced material, and authoritative YAML criteria. The definition covers applied search filters, typed Boolean relationship clauses, collection grouping/presentation/expanded scopes, timeline meaning and sorting, relationship navigation, and explicit comparison selections. Unsaved form drafts, result sets, cursor tokens, signatures, indexes, and session position are excluded. Opening starts at the first result page and evaluates current data. Selecting Search, Timeline, or Collection then uses the restored arrangement's applied criteria.
+
+A filename can be changed externally without changing its saved identity. Rename preserves owner frontmatter and prose. Malformed or unsupported definitions remain visible as diagnostics with an option to open their Markdown; duplicate identities are never resolved by arbitrarily choosing a file. Missing references retain their scope and produce warnings. Current names are resolved by stable identity; a missing start never becomes an unscoped query or an unrelated same-named item. Ordinary page edits, source updates, and disposable-index rebuilds do not overwrite saved definitions.
+
+Records are bounded to 256 KiB, catalog result pages to 50 entries, and criteria use the existing query work/page budgets. This is explicit organization, separate from automatic last-session restoration. The installed-app smoke uses a disposable collection with frozen provider results; live semantic quality and the 16 GB release target are qualified separately.

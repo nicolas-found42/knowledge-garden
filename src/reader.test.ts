@@ -4583,3 +4583,207 @@ it("discloses timeline evidence from an earlier retained version and opens that 
     "original.txt",
   );
 });
+
+it("explicitly saves applied criteria, opens fresh results, and manages the durable view by stable identity", async () => {
+  const api = testApi();
+  let definition: import("./api").SavedViewDefinition | null = null;
+  let name = "River fieldwork";
+  let removed = false;
+  const saved = () => ({
+    view_id: "view-river",
+    name,
+    definition: definition!,
+    warnings: [],
+    resolved_groups: [],
+    resolved_references: [],
+  });
+  api.listSavedViews = vi.fn().mockImplementation(async () => ({
+    views:
+      definition && !removed
+        ? [{ view_id: "view-river", name, path: "views/owner.md" }]
+        : [],
+    next_offset: null,
+    diagnostics: [],
+  }));
+  api.createSavedView = vi.fn().mockImplementation(async (title, criteria) => {
+    name = title;
+    definition = criteria;
+    return saved();
+  });
+  api.openSavedView = vi.fn().mockImplementation(async () => saved());
+  api.renameSavedView = vi.fn().mockImplementation(async (_id, title) => {
+    name = title;
+    return saved();
+  });
+  api.removeSavedView = vi.fn().mockImplementation(async () => {
+    removed = true;
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await user.click(screen.getByRole("button", { name: "Saved views" }));
+  expect(api.createSavedView).not.toHaveBeenCalled();
+  await user.type(screen.getByLabelText("View name"), name);
+  await user.click(
+    screen.getByRole("button", { name: "Save current applied view" }),
+  );
+  await screen.findByRole("button", {
+    name: "Open saved view River fieldwork",
+  });
+  expect(api.createSavedView).toHaveBeenCalledWith(
+    "River fieldwork",
+    expect.objectContaining({
+      active: "search",
+      search: expect.objectContaining({ query: "", offset: 0 }),
+      collection: expect.objectContaining({ presentation: "reading" }),
+    }),
+  );
+  const count = vi.mocked(api.searchPages).mock.calls.length;
+  await user.click(
+    screen.getByRole("button", { name: "Open saved view River fieldwork" }),
+  );
+  await waitFor(() =>
+    expect(vi.mocked(api.searchPages).mock.calls.length).toBe(count + 1),
+  );
+  expect(api.searchPages).toHaveBeenLastCalledWith(definition!.search);
+  await user.click(
+    screen.getByRole("button", { name: "Rename River fieldwork" }),
+  );
+  const input = screen.getByLabelText("New name for River fieldwork");
+  await user.clear(input);
+  await user.type(input, "River 2024");
+  await user.click(screen.getByRole("button", { name: "Save view name" }));
+  await screen.findByRole("button", { name: "Open saved view River 2024" });
+  expect(api.renameSavedView).toHaveBeenCalledWith("view-river", "River 2024");
+  await user.click(screen.getByRole("button", { name: "Remove River 2024" }));
+  await waitFor(() =>
+    expect(api.removeSavedView).toHaveBeenCalledWith("view-river"),
+  );
+  await screen.findByText(/No saved views match/);
+  expect(api.createSavedView).toHaveBeenCalledOnce();
+});
+
+it("ignores a late saved-view lookup after the owner navigates elsewhere", async () => {
+  const api = testApi();
+  api.listSavedViews = vi.fn().mockResolvedValue({
+    views: [{ view_id: "view-river", name: "River", path: "views/river.md" }],
+    next_offset: null,
+    diagnostics: [],
+  });
+  api.createSavedView = vi.fn();
+  api.renameSavedView = vi.fn();
+  api.removeSavedView = vi.fn();
+  let finish!: (view: import("./api").SavedView) => void;
+  api.openSavedView = vi.fn().mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Saved views" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Open saved view River" }),
+  );
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  const count = vi.mocked(api.searchPages).mock.calls.length;
+  finish({
+    view_id: "view-river",
+    name: "River",
+    warnings: [],
+    resolved_groups: [],
+    resolved_references: [],
+    definition: {
+      active: "search",
+      search: {
+        query: "Obsolete delayed scope",
+        tags: [],
+        date_from: null,
+        date_to: null,
+        format: null,
+        processing_status: null,
+        offset: 0,
+      },
+      query: null,
+      collection: null,
+      timeline: null,
+      paths: null,
+      comparison: [],
+      target: null,
+    },
+  });
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole("button", { name: "Open saved view River" })
+        .hasAttribute("disabled"),
+    ).toBe(false),
+  );
+  expect(vi.mocked(api.searchPages).mock.calls.length).toBe(count);
+  expect(screen.queryByText(/Opened River against/)).toBeNull();
+});
+
+it("cannot resave the previous source when a saved target is unavailable", async () => {
+  const api = testApi();
+  api.listSavedViews = vi.fn().mockResolvedValue({
+    views: [
+      {
+        view_id: "view-missing",
+        name: "Missing B",
+        path: "views/missing.md",
+      },
+    ],
+    next_offset: null,
+    diagnostics: [],
+  });
+  api.createSavedView = vi.fn();
+  api.renameSavedView = vi.fn();
+  api.removeSavedView = vi.fn();
+  api.openSavedView = vi.fn().mockResolvedValue({
+    view_id: "view-missing",
+    name: "Missing B",
+    warnings: ["Saved B is unavailable."],
+    resolved_groups: [],
+    resolved_references: [],
+    definition: {
+      active: "source",
+      search: null,
+      query: null,
+      collection: null,
+      timeline: null,
+      paths: null,
+      comparison: [],
+      target: { source_id: "missing-b", page_id: null },
+    },
+  });
+  api.openSource = vi.fn().mockImplementation(async (id) => {
+    if (id === "missing-b") throw new Error("Source B was removed");
+    return riverside;
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await screen.findByRole("article", { name: "Riverside notes" });
+  await user.click(screen.getByRole("button", { name: "Saved views" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Open saved view Missing B" }),
+  );
+  await screen.findByRole("heading", {
+    name: "Saved view “Missing B” is unavailable",
+  });
+  await user.type(screen.getByLabelText("View name"), "Copy of missing B");
+  await user.click(
+    screen.getByRole("button", { name: "Save current applied view" }),
+  );
+  expect(api.createSavedView).not.toHaveBeenCalled();
+  await screen.findByText("Open a reading or exploration view before saving.");
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  await screen.findByRole("article", { name: "Riverside notes" });
+});
