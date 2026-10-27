@@ -69,9 +69,21 @@ impl SemanticProvider for RecordedPathProvider {
             evidence: evidence(quote),
         })
         .collect();
+        let facts = ["2024-05-17", "May 2024"]
+            .into_iter()
+            .filter(|date| text.contains(date))
+            .map(|date| FactDraft {
+                subject: "V17".into(),
+                property: "occurred_on".into(),
+                value: date.into(),
+                record_key: None,
+                evidence: evidence(date),
+            })
+            .collect();
         Ok(KnowledgeDraft {
             entities,
             relationships,
+            facts,
             ..KnowledgeDraft::default()
         })
     }
@@ -85,6 +97,7 @@ impl SystemOneTransport for RecordedConversationTransport {
         for (index, intent) in [
             (0, "question"),
             (1, "proposal"),
+            (2, "nonknowledge"),
             (3, "tool_report"),
             (4, "reasoning_event"),
             (5, "recorded_decision"),
@@ -250,6 +263,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             args.get(3).ok_or("missing comparison request")?,
         )?)?),
         "inspect-gaps" => output(app.inspect_gaps(args.get(3).ok_or("missing page identity")?)?),
+        "timeline" => output(app.timeline(serde_json::from_str(
+            args.get(3).ok_or("missing timeline request")?,
+        )?)?),
         "collection-status" => output(app.collection_status()),
         "resolve-link" => output(app.resolve_page_link(
             args.get(3).ok_or("missing page identity")?,

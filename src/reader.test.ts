@@ -4436,3 +4436,150 @@ it("compares two sources, returns from evidence context and closes to the previo
     document.activeElement,
   );
 });
+
+it("keeps timeline keyboard context across supporting evidence and bounded page changes", async () => {
+  const api = testApi();
+  api.timeline = vi.fn().mockImplementation(async (request) => ({
+    entries:
+      request.offset === 0
+        ? [
+            {
+              entry_id: "event-v17",
+              page_id: "page-v17",
+              source_id: riverside.info.source_id,
+              title: "Observation V17",
+              kind: "event",
+              date_label: "May 2024",
+              date_start: "2024-05-01",
+              date_end: "2024-05-31",
+              precision: "month",
+              date_status: "approximate",
+              qualifier: "Month only",
+              support: {
+                record_id: "date",
+                source_id: riverside.info.source_id,
+                source_version_id: null,
+                quote: "Riverside",
+                byte_start: 0,
+                byte_end: 9,
+                line_start: 1,
+                line_end: 1,
+                offset_basis: "preserved_text",
+                source_location: "Original source line 1",
+              },
+            },
+          ]
+        : [],
+    next_offset: request.offset === 0 ? 50 : null,
+  }));
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Timeline" }));
+  await user.selectOptions(
+    screen.getByLabelText("Date meaning"),
+    "reasoning_event",
+  );
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByLabelText("Date meaning")),
+  );
+  const support = screen.getByRole("button", {
+    name: "Read timeline supporting source",
+  });
+  support.focus();
+  screen.getByRole("main").scrollTop = 137;
+  await user.keyboard("{Enter}");
+  await screen.findByRole("article", { name: riverside.info.title });
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Read timeline supporting source" }),
+    ),
+  );
+  expect(screen.getByRole("main").scrollTop).toBe(137);
+  await user.click(screen.getByRole("button", { name: "Next timeline page" }));
+  await screen.findByText("No events match this timeline.");
+  expect(api.timeline).toHaveBeenLastCalledWith(
+    expect.objectContaining({ date_meaning: "reasoning_event", offset: 50 }),
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Previous timeline page" }),
+  );
+  await screen.findByRole("button", { name: "Observation V17" });
+  expect(api.timeline).toHaveBeenLastCalledWith(
+    expect.objectContaining({ date_meaning: "reasoning_event", offset: 0 }),
+  );
+});
+
+it("discloses timeline evidence from an earlier retained version and opens that exact original", async () => {
+  const api = testApi();
+  const old = "older-version";
+  api.timeline = vi.fn().mockResolvedValue({
+    entries: [
+      {
+        entry_id: "old-date",
+        page_id: "page-v17",
+        source_id: riverside.info.source_id,
+        title: "Qualified old date",
+        kind: "event",
+        date_label: "2024-05-17",
+        date_start: "2024-05-17",
+        date_end: "2024-05-17",
+        precision: "day",
+        date_status: "known",
+        qualifier: null,
+        support: {
+          record_id: "date",
+          source_id: riverside.info.source_id,
+          source_version_id: old,
+          quote: "Earlier qualified wording",
+          byte_start: 0,
+          byte_end: 25,
+          line_start: 1,
+          line_end: 1,
+          offset_basis: "preserved_text",
+          source_location: "Original line 1",
+        },
+      },
+    ],
+    next_offset: null,
+  });
+  api.openSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: {
+      ...riverside.info,
+      current_version_id: "new-version",
+      versions_seen: [
+        { source_version_id: old, state: "retained", asset: "original.txt" },
+        {
+          source_version_id: "new-version",
+          state: "complete",
+          asset: "original.txt",
+        },
+      ],
+    },
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Timeline" }));
+  await user.click(
+    await screen.findByRole("button", {
+      name: "Read timeline supporting source",
+    }),
+  );
+  await screen.findByText(
+    /Timeline evidence is from an earlier retained source version/,
+  );
+  expect(screen.getByText("Earlier qualified wording")).toBeTruthy();
+  await user.click(
+    screen.getByRole("button", { name: "Open timeline supporting original" }),
+  );
+  expect(api.openOriginalVersion).toHaveBeenCalledWith(
+    riverside.info.source_id,
+    old,
+    "original.txt",
+  );
+});

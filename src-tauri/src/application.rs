@@ -567,20 +567,42 @@ impl Application {
         request: crate::timeline::TimelineRequest,
     ) -> Result<crate::timeline::TimelineResults> {
         use crate::timeline::{DateMeaning, DateOrder, TimelineEntry, TimelineResults};
-        if request.date_meaning != DateMeaning::SourceEvent {
-            return Ok(TimelineResults {
-                entries: Vec::new(),
-                next_offset: None,
-            });
+        if request.query.len() > 1024 || request.tags.len() > 32 {
+            return Err(GardenError::Invalid(
+                "Timeline filters are too large.".into(),
+            ));
         }
+        let meaning = match request.date_meaning {
+            DateMeaning::SourceEvent => "source_event",
+            DateMeaning::ReasoningEvent => "reasoning_event",
+            DateMeaning::CollectionActivity => "collection_activity",
+        };
+        let tags = request
+            .tags
+            .iter()
+            .map(|tag| normalize_tag(tag))
+            .collect::<Result<Vec<_>>>()?;
         let order = match request.order {
             DateOrder::Ascending => "ASC",
             DateOrder::Descending => "DESC",
         };
         let offset = i64::try_from(request.offset)
             .map_err(|_| GardenError::Invalid("Timeline offset is too large.".into()))?;
-        let mut statement = self.index.prepare(&format!("SELECT entry FROM timeline_entries WHERE date_meaning='source_event' ORDER BY date_start IS NULL, date_start {order}, date_end {order}, entry_id ASC LIMIT ?1 OFFSET ?2"))?;
-        let rows = statement.query_map(params![(PAGE_SIZE + 1) as i64, offset], |row| {
+        let mut filters = vec!["t.date_meaning = ?".to_string(), "(? = '' OR instr(lower(json_extract(t.entry,'$.title') || ' ' || json_extract(t.entry,'$.date_label') || ' ' || coalesce(json_extract(t.entry,'$.qualifier'),'')), lower(?)) > 0 OR EXISTS (SELECT 1 FROM page_search p WHERE p.page_id=json_extract(t.entry,'$.page_id') AND instr(lower(p.content),lower(?))>0))".to_string()];
+        let mut values: Vec<rusqlite::types::Value> = vec![
+            meaning.to_string().into(),
+            request.query.trim().to_string().into(),
+            request.query.trim().to_string().into(),
+            request.query.trim().to_string().into(),
+        ];
+        for tag in tags {
+            filters.push("EXISTS (SELECT 1 FROM page_tags pt WHERE (pt.page_id=json_extract(t.entry,'$.page_id') OR (t.date_meaning='collection_activity' AND pt.source_id=json_extract(t.entry,'$.source_id'))) AND pt.normalized=?)".into());
+            values.push(tag.into());
+        }
+        values.push(((PAGE_SIZE + 1) as i64).into());
+        values.push(offset.into());
+        let mut statement = self.index.prepare(&format!("SELECT t.entry FROM timeline_entries t WHERE {} ORDER BY t.date_start IS NULL, t.date_start {order}, t.date_end {order}, t.entry_id ASC LIMIT ? OFFSET ?",filters.join(" AND ")))?;
+        let rows = statement.query_map(rusqlite::params_from_iter(values), |row| {
             row.get::<_, String>(0)
         })?;
         let mut entries = rows
@@ -6664,24 +6686,10 @@ impl Application {
                     params![page.info.source_id, version.source_version_id, version.format],
                 )?;
             }
+            index_collection_activity(&transaction, &page.info)?;
             collection::index_source(&transaction, &page.info)?;
             let documents = self.search_documents_for_source(&page.info)?;
             write_search_documents(&transaction, &documents)?;
-            for summary in &page.info.knowledge_pages {
-                if summary.kind != "event" {
-                    continue;
-                }
-                // Match the search index's recovery rule: a damaged knowledge
-                // header must not hide unrelated sources or rewrite owner bytes.
-                let Ok(header) = read_knowledge_header(&self.root.join(&summary.path)) else {
-                    continue;
-                };
-                if header.source_id != page.info.source_id {
-                    continue;
-                }
-                let entry = event_timeline_entry(&header);
-                transaction.execute("INSERT INTO timeline_entries(entry_id,date_meaning,date_start,date_end,entry) VALUES (?1,'source_event',?2,?3,?4)", params![entry.entry_id, entry.date_start, entry.date_end, serde_json::to_string(&entry)?])?;
-            }
         }
         transaction.execute("DELETE FROM collection_source_pages WHERE NOT EXISTS (SELECT 1 FROM sources WHERE sources.source_id=collection_source_pages.source_id)",[])?;
         let pages_dir = self.root.join("pages");
@@ -6697,11 +6705,6 @@ impl Application {
                     .exists()
                 {
                     // Authoritative owner edits outlive removal of their last source.
-                    if header.kind == "event" {
-                        let mut entry = event_timeline_entry(&header);
-                        entry.support = None;
-                        transaction.execute("INSERT INTO timeline_entries(entry_id,date_meaning,date_start,date_end,entry) VALUES (?1,'source_event',?2,?3,?4)", params![entry.entry_id, entry.date_start, entry.date_end, serde_json::to_string(&entry)?])?;
-                    }
                     write_search_documents(
                         &transaction,
                         &[SearchDocument {
@@ -6720,6 +6723,27 @@ impl Application {
                             match_location: None,
                         }],
                     )?;
+                }
+                let reasoning = header.kind == "reasoning_event"
+                    || header
+                        .facts
+                        .iter()
+                        .any(|f| f.property == "message_intent" && f.value == "recorded_decision");
+                if header.kind == "event" || reasoning {
+                    let mut entry = self.event_timeline_entry(&header);
+                    if entry
+                        .support
+                        .as_ref()
+                        .is_some_and(|support| self.open_source(&support.source_id).is_err())
+                    {
+                        entry.support = None;
+                    }
+                    let meaning = if reasoning {
+                        "reasoning_event"
+                    } else {
+                        "source_event"
+                    };
+                    transaction.execute("INSERT INTO timeline_entries(entry_id,date_meaning,date_start,date_end,entry) VALUES (?1,?2,?3,?4,?5)",params![entry.entry_id,meaning,entry.date_start,entry.date_end,serde_json::to_string(&entry)?])?;
                 }
                 transaction.execute(
                     "INSERT OR REPLACE INTO knowledge_pages(page_id, title, kind) VALUES (?1, ?2, ?3)",
@@ -6959,7 +6983,9 @@ impl Application {
     }
 
     fn index_acquisition(&self, acquisition: &Acquisition, source_id: &str) -> Result<()> {
-        index_acquisition_record(&self.index, acquisition, source_id)
+        index_acquisition_record(&self.index, acquisition, source_id)?;
+        let page = self.open_source(source_id)?;
+        index_collection_activity(&self.index, &page.info)
     }
 
     fn index_version(&self, source_id: &str, version_id: &str, format: &str) -> Result<()> {
@@ -7103,6 +7129,23 @@ impl Application {
     }
 }
 
+fn index_collection_activity(index: &Connection, info: &SourceInfo) -> Result<()> {
+    for acquisition in &info.acquisitions {
+        let instant = acquisition
+            .received_at
+            .parse::<i64>()
+            .ok()
+            .and_then(chrono::DateTime::from_timestamp_millis);
+        let timestamp = instant.map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+        let entry = crate::timeline::TimelineEntry {
+                    entry_id: format!("acquired:{}:{}",info.source_id,hex::encode(Sha256::digest(serde_json::to_vec(acquisition)?))), page_id:info.page_id.clone(), source_id:info.source_id.clone(),
+                    title:format!("Acquired {}",info.title),kind:"acquired".into(), date_label:timestamp.clone().unwrap_or_else(||"Unknown acquisition time".into()),date_start:timestamp.clone(),date_end:timestamp.clone(),precision:if timestamp.is_some(){"millisecond"}else{"unknown"}.into(),date_status:if timestamp.is_some(){"known"}else{"unknown"}.into(),qualifier:Some(format!("Collection acquisition from {}; this is not the source-described event date. No historical processing timestamp is inferred.",acquisition.path)),support:None,
+                };
+        index.execute("INSERT OR REPLACE INTO timeline_entries(entry_id,date_meaning,date_start,date_end,entry) VALUES (?1,'collection_activity',?2,?3,?4)",params![entry.entry_id,entry.date_start,entry.date_end,serde_json::to_string(&entry)?])?;
+    }
+    Ok(())
+}
+
 fn summary_json(info: &SourceInfo) -> Result<String> {
     serde_json::to_string(&SourceSummary {
         source_id: info.source_id.clone(),
@@ -7113,45 +7156,52 @@ fn summary_json(info: &SourceInfo) -> Result<String> {
     .map_err(|e| GardenError::Invalid(e.to_string()))
 }
 
-fn event_timeline_entry(header: &KnowledgePageHeader) -> crate::timeline::TimelineEntry {
-    let date_facts = header
-        .facts
-        .iter()
-        .filter(|fact| {
-            ["event_date", "occurred_on", "date"]
-                .iter()
-                .any(|property| fact.property.eq_ignore_ascii_case(property))
-        })
-        .collect::<Vec<_>>();
-    let date = crate::timeline::qualify_dates(
-        &date_facts
+impl Application {
+    fn event_timeline_entry(&self, header: &KnowledgePageHeader) -> crate::timeline::TimelineEntry {
+        let date_facts = header
+            .facts
             .iter()
-            .map(|fact| fact.value.as_str())
-            .collect::<Vec<_>>(),
-    );
-    let date_fact = date_facts.first().copied();
-    crate::timeline::TimelineEntry {
-        entry_id: format!("event:{}", header.page_id),
-        page_id: header.page_id.clone(),
-        source_id: header.source_id.clone(),
-        title: header.title.clone(),
-        kind: header.kind.clone(),
-        date_label: date.label,
-        date_start: date.start,
-        date_end: date.end,
-        precision: date.precision,
-        date_status: date.status,
-        qualifier: date_fact.and_then(|fact| fact.qualifier.clone()),
-        support: Some(search_location(
-            &date_fact
-                .map(|fact| fact.fact_id.clone())
-                .unwrap_or_else(|| header.page_id.clone()),
-            &header.source_id,
-            None,
-            date_fact
-                .map(|fact| &fact.evidence)
-                .unwrap_or(&header.evidence),
-        )),
+            .filter(|fact| {
+                ["event_date", "occurred_on", "date", "message_date"]
+                    .iter()
+                    .any(|property| fact.property.eq_ignore_ascii_case(property))
+            })
+            .collect::<Vec<_>>();
+        let date = crate::timeline::qualify_dates(
+            &date_facts
+                .iter()
+                .map(|fact| fact.value.as_str())
+                .collect::<Vec<_>>(),
+        );
+        let date_fact = date_facts.first().copied();
+        let support = date_fact.and_then(|fact| self.latest_support(&fact.supports).ok().flatten());
+        crate::timeline::TimelineEntry {
+            entry_id: format!("event:{}", header.page_id),
+            page_id: header.page_id.clone(),
+            source_id: header.source_id.clone(),
+            title: header.title.clone(),
+            kind: header.kind.clone(),
+            date_label: date.label,
+            date_start: date.start,
+            date_end: date.end,
+            precision: date.precision,
+            date_status: date.status,
+            qualifier: date_fact.and_then(|fact| fact.qualifier.clone()),
+            support: Some(search_location(
+                &date_fact
+                    .map(|fact| fact.fact_id.clone())
+                    .unwrap_or_else(|| header.page_id.clone()),
+                support
+                    .map(|s| s.source_id.as_str())
+                    .unwrap_or(&header.source_id),
+                support.map(|s| s.source_version_id.as_str()),
+                support.map(|s| &s.evidence).unwrap_or_else(|| {
+                    date_fact
+                        .map(|fact| &fact.evidence)
+                        .unwrap_or(&header.evidence)
+                }),
+            )),
+        }
     }
 }
 
@@ -7674,7 +7724,7 @@ fn event_date_from_facts(facts: &[FactRecord]) -> Option<String> {
     facts
         .iter()
         .filter(|fact| {
-            ["event_date", "occurred_on", "date"]
+            ["event_date", "occurred_on", "date", "message_date"]
                 .iter()
                 .any(|property| fact.property.eq_ignore_ascii_case(property))
         })
