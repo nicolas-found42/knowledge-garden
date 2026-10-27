@@ -134,7 +134,7 @@ fn provider_http_error(code: u16, retry_after_ms: Option<u64>) -> ProviderError 
         401 => Some(ProviderAvailability::Authentication),
         402 | 429 => Some(ProviderAvailability::Quota),
         403 => Some(ProviderAvailability::CapabilityUnavailable),
-        404 | 502 | 503 => Some(ProviderAvailability::ModelUnavailable),
+        404 | 500..=599 => Some(ProviderAvailability::ModelUnavailable),
         408 => Some(ProviderAvailability::Network),
         _ => None,
     };

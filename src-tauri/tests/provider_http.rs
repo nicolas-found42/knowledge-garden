@@ -69,7 +69,15 @@ fn real_http_service_outages_do_not_become_exhausted_semantic_failures() {
         ("402 Payment Required", ProviderAvailability::Quota),
         ("404 Not Found", ProviderAvailability::ModelUnavailable),
         ("408 Request Timeout", ProviderAvailability::Network),
+        (
+            "500 Internal Server Error",
+            ProviderAvailability::ModelUnavailable,
+        ),
         ("502 Bad Gateway", ProviderAvailability::ModelUnavailable),
+        (
+            "504 Gateway Timeout",
+            ProviderAvailability::ModelUnavailable,
+        ),
         (
             "503 Service Unavailable",
             ProviderAvailability::ModelUnavailable,
@@ -152,6 +160,39 @@ fn service_retry_deadline_survives_restart_and_disposable_cache_loss() {
         .parse()
         .unwrap();
     assert!(deadline >= before + 120_000);
+    for status in [
+        "500 Internal Server Error",
+        "504 Gateway Timeout",
+        "500 Internal Server Error",
+        "504 Gateway Timeout",
+    ] {
+        let job = app
+            .claim_due_semantic_jobs_at(1, u128::MAX)
+            .unwrap()
+            .remove(0);
+        let error = response(
+            status,
+            "Retry-After: 120\r\n",
+            r#"{"error":{"message":"fixture"}}"#,
+        )
+        .complete("synthetic-test-credential", &json!({"model":"jev-1.13"}))
+        .unwrap_err();
+        app.finish_semantic_job(job, Err(error)).unwrap();
+        let pending = app.open_source(&source.info.source_id).unwrap();
+        assert_eq!(pending.info.semantic_state, "pending");
+        assert_eq!(pending.info.versions_seen[0].retryable_provider_failures, 0);
+        assert!(
+            pending
+                .info
+                .semantic_retry_at
+                .unwrap()
+                .parse::<u128>()
+                .unwrap()
+                >= before + 120_000
+        );
+    }
+    let pending = app.open_source(&source.info.source_id).unwrap();
+    let deadline: u128 = pending.info.semantic_retry_at.unwrap().parse().unwrap();
     drop(app);
     std::fs::remove_dir_all(root.join(".derived")).unwrap();
     let mut app = Application::open(&root).unwrap();
