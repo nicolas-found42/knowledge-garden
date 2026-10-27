@@ -26,6 +26,7 @@ pub enum SavedSurface {
     Comparison,
     Source,
     Knowledge,
+    Trail,
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -77,6 +78,8 @@ pub struct ViewTarget {
 #[serde(deny_unknown_fields)]
 pub struct ViewDefinition {
     pub active: SavedSurface,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trail: Vec<super::trails::TrailStop>,
     pub search: Option<PageSearchRequest>,
     pub query: Option<boolean::BooleanQueryRequest>,
     pub collection: Option<CollectionCriteria>,
@@ -128,6 +131,7 @@ struct Catalog {
 impl ViewDefinition {
     fn validate(&self) -> Result<()> {
         let missing = match self.active {
+            SavedSurface::Trail => self.trail.is_empty(),
             SavedSurface::Search => self.search.is_none(),
             SavedSurface::Query => self.query.is_none(),
             SavedSurface::Collection => self.collection.is_none(),
@@ -145,6 +149,7 @@ impl ViewDefinition {
                 .and_then(|t| t.page_id.as_ref())
                 .is_none(),
         };
+        super::trails::validate_stops(&self.trail)?;
         if missing {
             return invalid("The saved view is missing its active criteria; it cannot be broadened to a different view.");
         }
@@ -231,6 +236,14 @@ impl ViewDefinition {
     }
     fn references(&self) -> Result<Vec<(bool, String)>> {
         let mut refs = Vec::new();
+        for stop in &self.trail {
+            if let Some(id) = &stop.target.source_id {
+                refs.push((true, id.clone()));
+            }
+            if let Some(id) = &stop.target.page_id {
+                refs.push((false, id.clone()));
+            }
+        }
         if let Some(query) = &self.query {
             refs.extend(
                 boolean::saved_query_targets(query)?
@@ -286,7 +299,7 @@ impl ViewDefinition {
 fn invalid<T>(message: &str) -> Result<T> {
     Err(GardenError::Invalid(message.into()))
 }
-fn source_id(id: &str) -> Result<()> {
+pub(super) fn source_id(id: &str) -> Result<()> {
     if id.strip_prefix("source-").is_none_or(|v| {
         v.len() != 64
             || !v
@@ -297,7 +310,7 @@ fn source_id(id: &str) -> Result<()> {
     }
     Ok(())
 }
-fn page_id(id: &str) -> Result<()> {
+pub(super) fn page_id(id: &str) -> Result<()> {
     if !id.starts_with("page-")
         || id.len() > 128
         || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
@@ -507,13 +520,19 @@ impl Application {
                 ));
             }
         }
-        for target in record.definition.target.iter().chain(
-            record
-                .definition
-                .collection
-                .iter()
-                .filter_map(|c| c.selected.as_ref()),
-        ) {
+        for target in record
+            .definition
+            .target
+            .iter()
+            .chain(
+                record
+                    .definition
+                    .collection
+                    .iter()
+                    .filter_map(|c| c.selected.as_ref()),
+            )
+            .chain(record.definition.trail.iter().map(|s| &s.target))
+        {
             if let Some(old_title) = &target.title {
                 if let Some(current) = resolved_references.iter().find(|r| {
                     target
@@ -665,6 +684,34 @@ impl Application {
                 body.push_str(&format!(
                     "- Unavailable reference `{id}`; its stored scope is unchanged.\n"
                 ));
+            }
+        }
+        if !record.definition.trail.is_empty() {
+            body.push_str("\n## Ordered trail\n\n");
+            for (index, stop) in record.definition.trail.iter().enumerate() {
+                body.push_str(&format!(
+                    "{}. {} — stable stop `{}`\n",
+                    index + 1,
+                    super::escape_markdown(&stop.label),
+                    stop.stop_id
+                ));
+                if let Some(context) = &stop.context {
+                    let location = match context {
+                        super::trails::TrailContext::Span {
+                            basis,
+                            byte_start,
+                            byte_end,
+                            ..
+                        } => format!("{basis}, bytes {byte_start}–{byte_end}"),
+                        super::trails::TrailContext::Message { message_id, .. } => {
+                            format!("Message {message_id}")
+                        }
+                        super::trails::TrailContext::Media { at_ms, .. } => {
+                            format!("Media {at_ms} ms")
+                        }
+                    };
+                    body.push_str(&format!("   Context: {}. Open in the app to validate its current availability; source-version identity and exact criteria are retained in YAML.\n",super::escape_markdown(&location)));
+                }
             }
         }
         super::commit_publication(

@@ -40,6 +40,7 @@ button:disabled {
   outline-offset: 4px;
 }
 .toolbar {
+  flex-wrap: wrap;
   position: sticky;
   top: 0;
   display: flex;
@@ -467,4 +468,54 @@ mark {
 }
 .saved-views input {
   max-width: 100%;
+}
+
+.trail-panel {
+  margin: 1rem;
+  padding: 1rem;
+  border: 1px solid currentColor;
+}
+.trail-panel button,
+.trail-panel input {
+  margin: 0.25rem;
+}
+.trail-panel li {
+  margin-block: 0.75rem;
+}
+
+.reading-workspace:has(> .trail-panel:not([hidden])) {
+  display: grid;
+  grid-template-columns: minmax(16rem, 23rem) minmax(0, 1fr);
+  align-items: start;
+  gap: 1rem;
+}
+.reading-workspace > .reader {
+  min-width: 0;
+  width: 100%;
+}
+.trail-panel {
+  position: sticky;
+  top: 8rem;
+  max-height: calc(100vh - 10rem);
+  overflow: auto;
+}
+@media (max-width: 850px) {
+  .reading-workspace:has(> .trail-panel:not([hidden])) {
+    display: block;
+  }
+  .trail-panel {
+    position: static;
+    max-height: 45vh;
+  }
+}
+
+.trail-panel ol {
+  padding-inline-start: 1.3rem;
+}
+.trail-panel li button {
+  padding: 0.3rem 0.55rem;
+}
+.trail-panel li > p {
+  font-size: 0.85rem;
+  line-height: 1.4;
 }

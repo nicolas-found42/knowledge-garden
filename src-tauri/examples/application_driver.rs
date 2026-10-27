@@ -186,7 +186,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let operation = args.get(2).map(String::as_str).ok_or("missing operation")?;
     let live = matches!(
         operation,
-        "live-import" | "url-live-import" | "audio-live-import" | "repository-live-import"
+        "live-import"
+            | "url-live-import"
+            | "audio-live-import"
+            | "repository-live-import"
+            | "live-suggest-trail"
     );
     if live && std::env::var("KNOWLEDGE_GARDEN_LIVE_SEMANTICS").as_deref() != Ok("1") {
         return Err("live semantic evaluation requires KNOWLEDGE_GARDEN_LIVE_SEMANTICS=1".into());
@@ -266,6 +270,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "timeline" => output(app.timeline(serde_json::from_str(
             args.get(3).ok_or("missing timeline request")?,
         )?)?),
+        "resolve-trail" => output(app.resolve_trail(serde_json::from_str(
+            args.get(3).ok_or("missing trail stops")?,
+        )?)?),
+        "trail-source-choices" => output(app.trail_source_choices(
+            args.get(3).ok_or("missing source identity")?,
+            args.get(4).map(|v| v.parse()).transpose()?.unwrap_or(0),
+        )?),
+        "trail-passage" => output(app.trail_selected_passage(
+            args.get(3).ok_or("missing source identity")?,
+            args.get(4).ok_or("missing passage")?,
+        )?),
+        "suggest-trail" | "live-suggest-trail" => {
+            let job = app.prepare_trail_suggestions(args.get(3).ok_or("missing reading goal")?)?;
+            output(app.finish_trail_suggestions(job.evaluate())?);
+        }
         "views" => output(app.list_saved_views(
             args.get(3).map(String::as_str).unwrap_or(""),
             args.get(4).map(|s| s.parse()).transpose()?.unwrap_or(0),

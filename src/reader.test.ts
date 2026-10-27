@@ -4787,3 +4787,190 @@ it("cannot resave the previous source when a saved target is unavailable", async
   await user.click(screen.getByRole("button", { name: "Back" }));
   await screen.findByRole("article", { name: "Riverside notes" });
 });
+
+it("saves a source-context trail explicitly, reopens its mixed route, and returns to the originating page", async () => {
+  const api = testApi();
+  const quote = "Observation V17 took place at Riverside on May 17, 2024.";
+  const stop: import("./api").TrailStop = {
+    stop_id: crypto.randomUUID(),
+    label: "Riverside passage",
+    target: {
+      source_id: riverside.info.source_id,
+      page_id: null,
+      title: riverside.info.title,
+    },
+    context: {
+      kind: "span",
+      source_version_id: riverside.info.sha256,
+      basis: "retained_original_text",
+      byte_start: 0,
+      byte_end: quote.length,
+      quote,
+    },
+  };
+  api.resolveTrail = vi
+    .fn()
+    .mockImplementation(async (stops: import("./api").TrailStop[]) =>
+      stops.map((s) => ({
+        stop: s,
+        status: "available",
+        title: s.target.title,
+        detail: "Current contextual source",
+        quote: s.context?.kind === "span" ? s.context.quote : null,
+        locator: s.context ? "Source passage" : null,
+        retained_asset: "original.md",
+      })),
+    );
+  api.trailSourceChoices = vi.fn().mockResolvedValue({
+    stops: [],
+    next_offset: null,
+    detail: "No message locations",
+  });
+  api.trailSelectedPassage = vi.fn().mockResolvedValue(stop);
+  api.suggestTrailStops = vi.fn();
+  let definition: import("./api").SavedViewDefinition | null = null;
+  const saved = () => ({
+    view_id: "view-route",
+    name: "Field route",
+    definition: definition!,
+    warnings: [],
+    resolved_groups: [],
+    resolved_references: [],
+  });
+  api.createSavedView = vi.fn().mockImplementation(async (_name, d) => {
+    definition = d;
+    return saved();
+  });
+  api.listSavedViews = vi.fn().mockResolvedValue({
+    views: [
+      { view_id: "view-route", name: "Field route", path: "views/route.md" },
+    ],
+    next_offset: null,
+    diagnostics: [],
+  });
+  api.openSavedView = vi.fn().mockImplementation(async () => saved());
+  api.renameSavedView = vi.fn();
+  api.removeSavedView = vi.fn();
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(screen.getByRole("button", { name: "Trails" }));
+  await user.click(
+    screen.getByRole("button", { name: "Add current page to trail" }),
+  );
+  const code = screen.getByRole("article").querySelector("code")!.firstChild!;
+  const selection = window.getSelection()!;
+  const range = document.createRange();
+  range.selectNodeContents(code);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  await user.click(
+    screen.getByRole("button", { name: "Add selected source passage" }),
+  );
+  await screen.findByRole("button", {
+    name: "Read trail stop 2: Riverside passage",
+  });
+  expect(api.createSavedView).not.toHaveBeenCalled();
+  await user.click(
+    screen.getByRole("button", {
+      name: "Read trail stop 2: Riverside passage",
+    }),
+  );
+  await screen.findByRole("region", { name: "Trail stop context" });
+  expect(screen.getByRole("article").querySelector("mark")?.textContent).toBe(
+    quote,
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Return to trail origin" }),
+  );
+  await screen.findByText("Returned to the originating view.");
+  expect(
+    screen.queryByRole("region", { name: "Trail stop context" }),
+  ).toBeNull();
+  expect(document.activeElement?.textContent).toBe("Return to trail origin");
+  await user.type(screen.getByLabelText("Trail name"), "Field route");
+  await user.click(screen.getByRole("button", { name: "Save this trail" }));
+  await waitFor(() =>
+    expect(api.createSavedView).toHaveBeenCalledWith(
+      "Field route",
+      expect.objectContaining({
+        active: "trail",
+        trail: expect.arrayContaining([
+          expect.objectContaining({ context: stop.context }),
+        ]),
+      }),
+    ),
+  );
+  await user.click(screen.getByRole("button", { name: "Saved views" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Open saved view Field route" }),
+  );
+  await screen.findByRole("heading", { name: "Saved trail" });
+  await user.click(
+    screen.getByRole("button", {
+      name: "Read trail stop 2: Riverside passage",
+    }),
+  );
+  await screen.findByRole("region", { name: "Trail stop context" });
+  await user.click(
+    screen.getByRole("button", { name: "Open trail supporting original" }),
+  );
+  expect(api.openOriginalVersion).toHaveBeenCalledWith(
+    riverside.info.source_id,
+    riverside.info.sha256,
+    "original.md",
+  );
+});
+
+it("does not navigate to a removed route stop when its source-open response arrives late", async () => {
+  const api = testApi();
+  let finish!: (source: SourcePage) => void;
+  api.openSource = vi.fn().mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  api.resolveTrail = vi
+    .fn()
+    .mockImplementation(async (stops: import("./api").TrailStop[]) =>
+      stops.map((stop) => ({
+        stop,
+        status: "available",
+        title: stop.label,
+        detail: "Current",
+        quote: null,
+        locator: null,
+        retained_asset: null,
+      })),
+    );
+  api.trailSourceChoices = vi.fn();
+  api.trailSelectedPassage = vi.fn();
+  api.suggestTrailStops = vi.fn();
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(screen.getByRole("button", { name: "Trails" }));
+  await user.click(
+    screen.getByRole("button", { name: "Add current page to trail" }),
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Read trail stop 1: Riverside notes" }),
+  );
+  await waitFor(() => expect(api.openSource).toHaveBeenCalled());
+  await user.click(screen.getByRole("button", { name: "Remove trail stop 1" }));
+  finish({
+    ...riverside,
+    info: { ...riverside.info, title: "Late removed target" },
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(screen.getByRole("article").getAttribute("aria-label")).toBe(
+    "Riverside notes",
+  );
+  expect(screen.queryByText(/Selected route stop 1 of/)).toBeNull();
+});
