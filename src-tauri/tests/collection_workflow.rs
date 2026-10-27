@@ -6266,8 +6266,7 @@ fn link_repair_preserves_literal_content_and_already_adjusted_editor_links() {
         .contains("[Already fixed](../Other.md)"));
 }
 
-#[test]
-fn quitting_during_replacement_extraction_preserves_its_retry_budget() {
+fn exercise_interrupted_replacement(publication: bool) {
     use knowledge_garden::{extraction::SourceExtractor, processes};
     use std::{
         process::Command,
@@ -6277,19 +6276,6 @@ fn quitting_during_replacement_extraction_preserves_its_retry_budget() {
         },
         time::Duration,
     };
-    if std::env::var_os("KG_EXTRACTION_QUIT_CHILD").is_none() {
-        let status = Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "quitting_during_replacement_extraction_preserves_its_retry_budget",
-                "--nocapture",
-            ])
-            .env("KG_EXTRACTION_QUIT_CHILD", "1")
-            .status()
-            .unwrap();
-        assert!(status.success());
-        return;
-    }
     struct BlockingExtractor {
         blocking: AtomicBool,
         started: mpsc::Sender<()>,
@@ -6333,13 +6319,17 @@ fn quitting_during_replacement_extraction_preserves_its_retry_budget() {
     fs::write(&path, REVISION_2).unwrap();
     let mut pending = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
     let version_id = pending.info.pending_version_id.clone().unwrap();
-    pending
+    let version = pending
         .info
         .versions_seen
         .iter_mut()
         .find(|v| v.source_version_id == version_id)
-        .unwrap()
-        .extraction_attempts = 2;
+        .unwrap();
+    if publication {
+        version.semantic_integrity_failures = 2;
+    } else {
+        version.extraction_attempts = 2;
+    }
     fs::write(
         app.page_path(&first.info.source_id).unwrap(),
         format!(
@@ -6349,9 +6339,18 @@ fn quitting_during_replacement_extraction_preserves_its_retry_budget() {
         ),
     )
     .unwrap();
+    let job = publication.then(|| {
+        app.claim_due_semantic_jobs_at(1, u128::MAX)
+            .unwrap()
+            .remove(0)
+    });
     extractor.blocking.store(true, Ordering::SeqCst);
     let worker = std::thread::spawn(move || {
-        let result = app.claim_due_semantic_jobs_at(1, u128::MAX);
+        let result = if let Some(job) = job {
+            app.finish_semantic_job(job, Ok(replacement_recording(REVISION_2, 15, false)))
+        } else {
+            app.claim_due_semantic_jobs_at(1, u128::MAX).map(|_| ())
+        };
         (app, result)
     });
     receiver.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -6363,14 +6362,45 @@ fn quitting_during_replacement_extraction_preserves_its_retry_budget() {
     let reopened = Application::open(&collection).unwrap();
     let restored = reopened.open_source(&first.info.source_id).unwrap();
     assert_eq!(restored.info.update_status.as_deref(), Some("pending"));
+    let version = restored
+        .info
+        .versions_seen
+        .iter()
+        .find(|v| v.source_version_id == version_id)
+        .unwrap();
     assert_eq!(
-        restored
-            .info
-            .versions_seen
-            .iter()
-            .find(|v| v.source_version_id == version_id)
-            .unwrap()
-            .extraction_attempts,
+        if publication {
+            version.semantic_integrity_failures
+        } else {
+            version.extraction_attempts
+        },
         2
+    );
+}
+
+fn isolated_replacement_quit(test_name: &str, publication: bool) {
+    if std::env::var_os("KG_REPLACEMENT_QUIT_CHILD").is_some() {
+        exercise_interrupted_replacement(publication);
+    } else {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", test_name, "--nocapture"])
+            .env("KG_REPLACEMENT_QUIT_CHILD", "1")
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+}
+#[test]
+fn quitting_during_replacement_extraction_preserves_its_retry_budget() {
+    isolated_replacement_quit(
+        "quitting_during_replacement_extraction_preserves_its_retry_budget",
+        false,
+    );
+}
+#[test]
+fn quitting_during_replacement_publication_preserves_integrity_budget() {
+    isolated_replacement_quit(
+        "quitting_during_replacement_publication_preserves_integrity_budget",
+        true,
     );
 }

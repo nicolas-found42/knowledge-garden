@@ -3599,6 +3599,9 @@ impl Application {
                                 }
                             }
                             Err(error) => {
+                                // A cancelled native projection is not an invalid draft.
+                                // Leave the processing lease for controlled-exit recovery.
+                                self.ensure_running()?;
                                 self.staged_publication.clear();
                                 page = prior_page;
                                 self.record_semantic_failure(
