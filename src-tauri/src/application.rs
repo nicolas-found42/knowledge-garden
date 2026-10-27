@@ -6890,20 +6890,27 @@ impl Application {
             // Bind those exact inputs so a promoted source version cannot leave
             // an old path-detail token looking current when its edge JSON is
             // unchanged (for example, an aligned Office refresh).
-            let mut support_keys = HashSet::new();
-            let mut statement = transaction.prepare(
-                "SELECT relationship_json FROM relationship_edges ORDER BY relationship_id",
-            )?;
-            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
-            for row in rows {
-                let relationship: RelationshipRecord = serde_json::from_str(&row?)?;
-                for support in relationship.supports {
-                    support_keys.insert((support.source_id, support.source_version_id));
+            transaction.execute_batch("CREATE TEMP TABLE rebuild_support_keys(source_id TEXT NOT NULL, version_id TEXT NOT NULL, PRIMARY KEY(source_id,version_id)) WITHOUT ROWID;")?;
+            {
+                let mut statement = transaction.prepare(
+                    "SELECT relationship_json FROM relationship_edges ORDER BY relationship_id",
+                )?;
+                let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+                for row in rows {
+                    let relationship: RelationshipRecord = serde_json::from_str(&row?)?;
+                    for support in relationship.supports {
+                        transaction.execute("INSERT OR IGNORE INTO rebuild_support_keys(source_id,version_id) VALUES (?1,?2)", params![support.source_id,support.source_version_id])?;
+                    }
                 }
             }
-            let mut support_keys = support_keys.into_iter().collect::<Vec<_>>();
-            support_keys.sort();
-            for (source_id, source_version_id) in support_keys {
+            let mut statement = transaction.prepare(
+                "SELECT source_id,version_id FROM rebuild_support_keys ORDER BY source_id,version_id",
+            )?;
+            let support_keys = statement.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for pair in support_keys {
+                let (source_id, source_version_id) = pair?;
                 for value in [&source_id, &source_version_id] {
                     digest.update((value.len() as u64).to_be_bytes());
                     digest.update(value.as_bytes());
@@ -6975,7 +6982,8 @@ impl Application {
             "INSERT INTO relationship_graph_meta(singleton, revision) VALUES (1, ?1) ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision",
             [graph_revision],
         )?;
-        transaction.execute_batch("DROP TABLE rebuild_page_paths;")?;
+        transaction
+            .execute_batch("DROP TABLE rebuild_page_paths; DROP TABLE rebuild_support_keys;")?;
         transaction.commit()?;
         if let Some(meaning) = self.meaning_search.as_mut() {
             match meaning.sync(&self.index) {
