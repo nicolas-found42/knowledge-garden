@@ -5568,6 +5568,49 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
         .pages
         .iter()
         .any(|page| page.page_id == event.page_id));
+
+    // A new replacement after losing the cache must still respect the owner's
+    // correction while refreshing the fact the owner did not edit.
+    let fourth_text = "Complete report, revision 4 dated May 22, 2024. This report completely replaces revision 3 of this same observation record.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 17. Duration: 13 minutes.\n";
+    fs::write(&source, fourth_text).unwrap();
+    reopened
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    let jobs = reopened.claim_due_semantic_jobs_at(10, u128::MAX).unwrap();
+    let mut saw_update = false;
+    for job in jobs {
+        let result = if job.source_id == imported.info.source_id {
+            saw_update = true;
+            Ok(replacement_recording_with_duration(
+                fourth_text,
+                17,
+                true,
+                "13 minutes",
+            ))
+        } else {
+            Err(ProviderError::unavailable(
+                "The network is unavailable.".into(),
+                knowledge_garden::semantic::ProviderAvailability::Network,
+            ))
+        };
+        reopened.finish_semantic_job(job, result).unwrap();
+    }
+    assert!(
+        saw_update,
+        "the post-rebuild replacement must be rediscovered"
+    );
+    assert_eq!(
+        reopened
+            .open_source(&unfinished.info.source_id)
+            .unwrap()
+            .info
+            .semantic_state,
+        "pending"
+    );
+    let refreshed = reopened.open_knowledge_page(&event.page_id).unwrap();
+    assert!(refreshed.markdown.contains("- **visit count:** 17 visits"));
+    assert!(refreshed.markdown.contains("- **duration:** 11 minutes"));
+    assert!(!refreshed.markdown.contains("- **duration:** 13 minutes"));
 }
 
 #[test]
