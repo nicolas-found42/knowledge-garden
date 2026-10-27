@@ -213,7 +213,19 @@ export function renderBooleanQuery(
       "Processing status",
       constraint.processing_status ?? "",
       (s) => (constraint.processing_status = s || null),
-      ["", "pending", "processing", "complete", "failed", "unavailable"],
+      [
+        "",
+        "pending",
+        "processing",
+        "complete",
+        "failed",
+        "unavailable",
+        "update_pending",
+        "update_failed",
+        "identity_ambiguous",
+        "extraction_incomplete",
+        "source_unavailable",
+      ],
     );
   }
   function editor(

@@ -2,6 +2,7 @@
 pub mod boolean;
 pub mod collection;
 pub mod comparison;
+pub mod gaps;
 mod publication;
 pub mod reconciliation;
 pub mod watched;
@@ -229,6 +230,9 @@ pub struct SourceInfo {
     pub repository: Option<RepositorySourceContext>,
     pub extraction: ExtractionState,
     pub extraction_detail: String,
+    /// Version that produced extraction detail and coverage; old records may omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extraction_version_id: Option<String>,
     #[serde(default)]
     pub extraction_coverage: Option<Vec<CoveragePart>>,
     pub line_count: usize,
@@ -1566,6 +1570,7 @@ impl Application {
                 self.index_page(&existing.info)?;
                 return self.open_source(&source_id);
             }
+            existing.info.extraction_version_id = Some(digest.clone());
             existing.info.extraction = extraction;
             existing.info.extraction_detail = extraction_detail;
             existing.info.extraction_coverage = extraction_coverage;
@@ -1781,6 +1786,7 @@ impl Application {
             repository: None,
             extraction,
             extraction_detail,
+            extraction_version_id: Some(digest.clone()),
             extraction_coverage,
             line_count,
             acquisitions: vec![acquisition.clone()],
@@ -2717,6 +2723,8 @@ impl Application {
                     )?;
                     continue;
                 }
+                page.info.extraction_version_id = Some(source_version_id.clone());
+                page.info.extraction_detail = projection.detail.clone();
                 page.info.extraction_coverage = Some(projection.coverage);
                 if !projection.partial {
                     page.info.extraction = ExtractionState::StructuredText;
@@ -5054,6 +5062,7 @@ impl Application {
         self.staged_publication
             .push((destination_original, candidate_bytes));
 
+        source.info.extraction_version_id = Some(source_version_id.into());
         source.info.original_name = candidate.original_name.clone();
         source.info.asset = candidate.asset.clone();
         source.info.sha256 = candidate.sha256.clone();
@@ -6236,7 +6245,19 @@ impl Application {
         }
         let processing_status = request.processing_status.as_deref();
         if processing_status.is_some_and(|status| {
-            !["pending", "processing", "complete", "failed", "unavailable"].contains(&status)
+            ![
+                "pending",
+                "processing",
+                "complete",
+                "failed",
+                "unavailable",
+                "update_pending",
+                "update_failed",
+                "identity_ambiguous",
+                "extraction_incomplete",
+                "source_unavailable",
+            ]
+            .contains(&status)
         }) {
             return Err(GardenError::Invalid("Unknown processing status.".into()));
         }
@@ -6960,6 +6981,11 @@ impl Application {
     fn search_documents_for_source(&self, info: &SourceInfo) -> Result<Vec<SearchDocument>> {
         let source_page = read_page(&self.page_path(&info.source_id)?)?;
         let mut knowledge = Vec::new();
+        let status = if self.original_path(&info.source_id).is_err() {
+            "source_unavailable".into()
+        } else {
+            processing_status(&source_page.info)
+        };
         for summary in &source_page.info.knowledge_pages {
             let Ok(path) = self.knowledge_path(&summary.page_id) else {
                 // A damaged or duplicate owner page stays on disk and unavailable
@@ -7003,8 +7029,9 @@ impl Application {
         let source_text = if current_version_is_superseded {
             String::new()
         } else if source_page.info.extraction == ExtractionState::TextPreserved {
-            fs::read(self.original_path(&source_page.info.source_id)?)
+            self.original_path(&source_page.info.source_id)
                 .ok()
+                .and_then(|path| fs::read(path).ok())
                 .and_then(|bytes| String::from_utf8(bytes).ok())
                 .unwrap_or_else(|| source_page.body.clone())
         } else {
@@ -7019,7 +7046,7 @@ impl Application {
             content: source_text,
             format: source_page.info.format.clone(),
             extraction: source_page.info.extraction,
-            processing_status: processing_status(&source_page.info),
+            processing_status: status.clone(),
             event_date: source_event_date,
             tags: Vec::new(),
             doc_kind: "page".into(),
@@ -7042,7 +7069,18 @@ impl Application {
                 content: body.clone(),
                 format: source_page.info.format.clone(),
                 extraction: source_page.info.extraction,
-                processing_status: processing_status(&source_page.info),
+                processing_status: if status == "source_unavailable" {
+                    status.clone()
+                } else if matches!(
+                    source_page.info.extraction,
+                    ExtractionState::TextPreserved
+                        | ExtractionState::StructuredText
+                        | ExtractionState::PartialText
+                ) {
+                    source_page.info.semantic_state.clone()
+                } else {
+                    "unavailable".into()
+                },
                 event_date: event_date.clone(),
                 tags: tags.clone(),
                 doc_kind: "page".into(),
@@ -7497,6 +7535,15 @@ fn parse_extraction(value: &str) -> Result<ExtractionState> {
 }
 
 fn processing_status(info: &SourceInfo) -> String {
+    if info.current_version_id.is_some() {
+        if let Some(status) = gaps::update_category(info) {
+            return status.into();
+        }
+    }
+    if matches!(info.extraction, ExtractionState::PartialText) && info.semantic_state == "complete"
+    {
+        return "extraction_incomplete".into();
+    }
     if !matches!(
         info.extraction,
         ExtractionState::TextPreserved

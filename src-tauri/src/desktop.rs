@@ -88,6 +88,14 @@ async fn collection_members(
 }
 
 #[tauri::command]
+async fn inspect_gaps(
+    engine: State<'_, Engine>,
+    page_id: String,
+) -> Result<crate::application::gaps::GapInspection, String> {
+    with_engine(&engine, move |app| app.inspect_gaps(&page_id)).await
+}
+
+#[tauri::command]
 async fn collection_status(
     engine: State<'_, Engine>,
 ) -> Result<crate::application::reconciliation::ReconciliationStatus, String> {
@@ -364,6 +372,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_collection_file,
             collection_status,
+            inspect_gaps,
             collection_groups,
             comparison_side,
             open_comparison_original,

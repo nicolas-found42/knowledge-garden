@@ -249,6 +249,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "comparison-original" => output(app.comparison_original_path(serde_json::from_str(
             args.get(3).ok_or("missing comparison request")?,
         )?)?),
+        "inspect-gaps" => output(app.inspect_gaps(args.get(3).ok_or("missing page identity")?)?),
         "collection-status" => output(app.collection_status()),
         "resolve-link" => output(app.resolve_page_link(
             args.get(3).ok_or("missing page identity")?,
