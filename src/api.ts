@@ -74,6 +74,7 @@ export interface SourceInfo {
   }[];
   extraction: ExtractionState;
   extraction_detail: string;
+  extraction_version_id?: string | null;
   extraction_coverage?: CoveragePart[] | null;
   line_count: number;
   acquisitions: Acquisition[];
@@ -219,7 +220,16 @@ export interface PageResult {
   event_date: string | null;
   extraction: ExtractionState;
   processing_status:
-    "pending" | "processing" | "complete" | "failed" | "unavailable";
+    | "pending"
+    | "processing"
+    | "complete"
+    | "failed"
+    | "unavailable"
+    | "update_pending"
+    | "update_failed"
+    | "identity_ambiguous"
+    | "extraction_incomplete"
+    | "source_unavailable";
   matched_by: "title" | "tag" | "keyword" | "meaning";
   match_location: SearchMatchLocation | null;
   meaning_score?: number | null;
@@ -452,9 +462,31 @@ export interface ComparisonSide {
   passage: ComparisonPassage | null;
 }
 
+export interface KnowledgeGap {
+  original_version: [string, string] | null;
+  category:
+    | "source_unavailable"
+    | "extraction_incomplete"
+    | "update_pending"
+    | "update_failed"
+    | "identity_ambiguous"
+    | "insufficient_support";
+  scope: string;
+  detail: string;
+  recovery: string;
+  source_id: string | null;
+  original_available: boolean;
+  evidence: string | null;
+}
+export interface GapInspection {
+  gaps: KnowledgeGap[];
+  truncated: boolean;
+}
 export interface GardenApi {
   comparisonSide?(request: ComparisonRequest): Promise<ComparisonSide>;
   openComparisonOriginal?(request: ComparisonRequest): Promise<void>;
+
+  inspectGaps?(pageId: string): Promise<GapInspection>;
   collectionGroups?(request: CollectionGroupRequest): Promise<CollectionGroups>;
   collectionMembers?(
     request: CollectionMemberRequest,
@@ -520,6 +552,7 @@ export const desktopApi: GardenApi = {
   comparisonSide: (request) => invoke("comparison_side", { request }),
   openComparisonOriginal: (request) =>
     invoke("open_comparison_original", { request }),
+  inspectGaps: (pageId) => invoke("inspect_gaps", { pageId }),
   collectionGroups: (request) => invoke("collection_groups", { request }),
   collectionMembers: (request) => invoke("collection_members", { request }),
   async chooseDirectory() {

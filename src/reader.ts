@@ -1,3 +1,4 @@
+import { gapInspector } from "./gaps";
 import {
   newComparisonView,
   comparisonSelection,
@@ -1079,6 +1080,8 @@ export async function mountReader(
     }
     details.append(definition);
     main.append(details);
+    if (api.inspectGaps)
+      main.append(gapInspector(api, next.info.source_id, report));
   }
 
   function showKnowledgePage(next: KnowledgePage) {
@@ -1155,6 +1158,7 @@ export async function mountReader(
       showBooleanQuery(newQuery(next.page_id));
     });
     article.prepend(query, explore, returnLink);
+    if (api.inspectGaps) main.append(gapInspector(api, next.page_id, report));
     if (next.external_edit_status === "uncertain") {
       const editNotice = element(
         "p",
@@ -1369,6 +1373,15 @@ export async function mountReader(
             ? " · traversed against the stored arrow"
             : "";
         const qualifier = step.qualifier ? ` (${step.qualifier})` : "";
+        if (step.qualifier || step.evidence_qualifier) {
+          item.className = "qualified-relationship";
+          item.append(
+            element(
+              "strong",
+              "Qualified relationship — inspect its support and uncertainty.",
+            ),
+          );
+        }
         item.append(
           element(
             "p",

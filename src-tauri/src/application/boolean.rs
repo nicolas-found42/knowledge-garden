@@ -100,7 +100,19 @@ impl QueryConstraint {
             ));
         }
         if self.processing_status.as_deref().is_some_and(|s| {
-            !["pending", "processing", "complete", "failed", "unavailable"].contains(&s)
+            ![
+                "pending",
+                "processing",
+                "complete",
+                "failed",
+                "unavailable",
+                "update_pending",
+                "update_failed",
+                "identity_ambiguous",
+                "extraction_incomplete",
+                "source_unavailable",
+            ]
+            .contains(&s)
         }) {
             return Err(GardenError::Invalid("Unknown processing status.".into()));
         }

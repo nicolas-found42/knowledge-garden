@@ -423,3 +423,17 @@ mark {
     grid-template-columns: 1fr;
   }
 }
+
+.gap-inspector {
+  margin-block: 1.5rem;
+  border-top: 1px solid #bbb;
+  padding-top: 0.75rem;
+}
+.gap-inspector section {
+  border-left: 3px solid #aa7938;
+  padding-left: 1rem;
+}
+.qualified-relationship {
+  border-left: 3px dashed #aa7938;
+  padding-left: 1rem;
+}
