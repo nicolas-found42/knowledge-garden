@@ -4263,13 +4263,11 @@ it("keeps the latest requested video frame when an earlier decode finishes late"
     .mockImplementation((_source, _version, _asset, at) =>
       at === 0 ? first : Promise.resolve(preview(at)),
     );
-  api.importSource = vi
-    .fn()
-    .mockResolvedValue({
-      ...riverside,
-      info: { ...riverside.info, source_id: source, format: "mp4" },
-      body: `# Video\n\n[First frame](?video_frame=${source}&at_ms=0&version=${version}&asset=original.mp4)\n\n[Second frame](?video_frame=${source}&at_ms=6000&version=${version}&asset=original.mp4)`,
-    });
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: { ...riverside.info, source_id: source, format: "mp4" },
+    body: `# Video\n\n[First frame](?video_frame=${source}&at_ms=0&version=${version}&asset=original.mp4)\n\n[Second frame](?video_frame=${source}&at_ms=6000&version=${version}&asset=original.mp4)`,
+  });
   const root = document.createElement("div");
   document.body.append(root);
   dispose = await mountReader(root, api);
