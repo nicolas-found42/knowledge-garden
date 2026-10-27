@@ -6021,8 +6021,12 @@ impl Application {
                 page.info.semantic_state = "pending".into();
             }
             page.info.semantic_error = Some(error.message.chars().take(300).collect());
-            page.info.semantic_retry_at =
-                Some((now_millis().unwrap_or(0) + u128::from(delay_seconds * 1000)).to_string());
+            page.info.semantic_retry_at = Some(
+                (now_millis().unwrap_or(0).saturating_add(u128::from(
+                    (delay_seconds * 1000).max(error.retry_after_ms.unwrap_or(0)),
+                )))
+                .to_string(),
+            );
             page.markdown = serialize_page(&page.info, &page.body)?;
             return Ok(());
         }

@@ -74,31 +74,7 @@ impl SystemOneTransport for OpenRouterSystemOneTransport {
             .json(request)
             .send();
         let response = match response {
-            Ok(response) if response.status().is_success() => response,
-            Ok(response) => {
-                let status = response.status();
-                if status.as_u16() == 429 {
-                    return Err(ProviderError::unavailable(
-                        "Jev provider quota is temporarily unavailable; semantic work will retry automatically.".into(),
-                        crate::semantic::ProviderAvailability::Quota,
-                    ));
-                }
-                let retryable = status.as_u16() == 401
-                    || status.as_u16() == 403
-                    || status.as_u16() == 408
-                    || status.as_u16() == 429
-                    || status.as_u16() >= 500;
-                let resolution = if retryable {
-                    "semantic work will retry automatically"
-                } else {
-                    "semantic processing failed and provider configuration or implementation needs attention"
-                };
-                return Err(ProviderError {
-                    message: format!("Jev provider returned HTTP {status}; {resolution}."),
-                    retryable,
-                    availability: None,
-                });
-            }
+            Ok(response) => response,
             Err(error) if error.is_connect() || error.is_timeout() => {
                 return Err(ProviderError::unavailable(
                     "Jev could not be reached; semantic work will retry automatically.".into(),
@@ -111,12 +87,64 @@ impl SystemOneTransport for OpenRouterSystemOneTransport {
                 ))
             }
         };
-        response.json::<Value>().map_err(|_| {
+        let status = response.status();
+        let retry_after_ms = response
+            .headers()
+            .get("retry-after")
+            .and_then(|value| value.to_str().ok())
+            .and_then(retry_after_millis);
+        if !status.is_success() {
+            return Err(provider_http_error(status.as_u16(), retry_after_ms));
+        }
+        let body = response.json::<Value>().map_err(|_| {
             ProviderError::recoverable(
                 "Jev returned a malformed response; semantic work will retry automatically.".into(),
             )
-        })
+        })?;
+        // A provider can fail after the HTTP response has already started.
+        // Such envelopes are availability errors, never candidate knowledge.
+        if let Some(error) = body.get("error").filter(|error| !error.is_null()) {
+            let code = error
+                .get("code")
+                .and_then(Value::as_u64)
+                .and_then(|code| u16::try_from(code).ok())
+                .unwrap_or(500);
+            return Err(provider_http_error(code, retry_after_ms));
+        }
+        Ok(body)
     }
+}
+
+fn retry_after_millis(value: &str) -> Option<u64> {
+    let seconds = value.trim().parse::<u64>().ok().or_else(|| {
+        let date = chrono::DateTime::parse_from_rfc2822(value).ok()?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_secs();
+        u64::try_from(date.timestamp())
+            .ok()
+            .map(|when| when.saturating_sub(now))
+    })?;
+    Some(seconds.saturating_mul(1000))
+}
+fn provider_http_error(code: u16, retry_after_ms: Option<u64>) -> ProviderError {
+    use crate::semantic::ProviderAvailability;
+    let cause = match code {
+        401 => Some(ProviderAvailability::Authentication),
+        402 | 429 => Some(ProviderAvailability::Quota),
+        403 => Some(ProviderAvailability::CapabilityUnavailable),
+        404 | 502 | 503 => Some(ProviderAvailability::ModelUnavailable),
+        408 => Some(ProviderAvailability::Network),
+        _ => None,
+    };
+    let mut error = if let Some(cause) = cause {
+        ProviderError::unavailable(format!("Jev service access is unavailable (HTTP {code}); pending work will retry automatically with the selected model."), cause)
+    } else {
+        ProviderError { message: format!("Jev provider returned HTTP {code}; provider configuration or implementation may need attention."), retryable: code >= 500, availability: None, retry_after_ms: None }
+    };
+    error.retry_after_ms = retry_after_ms;
+    error
 }
 
 impl JevSemanticProvider {
@@ -284,7 +312,7 @@ impl JevSemanticProvider {
             Some(key) => key.to_owned(),
             None => {
                 let Some(account) = self.keychain_account.as_deref() else {
-                    return Err(ProviderError::recoverable(
+                    return Err(authentication_unavailable(
                         "Jev is waiting for an OpenRouter key in the development environment."
                             .into(),
                     ));
@@ -2836,6 +2864,13 @@ fn regex(pattern: &str) -> &'static Regex {
     compiled
 }
 
+fn authentication_unavailable(message: String) -> ProviderError {
+    ProviderError::unavailable(
+        message,
+        crate::semantic::ProviderAvailability::Authentication,
+    )
+}
+
 fn keychain_credential(account: &str) -> std::result::Result<String, ProviderError> {
     let mut child = Command::new("/usr/bin/security")
         .args([
@@ -2849,7 +2884,7 @@ fn keychain_credential(account: &str) -> std::result::Result<String, ProviderErr
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .map_err(|_| ProviderError::recoverable(
+        .map_err(|_| authentication_unavailable(
             "Jev is waiting for macOS Keychain authorization; semantic work will retry automatically.".into(),
         ))?;
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -2862,32 +2897,32 @@ fn keychain_credential(account: &str) -> std::result::Result<String, ProviderErr
             Ok(None) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(ProviderError::recoverable(
+                return Err(authentication_unavailable(
                     "Jev is waiting for macOS Keychain authorization; semantic work will retry automatically.".into(),
                 ));
             }
             Err(_) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(ProviderError::recoverable(
+                return Err(authentication_unavailable(
                     "Jev could not read the Knowledge Garden key from macOS Keychain; semantic work will retry automatically.".into(),
                 ));
             }
         }
     }
-    let output = child.wait_with_output().map_err(|_| ProviderError::recoverable(
+    let output = child.wait_with_output().map_err(|_| authentication_unavailable(
         "Jev could not read the Knowledge Garden key from macOS Keychain; semantic work will retry automatically.".into(),
     ))?;
     if !output.status.success() {
-        return Err(ProviderError::recoverable(
+        return Err(authentication_unavailable(
             "Jev is waiting for macOS Keychain authorization; semantic work will retry automatically.".into(),
         ));
     }
-    let value = String::from_utf8(output.stdout).map_err(|_| ProviderError::recoverable(
+    let value = String::from_utf8(output.stdout).map_err(|_| authentication_unavailable(
         "The Knowledge Garden Keychain value is not valid text; semantic work will retry automatically.".into(),
     ))?.trim().to_owned();
     if value.is_empty() {
-        return Err(ProviderError::recoverable(
+        return Err(authentication_unavailable(
             "Jev is waiting for an OpenRouter key in the Knowledge Garden Keychain; semantic work will retry automatically.".into(),
         ));
     }

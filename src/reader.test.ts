@@ -499,6 +499,34 @@ it("loads a photo preview only on request and keeps its region guidance beside t
   expect(screen.getByText(/whole-image fallback/)).toBeTruthy();
 });
 
+it("describes first offline processing without claiming a published successful version", async () => {
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: {
+      ...riverside.info,
+      semantic_state: "pending",
+      current_version_id: undefined,
+      update_status: "pending",
+      provider_availability: "network",
+      semantic_retry_at: "9999999999999",
+    },
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Add source" }));
+  expect(
+    await screen.findByText(
+      "Processing pending · Available local extraction is shown; knowledge processing has not finished.",
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByText(/Showing the last successful version/)).toBeNull();
+  expect(screen.getByRole("article").textContent).toContain("Observation V17");
+});
+
 it("keeps prior content readable and shows an incomplete update prominently", async () => {
   const api = testApi();
   api.importSource = vi.fn().mockResolvedValue({

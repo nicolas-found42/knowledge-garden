@@ -1448,15 +1448,21 @@ export async function mountReader(
       article.prepend(previewButton);
     }
     if (next.info.update_status) {
+      const published =
+        Boolean(next.info.current_version_id) ||
+        next.info.semantic_state === "complete";
       const failed = ["failed", "incomplete"].includes(next.info.update_status);
-      const label = failed
-        ? "Update failed"
+      const state = failed
+        ? "failed"
         : next.info.update_status === "uncertain"
-          ? "Update uncertain"
-          : "Update pending";
+          ? "uncertain"
+          : "pending";
+      const label = `${published ? "Update" : "Processing"} ${state}`;
       const notice = element(
         "p",
-        `${label} · Showing the last successful version.`,
+        published
+          ? `${label} · Showing the last successful version.`
+          : `${label} · Available local extraction is shown; knowledge processing has not finished.`,
       );
       notice.className = "update-status";
       article.prepend(notice);
