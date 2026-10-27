@@ -104,7 +104,7 @@ export async function mountReader(
     element("h1", "A place for what you know"),
     element(
       "p",
-      "Choose a text, Markdown, Word, PowerPoint, or photo file, or drop one anywhere in this window. Your original stays intact.",
+      "Choose a document, recording, photo, or saved video file, or drop one anywhere in this window. Your original stays intact.",
     ),
   );
   main.append(empty);
@@ -467,11 +467,15 @@ export async function mountReader(
         FORBID_ATTR: ["style", "id", "name"],
       },
     );
+    let frameRequest = 0;
     article.addEventListener("click", (event) => {
       const link = (event.target as Element).closest("a");
       if (!link) return;
       event.preventDefault();
       const href = link.getAttribute("href") ?? "";
+      const videoFrameMatch = href.match(
+        /^\?video_frame=(source-[a-f0-9]{64})&at_ms=(\d+)&version=([a-f0-9]{64})&asset=(original(?:\.[a-zA-Z0-9]+)?)$/,
+      );
       const audioSeekMatch = href.match(
         /^\?audio_seek=(source-[a-f0-9]{64})&at_ms=(\d+)(?:&version=([a-f0-9]{64})&asset=(original(?:\.[a-zA-Z0-9]+)?))?$/,
       );
@@ -487,7 +491,57 @@ export async function mountReader(
       const originalMatch = href.match(
         /^(?:\.\.\/)*sources\/([a-f0-9]{64})\/(original(?:\.[a-zA-Z0-9]+)?)$/,
       );
-      if (audioSeekMatch) {
+      if (videoFrameMatch) {
+        const atMs = Number(videoFrameMatch[2]);
+        if (!Number.isSafeInteger(atMs)) {
+          message(
+            "This frame timestamp is unavailable. Open the retained original instead.",
+          );
+          return;
+        }
+        if (!api.previewVideoFrame) {
+          message(
+            `Frame preview is unavailable. Open the retained original and seek manually to ${atMs} ms.`,
+          );
+          return;
+        }
+        const request = ++frameRequest;
+        void api
+          .previewVideoFrame(
+            videoFrameMatch[1],
+            videoFrameMatch[3],
+            videoFrameMatch[4],
+            atMs,
+          )
+          .then((preview) => {
+            if (disposed || !article.isConnected || request !== frameRequest)
+              return;
+            if (!preview.data_url.startsWith("data:image/jpeg;base64,"))
+              throw new Error("The video preview is unavailable.");
+            const figure = element("figure");
+            figure.dataset.videoPreview = "true";
+            const image = element("img");
+            image.src = preview.data_url;
+            image.alt = `Retained video frame at ${preview.frame.actual_ms} ms`;
+            image.style.maxWidth = "100%";
+            image.style.maxHeight = "640px";
+            const caption = element(
+              "figcaption",
+              `Requested ${atMs} ms; decoded ${preview.frame.actual_ms} ms. This bounded preview shows one moment. OCR regions use a bottom-left origin; speech, captions, and classifier predictions retain their separate qualifications.`,
+            );
+            caption.tabIndex = -1;
+            figure.append(image, caption);
+            article.querySelector("[data-video-preview]")?.remove();
+            link.after(figure);
+            caption.focus();
+          })
+          .catch((error) => {
+            if (!disposed && article.isConnected && request === frameRequest)
+              message(
+                `Frame preview unavailable: ${String(error)}. Open the retained original and seek manually to ${atMs} ms.`,
+              );
+          });
+      } else if (audioSeekMatch) {
         const timestampMs = Number(audioSeekMatch[2]);
         if (!Number.isSafeInteger(timestampMs)) {
           message(
@@ -505,7 +559,7 @@ export async function mountReader(
         void opening
           .then(() => {
             message(
-              `Opened the retained recording. Seek to ${Math.floor(timestampMs / 60000)}:${String(Math.floor(timestampMs / 1000) % 60).padStart(2, "0")} in your audio player; precise seeking is unavailable in this reader.`,
+              `Opened the retained recording. Seek to ${Math.floor(timestampMs / 60000)}:${String(Math.floor(timestampMs / 1000) % 60).padStart(2, "0")} in your ${/\.(mp4|mov|m4v)$/i.test(audioSeekMatch[4] ?? originalAsset) ? "media" : "audio"} player; precise seeking is unavailable in this reader.`,
             );
           })
           .catch(report);

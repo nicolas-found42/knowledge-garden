@@ -194,6 +194,20 @@ async fn preview_original(engine: State<'_, Engine>, source_id: String) -> Resul
 }
 
 #[tauri::command]
+async fn preview_video_frame(
+    engine: State<'_, Engine>,
+    source_id: String,
+    source_version_id: String,
+    asset: String,
+    at_ms: u64,
+) -> Result<crate::media::VideoPreview, String> {
+    with_engine(&engine, move |app| {
+        app.preview_video_frame(&source_id, &source_version_id, &asset, at_ms)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn open_original_version(
     engine: State<'_, Engine>,
     source_id: String,
@@ -225,7 +239,9 @@ fn open_retained_original(original: &Path) -> crate::application::Result<()> {
     if original
         .extension()
         .and_then(|value| value.to_str())
-        .is_some_and(|format| crate::application::is_audio_format(&format.to_ascii_lowercase()))
+        .is_some_and(|format| {
+            crate::application::is_timed_media_format(&format.to_ascii_lowercase())
+        })
     {
         // Open recordings directly, without importing them into a Music library
         // or depending on its onboarding and cloud-library configuration.
@@ -332,6 +348,7 @@ pub fn run() {
             explore_path_details,
             open_original,
             preview_original,
+            preview_video_frame,
             open_original_version,
             open_original_asset
         ])

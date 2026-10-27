@@ -21,6 +21,7 @@ export type CoverageScope =
   | "speaker_notes"
   | "embedded_object"
   | "conversation_messages"
+  | "video_frames"
   | "audio_recording"
   | "image_pixels"
   | "image_metadata"
@@ -123,6 +124,16 @@ export interface AudioProcessingInfo {
   }[];
 }
 
+export interface VideoPreview {
+  data_url: string;
+  frame: {
+    requested_ms: number;
+    actual_ms: number;
+    width: number;
+    height: number;
+  };
+}
+
 export interface SourceSummary {
   source_id: string;
   page_id: string;
@@ -189,6 +200,7 @@ export interface SearchMatchLocation {
     | "extracted_office_projection"
     | "extracted_conversation_projection"
     | "web_visible_text"
+    | "extracted_video_projection"
     | "audio_transcript"
     | "extracted_image_projection"
     | "extracted_pdf_projection";
@@ -397,6 +409,12 @@ export interface GardenApi {
   openKnowledgePage(pageId: string): Promise<KnowledgePage>;
   openOriginal(sourceId: string): Promise<void>;
   previewOriginal?(sourceId: string): Promise<string>;
+  previewVideoFrame?(
+    sourceId: string,
+    sourceVersionId: string,
+    asset: string,
+    atMs: number,
+  ): Promise<VideoPreview>;
   openOriginalVersion(
     sourceId: string,
     sourceVersionId: string,
@@ -471,6 +489,8 @@ export const desktopApi: GardenApi = {
   openKnowledgePage: (pageId) => invoke("open_knowledge_page", { pageId }),
   openOriginal: (sourceId) => invoke("open_original", { sourceId }),
   previewOriginal: (sourceId) => invoke("preview_original", { sourceId }),
+  previewVideoFrame: (sourceId, sourceVersionId, asset, atMs) =>
+    invoke("preview_video_frame", { sourceId, sourceVersionId, asset, atMs }),
   openOriginalVersion: (sourceId, sourceVersionId, asset) =>
     invoke("open_original_version", { sourceId, sourceVersionId, asset }),
   openOriginalAsset: (sourceId, asset) =>

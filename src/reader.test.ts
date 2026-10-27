@@ -7,6 +7,7 @@ import type {
   PageSearchRequest,
   PageSearchResults,
   SourcePage,
+  VideoPreview,
 } from "./api";
 
 const riverside: SourcePage = {
@@ -4204,4 +4205,81 @@ it("opens a PDF search span in source context with a disclosed original-location
   await waitFor(() =>
     expect(api.openOriginal).toHaveBeenCalledWith(source.info.source_id),
   );
+});
+
+it("loads a version-specific video frame on keyboard request and discloses decoded time", async () => {
+  const api = testApi();
+  const source = `source-${"b".repeat(64)}`;
+  const version = "c".repeat(64);
+  const previewVideoFrame = vi.fn().mockResolvedValue({
+    data_url: "data:image/jpeg;base64,/9j/",
+    frame: { requested_ms: 6000, actual_ms: 6100, width: 320, height: 240 },
+  });
+  api.previewVideoFrame = previewVideoFrame;
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: { ...riverside.info, source_id: source, format: "mp4" },
+    body: `# Video\n\n[Frame at 6000 ms](?video_frame=${source}&at_ms=6000&version=${version}&asset=original.mp4)`,
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  expect(previewVideoFrame).not.toHaveBeenCalled();
+  const link = screen.getByRole("link", { name: "Frame at 6000 ms" });
+  link.focus();
+  await user.keyboard("{Enter}");
+  expect(previewVideoFrame).toHaveBeenCalledWith(
+    source,
+    version,
+    "original.mp4",
+    6000,
+  );
+  expect(
+    await screen.findByRole("img", { name: "Retained video frame at 6100 ms" }),
+  ).toBeTruthy();
+  expect(screen.getByText(/Requested 6000 ms; decoded 6100 ms/)).toBe(
+    document.activeElement,
+  );
+  await user.click(link);
+  expect(screen.getAllByRole("img")).toHaveLength(1);
+});
+
+it("keeps the latest requested video frame when an earlier decode finishes late", async () => {
+  const api = testApi();
+  const source = `source-${"b".repeat(64)}`;
+  const version = "c".repeat(64);
+  let completeFirst!: (value: VideoPreview) => void;
+  const first = new Promise<VideoPreview>((resolve) => {
+    completeFirst = resolve;
+  });
+  const preview = (at: number): VideoPreview => ({
+    data_url: "data:image/jpeg;base64,/9j/",
+    frame: { requested_ms: at, actual_ms: at, width: 320, height: 240 },
+  });
+  api.previewVideoFrame = vi
+    .fn()
+    .mockImplementation((_source, _version, _asset, at) =>
+      at === 0 ? first : Promise.resolve(preview(at)),
+    );
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: { ...riverside.info, source_id: source, format: "mp4" },
+    body: `# Video\n\n[First frame](?video_frame=${source}&at_ms=0&version=${version}&asset=original.mp4)\n\n[Second frame](?video_frame=${source}&at_ms=6000&version=${version}&asset=original.mp4)`,
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(screen.getByRole("link", { name: "First frame" }));
+  await user.click(screen.getByRole("link", { name: "Second frame" }));
+  await screen.findByRole("img", { name: "Retained video frame at 6000 ms" });
+  completeFirst(preview(0));
+  await first;
+  expect(
+    screen.queryByRole("img", { name: "Retained video frame at 0 ms" }),
+  ).toBeNull();
+  expect(screen.getAllByRole("img")).toHaveLength(1);
 });

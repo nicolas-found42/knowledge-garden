@@ -320,6 +320,9 @@ impl SemanticProvider for JevSemanticProvider {
             candidates.extend(repository_question_candidates(source_text));
             candidates
         };
+        // Frame OCR/classifier text belongs to its visual channel. It is not an
+        // ordinary report that can directly assert people, events or corrections.
+        candidates.retain(|candidate| video_frame_time_at(source_text, candidate.start).is_none());
         let correction_candidates = correction_candidates(source_text, &candidates);
         let office_candidates = office_statement_candidates(source_text);
         let office_mode = !office_candidates.is_empty() || source_text.contains("; channel=");
@@ -751,7 +754,7 @@ impl SemanticProvider for JevSemanticProvider {
             correction_alignments,
             ..KnowledgeDraft::default()
         };
-        if audio_mode && event.is_none() {
+        if audio_mode && event.is_none() && !audio_transcript_spans(source_text).is_empty() {
             let span = audio_transcript_spans(source_text)
                 .into_iter()
                 .next()
@@ -984,7 +987,9 @@ impl SemanticProvider for JevSemanticProvider {
                 )
             }) {
                 let channel = office_channel_at(source_text, first.start).unwrap_or_default();
-                let document_label = if photo_mode {
+                let document_label = if video_frame_time_at(source_text, first.start).is_some() {
+                    "Recorded video"
+                } else if photo_mode {
                     "Imported photo"
                 } else if matches!(
                     channel.as_str(),
@@ -999,6 +1004,8 @@ impl SemanticProvider for JevSemanticProvider {
                     .or_insert_with(|| EntityDraft {
                         kind: if document_label == "Imported presentation" {
                             "presentation"
+                        } else if document_label == "Recorded video" {
+                            "video_recording"
                         } else {
                             "document"
                         }
@@ -1118,7 +1125,10 @@ impl SemanticProvider for JevSemanticProvider {
             )
         }) {
             let channel = office_channel_at(source_text, candidate.start).unwrap_or_default();
-            let subject = if photo_mode {
+            let video_frame = video_frame_time_at(source_text, candidate.start);
+            let subject = if video_frame.is_some() {
+                "Recorded video"
+            } else if photo_mode {
                 "Imported photo"
             } else if matches!(
                 channel.as_str(),
@@ -1129,6 +1139,8 @@ impl SemanticProvider for JevSemanticProvider {
                 "Imported document"
             };
             let property = match channel.as_str() {
+                "ocr" if video_frame.is_some() => "video_frame_text",
+                "generated_interpretation" if video_frame.is_some() => "video_frame_interpretation",
                 "observed_pixels" => "image_pixels",
                 "file_metadata" => "image_metadata",
                 "supplied_caption" => "image_caption",
@@ -1147,7 +1159,12 @@ impl SemanticProvider for JevSemanticProvider {
                 property: property.into(),
                 value: candidate.value.clone(),
                 evidence: candidate.evidence(),
-                record_key: if photo_mode {
+                record_key: if let Some(time_ms) = video_frame {
+                    Some(format!(
+                        "video:{channel}:{time_ms}:{}",
+                        office_key_slug(&candidate.value)
+                    ))
+                } else if photo_mode {
                     Some(photo_record_key(source_text, candidate.start, &channel))
                 } else {
                     office_record_key(
@@ -1684,6 +1701,22 @@ fn validated_noul(
 }
 
 fn source_spans(text: &str) -> Vec<SourceSpan> {
+    if text.starts_with("Machine-generated transcript from retained audio.")
+        && text.contains("[VIDEO FRAME ")
+    {
+        let mut spans = audio_transcript_spans(text);
+        spans.extend(
+            office_statement_candidates(text)
+                .into_iter()
+                .map(|candidate| SourceSpan {
+                    quote: candidate.quote,
+                    start: candidate.start,
+                    end: candidate.end,
+                }),
+        );
+        spans.sort_by_key(|span| span.start);
+        return spans;
+    }
     if text.starts_with("[PDF ") {
         return office_statement_candidates(text)
             .into_iter()
@@ -1738,6 +1771,7 @@ fn report_date_candidates(text: &str) -> Vec<ReportDateCandidate> {
     );
     date_re
         .find_iter(text)
+        .filter(|matched| video_frame_time_at(text, matched.start()).is_none())
         .map(|matched| ReportDateCandidate {
             iso: normalize_source_date(matched.as_str()),
             evidence: EvidenceDraft {
@@ -1762,6 +1796,9 @@ fn report_revision_candidates(text: &str) -> Vec<ReportRevisionCandidate> {
         .captures_iter(text)
         .filter_map(|captures| {
             let full = captures.get(0)?;
+            if video_frame_time_at(text, full.start()).is_some() {
+                return None;
+            }
             if text.starts_with("[PDF ") {
                 let line_start = text[..full.start()]
                     .rfind('\n')
@@ -1887,12 +1924,16 @@ fn office_statement_candidates(text: &str) -> Vec<Candidate> {
                         _ => "document_body",
                     };
                     result.push(Candidate {
-                        kind: if line.starts_with("[PHOTO ") { CandidateKind::PhotoStatement } else { CandidateKind::OfficeStatement },
+                        kind: if line.starts_with("[PHOTO ") || line.starts_with("[VIDEO FRAME ") { CandidateKind::PhotoStatement } else { CandidateKind::OfficeStatement },
                         value: quote.to_owned(),
                         quote: quote.to_owned(),
                         start,
                         end,
-                        qualifier: if line.starts_with("[PHOTO ") { Some(match channel {
+                        qualifier: if line.starts_with("[VIDEO FRAME ") { Some(match channel {
+                            "ocr" => "OCR transcription of a sampled video frame; confidence and region retained; not a verified event, identity or authenticated capture time",
+                            "generated_interpretation" => "uncertain classifier interpretation of a sampled video frame; not a verified observation",
+                            _ => "decoded frame dimensions; named identities unknown",
+                        }.into()) } else if line.starts_with("[PHOTO ") { Some(match channel {
                             "file_metadata" => "unauthenticated file metadata; capture date unknown",
                             "supplied_caption" => "unverified supplied caption; not observed pixels or authenticated capture date",
                             "ocr" => "OCR transcription; confidence and region retained; not a verified event or identity",
@@ -1916,9 +1957,21 @@ fn office_line_channel(line: &str) -> Option<(&str, usize)> {
         .strip_prefix("PPTX ")
         .or_else(|| marker.strip_prefix("DOCX "))
         .or_else(|| marker.strip_prefix("PHOTO "))
+        .or_else(|| marker.strip_prefix("VIDEO FRAME "))
         .or_else(|| marker.strip_prefix("PDF "))?;
     let (_, channel) = channel.rsplit_once("; channel=")?;
     Some((channel, closing + 2))
+}
+
+/// Presentation time of the sampled frame whose evidence line contains `offset`.
+fn video_frame_time_at(text: &str, offset: usize) -> Option<u64> {
+    let start = text[..offset].rfind('\n').map_or(0, |index| index + 1);
+    text[start..]
+        .strip_prefix("[VIDEO FRAME ")?
+        .split_once(" ms")?
+        .0
+        .parse()
+        .ok()
 }
 
 fn office_channel_at(text: &str, offset: usize) -> Option<String> {
