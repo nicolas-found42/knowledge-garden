@@ -73,6 +73,47 @@ async fn comparison_side(
 }
 
 #[tauri::command]
+async fn resolve_trail(
+    engine: State<'_, Engine>,
+    stops: Vec<crate::application::trails::TrailStop>,
+) -> Result<Vec<crate::application::trails::ResolvedStop>, String> {
+    with_engine(&engine, move |app| app.resolve_trail(stops)).await
+}
+#[tauri::command]
+async fn trail_source_choices(
+    engine: State<'_, Engine>,
+    source_id: String,
+    offset: usize,
+) -> Result<crate::application::trails::TrailChoices, String> {
+    with_engine(&engine, move |app| {
+        app.trail_source_choices(&source_id, offset)
+    })
+    .await
+}
+#[tauri::command]
+async fn trail_selected_passage(
+    engine: State<'_, Engine>,
+    source_id: String,
+    quote: String,
+) -> Result<crate::application::trails::TrailStop, String> {
+    with_engine(&engine, move |app| {
+        app.trail_selected_passage(&source_id, &quote)
+    })
+    .await
+}
+#[tauri::command]
+async fn suggest_trail_stops(
+    engine: State<'_, Engine>,
+    goal: String,
+) -> Result<crate::application::trails::TrailSuggestions, String> {
+    let job = with_engine(&engine, move |app| app.prepare_trail_suggestions(&goal)).await?;
+    // Remote judgment runs outside the collection mutex; existing reading remains usable.
+    let evaluated = tauri::async_runtime::spawn_blocking(move || job.evaluate())
+        .await
+        .map_err(|e| e.to_string())?;
+    with_engine(&engine, move |app| app.finish_trail_suggestions(evaluated)).await
+}
+#[tauri::command]
 async fn list_saved_views(
     engine: State<'_, Engine>,
     query: String,
@@ -418,6 +459,10 @@ pub fn run() {
             inspect_gaps,
             timeline,
             collection_groups,
+            resolve_trail,
+            trail_source_choices,
+            trail_selected_passage,
+            suggest_trail_stops,
             list_saved_views,
             create_saved_view,
             open_saved_view,

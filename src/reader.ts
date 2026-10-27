@@ -1,3 +1,4 @@
+import { trailPanel } from "./trails";
 import { savedViewsPanel } from "./saved-views";
 import { gapInspector } from "./gaps";
 import {
@@ -15,6 +16,8 @@ import { newQuery, renderBooleanQuery, type QueryView } from "./boolean-query";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import type {
+  TrailStop,
+  ResolvedTrailStop,
   SavedViewDefinition,
   ViewTarget,
   AcquisitionMethod,
@@ -79,6 +82,15 @@ export async function mountReader(
     !api.removeSavedView;
   const savedHost = element("aside");
   savedHost.hidden = true;
+  const trailButton = element("button", "Trails");
+  trailButton.dataset.focusId = "toolbar-trails";
+  trailButton.hidden =
+    !api.resolveTrail ||
+    !api.trailSourceChoices ||
+    !api.trailSelectedPassage ||
+    !api.suggestTrailStops;
+  const trailHost = element("aside");
+  trailHost.hidden = true;
   const sourcesButton = element("button", "Sources");
   sourcesButton.setAttribute("aria-expanded", "false");
   const addButton = element("button", "Add source");
@@ -94,6 +106,7 @@ export async function mountReader(
     searchButton,
     timelineButton,
     savedButton,
+    trailButton,
     sourcesButton,
     addButton,
     addRepositoryButton,
@@ -142,6 +155,9 @@ export async function mountReader(
   const collectionDiagnostics = element("details");
   collectionDiagnostics.hidden = true;
   collectionDiagnostics.setAttribute("aria-label", "External file diagnostics");
+  const readingWorkspace = element("div");
+  readingWorkspace.className = "reading-workspace";
+  readingWorkspace.append(trailHost, main);
   root.replaceChildren(
     toolbar,
     notice,
@@ -150,7 +166,7 @@ export async function mountReader(
     collectionDiagnostics,
     urlForm,
     sources,
-    main,
+    readingWorkspace,
   );
   let page: SourcePage | null = null;
   let currentKnowledgePageId: string | null = null;
@@ -158,6 +174,7 @@ export async function mountReader(
   let currentSourceId: string | null = null;
   let currentView:
     | "empty"
+    | "trail"
     | "collection"
     | "comparison"
     | "source"
@@ -213,6 +230,165 @@ export async function mountReader(
     report,
   );
   savedButton.addEventListener("click", () => savedPanel.toggle());
+  let trailNavigationIntent: number | null = null;
+  let trailOrigin: NavigationState | null = null;
+  let trailOriginDepth = 0;
+  const trailController = trailPanel(trailHost, api, {
+    current: currentTrailStop,
+    source: () => (currentView === "source" ? currentSourceId : null),
+    selection: () => window.getSelection()?.toString() ?? "",
+    begin: () => (trailNavigationIntent = ++searchGeneration),
+    cancel: () => {
+      if (searchGeneration === trailNavigationIntent) ++searchGeneration;
+      trailNavigationIntent = null;
+    },
+    active: (intent) => !disposed && intent === searchGeneration,
+    origin: () => {
+      const depth = navigationHistory.length;
+      pushCurrentState();
+      trailOrigin =
+        navigationHistory.length > depth ? navigationHistory.pop()! : null;
+      trailOriginDepth = depth;
+      syncBackButton();
+    },
+    returnOrigin: async () => {
+      if (!trailOrigin) return;
+      ++searchGeneration;
+      navigationHistory.splice(trailOriginDepth);
+      await restoreNavigation(trailOrigin);
+      syncBackButton();
+    },
+    follow: followTrailStop,
+    save: async (name, stops) => {
+      await api.createSavedView!(name, {
+        active: "trail",
+        trail: stops,
+        search: null,
+        query: null,
+        collection: null,
+        timeline: null,
+        paths: null,
+        comparison: [],
+        target: null,
+      });
+    },
+    error: report,
+  });
+  trailButton.addEventListener("click", () => trailController.toggle());
+  function currentTrailStop(): TrailStop | null {
+    let target: ViewTarget;
+    if (currentView === "source" && currentSourceId)
+      target = {
+        source_id: currentSourceId,
+        page_id: null,
+        title: page?.info.title,
+      };
+    else if (currentView === "knowledge" && currentKnowledgePageId)
+      target = {
+        source_id: null,
+        page_id: currentKnowledgePageId,
+        title:
+          main.querySelector("article")?.getAttribute("aria-label") ??
+          undefined,
+      };
+    else return null;
+    return {
+      stop_id: crypto.randomUUID(),
+      label: target.title ?? "Existing page",
+      target,
+      context: null,
+    };
+  }
+  function showTrailOverview() {
+    ++searchGeneration;
+    currentView = "trail";
+    currentSourceId = null;
+    currentKnowledgePageId = null;
+    page = null;
+    const panel = element("section");
+    panel.setAttribute("aria-label", "Saved trail overview");
+    panel.append(
+      element("h1", "Saved trail"),
+      element(
+        "p",
+        "Choose a route stop in Trail. Each target and location is checked against current material when followed; unavailable stops retain their order.",
+      ),
+    );
+    main.replaceChildren(panel);
+    trailController.show();
+    syncBackButton();
+  }
+  async function followTrailStop(
+    resolved: ResolvedTrailStop,
+    intent: number,
+  ): Promise<boolean> {
+    if (disposed || intent !== searchGeneration) return false;
+    pushCurrentState();
+    const target = resolved.stop.target;
+    if (target.source_id) {
+      const next = await api.openSource(target.source_id);
+      if (disposed || intent !== searchGeneration) return false;
+      if (
+        resolved.stop.context &&
+        resolved.stop.context.source_version_id !==
+          (next.info.current_version_id ?? next.info.sha256)
+      )
+        throw new Error(
+          "The source changed while this trail stop was opening. Resolve the stop again; no different location was selected.",
+        );
+      const published = next.info.current_version_id ?? next.info.sha256;
+      if (
+        next.info.versions_seen?.some(
+          (v) => v.source_version_id === published && v.state === "superseded",
+        )
+      )
+        throw new Error(
+          "The trail source became superseded while opening. Choose current material; obsolete source wording was not replayed.",
+        );
+      showPage(next);
+      if (resolved.quote) highlightQuote(resolved.quote);
+      if (resolved.stop.context) {
+        const context = element("section");
+        context.setAttribute("aria-label", "Trail stop context");
+        context.append(
+          element("h2", resolved.locator ?? resolved.stop.label),
+          element("p", resolved.detail),
+        );
+        if (resolved.quote)
+          context.append(element("blockquote", resolved.quote));
+        if (resolved.retained_asset) {
+          const original = element(
+            "button",
+            resolved.stop.context.kind === "media"
+              ? "Open trail recording original"
+              : "Open trail supporting original",
+          );
+          original.addEventListener("click", () => {
+            void api
+              .openOriginalVersion(
+                target.source_id!,
+                resolved.stop.context!.source_version_id,
+                resolved.retained_asset!,
+              )
+              .then(() => {
+                if (resolved.stop.context?.kind === "media")
+                  message(
+                    `Opened the exact recording. Seek to ${resolved.stop.context.at_ms} ms in your media player; precise seeking is unavailable in this reader.`,
+                  );
+              })
+              .catch(report);
+          });
+          context.append(original);
+        }
+        main.prepend(context);
+      }
+    } else if (target.page_id) {
+      const next = await api.openKnowledgePage(target.page_id);
+      if (disposed || intent !== searchGeneration) return false;
+      showKnowledgePage(next);
+    }
+    return true;
+  }
   function captureSavedView(): SavedViewDefinition | null {
     if (
       currentView === "empty" ||
@@ -231,6 +407,9 @@ export async function mountReader(
           : null;
     return structuredClone({
       active: currentView,
+      ...(trailController.stops().length
+        ? { trail: trailController.stops() }
+        : {}),
       search: currentSearch ? { ...currentSearch, offset: 0 } : null,
       query:
         queryView && (currentView === "query" || queryView.revision !== null)
@@ -292,6 +471,10 @@ export async function mountReader(
     pushCurrentState();
     queryController?.stop();
     const definition = saved.definition;
+    if (definition.trail) {
+      trailController.replace(definition.trail);
+      trailOrigin = null;
+    }
     currentSearch = definition.search;
     currentTimeline = definition.timeline;
     currentCollection = newCollectionView();
@@ -364,7 +547,8 @@ export async function mountReader(
     let pending: Promise<unknown> = Promise.resolve();
     let generation = searchGeneration;
     try {
-      if (definition.active === "search" && currentSearch)
+      if (definition.active === "trail") showTrailOverview();
+      else if (definition.active === "search" && currentSearch)
         pending = runSearch(currentSearch, false);
       else if (definition.active === "timeline" && currentTimeline)
         pending = runTimeline(currentTimeline);
@@ -426,6 +610,7 @@ export async function mountReader(
     }
   }
   type NavigationState =
+    | { kind: "trail"; stops: TrailStop[] }
     | {
         kind: "comparison";
         state: ComparisonViewState;
@@ -918,7 +1103,9 @@ export async function mountReader(
 
   function pushCurrentState() {
     const mainArticle = main.querySelector("article");
-    if (currentView === "comparison") {
+    if (currentView === "trail") {
+      navigationHistory.push({ kind: "trail", stops: trailController.stops() });
+    } else if (currentView === "comparison") {
       navigationHistory.push({
         kind: "comparison",
         state: structuredClone(currentComparison),
@@ -2392,6 +2579,12 @@ export async function mountReader(
   }
 
   async function restoreNavigation(state: NavigationState) {
+    const restoration = searchGeneration;
+    if (state.kind === "trail") {
+      trailController.replace(state.stops);
+      showTrailOverview();
+      return;
+    }
     if (state.kind === "comparison") {
       const controller = showComparison(state.state);
       await controller.ready;
@@ -2466,7 +2659,9 @@ export async function mountReader(
           ?.focus({ preventScroll: true });
       window.scrollTo(0, state.windowScroll);
     } else if (state.kind === "source") {
-      showPage(await api.openSource(state.sourceId));
+      const next = await api.openSource(state.sourceId);
+      if (disposed || restoration !== searchGeneration) return;
+      showPage(next);
       const article = main.querySelector<HTMLElement>("article");
       if (article) article.scrollTop = state.scrollTop;
       if (state.focusHref)
@@ -2485,7 +2680,9 @@ export async function mountReader(
           ?.focus({ preventScroll: true });
       window.scrollTo(0, state.windowScroll);
     } else {
-      showKnowledgePage(await api.openKnowledgePage(state.pageId));
+      const next = await api.openKnowledgePage(state.pageId);
+      if (disposed || restoration !== searchGeneration) return;
+      showKnowledgePage(next);
       const article = main.querySelector<HTMLElement>("article");
       if (article) article.scrollTop = state.scrollTop;
       if (state.focusHref)

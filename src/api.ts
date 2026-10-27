@@ -491,6 +491,48 @@ export interface SavedGroup {
   group_id: string;
   label: string;
 }
+export type TrailContext =
+  | {
+      kind: "span";
+      source_version_id: string;
+      basis: string;
+      byte_start: number;
+      byte_end: number;
+      quote: string;
+    }
+  | { kind: "message"; source_version_id: string; message_id: string }
+  | {
+      kind: "media";
+      source_version_id: string;
+      at_ms: number;
+      channel: "audio" | "video";
+    };
+export interface TrailStop {
+  stop_id: string;
+  label: string;
+  target: ViewTarget;
+  context: TrailContext | null;
+}
+export interface ResolvedTrailStop {
+  stop: TrailStop;
+  status: string;
+  title: string;
+  detail: string;
+  quote: string | null;
+  locator: string | null;
+  retained_asset: string | null;
+}
+export interface TrailChoices {
+  stops: TrailStop[];
+  next_offset: number | null;
+  detail: string;
+}
+export interface TrailSuggestions {
+  stops: TrailStop[];
+  judgments: number[];
+  model: string | null;
+  detail: string;
+}
 export interface SavedViewDefinition {
   active:
     | "collection"
@@ -500,7 +542,9 @@ export interface SavedViewDefinition {
     | "paths"
     | "comparison"
     | "source"
-    | "knowledge";
+    | "knowledge"
+    | "trail";
+  trail?: TrailStop[];
   search: PageSearchRequest | null;
   query: BooleanQueryRequest | null;
   collection: {
@@ -535,6 +579,10 @@ export interface SavedViews {
 }
 
 export interface GardenApi {
+  resolveTrail?(stops: TrailStop[]): Promise<ResolvedTrailStop[]>;
+  trailSourceChoices?(sourceId: string, offset: number): Promise<TrailChoices>;
+  trailSelectedPassage?(sourceId: string, quote: string): Promise<TrailStop>;
+  suggestTrailStops?(goal: string): Promise<TrailSuggestions>;
   listSavedViews?(query: string, offset: number): Promise<SavedViews>;
   createSavedView?(
     name: string,
@@ -609,6 +657,12 @@ export interface UrlAcquisitionStatus {
 }
 
 export const desktopApi: GardenApi = {
+  resolveTrail: (stops) => invoke("resolve_trail", { stops }),
+  trailSourceChoices: (sourceId, offset) =>
+    invoke("trail_source_choices", { sourceId, offset }),
+  trailSelectedPassage: (sourceId, quote) =>
+    invoke("trail_selected_passage", { sourceId, quote }),
+  suggestTrailStops: (goal) => invoke("suggest_trail_stops", { goal }),
   listSavedViews: (query, offset) =>
     invoke("list_saved_views", { query, offset }),
   createSavedView: (name, definition) =>
