@@ -96,6 +96,13 @@ async fn inspect_gaps(
 }
 
 #[tauri::command]
+async fn timeline(
+    engine: State<'_, Engine>,
+    request: crate::timeline::TimelineRequest,
+) -> Result<crate::timeline::TimelineResults, String> {
+    with_engine(&engine, move |app| app.timeline(request)).await
+}
+#[tauri::command]
 async fn collection_status(
     engine: State<'_, Engine>,
 ) -> Result<crate::application::reconciliation::ReconciliationStatus, String> {
@@ -373,6 +380,7 @@ pub fn run() {
             open_collection_file,
             collection_status,
             inspect_gaps,
+            timeline,
             collection_groups,
             comparison_side,
             open_comparison_original,

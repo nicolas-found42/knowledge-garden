@@ -437,3 +437,16 @@ mark {
   border-left: 3px dashed #aa7938;
   padding-left: 1rem;
 }
+
+.timeline label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.35rem 0.75rem 0.35rem 0;
+}
+.timeline form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}

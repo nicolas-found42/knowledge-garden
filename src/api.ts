@@ -549,6 +549,7 @@ export interface UrlAcquisitionStatus {
 }
 
 export const desktopApi: GardenApi = {
+  timeline: (request) => invoke("timeline", { request }),
   comparisonSide: (request) => invoke("comparison_side", { request }),
   openComparisonOriginal: (request) =>
     invoke("open_comparison_original", { request }),

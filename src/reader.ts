@@ -184,6 +184,7 @@ export async function mountReader(
   let currentSelectedPageId: string | null = null;
   let currentTimeline: TimelineRequest | null = null;
   let selectedTimelineEntry: string | null = null;
+  let selectedTimelineAction: "event" | "support" = "event";
   let currentCollection = newCollectionView();
   let collectionController: ReturnType<typeof renderCollection> | null = null;
   let currentComparison = newComparisonView();
@@ -210,6 +211,7 @@ export async function mountReader(
         kind: "timeline";
         request: TimelineRequest;
         selectedEntry: string | null;
+        selectedAction: "event" | "support";
         scrollTop: number;
         windowScroll: number;
       }
@@ -412,6 +414,11 @@ export async function mountReader(
   }
 
   function renderTimeline(results: TimelineResults, request: TimelineRequest) {
+    const activeFocus =
+      document.activeElement instanceof HTMLElement &&
+      main.contains(document.activeElement)
+        ? document.activeElement.dataset.focusId
+        : undefined;
     currentTimeline = { ...request, tags: [...request.tags] };
     selectedTimelineEntry = null;
     currentView = "timeline";
@@ -420,10 +427,12 @@ export async function mountReader(
     sources.hidden = true;
     sourcesButton.setAttribute("aria-expanded", "false");
     const panel = element("section");
+    panel.className = "timeline";
     panel.setAttribute("aria-label", "Timeline");
     panel.append(element("h1", "Timeline"));
     const meaningLabel = element("label", "Date meaning");
     const meaning = element("select");
+    meaning.dataset.focusId = "timeline-meaning";
     meaning.setAttribute("aria-label", "Date meaning");
     for (const [value, label] of [
       ["source_event", "Source-described events"],
@@ -438,6 +447,7 @@ export async function mountReader(
     meaningLabel.append(meaning);
     const orderLabel = element("label", "Sort dates");
     const order = element("select");
+    order.dataset.focusId = "timeline-sort";
     order.setAttribute("aria-label", "Sort dates");
     for (const [value, label] of [
       ["ascending", "Oldest first"],
@@ -454,16 +464,19 @@ export async function mountReader(
     const queryLabel = element("label", "Timeline words or title");
     const query = element("input");
     query.type = "search";
+    query.dataset.focusId = "timeline-query";
     query.setAttribute("aria-label", "Timeline words or title");
     query.value = request.query;
     queryLabel.append(query);
     const tagsLabel = element("label", "Timeline tags");
     const tags = element("input");
+    tags.dataset.focusId = "timeline-tags";
     tags.setAttribute("aria-label", "Timeline tags");
     tags.value = request.tags.join(", ");
     tagsLabel.append(tags);
     const apply = element("button", "Apply timeline filters");
     apply.type = "submit";
+    apply.dataset.focusId = "timeline-apply";
     filters.append(queryLabel, tagsLabel, apply);
     panel.append(filters);
     const refresh = () =>
@@ -492,13 +505,22 @@ export async function mountReader(
       const row = element("li");
       const openEvent = element("button", entry.title);
       openEvent.dataset.timelineEntry = entry.entry_id;
+      openEvent.dataset.timelineAction = "event";
       openEvent.addEventListener("click", () => {
         selectedTimelineEntry = entry.entry_id;
+        selectedTimelineAction = "event";
         pushCurrentState();
+        const generation = ++searchGeneration;
         const action =
           entry.kind === "acquired" || entry.kind === "processed"
-            ? api.openSource(entry.source_id).then(showPage)
-            : api.openKnowledgePage(entry.page_id).then(showKnowledgePage);
+            ? api.openSource(entry.source_id).then((page) => {
+                if (!disposed && generation === searchGeneration)
+                  showPage(page);
+              })
+            : api.openKnowledgePage(entry.page_id).then((page) => {
+                if (!disposed && generation === searchGeneration)
+                  showKnowledgePage(page);
+              });
         void action.catch(report);
       });
       const title = element("h2");
@@ -511,12 +533,119 @@ export async function mountReader(
         ),
       );
       if (entry.qualifier) row.append(element("p", entry.qualifier));
+      if (entry.support) {
+        const context = element("button", "Read timeline supporting source");
+        context.dataset.timelineEntry = entry.entry_id;
+        context.dataset.timelineAction = "support";
+        context.addEventListener("click", () => {
+          selectedTimelineEntry = entry.entry_id;
+          selectedTimelineAction = "support";
+          pushCurrentState();
+          const generation = ++searchGeneration;
+          void api
+            .openSource(entry.support!.source_id)
+            .then((next) => {
+              if (!disposed && generation === searchGeneration) {
+                showPage(next);
+                const support = entry.support!;
+                const currentVersion =
+                  next.info.current_version_id ?? next.info.sha256;
+                if (
+                  support.source_version_id &&
+                  support.source_version_id !== currentVersion
+                ) {
+                  const evidence = element("section");
+                  evidence.setAttribute(
+                    "aria-label",
+                    "Timeline supporting evidence",
+                  );
+                  const notice = element(
+                    "p",
+                    "Timeline evidence is from an earlier retained source version; current source text may differ.",
+                  );
+                  notice.setAttribute("role", "status");
+                  evidence.append(notice, element("blockquote", support.quote));
+                  if (support.source_location)
+                    evidence.append(element("p", support.source_location));
+                  const version = next.info.versions_seen?.find(
+                    (v) => v.source_version_id === support.source_version_id,
+                  );
+                  if (version?.asset) {
+                    const original = element(
+                      "button",
+                      "Open timeline supporting original",
+                    );
+                    original.addEventListener(
+                      "click",
+                      () =>
+                        void api
+                          .openOriginalVersion(
+                            support.source_id,
+                            support.source_version_id!,
+                            version.asset!,
+                          )
+                          .catch(report),
+                    );
+                    evidence.append(original);
+                  } else
+                    evidence.append(
+                      element(
+                        "p",
+                        "The supporting retained original is unavailable; no different version has been substituted.",
+                      ),
+                    );
+                  main.prepend(evidence);
+                } else highlightQuote(support.quote);
+              }
+            })
+            .catch(report);
+        });
+        row.append(context);
+        if (entry.support.source_location)
+          row.append(element("p", entry.support.source_location));
+      }
+
       list.append(row);
     }
     if (!results.entries.length)
       panel.append(element("p", "No events match this timeline."));
     panel.append(list);
+    panel.append(
+      element(
+        "p",
+        "Approximate dates sort by interval start, then end. Unknown and conflicting dates follow dated entries in both directions; equal dates use stable entry identity. Acquisition times describe collection activity only.",
+      ),
+    );
+    if (request.offset > 0) {
+      const previous = element("button", "Previous timeline page");
+      previous.addEventListener(
+        "click",
+        () =>
+          void runTimeline({
+            ...request,
+            offset: Math.max(0, request.offset - 50),
+          }).catch(report),
+      );
+      panel.append(previous);
+    }
+    if (results.next_offset !== null) {
+      const next = element("button", "Next timeline page");
+      next.addEventListener(
+        "click",
+        () =>
+          void runTimeline({ ...request, offset: results.next_offset! }).catch(
+            report,
+          ),
+      );
+      panel.append(next);
+    }
     main.replaceChildren(panel);
+    if (activeFocus)
+      main
+        .querySelector<HTMLElement>(
+          `[data-focus-id="${CSS.escape(activeFocus)}"]`,
+        )
+        ?.focus();
   }
 
   function message(text: string) {
@@ -611,6 +740,7 @@ export async function mountReader(
         kind: "timeline",
         request: { ...currentTimeline, tags: [...currentTimeline.tags] },
         selectedEntry: selectedTimelineEntry,
+        selectedAction: selectedTimelineAction,
         scrollTop: main.scrollTop,
         windowScroll: window.scrollY,
       });
@@ -2068,9 +2198,10 @@ export async function mountReader(
     } else if (state.kind === "timeline") {
       await runTimeline(state.request);
       selectedTimelineEntry = state.selectedEntry;
+      selectedTimelineAction = state.selectedAction;
       const selected = selectedTimelineEntry
         ? main.querySelector<HTMLButtonElement>(
-            `button[data-timeline-entry="${CSS.escape(selectedTimelineEntry)}"]`,
+            `button[data-timeline-entry="${CSS.escape(selectedTimelineEntry)}"][data-timeline-action="${selectedTimelineAction}"]`,
           )
         : null;
       selected?.focus({ preventScroll: true });

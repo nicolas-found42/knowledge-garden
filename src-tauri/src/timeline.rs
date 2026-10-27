@@ -86,6 +86,43 @@ pub(crate) fn qualify_dates(values: &[&str]) -> DateQualification {
     let Some(value) = values.first() else {
         return result;
     };
+    if let Some((left, right)) = value.split_once(" to ").or_else(|| value.split_once("..")) {
+        let left = qualify_dates(&[left]);
+        let right = qualify_dates(&[right]);
+        if let (Some(start), Some(end)) = (left.start, right.end) {
+            if start <= end {
+                result.start = Some(start);
+                result.end = Some(end);
+                result.precision = "interval".into();
+                result.status = "approximate".into();
+                return result;
+            }
+        }
+    }
+    if let Ok(instant) = chrono::DateTime::parse_from_rfc3339(value) {
+        let timestamp = instant
+            .with_timezone(&chrono::Utc)
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        result.start = Some(timestamp.clone());
+        result.end = Some(timestamp);
+        result.precision = "timestamp".into();
+        result.status = "known".into();
+        return result;
+    }
+    if value.len() == 4 && value.bytes().all(|b| b.is_ascii_digit()) {
+        if let Ok(year) = value.parse::<i32>() {
+            if let (Some(start), Some(end)) = (
+                NaiveDate::from_ymd_opt(year, 1, 1),
+                NaiveDate::from_ymd_opt(year, 12, 31),
+            ) {
+                result.start = Some(start.to_string());
+                result.end = Some(end.to_string());
+                result.precision = "year".into();
+                result.status = "approximate".into();
+                return result;
+            }
+        }
+    }
     // Chrono accepts absent whitespace and can split "May 2024" into
     // day 20 and year 24. Check the acquired shape before date conversion.
     let day_shape =
