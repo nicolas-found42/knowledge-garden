@@ -1,6 +1,7 @@
 //! Public, disk-backed collection operations. Markdown and originals are authoritative.
 pub mod boolean;
 pub mod collection;
+pub mod comparison;
 mod publication;
 pub mod reconciliation;
 pub mod watched;

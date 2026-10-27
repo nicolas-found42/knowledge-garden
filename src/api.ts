@@ -420,7 +420,41 @@ export interface CollectionMemberRequest {
   revision: string | null;
 }
 
+export interface ComparisonRequest {
+  source_id: string;
+  line_start: number;
+  expected_signature: string | null;
+}
+export interface ComparisonPassage {
+  text: string;
+  line_start: number;
+  line_end: number;
+  byte_start: number;
+  byte_end: number;
+  offset_basis: string;
+  next_line: number | null;
+  truncated: boolean;
+}
+export interface ComparisonSide {
+  source_id: string;
+  title: string;
+  format: string;
+  original_name: string;
+  origin: string | null;
+  source_version_id: string | null;
+  asset: string | null;
+  signature: string | null;
+  status: "fresh" | "stale" | "unavailable";
+  detail: string;
+  processing_status: string;
+  coverage: CoveragePart[];
+  context_gaps: string[];
+  passage: ComparisonPassage | null;
+}
+
 export interface GardenApi {
+  comparisonSide?(request: ComparisonRequest): Promise<ComparisonSide>;
+  openComparisonOriginal?(request: ComparisonRequest): Promise<void>;
   collectionGroups?(request: CollectionGroupRequest): Promise<CollectionGroups>;
   collectionMembers?(
     request: CollectionMemberRequest,
@@ -483,6 +517,9 @@ export interface UrlAcquisitionStatus {
 }
 
 export const desktopApi: GardenApi = {
+  comparisonSide: (request) => invoke("comparison_side", { request }),
+  openComparisonOriginal: (request) =>
+    invoke("open_comparison_original", { request }),
   collectionGroups: (request) => invoke("collection_groups", { request }),
   collectionMembers: (request) => invoke("collection_members", { request }),
   async chooseDirectory() {

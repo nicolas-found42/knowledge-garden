@@ -53,6 +53,26 @@ async fn open_collection_file(engine: State<'_, Engine>, path: String) -> Result
 }
 
 #[tauri::command]
+async fn open_comparison_original(
+    engine: State<'_, Engine>,
+    request: crate::application::comparison::ComparisonRequest,
+) -> Result<(), String> {
+    with_engine(&engine, move |app| {
+        let original = app.comparison_original_path(request)?;
+        open_retained_original(&original)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn comparison_side(
+    engine: State<'_, Engine>,
+    request: crate::application::comparison::ComparisonRequest,
+) -> Result<crate::application::comparison::ComparisonSide, String> {
+    with_engine(&engine, move |app| app.comparison_side(request)).await
+}
+
+#[tauri::command]
 async fn collection_groups(
     engine: State<'_, Engine>,
     request: crate::application::collection::CollectionGroupRequest,
@@ -345,6 +365,8 @@ pub fn run() {
             open_collection_file,
             collection_status,
             collection_groups,
+            comparison_side,
+            open_comparison_original,
             collection_members,
             resolve_page_link,
             import_source,

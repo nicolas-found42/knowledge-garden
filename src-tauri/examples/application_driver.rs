@@ -243,6 +243,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "collection-members" => output(app.collection_members(serde_json::from_str(
             args.get(3).ok_or("missing collection member request")?,
         )?)?),
+        "comparison-side" => output(app.comparison_side(serde_json::from_str(
+            args.get(3).ok_or("missing comparison request")?,
+        )?)?),
+        "comparison-original" => output(app.comparison_original_path(serde_json::from_str(
+            args.get(3).ok_or("missing comparison request")?,
+        )?)?),
         "collection-status" => output(app.collection_status()),
         "resolve-link" => output(app.resolve_page_link(
             args.get(3).ok_or("missing page identity")?,

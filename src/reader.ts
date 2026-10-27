@@ -1,4 +1,10 @@
 import {
+  newComparisonView,
+  comparisonSelection,
+  renderComparison,
+  type ComparisonViewState,
+} from "./comparison";
+import {
   newCollectionView,
   renderCollection,
   type CollectionViewState,
@@ -104,6 +110,9 @@ export async function mountReader(
   sources.className = "sources";
   sources.setAttribute("aria-label", "Collection sources");
   sources.hidden = true;
+  const comparisonTray = element("aside");
+  comparisonTray.setAttribute("aria-label", "Comparison selections");
+  comparisonTray.hidden = true;
   const main = element("main");
   main.className = "reader";
   const empty = element("section");
@@ -122,6 +131,7 @@ export async function mountReader(
   root.replaceChildren(
     toolbar,
     notice,
+    comparisonTray,
     collectionDiagnostics,
     urlForm,
     sources,
@@ -134,6 +144,7 @@ export async function mountReader(
   let currentView:
     | "empty"
     | "collection"
+    | "comparison"
     | "source"
     | "knowledge"
     | "search"
@@ -174,7 +185,18 @@ export async function mountReader(
   let selectedTimelineEntry: string | null = null;
   let currentCollection = newCollectionView();
   let collectionController: ReturnType<typeof renderCollection> | null = null;
+  let currentComparison = newComparisonView();
+  let comparisonController: ReturnType<typeof renderComparison> | null = null;
+  let comparisonIntent = 0;
+  let comparisonCandidate: { sourceId: string; title: string } | null = null;
   type NavigationState =
+    | {
+        kind: "comparison";
+        state: ComparisonViewState;
+        scrollTop: number;
+        windowScroll: number;
+        focusId: string | null;
+      }
     | {
         kind: "collection";
         state: CollectionViewState;
@@ -234,6 +256,114 @@ export async function mountReader(
   let knowledgeRefreshApplied = 0;
   let sourcesGeneration = 0;
   let sourcesNavigationPending = false;
+
+  function updateComparisonTray() {
+    comparisonTray.hidden = currentComparison.selections.every(
+      (selection) => !selection,
+    );
+    comparisonTray.replaceChildren(element("strong", "Comparison selections"));
+    currentComparison.selections.forEach((selection, index) => {
+      if (selection)
+        comparisonTray.append(
+          element(
+            "span",
+            ` ${index === 0 ? "Left" : "Right"}: ${selection.title}.`,
+          ),
+        );
+    });
+    const open = element("button", "Compare selected sources");
+    open.disabled = currentComparison.selections.some(
+      (selection) => !selection,
+    );
+    open.addEventListener("click", () => {
+      if (currentView !== "comparison") pushCurrentState();
+      showComparison();
+    });
+    const clear = element("button", "Clear comparison selections");
+    clear.addEventListener("click", () => {
+      ++comparisonIntent;
+      currentComparison = newComparisonView();
+      comparisonCandidate = null;
+      updateComparisonTray();
+      if (currentView === "comparison") showComparison();
+    });
+    comparisonTray.append(open, clear);
+    if (comparisonCandidate)
+      for (const index of [0, 1]) {
+        const replace = element(
+          "button",
+          `Use ${comparisonCandidate.title} as ${index === 0 ? "left" : "right"} source`,
+        );
+        replace.addEventListener("click", () => {
+          const candidate = comparisonCandidate!;
+          currentComparison.selections[index] = comparisonSelection(
+            candidate.sourceId,
+            candidate.title,
+          );
+          comparisonCandidate = null;
+          updateComparisonTray();
+          pushCurrentState();
+          showComparison();
+        });
+        comparisonTray.append(replace);
+      }
+  }
+  function chooseComparisonSource(sourceId: string, title: string) {
+    ++comparisonIntent;
+    const index = currentComparison.selections.findIndex(
+      (selection) => !selection,
+    );
+    if (index < 0) {
+      comparisonCandidate = { sourceId, title };
+      updateComparisonTray();
+      message("Choose which comparison side to replace.");
+      return;
+    }
+    currentComparison.selections[index] = comparisonSelection(sourceId, title);
+    updateComparisonTray();
+    if (currentComparison.selections.every((selection) => !!selection)) {
+      pushCurrentState();
+      showComparison();
+      message("Two sources selected.");
+    } else
+      message(
+        "First source selected. Read another source and select it for comparison.",
+      );
+  }
+  function showComparison(state = currentComparison) {
+    currentComparison = state;
+    currentView = "comparison";
+    currentSourceId = null;
+    currentKnowledgePageId = null;
+    ++searchGeneration;
+    sources.hidden = true;
+    sourcesButton.setAttribute("aria-expanded", "false");
+    updateComparisonTray();
+    comparisonController = renderComparison(
+      main,
+      api,
+      currentComparison,
+      (sourceId) => {
+        pushCurrentState();
+        const generation = ++searchGeneration;
+        void api
+          .openSource(sourceId)
+          .then((next) => {
+            if (
+              !disposed &&
+              currentView === "comparison" &&
+              generation === searchGeneration
+            )
+              showPage(next);
+          })
+          .catch(report);
+      },
+      () => backButton.click(),
+      report,
+    );
+    syncBackButton();
+    return comparisonController;
+  }
 
   function showCollection(state = currentCollection) {
     currentCollection = state;
@@ -423,7 +553,18 @@ export async function mountReader(
 
   function pushCurrentState() {
     const mainArticle = main.querySelector("article");
-    if (currentView === "collection") {
+    if (currentView === "comparison") {
+      navigationHistory.push({
+        kind: "comparison",
+        state: structuredClone(currentComparison),
+        scrollTop: main.scrollTop,
+        windowScroll: window.scrollY,
+        focusId:
+          document.activeElement instanceof HTMLElement
+            ? (document.activeElement.dataset.focusId ?? null)
+            : null,
+      });
+    } else if (currentView === "collection") {
       navigationHistory.push({
         kind: "collection",
         state: structuredClone(currentCollection),
@@ -706,6 +847,15 @@ export async function mountReader(
       next.info.asset,
     );
     if (!article) return;
+    if (api.comparisonSide) {
+      const compare = element("button", "Compare this source");
+      compare.dataset.focusId = "compare-source";
+      compare.addEventListener("click", () =>
+        chooseComparisonSource(next.info.source_id, next.info.title),
+      );
+      article.prepend(compare);
+    }
+
     if (
       /^(?:jpg|jpeg|png|heic|heif|tif|tiff|webp)$/.test(next.info.format) &&
       api.previewOriginal
@@ -939,6 +1089,37 @@ export async function mountReader(
     currentView = "knowledge";
     const article = showMarkdown(next.markdown, next.title, next.source_id);
     if (!article) return;
+    if (api.comparisonSide) {
+      const compare = element(
+        "button",
+        "Select supporting source for comparison",
+      );
+      compare.dataset.focusId = "compare-supporting-source";
+      compare.addEventListener("click", () => {
+        const intent = ++comparisonIntent;
+        const generation = searchGeneration;
+        void api
+          .openSource(next.source_id)
+          .then((source) => {
+            if (
+              !disposed &&
+              intent === comparisonIntent &&
+              generation === searchGeneration &&
+              currentKnowledgePageId === next.page_id
+            )
+              chooseComparisonSource(source.info.source_id, source.info.title);
+          })
+          .catch((error) => {
+            if (
+              intent === comparisonIntent &&
+              currentKnowledgePageId === next.page_id
+            )
+              report(error);
+          });
+      });
+      article.prepend(compare);
+    }
+
     const returnLink = element("a", "Return to source page");
     returnLink.href = `../sources/${next.source_id.slice("source-".length)}/index.md`;
     const explore = element("button", "Explore relationships");
@@ -1831,7 +2012,24 @@ export async function mountReader(
   }
 
   async function restoreNavigation(state: NavigationState) {
-    if (state.kind === "collection") {
+    if (state.kind === "comparison") {
+      const controller = showComparison(state.state);
+      await controller.ready;
+      if (
+        disposed ||
+        currentView !== "comparison" ||
+        comparisonController !== controller
+      )
+        return;
+      main.scrollTop = state.scrollTop;
+      window.scrollTo(0, state.windowScroll);
+      if (state.focusId)
+        main
+          .querySelector<HTMLElement>(
+            `[data-focus-id="${CSS.escape(state.focusId)}"]`,
+          )
+          ?.focus({ preventScroll: true });
+    } else if (state.kind === "collection") {
       showCollection(state.state);
       main.scrollTop = state.scrollTop;
       window.scrollTo(0, state.windowScroll);
@@ -1930,7 +2128,10 @@ export async function mountReader(
   backButton.addEventListener("click", () => {
     const state = navigationHistory.pop();
     syncBackButton();
-    if (state) void restoreNavigation(state).catch(report);
+    if (state) {
+      ++searchGeneration;
+      void restoreNavigation(state).catch(report);
+    }
   });
   timelineButton.addEventListener("click", () => {
     pushCurrentState();
@@ -2263,6 +2464,8 @@ export async function mountReader(
   }
   await refreshCollection();
   const refreshTimer = window.setInterval(() => {
+    if (!disposed && currentView === "comparison")
+      comparisonController?.refresh();
     if (!disposed && currentView === "collection")
       void collectionController?.refresh();
     void refreshCollection();
