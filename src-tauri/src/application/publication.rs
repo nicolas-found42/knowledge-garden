@@ -280,7 +280,7 @@ fn interrupted<T>() -> Result<T> {
 }
 
 fn retain_owner_save(root: &Path, bytes: &[u8]) -> Result<String> {
-    let path = format!("owner-edits/{:x}.md", Sha256::digest(bytes));
+    let path = format!("owner-edits/{}.md", hex::encode(Sha256::digest(bytes)));
     if !root.join(&path).exists() {
         write_atomic(&root.join(&path), bytes)?;
     }
