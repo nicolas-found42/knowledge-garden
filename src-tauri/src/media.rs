@@ -150,6 +150,12 @@ pub struct VideoFrame {
     pub height: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoPreview {
+    pub data_url: String,
+    pub frame: VideoFrame,
+}
+
 /// Recognized text in a sampled frame; the box is normalized with a bottom-left origin.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FrameText {
@@ -582,7 +588,7 @@ struct CapabilityReport {
 }
 
 /// A video's speech queue is shaped like an audio recording: the container duration bounds it.
-fn video_audio_info(media: MediaInfo) -> Result<AudioInfo, String> {
+pub(crate) fn video_audio_info(media: MediaInfo) -> Result<AudioInfo, String> {
     if !media.video.present {
         return Err("The container has no video track.".into());
     }

@@ -320,6 +320,9 @@ impl SemanticProvider for JevSemanticProvider {
             candidates.extend(repository_question_candidates(source_text));
             candidates
         };
+        // Frame OCR/classifier text belongs to its visual channel. It is not an
+        // ordinary report that can directly assert people, events or corrections.
+        candidates.retain(|candidate| video_frame_time_at(source_text, candidate.start).is_none());
         let correction_candidates = correction_candidates(source_text, &candidates);
         let office_candidates = office_statement_candidates(source_text);
         let office_mode = !office_candidates.is_empty() || source_text.contains("; channel=");
@@ -751,7 +754,7 @@ impl SemanticProvider for JevSemanticProvider {
             correction_alignments,
             ..KnowledgeDraft::default()
         };
-        if audio_mode && event.is_none() {
+        if audio_mode && event.is_none() && !audio_transcript_spans(source_text).is_empty() {
             let span = audio_transcript_spans(source_text)
                 .into_iter()
                 .next()
@@ -1698,6 +1701,22 @@ fn validated_noul(
 }
 
 fn source_spans(text: &str) -> Vec<SourceSpan> {
+    if text.starts_with("Machine-generated transcript from retained audio.")
+        && text.contains("[VIDEO FRAME ")
+    {
+        let mut spans = audio_transcript_spans(text);
+        spans.extend(
+            office_statement_candidates(text)
+                .into_iter()
+                .map(|candidate| SourceSpan {
+                    quote: candidate.quote,
+                    start: candidate.start,
+                    end: candidate.end,
+                }),
+        );
+        spans.sort_by_key(|span| span.start);
+        return spans;
+    }
     if text.starts_with("[PDF ") {
         return office_statement_candidates(text)
             .into_iter()
@@ -1752,6 +1771,7 @@ fn report_date_candidates(text: &str) -> Vec<ReportDateCandidate> {
     );
     date_re
         .find_iter(text)
+        .filter(|matched| video_frame_time_at(text, matched.start()).is_none())
         .map(|matched| ReportDateCandidate {
             iso: normalize_source_date(matched.as_str()),
             evidence: EvidenceDraft {
@@ -1776,6 +1796,9 @@ fn report_revision_candidates(text: &str) -> Vec<ReportRevisionCandidate> {
         .captures_iter(text)
         .filter_map(|captures| {
             let full = captures.get(0)?;
+            if video_frame_time_at(text, full.start()).is_some() {
+                return None;
+            }
             if text.starts_with("[PDF ") {
                 let line_start = text[..full.start()]
                     .rfind('\n')

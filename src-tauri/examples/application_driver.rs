@@ -321,6 +321,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "knowledge" => {
             output(app.open_knowledge_page(args.get(3).ok_or("missing knowledge page identity")?)?)
         }
+        "media-step" => {
+            app.resume_due_audio_jobs()?;
+            output(app.open_source(args.get(3).ok_or("missing source identity")?)?);
+        }
+        "video-preview" => output(app.preview_video_frame(
+            args.get(3).ok_or("missing source identity")?,
+            args.get(4).ok_or("missing version")?,
+            args.get(5).ok_or("missing asset")?,
+            args.get(6).ok_or("missing time")?.parse()?,
+        )?),
         "original" => output(app.original_path(args.get(3).ok_or("missing source identity")?)?),
         "original-version" => output(app.original_version_path(
             args.get(3).ok_or("missing source identity")?,

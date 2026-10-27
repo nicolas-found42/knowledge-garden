@@ -428,12 +428,12 @@ private struct MediaHelper {
     }
 
     /// Frame-time spread over the first samples; a constant nominal rate is not assumed.
-    private static func hasVariableFrameTiming(asset: AVURLAsset, track: AVAssetTrack) async -> Bool {
-        guard let reader = try? AVAssetReader(asset: asset) else { return false }
+    private static func hasVariableFrameTiming(asset: AVURLAsset, track: AVAssetTrack) async -> Bool? {
+        guard let reader = try? AVAssetReader(asset: asset) else { return nil }
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
-        guard reader.canAdd(output) else { return false }
+        guard reader.canAdd(output) else { return nil }
         reader.add(output)
-        guard reader.startReading() else { return false }
+        guard reader.startReading() else { return nil }
         defer { reader.cancelReading() }
         var times: [Double] = []
         while times.count < 240, let sample = output.copyNextSampleBuffer() {
@@ -442,8 +442,9 @@ private struct MediaHelper {
         }
         times.sort()
         let deltas = zip(times.dropFirst(), times).map { $0 - $1 }.filter { $0 > 0 }
-        guard let low = deltas.min(), let high = deltas.max() else { return false }
-        return high / low > 1.5
+        guard let low = deltas.min(), let high = deltas.max() else { return nil }
+        if high / low > 1.5 { return true }
+        return reader.status == .completed ? false : nil
     }
 
     /// Decodes only the requested window from the first audio track as 16 kHz mono PCM for the local recognizer.
