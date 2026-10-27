@@ -53,6 +53,21 @@ async fn open_collection_file(engine: State<'_, Engine>, path: String) -> Result
 }
 
 #[tauri::command]
+async fn collection_groups(
+    engine: State<'_, Engine>,
+    request: crate::application::collection::CollectionGroupRequest,
+) -> Result<crate::application::collection::CollectionGroups, String> {
+    with_engine(&engine, move |app| app.collection_groups(request)).await
+}
+#[tauri::command]
+async fn collection_members(
+    engine: State<'_, Engine>,
+    request: crate::application::collection::CollectionMemberRequest,
+) -> Result<crate::application::collection::CollectionMembers, String> {
+    with_engine(&engine, move |app| app.collection_members(request)).await
+}
+
+#[tauri::command]
 async fn collection_status(
     engine: State<'_, Engine>,
 ) -> Result<crate::application::reconciliation::ReconciliationStatus, String> {
@@ -329,6 +344,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_collection_file,
             collection_status,
+            collection_groups,
+            collection_members,
             resolve_page_link,
             import_source,
             import_repository,

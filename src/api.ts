@@ -383,7 +383,48 @@ export interface CollectionStatus {
 }
 
 /** The reader's application boundary. Desktop paths never come from page HTML. */
+export type CollectionAxis = "topic" | "person" | "place" | "date" | "format";
+export interface CollectionGroupRequest {
+  axis: CollectionAxis;
+  query: string;
+  offset: number;
+}
+export interface CollectionGroup {
+  group_id: string;
+  label: string;
+  members: number;
+}
+export interface CollectionGroups {
+  groups: CollectionGroup[];
+  next_offset: number | null;
+  revision: string;
+}
+export interface CollectionItem {
+  page_id: string;
+  source_id: string;
+  page_type: string;
+  title: string;
+  kind: string;
+  format: string;
+  processing_status: string;
+}
+export interface CollectionMembers {
+  items: CollectionItem[];
+  next_offset: number | null;
+  revision: string;
+  changed: boolean;
+}
+export interface CollectionMemberRequest {
+  group_id: string;
+  offset: number;
+  revision: string | null;
+}
+
 export interface GardenApi {
+  collectionGroups?(request: CollectionGroupRequest): Promise<CollectionGroups>;
+  collectionMembers?(
+    request: CollectionMemberRequest,
+  ): Promise<CollectionMembers>;
   chooseDirectory?(): Promise<string | null>;
   watchDirectory?(path: string): Promise<WatchedDirectory>;
   listWatchedDirectories?(): Promise<WatchedDirectory[]>;
@@ -442,6 +483,8 @@ export interface UrlAcquisitionStatus {
 }
 
 export const desktopApi: GardenApi = {
+  collectionGroups: (request) => invoke("collection_groups", { request }),
+  collectionMembers: (request) => invoke("collection_members", { request }),
   async chooseDirectory() {
     const selected = await open({
       multiple: false,
