@@ -237,6 +237,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
             output(app.list_watched_directories()?);
         }
+        "collection-groups" => output(app.collection_groups(serde_json::from_str(
+            args.get(3).ok_or("missing collection request")?,
+        )?)?),
+        "collection-members" => output(app.collection_members(serde_json::from_str(
+            args.get(3).ok_or("missing collection member request")?,
+        )?)?),
         "collection-status" => output(app.collection_status()),
         "resolve-link" => output(app.resolve_page_link(
             args.get(3).ok_or("missing page identity")?,

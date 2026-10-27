@@ -1,5 +1,6 @@
 //! Public, disk-backed collection operations. Markdown and originals are authoritative.
 pub mod boolean;
+pub mod collection;
 mod publication;
 pub mod reconciliation;
 pub mod watched;
@@ -748,6 +749,14 @@ impl Application {
                  source_id TEXT NOT NULL, source_version_id TEXT NOT NULL, format TEXT NOT NULL,
                  PRIMARY KEY(source_id, source_version_id)
              );
+             CREATE TABLE IF NOT EXISTS collection_source_pages (
+                 source_page_id TEXT NOT NULL, source_id TEXT NOT NULL, knowledge_page_id TEXT NOT NULL,
+                 PRIMARY KEY(source_page_id,knowledge_page_id)
+             );
+             CREATE INDEX IF NOT EXISTS collection_source_pages_knowledge ON collection_source_pages(knowledge_page_id,source_page_id);
+             CREATE INDEX IF NOT EXISTS collection_source_pages_source ON collection_source_pages(source_id,knowledge_page_id);
+             CREATE TABLE IF NOT EXISTS collection_group_meta(singleton INTEGER PRIMARY KEY,revision TEXT NOT NULL);
+             INSERT OR IGNORE INTO collection_group_meta VALUES(1,'initial');
              CREATE TABLE IF NOT EXISTS page_tags (
                  page_id TEXT NOT NULL,
                  normalized TEXT NOT NULL,
@@ -6633,6 +6642,7 @@ impl Application {
                     params![page.info.source_id, version.source_version_id, version.format],
                 )?;
             }
+            collection::index_source(&transaction, &page.info)?;
             let documents = self.search_documents_for_source(&page.info)?;
             write_search_documents(&transaction, &documents)?;
             for summary in &page.info.knowledge_pages {
@@ -6651,6 +6661,7 @@ impl Application {
                 transaction.execute("INSERT INTO timeline_entries(entry_id,date_meaning,date_start,date_end,entry) VALUES (?1,'source_event',?2,?3,?4)", params![entry.entry_id, entry.date_start, entry.date_end, serde_json::to_string(&entry)?])?;
             }
         }
+        transaction.execute("DELETE FROM collection_source_pages WHERE NOT EXISTS (SELECT 1 FROM sources WHERE sources.source_id=collection_source_pages.source_id)",[])?;
         let pages_dir = self.root.join("pages");
         if pages_dir.is_dir() {
             for path in self.knowledge_paths()? {
@@ -6864,6 +6875,7 @@ impl Application {
             }
             hex::encode(digest.finalize())
         };
+        collection::index_revision(&transaction, &graph_revision)?;
         transaction.execute(
             "INSERT INTO relationship_graph_meta(singleton, revision) VALUES (1, ?1) ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision",
             [graph_revision],

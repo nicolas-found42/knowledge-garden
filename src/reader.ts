@@ -1,3 +1,8 @@
+import {
+  newCollectionView,
+  renderCollection,
+  type CollectionViewState,
+} from "./collection";
 import { newQuery, renderBooleanQuery, type QueryView } from "./boolean-query";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
@@ -49,6 +54,8 @@ export async function mountReader(
   brand.className = "brand";
   const backButton = element("button", "Back");
   backButton.hidden = true;
+  const collectionButton = element("button", "Collection");
+  collectionButton.hidden = !api.collectionGroups || !api.collectionMembers;
   const searchButton = element("button", "Search");
   searchButton.dataset.focusId = "toolbar-search";
   const timelineButton = element("button", "Timeline");
@@ -64,6 +71,7 @@ export async function mountReader(
   toolbar.append(
     brand,
     backButton,
+    collectionButton,
     searchButton,
     timelineButton,
     sourcesButton,
@@ -125,6 +133,7 @@ export async function mountReader(
   let currentSourceId: string | null = null;
   let currentView:
     | "empty"
+    | "collection"
     | "source"
     | "knowledge"
     | "search"
@@ -163,7 +172,16 @@ export async function mountReader(
   let currentSelectedPageId: string | null = null;
   let currentTimeline: TimelineRequest | null = null;
   let selectedTimelineEntry: string | null = null;
+  let currentCollection = newCollectionView();
+  let collectionController: ReturnType<typeof renderCollection> | null = null;
   type NavigationState =
+    | {
+        kind: "collection";
+        state: CollectionViewState;
+        scrollTop: number;
+        windowScroll: number;
+        focusId: string | null;
+      }
     | { kind: "query"; state: QueryView; windowScroll: number }
     | {
         kind: "timeline";
@@ -216,6 +234,43 @@ export async function mountReader(
   let knowledgeRefreshApplied = 0;
   let sourcesGeneration = 0;
   let sourcesNavigationPending = false;
+
+  function showCollection(state = currentCollection) {
+    currentCollection = state;
+    currentView = "collection";
+    currentSourceId = null;
+    currentKnowledgePageId = null;
+    sources.hidden = true;
+    sourcesButton.setAttribute("aria-expanded", "false");
+    ++searchGeneration;
+    collectionController = renderCollection(
+      main,
+      api,
+      currentCollection,
+      (item) => {
+        pushCurrentState();
+        const navigation = ++searchGeneration;
+        const stillCurrent = () =>
+          !disposed &&
+          currentView === "collection" &&
+          navigation === searchGeneration;
+        const reveal = async () => {
+          if (item.page_type === "source") {
+            const next = await api.openSource(item.source_id);
+            if (stillCurrent()) showPage(next);
+          } else {
+            const next = await api.openKnowledgePage(item.page_id);
+            if (stillCurrent()) showKnowledgePage(next);
+          }
+        };
+        void reveal().catch((error) => {
+          if (stillCurrent()) report(error);
+        });
+      },
+      report,
+    );
+    syncBackButton();
+  }
 
   async function runTimeline(request: TimelineRequest) {
     if (!api.timeline) return;
@@ -368,7 +423,18 @@ export async function mountReader(
 
   function pushCurrentState() {
     const mainArticle = main.querySelector("article");
-    if (currentView === "query" && queryView) {
+    if (currentView === "collection") {
+      navigationHistory.push({
+        kind: "collection",
+        state: structuredClone(currentCollection),
+        scrollTop: main.scrollTop,
+        windowScroll: window.scrollY,
+        focusId:
+          document.activeElement instanceof HTMLElement
+            ? (document.activeElement.dataset.focusId ?? null)
+            : null,
+      });
+    } else if (currentView === "query" && queryView) {
       queryView.scrollTop = main.scrollTop;
       navigationHistory.push({
         kind: "query",
@@ -1765,7 +1831,17 @@ export async function mountReader(
   }
 
   async function restoreNavigation(state: NavigationState) {
-    if (state.kind === "query") {
+    if (state.kind === "collection") {
+      showCollection(state.state);
+      main.scrollTop = state.scrollTop;
+      window.scrollTo(0, state.windowScroll);
+      if (state.focusId)
+        main
+          .querySelector<HTMLElement>(
+            `[data-focus-id="${CSS.escape(state.focusId)}"]`,
+          )
+          ?.focus({ preventScroll: true });
+    } else if (state.kind === "query") {
       if (
         state.state.revision &&
         (await api.pathGraphRevision()) !== state.state.revision
@@ -1865,6 +1941,10 @@ export async function mountReader(
       tags: [],
       offset: 0,
     }).catch(report);
+  });
+  collectionButton.addEventListener("click", () => {
+    if (currentView !== "collection") pushCurrentState();
+    showCollection();
   });
   searchButton.addEventListener("click", () => {
     void runSearch(
@@ -2129,6 +2209,8 @@ export async function mountReader(
       report(error);
     }
   }
+  if (!lastSource && api.collectionGroups && api.collectionMembers)
+    showCollection();
   let collectionRevision: number | null = null;
   let refreshingCollection = false;
   async function refreshCollection() {
@@ -2181,6 +2263,8 @@ export async function mountReader(
   }
   await refreshCollection();
   const refreshTimer = window.setInterval(() => {
+    if (!disposed && currentView === "collection")
+      void collectionController?.refresh();
     void refreshCollection();
     if (!sources.hidden && !refreshingSources && !sourcesNavigationPending) {
       refreshingSources = true;

@@ -4283,3 +4283,69 @@ it("keeps the latest requested video frame when an earlier decode finishes late"
   ).toBeNull();
   expect(screen.getAllByRole("img")).toHaveLength(1);
 });
+
+it("restores collection canvas, selected item, filter and expansion with Back after reading", async () => {
+  const api = testApi();
+  api.collectionGroups = vi.fn().mockResolvedValue({
+    groups: [{ group_id: "tag:river", label: "River", members: 1 }],
+    next_offset: null,
+    revision: "r1",
+  });
+  api.collectionMembers = vi.fn().mockResolvedValue({
+    items: [
+      {
+        page_id: riverside.info.page_id,
+        source_id: riverside.info.source_id,
+        page_type: "source",
+        title: riverside.info.title,
+        kind: "source",
+        format: "md",
+        processing_status: "complete",
+      },
+    ],
+    next_offset: null,
+    revision: "r1",
+    changed: false,
+  });
+  api.openSource = vi.fn().mockResolvedValue(riverside);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Collection" }));
+  await user.type(screen.getByRole("searchbox"), "river");
+  await user.click(screen.getByRole("button", { name: "Apply group filter" }));
+  await user.click(
+    await screen.findByRole("button", { name: "River · 1 items" }),
+  );
+  await screen.findByRole("button", { name: "Riverside notes" });
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Collection presentation" }),
+    "canvas",
+  );
+  const choice = screen.getByRole("button", {
+    name: "Riverside notes",
+  });
+  choice.focus();
+  await user.keyboard("{Enter}");
+  await screen.findByRole("heading", { name: "Riverside notes" });
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(
+    (
+      screen.getByRole("combobox", {
+        name: "Collection presentation",
+      }) as HTMLSelectElement
+    ).value,
+  ).toBe("canvas");
+  expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe(
+    "river",
+  );
+  expect(
+    screen
+      .getByRole("button", { name: "Riverside notes" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+  expect(screen.getByRole("button", { name: "Riverside notes" })).toBe(
+    document.activeElement,
+  );
+});
