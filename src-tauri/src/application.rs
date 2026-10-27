@@ -1915,18 +1915,7 @@ impl Application {
                 if entry.path().extension().and_then(|v| v.to_str()) != Some("md") {
                     continue;
                 }
-                let mut record = String::new();
-                File::open(entry.path())?
-                    .take(64 * 1024)
-                    .read_to_string(&mut record)?;
-                let header = record
-                    .strip_prefix("---\n")
-                    .and_then(|v| v.split_once("\n---\n"))
-                    .ok_or_else(|| {
-                        GardenError::Invalid("An acquisition record is unreadable.".into())
-                    })?
-                    .0;
-                let acquisition: Acquisition = serde_yaml_ng::from_str(header)?;
+                let acquisition = read_acquisition_record(&entry.path())?;
                 if !page.info.acquisitions.iter().any(|old| {
                     old.path == acquisition.path
                         && old.method == acquisition.method
@@ -7859,6 +7848,19 @@ fn find_text_match(text: &str, terms: &[String]) -> Option<(usize, usize)> {
         offset += line.len();
     }
     None
+}
+
+fn read_acquisition_record(path: &Path) -> Result<Acquisition> {
+    let mut record = String::new();
+    File::open(path)?
+        .take(64 * 1024)
+        .read_to_string(&mut record)?;
+    let header = record
+        .strip_prefix("---\n")
+        .and_then(|value| value.split_once("\n---\n"))
+        .ok_or_else(|| GardenError::Invalid("An acquisition record is unreadable.".into()))?
+        .0;
+    Ok(serde_yaml_ng::from_str(header)?)
 }
 
 fn write_acquisition(destination: &Path, acquisition: &Acquisition) -> Result<()> {

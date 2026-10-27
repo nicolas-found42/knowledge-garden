@@ -15,7 +15,8 @@ view criteria and ordered trail stops are read from their Markdown files.
 
 Unreadable or mismatched source records are not chosen for indexing or processing.
 They are retained and reported through collection diagnostics; a missing source
-`index.md` is a separate diagnostic. Healthy sources remain searchable and queued
+`index.md` is a separate diagnostic, and malformed acquisition records name their
+exact Markdown path. Healthy sources remain searchable and queued
 work remains schedulable. Knowledge whose supporting source is unreadable remains
 available as retained Markdown with source-unavailable status. Path exploration
 reports missing support instead of fabricating evidence. Moved page identities are

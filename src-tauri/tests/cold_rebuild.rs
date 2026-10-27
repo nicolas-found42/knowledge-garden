@@ -195,3 +195,56 @@ fn rebuilding_preserves_navigation_to_non_utf8_owner_page_paths() {
     assert!(matches.pages.iter().any(|p| p.page_id == page.page_id));
     assert!(moved.exists());
 }
+
+#[test]
+fn corrupt_acquisition_reports_its_own_path_and_preserves_other_sources() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("collection");
+    let bad_input = temp.path().join("bad.txt");
+    let good_input = temp.path().join("good.txt");
+    fs::write(&bad_input, "The first report is retained.").unwrap();
+    fs::write(&good_input, "The independent orchard report is searchable.").unwrap();
+    let mut app = Application::open(&root).unwrap();
+    let bad = app
+        .import_source(&bad_input, AcquisitionMethod::Picker)
+        .unwrap();
+    let good = app
+        .import_source(&good_input, AcquisitionMethod::Picker)
+        .unwrap();
+    let directory = app
+        .page_path(&bad.info.source_id)
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("acquisitions");
+    fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("damaged.md");
+    let corrupt = "---\nmethod: [broken\n---\nKeep this original record.\n";
+    drop(app);
+    fs::write(&path, corrupt).unwrap();
+    fs::remove_dir_all(root.join(".derived")).unwrap();
+    let mut app = Application::open(&root).unwrap();
+    let canonical_root = root.canonicalize().unwrap();
+    let relative = path
+        .strip_prefix(&canonical_root)
+        .unwrap()
+        .to_string_lossy();
+    assert!(
+        app.collection_status()
+            .diagnostics
+            .iter()
+            .any(|d| d.kind == "malformed_acquisition"
+                && d.paths.iter().any(|p| p == relative.as_ref())),
+        "the exact bad acquisition path must be reported"
+    );
+    assert!(app
+        .search_pages(PageSearchRequest {
+            query: "orchard".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .pages
+        .iter()
+        .any(|p| p.source_id == good.info.source_id));
+    assert_eq!(fs::read_to_string(path).unwrap(), corrupt);
+}

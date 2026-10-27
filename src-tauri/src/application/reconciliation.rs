@@ -30,6 +30,16 @@ fn is_source_index(path: &str) -> bool {
         && path.parent().and_then(Path::parent) == Some(Path::new("sources"))
 }
 
+fn is_source_acquisition(path: &str) -> bool {
+    let path = Path::new(path);
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    path.extension() == Some(std::ffi::OsStr::new("md"))
+        && parent.file_name() == Some(std::ffi::OsStr::new("acquisitions"))
+        && parent.parent().and_then(Path::parent) == Some(Path::new("sources"))
+}
+
 #[derive(Default, Serialize, Deserialize)]
 struct Ledger {
     #[serde(default)]
@@ -165,6 +175,11 @@ impl Application {
             let Ok(text) = read_bounded_text(&self.root.join(path), MAX_PAGE_BYTES) else {
                 return Ok(false);
             };
+            if is_source_acquisition(path)
+                && read_acquisition_record(&self.root.join(path)).is_err()
+            {
+                diagnostics.push(CollectionDiagnostic { kind: "malformed_acquisition".into(), paths: vec![path.clone()], detail: "This acquisition record is unreadable; its original content is preserved for recovery.".into() });
+            }
             if is_source_index(path) {
                 let source = self.root.join(path);
                 let usable = read_page(&source).ok().is_some_and(|page| {
