@@ -84,10 +84,138 @@ pub struct AudioProcessingInfo {
     pub retry_at_ms: Option<u64>,
     pub detail: String,
     pub segments: Vec<TranscriptSegment>,
+    /// Empty for legacy audio; `video` adds sampled frames and per-track coverage.
+    #[serde(default)]
+    pub media_kind: String,
+    #[serde(default)]
+    pub tracks: Option<MediaInfo>,
+    #[serde(default)]
+    pub frames: Vec<VideoFrameEvidence>,
+    #[serde(default)]
+    pub gaps: Vec<MediaGap>,
+}
+
+impl AudioProcessingInfo {
+    pub fn is_video(&self) -> bool {
+        self.media_kind == "video"
+    }
+
+    /// Speech passages or sampled frames; a track that supplied neither is a coverage gap, not evidence.
+    pub fn has_evidence(&self) -> bool {
+        !self.segments.is_empty() || !self.frames.is_empty()
+    }
+}
+
+/// One container track as decoded by the system media framework.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct MediaTrack {
+    pub present: bool,
+    pub decodable: bool,
+    pub codec: String,
+    pub detail: String,
+    #[serde(default, alias = "sampleRate")]
+    pub sample_rate: Option<f64>,
+    #[serde(default)]
+    pub channels: Option<u32>,
+    #[serde(default)]
+    pub width: Option<u32>,
+    #[serde(default)]
+    pub height: Option<u32>,
+    #[serde(default, alias = "nominalFps")]
+    pub nominal_fps: Option<f64>,
+    #[serde(default, alias = "minFrameDurationMs")]
+    pub min_frame_duration_ms: Option<f64>,
+    #[serde(default, alias = "variableFrameRate")]
+    pub variable_frame_rate: Option<bool>,
+}
+
+/// Container facts that decide which evidence channels a saved video can supply.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MediaInfo {
+    pub format: String,
+    #[serde(alias = "durationMs")]
+    pub duration_ms: u64,
+    pub audio: MediaTrack,
+    pub video: MediaTrack,
+}
+
+/// A decoded still; `actual_ms` discloses the nearest decodable frame time.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VideoFrame {
+    #[serde(alias = "requestedMs")]
+    pub requested_ms: u64,
+    #[serde(alias = "actualMs")]
+    pub actual_ms: u64,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Recognized text in a sampled frame; the box is normalized with a bottom-left origin.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FrameText {
+    pub text: String,
+    pub confidence: f64,
+    pub bounds: [f64; 4],
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FrameClassification {
+    pub label: String,
+    pub confidence: f64,
+}
+
+/// Visual evidence for one sampled frame. It does not describe the intervals between samples.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VideoFrameEvidence {
+    pub frame_id: String,
+    pub requested_ms: u64,
+    pub time_ms: u64,
+    pub width: u32,
+    pub height: u32,
+    #[serde(default)]
+    pub ocr: Vec<FrameText>,
+    #[serde(default)]
+    pub classifications: Vec<FrameClassification>,
+    #[serde(default)]
+    pub gaps: Vec<String>,
+    #[serde(default)]
+    pub ocr_revision: u64,
+    #[serde(default)]
+    pub classification_revision: u64,
+}
+
+/// A time range one track could not supply; other tracks keep their own evidence.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MediaGap {
+    pub track: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub detail: String,
+}
+
+pub fn is_video_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "mp4" | "mov" | "m4v"
+            )
+        })
 }
 
 /// Kept as an application-level seam so recovery tests can supply deterministic ASR outcomes.
 pub trait AudioProcessor: Send + Sync {
+    /// Container and per-track facts for a saved video.
+    fn inspect_media(&self, _path: &Path) -> Result<MediaInfo, String> {
+        Err("Video inspection is not available for this media processor.".into())
+    }
+
+    /// Decode one bounded still from the retained video into `jpeg`.
+    fn extract_frame(&self, _path: &Path, _at_ms: u64, _jpeg: &Path) -> Result<VideoFrame, String> {
+        Err("Video frame extraction is not available for this media processor.".into())
+    }
+
     fn inspect(&self, path: &Path) -> Result<AudioInfo, String>;
     fn install_assets(&self) -> Result<(), String>;
     fn transcribe_segment(
@@ -103,7 +231,23 @@ pub struct NativeAudioProcessor;
 
 impl AudioProcessor for NativeAudioProcessor {
     fn inspect(&self, path: &Path) -> Result<AudioInfo, String> {
+        if is_video_path(path) {
+            return video_audio_info(self.inspect_media(path)?);
+        }
         run_helper(vec!["inspect".into(), path_string(path)?])
+    }
+
+    fn inspect_media(&self, path: &Path) -> Result<MediaInfo, String> {
+        run_helper(vec!["inspect-media".into(), path_string(path)?])
+    }
+
+    fn extract_frame(&self, path: &Path, at_ms: u64, jpeg: &Path) -> Result<VideoFrame, String> {
+        run_helper(vec![
+            "frame".into(),
+            path_string(path)?,
+            at_ms.to_string(),
+            path_string(jpeg)?,
+        ])
     }
 
     fn install_assets(&self) -> Result<(), String> {
@@ -161,6 +305,14 @@ impl AudioProcessor for WhisperAudioProcessor {
         NativeAudioProcessor.inspect(path)
     }
 
+    fn inspect_media(&self, path: &Path) -> Result<MediaInfo, String> {
+        NativeAudioProcessor.inspect_media(path)
+    }
+
+    fn extract_frame(&self, path: &Path, at_ms: u64, jpeg: &Path) -> Result<VideoFrame, String> {
+        NativeAudioProcessor.extract_frame(path, at_ms, jpeg)
+    }
+
     fn install_assets(&self) -> Result<(), String> {
         verify_model_once(&self.model_path())
     }
@@ -180,7 +332,11 @@ impl AudioProcessor for WhisperAudioProcessor {
         })?;
         let wav_path = directory.path().join("segment.wav");
         let extraction: ExtractedAudioSegment = run_helper(vec![
-            "extract".into(),
+            if is_video_path(path) {
+                "extract-media-audio".into()
+            } else {
+                "extract".into()
+            },
             path_string(path)?,
             start_ms.to_string(),
             duration_ms.to_string(),
@@ -423,6 +579,20 @@ struct CapabilityReport {
     locale: String,
     module_available: bool,
     asset_status: String,
+}
+
+/// A video's speech queue is shaped like an audio recording: the container duration bounds it.
+fn video_audio_info(media: MediaInfo) -> Result<AudioInfo, String> {
+    if !media.video.present {
+        return Err("The container has no video track.".into());
+    }
+    Ok(AudioInfo {
+        format: media.format,
+        duration_ms: media.duration_ms,
+        sample_rate: media.audio.sample_rate.unwrap_or(0.0),
+        channels: media.audio.channels.unwrap_or(0),
+        codec: format!("video {} / audio {}", media.video.codec, media.audio.codec),
+    })
 }
 
 fn path_string(path: &Path) -> Result<String, String> {

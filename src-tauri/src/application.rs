@@ -6,7 +6,8 @@ pub mod watched;
 use crate::extraction::{LocalExtractor, SourceExtractor};
 use crate::meaning::{MeaningFilters, MeaningSearch};
 use crate::media::{
-    AudioInfo, AudioProcessingInfo, AudioProcessor, NativeAudioProcessor, MAX_AUDIO_SEGMENT_MS,
+    AudioInfo, AudioProcessingInfo, AudioProcessor, FrameClassification, FrameText, MediaGap,
+    MediaInfo, NativeAudioProcessor, VideoFrameEvidence, MAX_AUDIO_SEGMENT_MS,
 };
 use crate::office::{CoveragePart, CoverageScope, CoverageStatus, OfficeProjection};
 use crate::semantic::{
@@ -42,6 +43,14 @@ pub(crate) fn is_audio_format(format: &str) -> bool {
         format,
         "wav" | "wave" | "aiff" | "aif" | "caf" | "m4a" | "mp3" | "aac"
     )
+}
+pub(crate) fn is_video_format(format: &str) -> bool {
+    matches!(format, "mp4" | "mov" | "m4v")
+}
+
+/// Audio recordings and saved videos share one bounded, resumable time-window queue.
+pub(crate) fn is_timed_media_format(format: &str) -> bool {
+    is_audio_format(format) || is_video_format(format)
 }
 const MAX_PAGE_BYTES: u64 = (MAX_TEXT_BYTES * 3 + 64 * 1024) as u64;
 const PAGE_SIZE: usize = 50;
@@ -1319,7 +1328,7 @@ impl Application {
             .into_owned();
         let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
         let format = format_override.unwrap_or_else(|| extension.to_lowercase());
-        let audio_format = is_audio_format(&format);
+        let audio_format = is_timed_media_format(&format);
         let asset = if extension.len() <= 16
             && !extension.is_empty()
             && extension.chars().all(|c| c.is_ascii_alphanumeric())
@@ -1399,13 +1408,8 @@ impl Application {
         let destination = self.source_dir(&source_id)?;
         if destination.exists() {
             let mut existing = self.open_source(&source_id)?;
-            let inspected_audio = if audio_format {
-                self.audio_processor
-                    .inspect(&staging.path().join(&asset))
-                    .ok()
-            } else {
-                None
-            };
+            let (inspected_audio, inspected_media) =
+                self.inspect_timed_media(audio_format, &staging.path().join(&asset));
             let acquisition_exists = existing.info.acquisitions.iter().any(|old| {
                 old.path == acquisition.path
                     && old.method == acquisition.method
@@ -1459,7 +1463,13 @@ impl Application {
             }
             self.index_acquisition(&acquisition, &source_id)?;
             let (extraction, extraction_detail, extraction_coverage) = if audio_format {
-                if let Some(audio) = inspected_audio.as_ref() {
+                if let Some(media) = inspected_media.as_ref() {
+                    (
+                        ExtractionState::PartialText,
+                        video_extraction_detail(media, true),
+                        Some(video_coverage(media)),
+                    )
+                } else if let Some(audio) = inspected_audio.as_ref() {
                     (
                         ExtractionState::PartialText,
                         "The changed audio original is retained as a new source version. Its transcript is reset and queued for bounded processing; the previous version's transcript is not evidence for this recording.".into(),
@@ -1550,7 +1560,7 @@ impl Application {
             existing.info.extraction_detail = extraction_detail;
             existing.info.extraction_coverage = extraction_coverage;
             if let Some(audio) = inspected_audio {
-                let candidate_audio = audio_processing_info(audio, &digest);
+                let candidate_audio = audio_processing_info(audio, &digest, inspected_media);
                 if existing.info.current_version_id.is_some() {
                     existing.info.pending_audio_processing = Some(candidate_audio);
                 } else {
@@ -1588,18 +1598,28 @@ impl Application {
             None
         };
         let web_projection = web_result.as_ref().and_then(|result| result.as_ref().ok());
-        let inspected_audio = if audio_format {
-            self.audio_processor
-                .inspect(&staging.path().join(&asset))
-                .ok()
-        } else {
-            None
-        };
+        let (inspected_audio, inspected_media) =
+            self.inspect_timed_media(audio_format, &staging.path().join(&asset));
         let (extraction, extraction_detail, text, office_projection, extraction_coverage) =
-            if audio_format && inspected_audio.is_some() {
+            if let (Some(media), true) = (inspected_media.as_ref(), audio_format) {
+                (
+                    ExtractionState::PartialText,
+                    video_extraction_detail(media, false),
+                    String::new(),
+                    None,
+                    Some(video_coverage(media)),
+                )
+            } else if audio_format && inspected_audio.is_some() {
                 (ExtractionState::PartialText,
                  "The exact audio original is retained. Pinned local Whisper transcription is queued in resumable segments; silence, overlap, speaker identity, and uncertain wording require review against playback.".into(),
                 String::new(), None, Some(vec![CoveragePart { scope: CoverageScope::AudioRecording, status: CoverageStatus::Partial, source_location: Some("timeline".into()), detail: "Automatic transcription is not complete or word-for-word verified; no diarization, silence detection, noise classification, or overlap attribution is available.".into() }]))
+            } else if audio_format && is_video_format(&format) {
+                (ExtractionState::Unsupported,
+                 "The exact video original is retained, but its container could not be inspected by the installed local media decoder.".into(),
+                 String::new(), None, Some(vec![
+                    CoveragePart { scope: CoverageScope::VideoFrames, status: CoverageStatus::Failed, source_location: Some("video container".into()), detail: "The container could not be inspected with this native decoder.".into() },
+                    CoveragePart { scope: CoverageScope::AudioRecording, status: CoverageStatus::Failed, source_location: Some("video container".into()), detail: "The container could not be inspected with this native decoder.".into() },
+                 ]))
             } else if audio_format {
                 (ExtractionState::Unsupported,
                  "The exact audio original is retained, but this audio codec could not be inspected by the installed local media decoder.".into(),
@@ -1804,7 +1824,8 @@ impl Application {
             provider_availability: None,
             knowledge_pages: Vec::new(),
             semantic_decisions: Vec::new(),
-            audio_processing: inspected_audio.map(|audio| audio_processing_info(audio, &digest)),
+            audio_processing: inspected_audio
+                .map(|audio| audio_processing_info(audio, &digest, inspected_media)),
             pending_audio_processing: None,
         };
         let body = web_projection
@@ -2545,13 +2566,13 @@ impl Application {
                 .versions_seen
                 .iter()
                 .find(|version| Some(version.source_version_id.as_str()) == pending_version_id)
-                .is_some_and(|version| is_audio_format(&version.format));
+                .is_some_and(|version| is_timed_media_format(&version.format));
             let audio_ready = if pending_is_audio {
                 pending_version_id.is_some_and(|version_id| {
                     candidate_audio_processing(&page.info, version_id).is_some_and(|audio| {
                         audio.state == "complete"
                             && (page.info.current_version_id.is_none()
-                                || !audio.segments.is_empty())
+                                || audio.has_evidence())
                     })
                 })
             } else {
@@ -2613,7 +2634,7 @@ impl Application {
             } else {
                 page.info.acquisitions.clone()
             };
-            let text = if is_audio_format(&version.format) {
+            let text = if is_timed_media_format(&version.format) {
                 let Some(audio) = candidate_audio_processing(&page.info, &source_version_id) else {
                     continue;
                 };
@@ -3280,7 +3301,7 @@ impl Application {
                     })?;
                 let candidate_audio =
                     candidate_audio_processing(&page.info, &job.source_version_id);
-                let version_audio = is_audio_format(&source_format) && candidate_audio.is_some();
+                let version_audio = is_timed_media_format(&source_format) && candidate_audio.is_some();
                 if draft_has_audio_provenance(&draft) && !version_audio {
                     self.record_semantic_failure(
                         &mut page,
@@ -3299,6 +3320,15 @@ impl Application {
                         true,
                         true,
                     )?;
+                } else if version_audio
+                    && video_draft_promotes_capture_time(&draft, &job.source_text)
+                {
+                    self.record_semantic_failure(
+                        &mut page,
+                        "A date or time read from a video frame cannot establish the recording's capture time; semantic coverage remains incomplete and will retry automatically.".into(),
+                        true,
+                        true,
+                    )?;
                 } else if version_audio && draft_claims_audio_speaker_identity(&draft) {
                     self.record_semantic_failure(
                         &mut page,
@@ -3308,7 +3338,7 @@ impl Application {
                     )?;
                 } else {
                     if version_audio {
-                        qualify_audio_evidence(&mut draft);
+                        qualify_audio_evidence(&mut draft, &job.source_text);
                     }
                     let is_office = matches!(page.info.format.as_str(), "docx" | "pptx" | "pdf");
                     let office_facts = draft
@@ -3670,6 +3700,89 @@ impl Application {
         Ok(())
     }
 
+    /// Audio is inspected as a recording; a saved video also reports its decodable tracks.
+    fn inspect_timed_media(
+        &self,
+        timed: bool,
+        path: &Path,
+    ) -> (Option<AudioInfo>, Option<MediaInfo>) {
+        if !timed {
+            return (None, None);
+        }
+        let video = crate::media::is_video_path(path);
+        let media = if video {
+            self.audio_processor.inspect_media(path).ok()
+        } else {
+            None
+        };
+        if video && media.is_none() {
+            return (None, None);
+        }
+        let audio = if video {
+            media.clone().and_then(|media| video_audio_info(media).ok())
+        } else {
+            self.audio_processor.inspect(path).ok()
+        };
+        (audio, media.filter(|_| video))
+    }
+
+    /// One bounded frame every ten seconds of the window. A frame that cannot be decoded or read
+    /// becomes a disclosed gap; it never blocks speech or other frames.
+    fn sample_window_frames(
+        &self,
+        path: &Path,
+        version_id: &str,
+        start: u64,
+        duration: u64,
+        tracks: Option<&MediaInfo>,
+    ) -> (Vec<VideoFrameEvidence>, Vec<MediaGap>) {
+        let mut frames = Vec::new();
+        let mut gaps = Vec::new();
+        if tracks.is_some_and(|tracks| !tracks.video.present) {
+            return (frames, gaps);
+        }
+        let end = start + duration;
+        let mut at = start;
+        while at < end {
+            match self.frame_evidence(path, version_id, at) {
+                Ok(frame) => frames.push(frame),
+                Err(detail) => gaps.push(MediaGap {
+                    track: "video".into(),
+                    start_ms: at,
+                    end_ms: (at + VIDEO_FRAME_INTERVAL_MS).min(end),
+                    detail,
+                }),
+            }
+            at += VIDEO_FRAME_INTERVAL_MS;
+        }
+        (frames, gaps)
+    }
+
+    fn frame_evidence(
+        &self,
+        path: &Path,
+        version_id: &str,
+        at_ms: u64,
+    ) -> std::result::Result<VideoFrameEvidence, String> {
+        let workspace = tempfile::tempdir()
+            .map_err(|error| format!("A private frame workspace could not be created: {error}"))?;
+        let jpeg = workspace.path().join("frame.jpg");
+        let frame = self.audio_processor.extract_frame(path, at_ms, &jpeg)?;
+        let vision = crate::photo::frame_vision(&jpeg)?;
+        Ok(VideoFrameEvidence {
+            frame_id: stable_frame_id(version_id, at_ms),
+            requested_ms: at_ms,
+            time_ms: frame.actual_ms,
+            width: frame.width,
+            height: frame.height,
+            ocr: vision.ocr,
+            classifications: vision.classifications,
+            gaps: vision.gaps,
+            ocr_revision: vision.ocr_revision,
+            classification_revision: vision.classification_revision,
+        })
+    }
+
     fn recover_interrupted_audio_jobs(&mut self) -> Result<()> {
         for entry in fs::read_dir(self.root.join("sources"))? {
             let entry = entry?;
@@ -3787,10 +3900,42 @@ impl Application {
         } else {
             version_asset
         };
-        let outcome = self.audio_processor.install_assets().and_then(|()| {
-            self.audio_processor
-                .transcribe_segment(&path, start, duration)
-        });
+        let video = snapshot.is_video();
+        let audio_usable = snapshot
+            .tracks
+            .as_ref()
+            .is_none_or(|tracks| tracks.audio.present && tracks.audio.decodable);
+        let (frames, frame_gaps) = if video {
+            self.sample_window_frames(&path, &version_id, start, duration, snapshot.tracks.as_ref())
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        let visuals = WindowVisuals {
+            start_ms: start,
+            end_ms: start + duration,
+            frames,
+            gaps: frame_gaps,
+        };
+        let outcome = if video && !audio_usable {
+            // No decodable speech track: the window still resolves, and the track's own
+            // coverage state records why. Visual evidence is not held back by it.
+            Ok(crate::media::TranscriptionBatch {
+                schema: 1,
+                requested_start_ms: start,
+                requested_duration_ms: duration,
+                processed_duration_ms: duration,
+                media_duration_ms: snapshot.duration_ms,
+                state: "no_recognized_speech".into(),
+                coverage: "partial".into(),
+                detail: "This video has no decodable audio track.".into(),
+                segments: Vec::new(),
+            })
+        } else {
+            self.audio_processor.install_assets().and_then(|()| {
+                self.audio_processor
+                    .transcribe_segment(&path, start, duration)
+            })
+        };
         match outcome {
             Ok(batch)
                 if batch.schema == 1
@@ -3805,7 +3950,7 @@ impl Application {
                 let mut page = self.open_source(&source_id)?;
                 if page.info.pending_version_id.as_deref() != Some(&version_id) { return Ok(()); }
                 let replacement = page.info.current_version_id.is_some();
-                let (complete, no_segments) = {
+                let (complete, no_evidence) = {
                     let audio = candidate_audio_processing_mut(&mut page.info, &version_id)
                         .ok_or_else(|| GardenError::Invalid("Pending audio processing state disappeared.".into()))?;
                     let window_end = start.saturating_add(batch.processed_duration_ms);
@@ -3821,36 +3966,39 @@ impl Application {
                         audio.segments.push(segment);
                     }
                     audio.segments.sort_by_key(|segment| (segment.start_ms, segment.end_ms, segment.segment_id.clone()));
+                    if video {
+                        if snapshot.tracks.as_ref().is_some_and(|tracks| tracks.audio.present) && !audio_usable {
+                            audio.gaps.retain(|gap| !(gap.track == "audio" && gap.start_ms == start));
+                            audio.gaps.push(MediaGap {
+                                track: "audio".into(),
+                                start_ms: start,
+                                end_ms: window_end,
+                                detail: "The audio track could not be decoded, so this interval has no speech evidence.".into(),
+                            });
+                        }
+                        attach_window_visuals(audio, visuals);
+                    }
                     audio.next_start_ms = window_end;
                     audio.state = if window_end >= audio.duration_ms { "complete" } else { "pending" }.into();
                     audio.retry_at_ms = None;
-                    audio.detail = format!("{} ms examined. Local large-v3-turbo Whisper output is a best-guess transcript without calibrated confidence or alternatives. Silence, overlap, accent/noise effects, and unrecognized speech are not distinguishable from omitted words; timestamps are estimates and speakers remain unidentified. Compare the original.", audio.next_start_ms);
-                    if audio.state == "complete" && audio.segments.is_empty() && replacement {
-                        audio.detail = format!("{} ms examined. No speech passage was recognized in this replacement. This does not distinguish silence, background noise, overlap, or unintelligible speech. The prior published transcript and original remain current; compare this exact candidate original.", audio.next_start_ms);
-                    }
-                    (audio.state == "complete", audio.segments.is_empty())
-                };
-                if complete && no_segments {
-                    if replacement {
-                        page.info.update_status = Some("pending".into());
-                        page.info.semantic_error = Some("The replacement audio was examined, but no speech passage was recognized. This does not prove silence; the prior published transcript and original remain current, and the exact replacement original is retained as an unpublished version.".into());
+                    audio.detail = if video {
+                        format!("{} ms examined. Speech is a best-guess Whisper transcript without calibrated confidence; sampled frames carry local OCR and an uncertain classifier. Speech and frame evidence keep separate origins, and intervals between sampled frames are not examined. Compare the original.", audio.next_start_ms)
                     } else {
-                        page.info.current_version_id = Some(version_id.clone());
-                        page.info.pending_version_id = None;
-                        page.info.update_status = None;
-                        page.info.semantic_state = "unavailable".into();
-                        promote_candidate_audio(&mut page.info, &version_id);
+                        format!("{} ms examined. Local large-v3-turbo Whisper output is a best-guess transcript without calibrated confidence or alternatives. Silence, overlap, accent/noise effects, and unrecognized speech are not distinguishable from omitted words; timestamps are estimates and speakers remain unidentified. Compare the original.", audio.next_start_ms)
+                    };
+                    if audio.state == "complete" && !audio.has_evidence() && replacement {
+                        audio.detail = format!("{} ms examined. No speech passage or frame evidence was recognized in this replacement. This does not distinguish silence, background noise, overlap, or unintelligible speech. The prior published evidence and original remain current; compare this exact candidate original.", audio.next_start_ms);
                     }
-                } else if complete {
-                    page.info.semantic_state = "pending".into();
-                }
+                    (audio.state == "complete", !audio.has_evidence())
+                };
+                settle_completed_media(&mut page, &version_id, replacement, complete, no_evidence);
                 let body = source_body(&page.info, "", None);
                 page.body = body.clone();
                 page.markdown = serialize_page(&page.info, &body)?;
                 self.publish_updated_page(&page)?;
             }
-            Ok(batch) => self.fail_audio_attempt(&source_id, &version_id, format!("The local recognizer returned an incomplete or misaligned result for {start}–{} ms (reported request {}–{} ms, media duration {} ms, examined {} ms). The same range remains resumable.", start + duration, batch.requested_start_ms, batch.requested_start_ms.saturating_add(batch.requested_duration_ms), batch.media_duration_ms, batch.processed_duration_ms))?,
-            Err(error) => self.fail_audio_attempt(&source_id, &version_id, error)?,
+            Ok(batch) => self.fail_audio_attempt(&source_id, &version_id, format!("The local recognizer returned an incomplete or misaligned result for {start}–{} ms (reported request {}–{} ms, media duration {} ms, examined {} ms). The same range remains resumable.", start + duration, batch.requested_start_ms, batch.requested_start_ms.saturating_add(batch.requested_duration_ms), batch.media_duration_ms, batch.processed_duration_ms), visuals)?,
+            Err(error) => self.fail_audio_attempt(&source_id, &version_id, error, visuals)?,
         }
         Ok(())
     }
@@ -3860,16 +4008,38 @@ impl Application {
         source_id: &str,
         version_id: &str,
         error: String,
+        visuals: WindowVisuals,
     ) -> Result<()> {
         let mut page = self.open_source(source_id)?;
         if page.info.pending_version_id.as_deref() != Some(version_id) {
             return Ok(());
         }
+        let replacement = page.info.current_version_id.is_some();
         let Some(audio) = candidate_audio_processing_mut(&mut page.info, version_id) else {
             return Ok(());
         };
         audio.failed_attempts = audio.failed_attempts.saturating_add(1);
-        if audio.failed_attempts >= MAX_AUDIO_FAILED_ATTEMPTS {
+        if audio.is_video() && audio.failed_attempts >= MAX_AUDIO_FAILED_ATTEMPTS {
+            // A damaged window must not discard the rest of the video: record the gap, keep this
+            // window's frames, and give the next window its own retry budget.
+            let window_end = visuals.end_ms.min(audio.duration_ms);
+            audio.gaps.retain(|gap| !(gap.track == "audio" && gap.start_ms == visuals.start_ms));
+            audio.gaps.push(MediaGap {
+                track: "audio".into(),
+                start_ms: visuals.start_ms,
+                end_ms: window_end,
+                detail: format!("Speech for this interval could not be decoded after {} attempts: {error}", audio.failed_attempts),
+            });
+            attach_window_visuals(audio, visuals);
+            audio.failed_attempts = 0;
+            audio.next_start_ms = window_end;
+            audio.state = if window_end >= audio.duration_ms { "complete" } else { "pending" }.into();
+            audio.retry_at_ms = None;
+            audio.detail = format!("{} ms examined. One or more intervals could not be decoded and are listed as gaps; evidence from other intervals and from the other track is retained.", audio.next_start_ms);
+            let complete = audio.state == "complete";
+            let no_evidence = !audio.has_evidence();
+            settle_completed_media(&mut page, version_id, replacement, complete, no_evidence);
+        } else if audio.failed_attempts >= MAX_AUDIO_FAILED_ATTEMPTS {
             audio.state = "failed".into();
             audio.retry_at_ms = None;
             audio.detail = format!(
@@ -4149,6 +4319,7 @@ impl Application {
                     EvidenceOffsetBasis::WebVisibleText => {
                         "extracted web visible-text projection; offsets are not downloaded HTML byte offsets"
                     }
+                    EvidenceOffsetBasis::ExtractedVideoProjection => "extracted video frame projection; offsets are not original video byte offsets; frame text is unverified OCR, not an authenticated capture time",
                     EvidenceOffsetBasis::AudioTranscript => {
                         "machine-generated transcript; audio wording and speaker remain unverified"
                     }
@@ -4160,7 +4331,7 @@ impl Application {
                     .map(|value| format!(" · original locator: {value}"))
                     .unwrap_or_default();
                 let audio_link =
-                    if fact.evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript {
+                    if matches!(fact.evidence.offset_basis, EvidenceOffsetBasis::AudioTranscript | EvidenceOffsetBasis::ExtractedVideoProjection) {
                         fact.evidence
                             .source_location
                             .as_deref()
@@ -4197,6 +4368,9 @@ impl Application {
                         "visible-text projection lines",
                         "visible-text projection bytes",
                     ),
+                    EvidenceOffsetBasis::ExtractedVideoProjection => {
+                        ("video frame projection lines", "video frame projection bytes")
+                    }
                     EvidenceOffsetBasis::AudioTranscript => {
                         ("transcript lines", "transcript bytes")
                     }
@@ -4285,6 +4459,17 @@ impl Application {
                             .unwrap_or_default(),
                         "The retained original opens as a fallback; offsets refer to the stated web visible-text projection.",
                     ),
+                    EvidenceOffsetBasis::ExtractedVideoProjection => (
+                        "video frame projection lines",
+                        "video frame projection bytes",
+                        relationship
+                            .evidence
+                            .source_location
+                            .as_deref()
+                            .map(|location| format!(" · video locator: {location}"))
+                            .unwrap_or_default(),
+                        "Open the on-demand frame preview or retained original at the stated frame time; frame text is unverified OCR and not an authenticated capture time.",
+                    ),
                     EvidenceOffsetBasis::AudioTranscript => (
                         "transcript lines",
                         "transcript bytes",
@@ -4298,7 +4483,7 @@ impl Application {
                     ),
                 };
                 let audio_link =
-                    if relationship.evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript {
+                    if matches!(relationship.evidence.offset_basis, EvidenceOffsetBasis::AudioTranscript | EvidenceOffsetBasis::ExtractedVideoProjection) {
                         relationship
                             .evidence
                             .source_location
@@ -5527,7 +5712,7 @@ impl Application {
                 .unwrap_or_default();
             let (basis, line_label, byte_label, guidance) =
                 evidence_display_basis(evidence.offset_basis);
-            let audio_link = if evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript {
+            let audio_link = if matches!(evidence.offset_basis, EvidenceOffsetBasis::AudioTranscript | EvidenceOffsetBasis::ExtractedVideoProjection) {
                 evidence
                     .source_location
                     .as_deref()
@@ -5595,7 +5780,7 @@ impl Application {
                 .unwrap_or_default();
             let (basis, line_label, byte_label, guidance) =
                 evidence_display_basis(evidence.offset_basis);
-            let audio_link = if evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript {
+            let audio_link = if matches!(evidence.offset_basis, EvidenceOffsetBasis::AudioTranscript | EvidenceOffsetBasis::ExtractedVideoProjection) {
                 evidence
                     .source_location
                     .as_deref()
@@ -7351,6 +7536,7 @@ fn evidence_offset_basis_name(basis: EvidenceOffsetBasis) -> &'static str {
         EvidenceOffsetBasis::AudioTranscript => "audio_transcript",
         EvidenceOffsetBasis::ExtractedImageProjection => "extracted_image_projection",
         EvidenceOffsetBasis::ExtractedPdfProjection => "extracted_pdf_projection",
+        EvidenceOffsetBasis::ExtractedVideoProjection => "extracted_video_projection",
         EvidenceOffsetBasis::ExtractedConversationProjection => "extracted_conversation_projection",
     }
 }
@@ -7540,6 +7726,7 @@ enum EvidenceOffsetBasis {
     AudioTranscript,
     ExtractedImageProjection,
     ExtractedPdfProjection,
+    ExtractedVideoProjection,
 }
 
 fn evidence_display_basis(
@@ -7580,6 +7767,12 @@ fn evidence_display_basis(
             "visible-text projection lines",
             "visible-text projection bytes",
             "The retained original opens as a fallback; offsets refer to the stated web visible-text projection.",
+        ),
+        EvidenceOffsetBasis::ExtractedVideoProjection => (
+            "extracted video frame projection; offsets are not original video byte offsets; frame text is unverified OCR, not an authenticated capture time",
+            "video frame projection lines",
+            "video frame projection bytes",
+            "Open the on-demand frame preview or retained original at the stated frame time; otherwise the whole frame is the disclosed fallback.",
         ),
         EvidenceOffsetBasis::AudioTranscript => (
             "machine-generated audio transcript; offsets are transcript bytes, not audio bytes",
@@ -7817,6 +8010,12 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         }
         None if inferred_location
             .as_deref()
+            .is_some_and(|locator| locator.starts_with("VIDEO FRAME ")) =>
+        {
+            EvidenceOffsetBasis::ExtractedVideoProjection
+        }
+        None if inferred_location
+            .as_deref()
             .is_some_and(|locator| locator.starts_with("PHOTO ")) =>
         {
             EvidenceOffsetBasis::ExtractedImageProjection
@@ -7836,6 +8035,7 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         Some("audio_transcript") => EvidenceOffsetBasis::AudioTranscript,
         Some("extracted_image_projection") => EvidenceOffsetBasis::ExtractedImageProjection,
         Some("extracted_pdf_projection") => EvidenceOffsetBasis::ExtractedPdfProjection,
+        Some("extracted_video_projection") => EvidenceOffsetBasis::ExtractedVideoProjection,
         Some("extracted_conversation_projection") => {
             EvidenceOffsetBasis::ExtractedConversationProjection
         }
@@ -8264,26 +8464,80 @@ fn stable_audio_segment_id(version_id: &str, window_start_ms: u64, ordinal: usiz
     format!("audio-segment-{}", hex::encode(digest.finalize()))
 }
 
+const MAX_VIDEO_SEMANTIC_FRAME_LINES: usize = 24;
+
 fn audio_semantic_text(audio: &AudioProcessingInfo) -> String {
     let mut lines = String::from(
         "Machine-generated transcript from retained audio. Wording and timestamps are unverified estimates; this local recognizer emits no calibrated confidence or alternatives, and speaker identity is unavailable.\n",
     );
+    if audio.is_video() {
+        lines.push_str("Frame evidence from retained video. Sampled frames carry local OCR text and an uncertain classifier prediction. Narrated speech is not visual observation, and text visible in a frame, including a date on a title card, is not an authenticated capture time.\n");
+    }
+    let mut entries: Vec<(u64, usize, String)> = Vec::new();
     for segment in &audio.segments {
-        lines.push_str(&format!(
-            "[AUDIO {}–{} ms confidence={} speaker=unidentified] {}\n",
+        entries.push((
             segment.start_ms,
-            segment.end_ms,
-            segment
-                .confidence
-                .map(|value| format!("{value:.2}"))
-                .unwrap_or_else(|| "unavailable".into()),
-            segment.text.replace(['\n', '\r'], " ")
+            0,
+            format!(
+                "[AUDIO {}–{} ms confidence={} speaker=unidentified] {}\n",
+                segment.start_ms,
+                segment.end_ms,
+                segment
+                    .confidence
+                    .map(|value| format!("{value:.2}"))
+                    .unwrap_or_else(|| "unavailable".into()),
+                segment.text.replace(['\n', '\r'], " ")
+            ),
         ));
+    }
+    let mut frame_lines = 0_usize;
+    let mut omitted = 0_usize;
+    for frame in &audio.frames {
+        let mut rows = Vec::new();
+        for (index, row) in frame.ocr.iter().enumerate() {
+            let text = row.text.replace(['\n', '\r', '\0'], " ");
+            if text.trim().is_empty() {
+                continue;
+            }
+            rows.push(format!(
+                "[VIDEO FRAME {} ms; OCR region {}; normalized bottom-left x={:.6},y={:.6},width={:.6},height={:.6}; channel=ocr] {} (OCR transcription of a sampled frame; confidence {:.4}; Vision revision {}; text in a frame does not verify an event, identity or capture time)\n",
+                frame.time_ms, index + 1, row.bounds[0], row.bounds[1], row.bounds[2], row.bounds[3], text, row.confidence, frame.ocr_revision
+            ));
+        }
+        if let Some(top) = frame.classifications.first() {
+            rows.push(format!(
+                "[VIDEO FRAME {} ms; channel=generated_interpretation] Classifier prediction: {} (uncertain model interpretation of a sampled frame; confidence {:.4}; Vision revision {}; whole frame)\n",
+                frame.time_ms,
+                top.label.replace(['\n', '\r', '\0'], " "),
+                top.confidence,
+                frame.classification_revision
+            ));
+        }
+        for row in rows {
+            if frame_lines >= MAX_VIDEO_SEMANTIC_FRAME_LINES {
+                omitted += 1;
+            } else {
+                frame_lines += 1;
+                entries.push((frame.time_ms, 1, row));
+            }
+        }
+    }
+    entries.sort_by_key(|(time, order, _)| (*time, *order));
+    for (_, _, line) in entries {
+        lines.push_str(&line);
+    }
+    if omitted > 0 {
+        lines.push_str(&format!("[VIDEO COVERAGE; channel=coverage_gap] {omitted} further frame evidence lines remain on the source page but were left out of semantic formation to keep it bounded.\n"));
     }
     lines
 }
 
-fn audio_processing_info(audio: AudioInfo, source_version_id: &str) -> AudioProcessingInfo {
+fn audio_processing_info(
+    audio: AudioInfo,
+    source_version_id: &str,
+    media: Option<MediaInfo>,
+) -> AudioProcessingInfo {
+    let video = media.is_some();
     AudioProcessingInfo {
         source_version_id: Some(source_version_id.to_owned()),
         state: "pending".into(),
@@ -8294,8 +8548,16 @@ fn audio_processing_info(audio: AudioInfo, source_version_id: &str) -> AudioProc
         failed_attempts: 0,
         processing_interruptions: 0,
         retry_at_ms: None,
-        detail: "Pinned local Whisper transcription is queued for this retained source version. Speaker attribution is unavailable; all speakers remain unidentified.".into(),
+        detail: if video {
+            "Bounded local processing is queued for this retained video version: speech uses the pinned local Whisper model and sampled frames use local OCR and an uncertain classifier. Speaker attribution is unavailable; speech and visual evidence keep separate origins.".into()
+        } else {
+            "Pinned local Whisper transcription is queued for this retained source version. Speaker attribution is unavailable; all speakers remain unidentified.".into()
+        },
         segments: Vec::new(),
+        media_kind: if video { "video" } else { "" }.into(),
+        tracks: media,
+        frames: Vec::new(),
+        gaps: Vec::new(),
     }
 }
 
@@ -8353,7 +8615,9 @@ fn draft_has_audio_provenance(draft: &KnowledgeDraft) -> bool {
             || evidence
                 .source_location
                 .as_deref()
-                .is_some_and(|location| location.starts_with("AUDIO "))
+                .is_some_and(|location| {
+                    location.starts_with("AUDIO ") || location.starts_with("VIDEO FRAME ")
+                })
     }
 
     draft.entities.iter().any(|entity| {
@@ -8454,10 +8718,24 @@ fn draft_audio_evidence_is_segment_grounded(
         else {
             return false;
         };
+        let content_start = line_start + locator_end + 2;
+        if let Some(time_ms) = frame_locator_time(locator) {
+            let quotes_frame_text =
+                evidence.byte_start >= content_start && evidence.byte_end <= line_end;
+            return quotes_frame_text
+                && audio.is_video()
+                && time_ms <= audio.duration_ms
+                && audio.frames.iter().any(|frame| frame.time_ms == time_ms)
+                && evidence
+                    .source_location
+                    .as_deref()
+                    .is_none_or(|location| {
+                        location.starts_with(&format!("VIDEO FRAME {time_ms} ms"))
+                    });
+        }
         let Some((start_ms, end_ms)) = audio_locator_range(locator) else {
             return false;
         };
-        let content_start = line_start + locator_end + 2;
         let quotes_segment_text =
             evidence.byte_start >= content_start && evidence.byte_end <= line_end;
         let quotes_segment_prefix = evidence.byte_start == line_start
@@ -8541,6 +8819,16 @@ fn is_generated_audio_header_evidence(evidence: &EvidenceDraft, source_text: &st
             .is_none_or(|basis| basis == "preserved_text")
 }
 
+/// Time of the sampled frame named by an evidence-line locator.
+fn frame_locator_time(locator: &str) -> Option<u64> {
+    locator
+        .strip_prefix("VIDEO FRAME ")?
+        .split_once(" ms")?
+        .0
+        .parse()
+        .ok()
+}
+
 fn audio_locator_range(locator: &str) -> Option<(u64, u64)> {
     let locator = locator.strip_prefix("AUDIO ")?;
     let timestamp = locator.split_once(" ms")?.0;
@@ -8552,42 +8840,85 @@ fn audio_locator_range(locator: &str) -> Option<(u64, u64)> {
     (start < end).then_some((start, end))
 }
 
-fn qualify_audio_evidence(draft: &mut KnowledgeDraft) {
-    fn qualify(evidence: &mut EvidenceDraft) {
-        evidence.offset_basis = Some("audio_transcript".into());
-        let caution = "Machine transcription; wording and speaker identity are unverified. Compare the retained original recording.";
+fn qualify_audio_evidence(draft: &mut KnowledgeDraft, source_text: &str) {
+    fn qualify(evidence: &mut EvidenceDraft, source_text: &str) {
+        let line_start = source_text
+            .get(..evidence.byte_start.min(source_text.len()))
+            .and_then(|prefix| prefix.rfind('\n'))
+            .map_or(0, |index| index + 1);
+        let frame = source_text
+            .get(line_start..)
+            .is_some_and(|line| line.starts_with("[VIDEO FRAME "));
+        let caution = if frame {
+            evidence.offset_basis = Some("extracted_video_projection".into());
+            "Sampled video frame; OCR text and classifier output are unverified machine interpretations of one moment, not narrated speech, an authenticated capture time, or an identity. Compare the retained original at this frame time."
+        } else {
+            evidence.offset_basis = Some("audio_transcript".into());
+            "Machine transcription; wording and speaker identity are unverified. Narrated speech is not visual observation. Compare the retained original recording."
+        };
         evidence.qualifier = Some(match evidence.qualifier.take() {
             Some(existing) => format!("{existing}; {caution}"),
             None => caution.into(),
         });
     }
     for entity in &mut draft.entities {
-        qualify(&mut entity.evidence);
+        qualify(&mut entity.evidence, source_text);
     }
     for fact in &mut draft.facts {
-        qualify(&mut fact.evidence);
+        qualify(&mut fact.evidence, source_text);
     }
     for relationship in &mut draft.relationships {
-        qualify(&mut relationship.evidence);
+        qualify(&mut relationship.evidence, source_text);
     }
     for tag in &mut draft.tags {
-        qualify(&mut tag.evidence);
+        qualify(&mut tag.evidence, source_text);
     }
     for correction in &mut draft.correction_candidates {
-        qualify(&mut correction.evidence);
+        qualify(&mut correction.evidence, source_text);
     }
     for alignment in &mut draft.correction_alignments {
-        qualify(&mut alignment.candidate.evidence);
+        qualify(&mut alignment.candidate.evidence, source_text);
     }
     if let Some(update) = &mut draft.source_update {
-        qualify(&mut update.evidence);
+        qualify(&mut update.evidence, source_text);
         if let Some(evidence) = &mut update.source_date_evidence {
-            qualify(evidence);
+            qualify(evidence, source_text);
         }
         if let Some(evidence) = &mut update.source_revision_evidence {
-            qualify(evidence);
+            qualify(evidence, source_text);
         }
     }
+}
+
+/// A date or time read from a frame, or narrated, never becomes the recording's capture time.
+fn video_draft_promotes_capture_time(draft: &KnowledgeDraft, source_text: &str) -> bool {
+    fn from_frame(evidence: &EvidenceDraft, source_text: &str) -> bool {
+        source_text
+            .get(..evidence.byte_start.min(source_text.len()))
+            .map(|prefix| prefix.rfind('\n').map_or(0, |index| index + 1))
+            .and_then(|start| source_text.get(start..))
+            .is_some_and(|line| line.starts_with("[VIDEO FRAME "))
+    }
+    const CAPTURE_PROPERTIES: [&str; 8] = [
+        "capture_time",
+        "capture_date",
+        "captured_at",
+        "recorded_at",
+        "recording_date",
+        "recording_time",
+        "filmed_on",
+        "date_taken",
+    ];
+    draft.facts.iter().any(|fact| {
+        CAPTURE_PROPERTIES.contains(&fact.property.to_ascii_lowercase().as_str())
+            && from_frame(&fact.evidence, source_text)
+    }) || draft.source_update.as_ref().is_some_and(|update| {
+        (update.source_date.is_some() && from_frame(&update.evidence, source_text))
+            || update
+                .source_date_evidence
+                .as_ref()
+                .is_some_and(|evidence| from_frame(evidence, source_text))
+    })
 }
 
 fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>) -> String {
@@ -8748,6 +9079,9 @@ fn append_pending_audio_body(info: &SourceInfo, body: &mut String) {
 }
 
 fn audio_start_from_locator(locator: &str) -> Option<u64> {
+    if let Some(frame) = locator.strip_prefix("VIDEO FRAME ") {
+        return frame.split_once(" ms")?.0.parse().ok();
+    }
     let time = locator.strip_prefix("AUDIO ")?.split_once('–')?.0;
     time.parse().ok()
 }
@@ -8896,7 +9230,7 @@ fn bind_legacy_audio_version(
     {
         if let Some(version) = versions.iter().find(|version| {
             Some(version.source_version_id.as_str()) == version_id
-                && is_audio_format(&version.format)
+                && is_timed_media_format(&version.format)
         }) {
             audio.source_version_id = Some(version.source_version_id.clone());
         }
@@ -8930,4 +9264,147 @@ fn validate_relative_staging_path(path: &Path) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+fn video_audio_info(media: MediaInfo) -> std::result::Result<AudioInfo, String> {
+    if !media.video.present {
+        return Err("The container has no video track.".into());
+    }
+    Ok(AudioInfo {
+        format: media.format,
+        duration_ms: media.duration_ms,
+        sample_rate: media.audio.sample_rate.unwrap_or(0.0),
+        channels: media.audio.channels.unwrap_or(0),
+        codec: format!("video {} / audio {}", media.video.codec, media.audio.codec),
+    })
+}
+
+fn video_extraction_detail(media: &MediaInfo, replacement: bool) -> String {
+    let lead = if replacement {
+        "The changed video original is retained as a new source version. Its speech and frame evidence are reset and queued for bounded processing; nothing from a different source version is reused."
+    } else {
+        "The exact video original is retained. Bounded local processing is queued in resumable time windows: speech uses the pinned local Whisper model, and sampled frames use local OCR and an uncertain classifier."
+    };
+    let mut notes = Vec::new();
+    if !media.audio.present {
+        notes.push("The container has no audio track, so no speech evidence exists; visual evidence is still processed.");
+    } else if !media.audio.decodable {
+        notes.push("The audio track could not be decoded; visual evidence is still processed.");
+    }
+    if !media.video.decodable {
+        notes.push("The first video sample could not be decoded; frame evidence may be unavailable.");
+    }
+    if media.video.variable_frame_rate == Some(true) {
+        notes.push("Frame timing varies; frames are sampled by presentation time, not frame count.");
+    }
+    if notes.is_empty() {
+        lead.into()
+    } else {
+        format!("{lead} {}", notes.join(" "))
+    }
+}
+
+fn video_coverage(media: &MediaInfo) -> Vec<CoveragePart> {
+    let visual = if !media.video.present {
+        (CoverageStatus::Unsupported, "The container has no video track.".to_owned())
+    } else if !media.video.decodable {
+        (CoverageStatus::Failed, format!("The video track could not be decoded: {}", media.video.detail))
+    } else {
+        (
+            CoverageStatus::Partial,
+            format!(
+                "{}×{} {} video{}. Frames are sampled at bounded intervals; intervals between samples and unrecognized visual content are not examined, and no identity or capture date is established.",
+                media.video.width.unwrap_or(0),
+                media.video.height.unwrap_or(0),
+                media.video.codec,
+                if media.video.variable_frame_rate == Some(true) { " with variable frame timing" } else { "" }
+            ),
+        )
+    };
+    let speech = if !media.audio.present {
+        (CoverageStatus::Unsupported, "The container has no audio track; no speech evidence exists.".to_owned())
+    } else if !media.audio.decodable {
+        (CoverageStatus::Failed, format!("The audio track could not be decoded: {}", media.audio.detail))
+    } else {
+        (
+            CoverageStatus::Partial,
+            "Automatic transcription is not complete or word-for-word verified; speaker identity, silence, noise and overlap are not established.".to_owned(),
+        )
+    };
+    vec![
+        CoveragePart {
+            scope: CoverageScope::VideoFrames,
+            status: visual.0,
+            source_location: Some("sampled frame times".into()),
+            detail: visual.1,
+        },
+        CoveragePart {
+            scope: CoverageScope::AudioRecording,
+            status: speech.0,
+            source_location: Some("audio track timeline".into()),
+            detail: speech.1,
+        },
+    ]
+}
+
+/// Evidence gathered for one resumable window; attached only when the window resolves.
+#[derive(Default)]
+struct WindowVisuals {
+    start_ms: u64,
+    end_ms: u64,
+    frames: Vec<VideoFrameEvidence>,
+    gaps: Vec<MediaGap>,
+}
+
+fn attach_window_visuals(audio: &mut AudioProcessingInfo, visuals: WindowVisuals) {
+    let (start, end) = (visuals.start_ms, visuals.end_ms);
+    audio
+        .frames
+        .retain(|frame| frame.requested_ms < start || frame.requested_ms >= end);
+    for frame in visuals.frames {
+        // Keyframe tolerance can map two requests to one decoded frame; it is one observation.
+        if !audio.frames.iter().any(|known| known.time_ms == frame.time_ms) {
+            audio.frames.push(frame);
+        }
+    }
+    audio.frames.sort_by_key(|frame| (frame.time_ms, frame.requested_ms));
+    audio
+        .gaps
+        .retain(|gap| !(gap.track == "video" && gap.start_ms >= start && gap.start_ms < end));
+    audio.gaps.extend(visuals.gaps);
+    audio.gaps.sort_by_key(|gap| (gap.start_ms, gap.track.clone()));
+}
+
+/// Mirrors the audio completion rules: a first acquisition with no recognized evidence has no
+/// knowledge to form, and a replacement without evidence stays unpublished.
+fn settle_completed_media(
+    page: &mut SourcePage,
+    version_id: &str,
+    replacement: bool,
+    complete: bool,
+    no_evidence: bool,
+) {
+    if complete && no_evidence {
+        if replacement {
+            page.info.update_status = Some("pending".into());
+            page.info.semantic_error = Some("The replacement media was examined, but no speech passage or frame evidence was recognized. This does not prove silence or emptiness; the prior published evidence and original remain current, and the exact replacement original is retained as an unpublished version.".into());
+        } else {
+            page.info.current_version_id = Some(version_id.to_owned());
+            page.info.pending_version_id = None;
+            page.info.update_status = None;
+            page.info.semantic_state = "unavailable".into();
+            promote_candidate_audio(&mut page.info, version_id);
+        }
+    } else if complete {
+        page.info.semantic_state = "pending".into();
+    }
+}
+
+const VIDEO_FRAME_INTERVAL_MS: u64 = 10_000;
+
+fn stable_frame_id(version_id: &str, requested_ms: u64) -> String {
+    let mut digest = Sha256::new();
+    digest.update(version_id.as_bytes());
+    digest.update(requested_ms.to_be_bytes());
+    format!("video-frame-{:x}", digest.finalize())
 }
