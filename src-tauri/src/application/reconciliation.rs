@@ -1,6 +1,6 @@
 //! Reconcile ordinary Markdown by durable identity; no watcher event is authoritative.
 use super::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CollectionDiagnostic {
@@ -20,6 +20,14 @@ pub struct ReconciliationStatus {
 pub(super) struct Scan {
     directories: Vec<fs::ReadDir>,
     files: BTreeMap<String, String>,
+    source_directories: BTreeSet<String>,
+    unreadable: Vec<CollectionDiagnostic>,
+}
+
+fn is_source_index(path: &str) -> bool {
+    let path = Path::new(path);
+    path.file_name() == Some(std::ffi::OsStr::new("index.md"))
+        && path.parent().and_then(Path::parent) == Some(Path::new("sources"))
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -63,29 +71,52 @@ impl Application {
             };
             let kind = entry.file_type()?;
             if kind.is_dir() {
+                if entry.path().parent() == Some(self.root.join("sources").as_path()) {
+                    scan.source_directories.insert(
+                        entry
+                            .path()
+                            .strip_prefix(&self.root)
+                            .unwrap()
+                            .to_string_lossy()
+                            .into_owned(),
+                    );
+                }
                 if let Ok(entries) = fs::read_dir(entry.path()) {
                     scan.directories.push(entries);
                 }
             } else if kind.is_file() && entry.path().extension().is_some_and(|ext| ext == "md") {
                 let path = entry.path();
-                if let Ok(text) = read_bounded_text(&path, MAX_PAGE_BYTES) {
-                    scan.files.insert(
-                        path.strip_prefix(&self.root)
-                            .unwrap()
-                            .to_string_lossy()
-                            .into_owned(),
-                        hex::encode(Sha256::digest(text.as_bytes())),
-                    );
+                let relative = path
+                    .strip_prefix(&self.root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
+                match read_bounded_text(&path, MAX_PAGE_BYTES) {
+                    Ok(text) => { scan.files.insert(relative, hex::encode(Sha256::digest(text.as_bytes()))); }
+                    Err(_) => scan.unreadable.push(CollectionDiagnostic { kind: "unreadable_markdown".into(), paths: vec![relative], detail: "Markdown could not be read within the supported size or encoding bounds; its original contents remain preserved.".into() }),
                 }
             }
         }
         if !scan.directories.is_empty() {
             return Ok(self.reconciliation_status(false));
         }
-        let scan = self.collection_scan.take().unwrap();
-        let digest = hex::encode(Sha256::digest(serde_json::to_vec(&scan.files)?));
+        let mut scan = self.collection_scan.take().unwrap();
+        for directory in &scan.source_directories {
+            let relative = format!("{directory}/index.md");
+            let path = self.root.join(&relative);
+            if !fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_file()) {
+                scan.unreadable.push(CollectionDiagnostic { kind: "missing_metadata".into(), paths: vec![relative], detail: "Source metadata is missing or is not an ordinary file; retained assets are preserved for recovery.".into() });
+            }
+        }
+        scan.unreadable
+            .sort_by(|left, right| left.paths.cmp(&right.paths));
+        let digest = hex::encode(Sha256::digest(serde_json::to_vec(&(
+            &scan.files,
+            &scan.source_directories,
+            &scan.unreadable,
+        ))?));
         if self.collection_digest.as_ref() != Some(&digest) {
-            if !self.reconcile_snapshot(scan.files)? {
+            if !self.reconcile_snapshot(scan.files, scan.unreadable)? {
                 return Ok(self.reconciliation_status(false));
             }
             self.rebuild_index()?;
@@ -107,7 +138,11 @@ impl Application {
         }
     }
 
-    fn reconcile_snapshot(&mut self, files: BTreeMap<String, String>) -> Result<bool> {
+    fn reconcile_snapshot(
+        &mut self,
+        files: BTreeMap<String, String>,
+        mut diagnostics: Vec<CollectionDiagnostic>,
+    ) -> Result<bool> {
         let ledger_path = self.root.join(".reconciliation/paths.md");
         let previous: Ledger = if ledger_path.exists() {
             let text = read_bounded_text(&ledger_path, MAX_PAGE_BYTES)?;
@@ -126,16 +161,19 @@ impl Application {
             Ledger::default()
         };
         let mut candidates = BTreeMap::<String, Vec<String>>::new();
-        let mut diagnostics = Vec::new();
         for path in files.keys() {
             let Ok(text) = read_bounded_text(&self.root.join(path), MAX_PAGE_BYTES) else {
                 return Ok(false);
             };
-            if path.starts_with("sources/")
-                && path.ends_with("/index.md")
-                && read_page(&self.root.join(path)).is_err()
-            {
-                diagnostics.push(CollectionDiagnostic { kind: "malformed_metadata".into(), paths: vec![path.clone()], detail: "Source metadata is unreadable; the original file and retained assets remain preserved.".into() });
+            if is_source_index(path) {
+                let source = self.root.join(path);
+                let usable = read_page(&source).ok().is_some_and(|page| {
+                    self.source_dir(&page.info.source_id).ok().as_deref() == source.parent()
+                        && self.open_source(&page.info.source_id).is_ok()
+                });
+                if !usable {
+                    diagnostics.push(CollectionDiagnostic { kind: "malformed_metadata".into(), paths: vec![path.clone()], detail: "Source metadata, identity, or acquisition records are unreadable or inconsistent; original files and retained assets remain preserved.".into() });
+                }
             }
             if !path.starts_with("pages/") {
                 continue;
@@ -181,7 +219,7 @@ impl Application {
         let mut writes = Vec::new();
         let mut bases = HashMap::new();
         for (path, fingerprint) in &files {
-            if path.starts_with("sources/") && !path.ends_with("/index.md") {
+            if path.starts_with("sources/") && !is_source_index(path) {
                 continue;
             }
             let Ok(text) = read_bounded_text(&self.root.join(path), MAX_PAGE_BYTES) else {
@@ -189,6 +227,13 @@ impl Application {
             };
             if hex::encode(Sha256::digest(text.as_bytes())) != *fingerprint {
                 return Ok(false);
+            }
+            // Never rewrite a damaged source record while reporting its gap.
+            if diagnostics.iter().any(|diagnostic| {
+                diagnostic.kind == "malformed_metadata"
+                    && diagnostic.paths.iter().any(|item| item == path)
+            }) {
+                continue;
             }
             let is_ambiguous = candidates
                 .values()
@@ -217,7 +262,7 @@ impl Application {
                 rebase_href(origin, path, href)
             });
             let mut repaired = repair_links(path, &rebased, &aliases, &files, &mut diagnostics);
-            if path.starts_with("sources/") && path.ends_with("/index.md") {
+            if is_source_index(path) {
                 if let Ok(mut page) = read_page(&self.root.join(path)) {
                     let mut changed = false;
                     for summary in &mut page.info.knowledge_pages {

@@ -1892,6 +1892,16 @@ impl Application {
         Ok(page)
     }
 
+    // A damaged or mismatched durable source is reported by reconciliation.
+    // It must not prevent unrelated sources from being recovered or scheduled.
+    fn readable_source_entry(&self, entry: &fs::DirEntry) -> Option<SourcePage> {
+        let page = read_page(&entry.path().join("index.md")).ok()?;
+        if entry.path() != self.source_dir(&page.info.source_id).ok()? {
+            return None;
+        }
+        self.open_source(&page.info.source_id).ok()
+    }
+
     pub fn open_source(&self, source_id: &str) -> Result<SourcePage> {
         recover_publications(&self.root)?;
         let mut page = read_page(&self.page_path(source_id)?)?;
@@ -2507,7 +2517,9 @@ impl Application {
         if !path.is_file() {
             return Ok(None);
         }
-        let source = read_page(&path)?;
+        let Ok(source) = self.open_source(&support.source_id) else {
+            return Ok(None);
+        };
         if let Some(version) = source
             .info
             .versions_seen
@@ -2549,8 +2561,9 @@ impl Application {
             if !entry.file_type()?.is_dir() {
                 continue;
             }
-            let source_id = read_page(&entry.path().join("index.md"))?.info.source_id;
-            let page = self.open_source(&source_id)?;
+            let Some(page) = self.readable_source_entry(&entry) else {
+                continue;
+            };
             if page.info.semantic_state == "processing"
                 || page.info.update_status.as_deref() == Some("processing")
             {
@@ -3833,8 +3846,9 @@ impl Application {
             if !entry.file_type()?.is_dir() {
                 continue;
             }
-            let source_id = read_page(&entry.path().join("index.md"))?.info.source_id;
-            let mut page = self.open_source(&source_id)?;
+            let Some(mut page) = self.readable_source_entry(&entry) else {
+                continue;
+            };
             let Some(pending_version_id) = page.info.pending_version_id.clone() else {
                 continue;
             };
@@ -3874,8 +3888,10 @@ impl Application {
             if !entry.file_type()?.is_dir() {
                 continue;
             }
-            let source_id = read_page(&entry.path().join("index.md"))?.info.source_id;
-            let page = self.open_source(&source_id)?;
+            let Some(page) = self.readable_source_entry(&entry) else {
+                continue;
+            };
+            let source_id = page.info.source_id.clone();
             if let Some(pending_version_id) = page.info.pending_version_id.as_deref() {
                 if let Some(audio) = candidate_audio_processing(&page.info, pending_version_id) {
                     if audio.state == "pending" && audio.retry_at_ms.unwrap_or(0) <= now {
@@ -5489,7 +5505,10 @@ impl Application {
         if !path.exists() {
             return Ok((None, None, String::new(), source_version_id.to_owned()));
         }
-        let info = read_page(&path)?.info;
+        let Ok(page) = read_page(&path) else {
+            return Ok((None, None, String::new(), source_version_id.to_owned()));
+        };
+        let info = page.info;
         let version = info
             .versions_seen
             .iter()
@@ -5532,10 +5551,7 @@ impl Application {
             Ok(page) => page,
             // Source removal must not prevent rebuilding the derived graph. The
             // retained knowledge stays readable, with unavailable support links.
-            Err(GardenError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(("unavailable".into(), "unavailable".into()));
-            }
-            Err(error) => return Err(error),
+            Err(_) => return Ok(("unavailable".into(), "unavailable".into())),
         };
         let version = source_page
             .info
@@ -6585,7 +6601,10 @@ impl Application {
             }
             return Ok(None);
         }
-        let path = self.root.join("pages").join(format!("{page_id}.md"));
+        let path = match self.knowledge_path(page_id) {
+            Ok(path) => path,
+            Err(_) => return Ok(None),
+        };
         let markdown = match read_bounded_text(&path, MAX_PAGE_BYTES) {
             Ok(markdown) => markdown,
             Err(_) => return Ok(None),
@@ -6673,10 +6692,7 @@ impl Application {
             if !entry.file_type()?.is_dir() {
                 continue;
             }
-            let Ok(page) = read_page(&entry.path().join("index.md")) else {
-                continue;
-            };
-            let Ok(page) = self.open_source(&page.info.source_id) else {
+            let Some(page) = self.readable_source_entry(&entry) else {
                 continue;
             };
             transaction.execute(
@@ -6705,11 +6721,12 @@ impl Application {
                     continue;
                 }
                 let header = read_knowledge_header(&path)?;
-                if !self
-                    .source_dir(&header.source_id)?
-                    .join("index.md")
-                    .exists()
-                {
+                let source_indexed: bool = transaction.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sources WHERE source_id = ?1)",
+                    [&header.source_id],
+                    |row| row.get(0),
+                )?;
+                if !source_indexed {
                     // Authoritative owner edits outlive removal of their last source.
                     write_search_documents(
                         &transaction,
@@ -6889,7 +6906,11 @@ impl Application {
                     digest.update([0]);
                     continue;
                 }
-                let info = read_page(&path)?.info;
+                let Ok(page) = read_page(&path) else {
+                    digest.update([0]);
+                    continue;
+                };
+                let info = page.info;
                 if let Some(version) = info
                     .versions_seen
                     .iter()

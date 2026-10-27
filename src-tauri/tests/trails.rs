@@ -222,6 +222,8 @@ fn mixed_route_preserves_order_context_and_honest_resolution_after_restart_and_r
     )
     .unwrap();
     drop(app);
+    // A cold rebuild must not rely on any previous database or vector cache.
+    fs::remove_dir_all(root.join(".derived")).unwrap();
     let mut app = Application::open(&root).unwrap();
     app.rebuild_index().unwrap();
     let reopened = app.open_saved_view(&saved.view_id).unwrap();
