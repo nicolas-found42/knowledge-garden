@@ -8,6 +8,7 @@ import type {
   PageSearchResults,
   SourcePage,
   VideoPreview,
+  ComparisonSide,
 } from "./api";
 
 const riverside: SourcePage = {
@@ -4346,6 +4347,92 @@ it("restores collection canvas, selected item, filter and expansion with Back af
       .getAttribute("aria-pressed"),
   ).toBe("true");
   expect(screen.getByRole("button", { name: "Riverside notes" })).toBe(
+    document.activeElement,
+  );
+});
+
+it("compares two sources, returns from evidence context and closes to the previous reader focus", async () => {
+  const api = testApi();
+  const second: SourcePage = {
+    ...riverside,
+    info: {
+      ...riverside.info,
+      source_id: "source-second",
+      page_id: "page-second",
+      title: "Second report",
+    },
+    body: "# Second report\n\n15 visits, provisional count.",
+  };
+  api.importSource = vi
+    .fn()
+    .mockResolvedValueOnce(riverside)
+    .mockResolvedValueOnce(second);
+  api.openSource = vi
+    .fn()
+    .mockImplementation(async (id) =>
+      id === second.info.source_id ? second : riverside,
+    );
+  api.comparisonSide = vi
+    .fn()
+    .mockImplementation(async (request): Promise<ComparisonSide> => {
+      const isSecond = request.source_id === second.info.source_id;
+      return {
+        source_id: request.source_id,
+        title: isSecond ? "Second report" : "Riverside notes",
+        format: "txt",
+        original_name: "report.txt",
+        origin: null,
+        source_version_id: "v1",
+        asset: "original.txt",
+        signature: "s1",
+        status: "fresh",
+        detail: "Source qualification retained.",
+        processing_status: "complete",
+        coverage: [],
+        context_gaps: [],
+        passage: {
+          text: isSecond
+            ? "15 visits, provisional count."
+            : "12 visits, two unverified.",
+          line_start: 1,
+          line_end: 1,
+          byte_start: 0,
+          byte_end: 30,
+          offset_basis: "retained_original_text",
+          next_line: null,
+          truncated: false,
+        },
+      };
+    });
+  api.openComparisonOriginal = vi.fn().mockResolvedValue(undefined);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(screen.getByRole("button", { name: "Compare this source" }));
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  const compare = screen.getByRole("button", { name: "Compare this source" });
+  compare.focus();
+  await user.keyboard("{Enter}");
+  await screen.findByText("12 visits, two unverified.");
+  expect(screen.getByText("15 visits, provisional count.")).toBeTruthy();
+  const context = screen.getByRole("button", {
+    name: "Read left source context",
+  });
+  context.focus();
+  await user.keyboard("{Enter}");
+  await screen.findByRole("heading", { name: "Riverside notes" });
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  await screen.findByText("12 visits, two unverified.");
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: "Read left source context" }),
+    ).toBe(document.activeElement),
+  );
+  await user.click(screen.getByRole("button", { name: "Close comparison" }));
+  await screen.findByRole("heading", { name: "Second report" });
+  expect(screen.getByRole("button", { name: "Compare this source" })).toBe(
     document.activeElement,
   );
 });
