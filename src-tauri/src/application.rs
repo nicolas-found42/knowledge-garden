@@ -5,6 +5,7 @@ pub mod comparison;
 pub mod gaps;
 mod publication;
 pub mod reconciliation;
+pub mod views;
 pub mod watched;
 use crate::extraction::{LocalExtractor, SourceExtractor};
 use crate::meaning::{MeaningFilters, MeaningSearch};

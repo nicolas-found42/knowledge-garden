@@ -73,6 +73,42 @@ async fn comparison_side(
 }
 
 #[tauri::command]
+async fn list_saved_views(
+    engine: State<'_, Engine>,
+    query: String,
+    offset: usize,
+) -> Result<crate::application::views::SavedViews, String> {
+    with_engine(&engine, move |app| app.list_saved_views(&query, offset)).await
+}
+#[tauri::command]
+async fn create_saved_view(
+    engine: State<'_, Engine>,
+    name: String,
+    definition: crate::application::views::ViewDefinition,
+) -> Result<crate::application::views::SavedView, String> {
+    with_engine(&engine, move |app| app.create_saved_view(&name, definition)).await
+}
+#[tauri::command]
+async fn open_saved_view(
+    engine: State<'_, Engine>,
+    view_id: String,
+) -> Result<crate::application::views::SavedView, String> {
+    with_engine(&engine, move |app| app.open_saved_view(&view_id)).await
+}
+#[tauri::command]
+async fn rename_saved_view(
+    engine: State<'_, Engine>,
+    view_id: String,
+    name: String,
+) -> Result<crate::application::views::SavedView, String> {
+    with_engine(&engine, move |app| app.rename_saved_view(&view_id, &name)).await
+}
+#[tauri::command]
+async fn remove_saved_view(engine: State<'_, Engine>, view_id: String) -> Result<(), String> {
+    with_engine(&engine, move |app| app.remove_saved_view(&view_id)).await
+}
+
+#[tauri::command]
 async fn collection_groups(
     engine: State<'_, Engine>,
     request: crate::application::collection::CollectionGroupRequest,
@@ -382,6 +418,11 @@ pub fn run() {
             inspect_gaps,
             timeline,
             collection_groups,
+            list_saved_views,
+            create_saved_view,
+            open_saved_view,
+            rename_saved_view,
+            remove_saved_view,
             comparison_side,
             open_comparison_original,
             collection_members,
