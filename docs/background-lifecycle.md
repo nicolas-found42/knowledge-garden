@@ -53,3 +53,18 @@ replace the normal application's state. Current qualification host: Apple Silico
 Actual installed-app close/reopen/Quit, login, sleep/wake, and crash outcomes must
 be recorded before #28 is accepted. Unit tests and generic event-loop resume
 notifications do not establish physical sleep or an actual login.
+
+On the 48 GB qualification host, the installed QA build imported three watched
+fixtures, survived a forced process crash and LaunchAgent bootstrap, and retained
+all prior source identities while importing a fourth. Closing the reader left the
+same process running; a fifth watched file appeared in the collection before the
+reader reopened. After the app exited, a sixth file remained outside the collection
+until the next launch, when it appeared in the reader. These observations do not
+substitute for an actual login, physical sleep/wake, or menu-bar interaction.
+
+The controlled-shutdown subprocess regressions also interrupt active helper,
+replacement extraction, and final URL acquisition operations. They verify that
+helpers are reaped and pending leases retain their retry budgets on reopening.
+On this host, PDF and photo native regressions timed out waiting for Apple's Vision
+neural-engine compilation service; the sampled process was waiting for that
+service, and these checks remain unverified locally.
