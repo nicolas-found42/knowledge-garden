@@ -1905,6 +1905,9 @@ impl Application {
     pub fn open_source(&self, source_id: &str) -> Result<SourcePage> {
         recover_publications(&self.root)?;
         let mut page = read_page(&self.page_path(source_id)?)?;
+        if page.info.source_id != source_id {
+            return Err(GardenError::Invalid("Source metadata identity does not match its directory; retained content is preserved.".into()));
+        }
         let contexts = self.source_dir(source_id)?.join("acquisitions");
         if contexts.exists() {
             for entry in fs::read_dir(contexts)? {
@@ -5505,7 +5508,7 @@ impl Application {
         if !path.exists() {
             return Ok((None, None, String::new(), source_version_id.to_owned()));
         }
-        let Ok(page) = read_page(&path) else {
+        let Ok(page) = self.open_source(source_id) else {
             return Ok((None, None, String::new(), source_version_id.to_owned()));
         };
         let info = page.info;
@@ -5546,8 +5549,7 @@ impl Application {
         let Some(short_id) = support.source_id.strip_prefix("source-") else {
             return Ok(("unavailable".into(), "unavailable".into()));
         };
-        let source_dir = self.source_dir(&support.source_id)?;
-        let source_page = match read_page(&source_dir.join("index.md")) {
+        let source_page = match self.open_source(&support.source_id) {
             Ok(page) => page,
             // Source removal must not prevent rebuilding the derived graph. The
             // retained knowledge stays readable, with unavailable support links.
@@ -6906,7 +6908,7 @@ impl Application {
                     digest.update([0]);
                     continue;
                 }
-                let Ok(page) = read_page(&path) else {
+                let Ok(page) = self.open_source(&source_id) else {
                     digest.update([0]);
                     continue;
                 };

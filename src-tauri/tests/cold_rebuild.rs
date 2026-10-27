@@ -76,8 +76,7 @@ fn malformed_source_is_reported_without_blocking_cold_rebuild_or_other_pending_w
 #[path = "fixtures/queries/provider.rs"]
 mod labeled;
 
-#[test]
-fn malformed_supporting_source_keeps_its_knowledge_and_does_not_block_rebuild() {
+fn exercise_damaged_support(mismatched_identity: bool) {
     use std::sync::Arc;
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("collection");
@@ -98,9 +97,17 @@ fn malformed_supporting_source_keeps_its_knowledge_and_does_not_block_rebuild() 
         .clone();
     let original = fs::read(app.original_path(&source.info.source_id).unwrap()).unwrap();
     let metadata_path = app.page_path(&source.info.source_id).unwrap();
-    let broken = "---\nschema: [broken\n---\nPreserve owner source notes.\n";
+    let broken = if mismatched_identity {
+        fs::read_to_string(&metadata_path).unwrap().replacen(
+            &source.info.source_id,
+            &format!("source-{}", "0".repeat(64)),
+            1,
+        )
+    } else {
+        "---\nschema: [broken\n---\nPreserve owner source notes.\n".to_owned()
+    };
     drop(app);
-    fs::write(&metadata_path, broken).unwrap();
+    fs::write(&metadata_path, &broken).unwrap();
     fs::remove_dir_all(root.join(".derived")).unwrap();
     let mut app =
         Application::open(&root).expect("broken support must not prevent reopening durable pages");
@@ -139,4 +146,13 @@ fn malformed_supporting_source_keeps_its_knowledge_and_does_not_block_rebuild() 
         fs::read(metadata_path.parent().unwrap().join("original.txt")).unwrap(),
         original
     );
+}
+
+#[test]
+fn malformed_supporting_source_keeps_its_knowledge_and_does_not_block_rebuild() {
+    exercise_damaged_support(false);
+}
+#[test]
+fn mismatched_support_identity_does_not_point_to_an_unrelated_original() {
+    exercise_damaged_support(true);
 }
