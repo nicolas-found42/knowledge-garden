@@ -6233,6 +6233,8 @@ fn replaced_page_directory_and_interrupted_reconciliation_recover_links() {
     }
     assert!(interrupted);
     drop(app);
+    // Lose the disposable index while a durable publication receipt is pending.
+    fs::remove_dir_all(collection.join(".derived")).unwrap();
     let app = Application::open(&collection).unwrap();
     assert_eq!(
         app.open_knowledge_page(&page.page_id).unwrap().page_id,
