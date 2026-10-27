@@ -1,3 +1,4 @@
+mod lifecycle;
 use crate::application::boolean::{BooleanQueryRequest, BooleanQueryResponse};
 use crate::{
     application::{
@@ -12,20 +13,39 @@ use crate::{
 };
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
 use tauri::{Manager, State};
 
 struct Engine {
     app: Arc<Mutex<Application>>,
+    control: Arc<crate::background::BackgroundControl>,
+    shutdown_root: PathBuf,
+    shutdown_recorded: AtomicBool,
+}
+impl Engine {
+    fn prepare_exit(&self) {
+        self.control.stop();
+        if !self.shutdown_recorded.swap(true, Ordering::SeqCst) {
+            if let Err(error) = Application::record_controlled_shutdown(&self.shutdown_root) {
+                self.shutdown_recorded.store(false, Ordering::SeqCst);
+                eprintln!("Controlled shutdown could not be recorded; durable work will use crash recovery: {error}");
+            }
+        }
+    }
 }
 
 async fn with_engine<T: Send + 'static>(
     engine: &Engine,
     operation: impl FnOnce(&mut Application) -> crate::application::Result<T> + Send + 'static,
 ) -> Result<T, String> {
+    let control = Arc::clone(&engine.control);
     let engine = Arc::clone(&engine.app);
     tauri::async_runtime::spawn_blocking(move || {
+        let _work = control.enter();
         let mut app = engine
             .lock()
             .map_err(|_| "The collection worker stopped unexpectedly.".to_owned())?;
@@ -35,6 +55,10 @@ async fn with_engine<T: Send + 'static>(
     .map_err(|error| error.to_string())?
 }
 
+#[tauri::command]
+fn background_status(engine: State<'_, Engine>) -> crate::background::BackgroundStatus {
+    engine.control.status()
+}
 #[tauri::command]
 async fn open_collection_file(engine: State<'_, Engine>, path: String) -> Result<(), String> {
     with_engine(&engine, move |app| {
@@ -395,65 +419,51 @@ pub fn run() {
             let audio_processor = Arc::new(WhisperAudioProcessor::new(
                 app.path().resource_dir()?.join("audio"),
             ));
-            let engine = Arc::new(Mutex::new(Application::open_with_all_providers_and_meaning_assets(
-                root,
-                Arc::clone(&semantic_provider),
-                Arc::new(LocalExtractor),
-                audio_processor,
-                Some(meaning_assets),
-            )?));
-            let worker_app = Arc::clone(&engine);
-            let worker_provider = Arc::clone(&semantic_provider);
-            std::thread::Builder::new()
-                .name("knowledge-garden-semantic-queue".into())
-                .spawn(move || loop {
-                    std::thread::sleep(std::time::Duration::from_secs(5));
-                    if let Ok(mut app) = worker_app.lock() {
-                        if let Err(error) = app.reconcile_collection(256) {
-                            eprintln!("Collection reconciliation will retry: {error}");
-                        }
-                        if let Err(error) = app.reconcile_watched_directories(8) {
-                            eprintln!("Directory watcher could not reconcile: {error}");
-                        }
-                        if let Err(error) = app.resume_due_url_acquisitions() {
-                            eprintln!("URL acquisition queue could not resume work: {error}");
-                        }
-                        if let Err(error) = app.resume_due_audio_jobs() {
-                            eprintln!("Audio transcription queue could not resume work: {error}");
-                        }
-                    }
-                    let jobs = match worker_app.lock() {
-                        Ok(mut app) => match app.claim_due_semantic_jobs(2) {
-                            Ok(jobs) => jobs,
-                            Err(error) => {
-                                eprintln!("Semantic queue could not claim work: {error}");
-                                continue;
-                            }
-                        },
-                        Err(_) => {
-                            eprintln!("Semantic queue could not access the collection.");
-                            continue;
-                        }
-                    };
-                    for job in jobs {
-                        let result = worker_provider.form_knowledge_with_prior(
-                            &job.source_text,
-                            job.prior_source_text.as_deref(),
-                        );
-                        match worker_app.lock() {
-                            Ok(mut app) => {
-                                if let Err(error) = app.finish_semantic_job(job, result) {
-                                    eprintln!("Semantic queue could not publish a result: {error}");
-                                }
-                            }
-                            Err(_) => eprintln!("Semantic queue could not access the collection to publish a result."),
-                        }
-                    }
-                })?;
-            app.manage(Engine { app: engine });
+            let engine = Arc::new(Mutex::new(
+                Application::open_with_all_providers_and_meaning_assets(
+                    &root,
+                    Arc::clone(&semantic_provider),
+                    Arc::new(LocalExtractor),
+                    audio_processor,
+                    Some(meaning_assets),
+                )?,
+            ));
+            let background = std::env::args().any(|argument| argument == "--background");
+            let control = crate::background::BackgroundControl::new(!background);
+            app.manage(Engine {
+                shutdown_root: root.canonicalize()?,
+                shutdown_recorded: AtomicBool::new(false),
+                app: Arc::clone(&engine),
+                control: Arc::clone(&control),
+            });
+            lifecycle::install(app, Arc::clone(&control))?;
+            crate::background::spawn_worker(
+                engine,
+                semantic_provider,
+                control,
+                std::time::Duration::from_secs(5),
+            )?;
+            if background {
+                #[cfg(target_os = "macos")]
+                let _ = app
+                    .handle()
+                    .set_activation_policy(tauri::ActivationPolicy::Accessory);
+                eprintln!(
+                    "Lifecycle: background startup; reader remains hidden and maintenance runs."
+                );
+            } else {
+                lifecycle::reopen(app.handle());
+            }
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                lifecycle::hide(window);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
+            background_status,
             open_collection_file,
             collection_status,
             inspect_gaps,
@@ -494,6 +504,30 @@ pub fn run() {
             open_original_version,
             open_original_asset
         ])
-        .run(tauri::generate_context!())
-        .expect("The Knowledge Garden application could not start");
+        .build(tauri::generate_context!())
+        .expect("The Knowledge Garden application could not start")
+        .run(|app, event| match event {
+            tauri::RunEvent::ExitRequested { code, .. } => {
+                if let Some(engine) = app.try_state::<Engine>() {
+                    if code.is_none() || code == Some(0) {
+                        engine.prepare_exit();
+                    } else {
+                        engine.control.stop();
+                    }
+                }
+            }
+            tauri::RunEvent::Exit => {
+                if let Some(engine) = app.try_state::<Engine>() {
+                    engine.control.stop();
+                }
+            }
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => lifecycle::reopen(app),
+            tauri::RunEvent::Resumed => {
+                if let Some(engine) = app.try_state::<Engine>() {
+                    engine.control.wake();
+                }
+            }
+            _ => {}
+        });
 }

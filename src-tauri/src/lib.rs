@@ -1,4 +1,5 @@
 pub mod application;
+pub mod background;
 pub mod conversation;
 pub mod desktop;
 pub mod extraction;

@@ -40,6 +40,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 const MAX_URL_ATTEMPTS: u32 = 8;
+const CONTROLLED_EXIT_RECEIPT: &str = "knowledge-garden-controlled-exit-v1\n";
 
 pub const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 
@@ -564,6 +565,26 @@ fn semantic_pending() -> String {
 }
 
 impl Application {
+    /// Persist an explicit-stop receipt without waiting for a long extraction lock.
+    /// The next exclusive collection opener consumes it only after recovery succeeds.
+    pub fn record_controlled_shutdown(root: &Path) -> Result<()> {
+        if !root.is_dir() {
+            return Err(GardenError::Invalid(
+                "The collection is unavailable; controlled shutdown could not be recorded.".into(),
+            ));
+        }
+        let path = root.join(".runtime/controlled-exit");
+        validate_real_collection_ancestors(root, &path)?;
+        fs::create_dir_all(path.parent().unwrap())?;
+        let mut temporary = tempfile::NamedTempFile::new_in(path.parent().unwrap())?;
+        temporary.write_all(CONTROLLED_EXIT_RECEIPT.as_bytes())?;
+        temporary.as_file().sync_all()?;
+        temporary
+            .persist(&path)
+            .map_err(|e| GardenError::Io(e.error))?;
+        sync_directory(path.parent().unwrap())?;
+        Ok(())
+    }
     pub fn timeline(
         &self,
         request: crate::timeline::TimelineRequest,
@@ -924,8 +945,20 @@ impl Application {
             _lock: CollectionLock(lock),
         };
         while !app.reconcile_collection(1000)?.complete {}
-        app.recover_interrupted_url_acquisitions()?;
-        app.recover_interrupted_audio_jobs()?;
+        let receipt = app.root.join(".runtime/controlled-exit");
+        let orderly = validate_real_collection_ancestors(&app.root, &receipt).is_ok()
+            && fs::symlink_metadata(&receipt).is_ok_and(|m| m.file_type().is_file())
+            && read_bounded_text(&receipt, 128).is_ok_and(|value| value == CONTROLLED_EXIT_RECEIPT);
+        app.recover_interrupted_url_acquisitions(orderly)?;
+        app.recover_interrupted_jobs(orderly)?;
+        if orderly {
+            match fs::remove_file(&receipt) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
+            };
+            sync_directory(receipt.parent().unwrap())?;
+        }
         Ok(app)
     }
 
@@ -1291,10 +1324,16 @@ impl Application {
         Ok(records)
     }
 
-    fn recover_interrupted_url_acquisitions(&self) -> Result<()> {
+    fn recover_interrupted_url_acquisitions(&self, orderly: bool) -> Result<()> {
         for mut status in self.list_url_acquisitions()? {
             if status.state == "processing" {
-                if status.attempts >= MAX_URL_ATTEMPTS {
+                if orderly {
+                    status.attempts = status.attempts.saturating_sub(1);
+                    status.state = "pending".into();
+                    status.retry_at = Some(0);
+                    status.last_error =
+                        "Retrieval paused on Quit; automatic retry is queued.".into();
+                } else if status.attempts >= MAX_URL_ATTEMPTS {
                     status.state = "failed".into();
                     status.retry_at = None;
                     status.last_error = "The application restarted during the final permitted retrieval attempt; the retry budget is exhausted.".into();
@@ -3827,7 +3866,7 @@ impl Application {
         })
     }
 
-    fn recover_interrupted_audio_jobs(&mut self) -> Result<()> {
+    fn recover_interrupted_jobs(&mut self, orderly: bool) -> Result<()> {
         for entry in fs::read_dir(self.root.join("sources"))? {
             let entry = entry?;
             if !entry.file_type()?.is_dir() {
@@ -3835,26 +3874,52 @@ impl Application {
             }
             let source_id = read_page(&entry.path().join("index.md"))?.info.source_id;
             let mut page = self.open_source(&source_id)?;
-            let Some(pending_version_id) = page.info.pending_version_id.clone() else {
+            let Some(pending) = page.info.pending_version_id.clone() else {
                 continue;
             };
-            let Some(audio) = candidate_audio_processing_mut(&mut page.info, &pending_version_id)
-            else {
-                continue;
-            };
-            if audio.state == "processing" {
-                audio.retry_at_ms = None;
-                audio.processing_interruptions = audio.processing_interruptions.saturating_add(1);
-                if audio.processing_interruptions >= MAX_AUDIO_INTERRUPTION_ATTEMPTS {
-                    audio.state = "failed".into();
-                    audio.detail = "Audio transcription stopped after three interrupted segment attempts for this source version. The exact retained original and any previously published transcript remain available; a new source version has an independent recovery budget.".into();
-                } else {
-                    audio.state = "pending".into();
-                    audio.detail = format!(
-                        "A bounded audio segment was interrupted ({}/{}). The same time range remains queued within this source version's interruption budget; the retained original remains available.",
-                        audio.processing_interruptions, MAX_AUDIO_INTERRUPTION_ATTEMPTS
-                    );
+            let mut changed = false;
+            if orderly
+                && (page.info.semantic_state == "processing"
+                    || page.info.update_status.as_deref() == Some("processing"))
+            {
+                if let Some(version) = page
+                    .info
+                    .versions_seen
+                    .iter_mut()
+                    .find(|v| v.source_version_id == pending && v.state == "processing")
+                {
+                    version.state = "pending".into();
+                    if page.info.current_version_id.is_none() {
+                        page.info.semantic_state = "pending".into();
+                    } else {
+                        page.info.update_status = Some("pending".into());
+                    }
+                    page.info.semantic_error = None;
+                    page.info.semantic_retry_at = None;
+                    changed = true;
                 }
+            }
+            if let Some(audio) = candidate_audio_processing_mut(&mut page.info, &pending) {
+                if audio.state == "processing" {
+                    audio.retry_at_ms = None;
+                    if orderly {
+                        audio.state = "pending".into();
+                        audio.detail="A bounded media window was paused on Quit. Its stable time range remains queued without consuming the crash-recovery budget.".into();
+                    } else {
+                        audio.processing_interruptions =
+                            audio.processing_interruptions.saturating_add(1);
+                        if audio.processing_interruptions >= MAX_AUDIO_INTERRUPTION_ATTEMPTS {
+                            audio.state = "failed".into();
+                            audio.detail="Audio transcription stopped after three interrupted segment attempts for this source version. The exact retained original and any previously published transcript remain available; a new source version has an independent recovery budget.".into();
+                        } else {
+                            audio.state = "pending".into();
+                            audio.detail=format!("A bounded audio segment was interrupted ({}/{}). The same time range remains queued within this source version's interruption budget; the retained original remains available.",audio.processing_interruptions,MAX_AUDIO_INTERRUPTION_ATTEMPTS);
+                        }
+                    }
+                    changed = true;
+                }
+            }
+            if changed {
                 self.write_source_page(&page)?;
                 self.index_page(&page.info)?;
             }
