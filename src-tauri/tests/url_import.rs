@@ -839,3 +839,76 @@ fn sha256_identity_hex_remains_lowercase_and_unchanged_across_digest_upgrade() {
         "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     );
 }
+
+#[test]
+fn quit_during_final_url_attempt_does_not_exhaust_recovery() {
+    use knowledge_garden::processes;
+    use std::{process::Command, sync::mpsc};
+    if std::env::var_os("KG_URL_QUIT_CHILD").is_none() {
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "quit_during_final_url_attempt_does_not_exhaust_recovery",
+                "--nocapture",
+            ])
+            .env("KG_URL_QUIT_CHILD", "1")
+            .status()
+            .unwrap();
+        assert!(status.success());
+        return;
+    }
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let url = format!("http://{}/file.pdf", listener.local_addr().unwrap());
+    let (started, ready) = mpsc::channel();
+    let (release, proceed) = mpsc::channel();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0; 4096];
+        stream.read(&mut request).unwrap();
+        started.send(()).unwrap();
+        proceed.recv().unwrap();
+        stream.write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+    });
+    let temp = tempfile::tempdir().unwrap();
+    let collection = temp.path().join("collection");
+    let mut app = Application::open(&collection).unwrap();
+    let status = UrlAcquisitionStatus {
+        url: url.clone(),
+        attempts: 7,
+        state: "pending".into(),
+        retry_at: Some(0),
+        last_error: "Previous temporary failure".into(),
+        previous_source_available: false,
+    };
+    let dir = collection.join("url-acquisitions");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join(format!(
+            "{}.json",
+            hex::encode(Sha256::digest(url.as_bytes()))
+        )),
+        serde_json::to_vec(&status).unwrap(),
+    )
+    .unwrap();
+    let worker = thread::spawn(move || {
+        let result = app.import_url(&url);
+        (app, result)
+    });
+    ready.recv_timeout(Duration::from_secs(5)).unwrap();
+    Application::record_controlled_shutdown(&collection).unwrap();
+    processes::shutdown();
+    release.send(()).unwrap();
+    let (app, result) = worker.join().unwrap();
+    assert!(result.is_err());
+    let during = app.list_url_acquisitions().unwrap();
+    assert_eq!(
+        during[0].state, "processing",
+        "Quit must leave the lease for recovery"
+    );
+    drop(app);
+    let app = Application::open(&collection).unwrap();
+    let restored = app.list_url_acquisitions().unwrap();
+    assert_eq!(restored[0].state, "pending");
+    assert_eq!(restored[0].attempts, 7);
+    server.join().unwrap();
+}

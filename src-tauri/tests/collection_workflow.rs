@@ -6265,3 +6265,112 @@ fn link_repair_preserves_literal_content_and_already_adjusted_editor_links() {
         .unwrap()
         .contains("[Already fixed](../Other.md)"));
 }
+
+#[test]
+fn quitting_during_replacement_extraction_preserves_its_retry_budget() {
+    use knowledge_garden::{extraction::SourceExtractor, processes};
+    use std::{
+        process::Command,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        },
+        time::Duration,
+    };
+    if std::env::var_os("KG_EXTRACTION_QUIT_CHILD").is_none() {
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "quitting_during_replacement_extraction_preserves_its_retry_budget",
+                "--nocapture",
+            ])
+            .env("KG_EXTRACTION_QUIT_CHILD", "1")
+            .status()
+            .unwrap();
+        assert!(status.success());
+        return;
+    }
+    struct BlockingExtractor {
+        blocking: AtomicBool,
+        started: mpsc::Sender<()>,
+    }
+    impl SourceExtractor for BlockingExtractor {
+        fn extract(
+            &self,
+            path: &Path,
+            format: &str,
+            title: &str,
+        ) -> Result<knowledge_garden::office::OfficeProjection, String> {
+            if self.blocking.load(Ordering::SeqCst) {
+                let mut child = processes::spawn(Command::new("/bin/sleep").arg("60")).unwrap();
+                self.started.send(()).unwrap();
+                child.wait().unwrap();
+                return Err("Extraction was cancelled on Quit.".into());
+            }
+            RecoveringProjection {
+                fails: AtomicBool::new(false),
+                recovered: AtomicBool::new(true),
+            }
+            .extract(path, format, title)
+        }
+    }
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("report.docx");
+    let collection = workspace.path().join("collection");
+    let (started, receiver) = mpsc::channel();
+    let extractor = Arc::new(BlockingExtractor {
+        blocking: AtomicBool::new(false),
+        started,
+    });
+    let provider = Arc::new(RecordedProvider::sequence(vec![Ok(replacement_recording(
+        REVISION_1, 12, true,
+    ))]));
+    fs::write(&path, REVISION_1).unwrap();
+    let mut app =
+        Application::open_with_providers(&collection, provider, extractor.clone()).unwrap();
+    let first = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    fs::write(&path, REVISION_2).unwrap();
+    let mut pending = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    let version_id = pending.info.pending_version_id.clone().unwrap();
+    pending
+        .info
+        .versions_seen
+        .iter_mut()
+        .find(|v| v.source_version_id == version_id)
+        .unwrap()
+        .extraction_attempts = 2;
+    fs::write(
+        app.page_path(&first.info.source_id).unwrap(),
+        format!(
+            "---\n{}---\n{}",
+            serde_yaml_ng::to_string(&pending.info).unwrap(),
+            pending.body
+        ),
+    )
+    .unwrap();
+    extractor.blocking.store(true, Ordering::SeqCst);
+    let worker = std::thread::spawn(move || {
+        let result = app.claim_due_semantic_jobs_at(1, u128::MAX);
+        (app, result)
+    });
+    receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+    Application::record_controlled_shutdown(&collection).unwrap();
+    processes::shutdown();
+    let (app, result) = worker.join().unwrap();
+    assert!(result.is_err(), "Cancelled extraction must stop the turn");
+    drop(app);
+    let reopened = Application::open(&collection).unwrap();
+    let restored = reopened.open_source(&first.info.source_id).unwrap();
+    assert_eq!(restored.info.update_status.as_deref(), Some("pending"));
+    assert_eq!(
+        restored
+            .info
+            .versions_seen
+            .iter()
+            .find(|v| v.source_version_id == version_id)
+            .unwrap()
+            .extraction_attempts,
+        2
+    );
+}

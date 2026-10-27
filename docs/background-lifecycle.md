@@ -21,7 +21,10 @@ Remote semantic calls run outside the collection mutex. Existing local extractio
 still holds that mutex; responsiveness during large imports belongs to #33.
 
 Explicit Quit records a synced receipt before exit without waiting for extraction.
-The next exclusive collection opener consumes it after recovery, returning
+Quit also terminates and reaps app-owned helpers (including Whisper), rejecting
+late helper launches. A cancelled media result leaves its durable window leased
+until recovery rather than recording a transcription failure. The next exclusive
+collection opener consumes the receipt after recovery, returning
 interrupted semantic, media, and URL jobs to pending without exhausting their
 crash budget. An unmarked process interruption keeps the existing bounded crash
 recovery behavior. Stable source/version IDs, published knowledge, retained
@@ -36,7 +39,10 @@ public application and actual worker: hidden-window state does not stop watching
 volume absence preserves sources; stop halts new work; reopening resumes without
 duplicating identities. A regression repeats four controlled Quits with leased
 semantic/audio jobs and then verifies an unmarked crash still consumes its budget.
-The preference test preserves opt-out and unknown future data.
+The preference test preserves opt-out and unknown future data. An isolated
+subprocess regression cancels a live helper during a public media operation,
+verifies the helper was reaped and late launches rejected, then reopens the
+collection and verifies the same window is pending with no crash-budget charge.
 
 The native qualification build uses the separate identifier
 `com.nicolasfound.knowledgegarden.lifecycleqa` and product name

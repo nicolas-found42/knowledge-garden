@@ -8,6 +8,7 @@ pub mod media;
 pub mod office;
 pub mod pdf;
 pub mod photo;
+pub mod processes;
 pub mod providers;
 pub mod semantic;
 pub mod timeline;

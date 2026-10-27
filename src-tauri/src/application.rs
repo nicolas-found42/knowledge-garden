@@ -565,6 +565,24 @@ fn semantic_pending() -> String {
 }
 
 impl Application {
+    fn ensure_running(&self) -> Result<()> {
+        if crate::processes::stopping() {
+            return Err(GardenError::Invalid(
+                "Processing paused for application Quit; retained work remains resumable.".into(),
+            ));
+        }
+        Ok(())
+    }
+    fn extract_while_running(
+        &self,
+        path: &Path,
+        format: &str,
+        title: &str,
+    ) -> Result<std::result::Result<crate::office::OfficeProjection, String>> {
+        let result = self.extractor.extract(path, format, title);
+        self.ensure_running()?;
+        Ok(result)
+    }
     /// Persist an explicit-stop receipt without waiting for a long extraction lock.
     /// The next exclusive collection opener consumes it only after recovery succeeds.
     pub fn record_controlled_shutdown(root: &Path) -> Result<()> {
@@ -1117,7 +1135,9 @@ impl Application {
         status.state = "processing".into();
         status.retry_at = None;
         self.write_url_status(&status)?;
-        match self.fetch_and_import_url(&url) {
+        let result = self.fetch_and_import_url(&url);
+        self.ensure_running()?;
+        match result {
             Ok(page) => {
                 self.remove_url_status(&url)?;
                 Ok(page)
@@ -1487,6 +1507,7 @@ impl Application {
             let mut existing = self.open_source(&source_id)?;
             let (inspected_audio, inspected_media) =
                 self.inspect_timed_media(audio_format, &staging.path().join(&asset));
+            self.ensure_running()?;
             let acquisition_exists = existing.info.acquisitions.iter().any(|old| {
                 old.path == acquisition.path
                     && old.method == acquisition.method
@@ -1582,14 +1603,14 @@ impl Application {
                 }
             } else if crate::extraction::is_structured_source(&staging.path().join(&asset), &format)
             {
-                match self.extractor.extract(
+                match self.extract_while_running(
                     &staging.path().join(&asset),
                     &format,
                     path.file_stem()
                         .unwrap_or_default()
                         .to_string_lossy()
                         .as_ref(),
-                ) {
+                )? {
                     Ok(projection) => (
                         if projection.partial {
                             ExtractionState::PartialText
@@ -1678,6 +1699,7 @@ impl Application {
         let web_projection = web_result.as_ref().and_then(|result| result.as_ref().ok());
         let (inspected_audio, inspected_media) =
             self.inspect_timed_media(audio_format, &staging.path().join(&asset));
+        self.ensure_running()?;
         let (extraction, extraction_detail, text, office_projection, extraction_coverage) =
             if let (Some(media), true) = (inspected_media.as_ref(), audio_format) {
                 (
@@ -1735,14 +1757,14 @@ impl Application {
             }
             } else if crate::extraction::is_structured_source(&staging.path().join(&asset), &format)
             {
-                match self.extractor.extract(
+                match self.extract_while_running(
                     &staging.path().join(&asset),
                     &format,
                     path.file_stem()
                         .unwrap_or_default()
                         .to_string_lossy()
                         .as_ref(),
-                ) {
+                )? {
                     Ok(projection) => {
                         let extraction = if projection.partial {
                             ExtractionState::PartialText
@@ -2760,18 +2782,18 @@ impl Application {
                 page.info.extraction,
                 ExtractionState::StructuredText | ExtractionState::PartialText
             ) {
-                let projection =
-                    match self
-                        .extractor
-                        .extract(&candidate_path, &version.format, &page.info.title)
-                    {
-                        Ok(projection) => projection,
-                        Err(detail) if !initial => {
-                            self.record_extraction_recovery(&mut page, &source_version_id, detail)?;
-                            continue;
-                        }
-                        Err(detail) => return Err(GardenError::Invalid(detail)),
-                    };
+                let projection = match self.extract_while_running(
+                    &candidate_path,
+                    &version.format,
+                    &page.info.title,
+                )? {
+                    Ok(projection) => projection,
+                    Err(detail) if !initial => {
+                        self.record_extraction_recovery(&mut page, &source_version_id, detail)?;
+                        continue;
+                    }
+                    Err(detail) => return Err(GardenError::Invalid(detail)),
+                };
                 if !initial
                     && (projection.partial
                         || projection
@@ -2834,6 +2856,7 @@ impl Application {
             } else {
                 None
             };
+            self.ensure_running()?;
             if initial {
                 page.info.semantic_state = "processing".into();
             } else {
@@ -4051,6 +4074,9 @@ impl Application {
                     .transcribe_segment(&path, start, duration)
             })
         };
+        if crate::processes::stopping() {
+            return Err(GardenError::Invalid("Media processing paused for application Quit; its durable window remains resumable.".into()));
+        }
         match outcome {
             Ok(batch)
                 if batch.schema == 1
@@ -5113,17 +5139,16 @@ impl Application {
         let office_projection =
             if crate::extraction::is_structured_source(&candidate_path, &candidate.format) {
                 Some(
-                    self.extractor
-                        .extract(
-                            &candidate_path,
-                            &candidate.format,
-                            Path::new(&candidate.original_name)
-                                .file_stem()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                                .as_ref(),
-                        )
-                        .map_err(GardenError::Invalid)?,
+                    self.extract_while_running(
+                        &candidate_path,
+                        &candidate.format,
+                        Path::new(&candidate.original_name)
+                            .file_stem()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .as_ref(),
+                    )?
+                    .map_err(GardenError::Invalid)?,
                 )
             } else {
                 None

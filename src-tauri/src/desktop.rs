@@ -25,6 +25,7 @@ struct Engine {
     control: Arc<crate::background::BackgroundControl>,
     shutdown_root: PathBuf,
     shutdown_recorded: AtomicBool,
+    abnormal_exit: AtomicBool,
 }
 impl Engine {
     fn prepare_exit(&self) {
@@ -35,6 +36,7 @@ impl Engine {
                 eprintln!("Controlled shutdown could not be recorded; durable work will use crash recovery: {error}");
             }
         }
+        crate::processes::shutdown();
     }
 }
 
@@ -433,6 +435,7 @@ pub fn run() {
             app.manage(Engine {
                 shutdown_root: root.canonicalize()?,
                 shutdown_recorded: AtomicBool::new(false),
+                abnormal_exit: AtomicBool::new(false),
                 app: Arc::clone(&engine),
                 control: Arc::clone(&control),
             });
@@ -512,13 +515,20 @@ pub fn run() {
                     if code.is_none() || code == Some(0) {
                         engine.prepare_exit();
                     } else {
+                        engine.abnormal_exit.store(true, Ordering::SeqCst);
                         engine.control.stop();
                     }
                 }
             }
             tauri::RunEvent::Exit => {
                 if let Some(engine) = app.try_state::<Engine>() {
-                    engine.control.stop();
+                    // macOS application termination can skip ExitRequested and go
+                    // directly to Exit. Crashes do not dispatch this event.
+                    if engine.abnormal_exit.load(Ordering::SeqCst) {
+                        engine.control.stop();
+                    } else {
+                        engine.prepare_exit();
+                    }
                 }
             }
             #[cfg(target_os = "macos")]
