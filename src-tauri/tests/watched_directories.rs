@@ -772,13 +772,21 @@ fn mounted_volume_disconnect_empty_mountpoint_and_remount_recover_automatically(
 fn check_mounted_volume(nested: bool) {
     use std::path::{Path, PathBuf};
     use std::process::Command;
-    struct Mounted(PathBuf);
+    struct Mounted(Option<PathBuf>);
+    impl Mounted {
+        fn detach(&mut self) {
+            hdiutil(&["detach"], self.0.as_ref().unwrap());
+            self.0 = None;
+        }
+    }
     impl Drop for Mounted {
         fn drop(&mut self) {
-            let _ = Command::new("/usr/bin/hdiutil")
-                .arg("detach")
-                .arg(&self.0)
-                .output();
+            if let Some(device) = &self.0 {
+                let _ = Command::new("/usr/bin/hdiutil")
+                    .arg("detach")
+                    .arg(device)
+                    .output();
+            }
         }
     }
     fn hdiutil(args: &[&str], path: &Path) {
@@ -798,7 +806,7 @@ fn check_mounted_volume(nested: bool) {
                 std::thread::sleep(std::time::Duration::from_millis(250));
                 continue;
             }
-            panic!("hdiutil {args:?}: {error}");
+            panic!("hdiutil {args:?} {}: {error}", path.display());
         }
     }
     let workspace = tempdir().unwrap();
@@ -831,9 +839,17 @@ fn check_mounted_volume(nested: bool) {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
+        // Detach the device returned by this attach, rather than asking hdiutil
+        // to resolve the temporary mountpoint back to a device on the runner.
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let device = stdout
+            .lines()
+            .filter_map(|line| line.split_whitespace().next())
+            .find(|field| field.starts_with("/dev/disk"))
+            .unwrap_or_else(|| panic!("attach returned no device: {stdout}"));
+        Mounted(Some(PathBuf::from(device)))
     };
-    attach();
-    let _guard = Mounted(mounted.clone());
+    let mut guard = attach();
     fs::write(mounted.join("V17.txt"), V17).unwrap();
     let mut app = Application::open(workspace.path().join("collection")).unwrap();
     app.watch_directory(if nested { &incoming } else { &mounted })
@@ -847,7 +863,7 @@ fn check_mounted_volume(nested: bool) {
         .find(|page| page.title == "V17")
         .unwrap();
     let original = app.original_path(&source.source_id).unwrap();
-    hdiutil(&["detach"], &mounted);
+    guard.detach();
     fs::create_dir_all(&mounted).unwrap();
     scan(&mut app);
     scan(&mut app);
@@ -856,7 +872,7 @@ fn check_mounted_volume(nested: bool) {
         "unavailable"
     );
     assert!(original.exists());
-    attach();
+    let _remounted = attach();
     scan(&mut app);
     assert_eq!(app.list_watched_directories().unwrap()[0].state, "watching");
     assert_eq!(
