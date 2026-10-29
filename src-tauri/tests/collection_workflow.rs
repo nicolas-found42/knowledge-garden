@@ -1937,6 +1937,22 @@ fn separate_v18_observation_keeps_corrected_v17_current_and_linked() {
         .pages
         .iter()
         .any(|page| page.page_id == v17.page_id));
+    let timeline = app
+        .timeline(knowledge_garden::timeline::TimelineRequest::default())
+        .unwrap();
+    assert_eq!(
+        timeline.entries.len(),
+        2,
+        "A correction must not manufacture another real observation"
+    );
+    assert_eq!(
+        timeline
+            .entries
+            .iter()
+            .map(|e| e.title.as_str())
+            .collect::<Vec<_>>(),
+        ["Observation V17", "Observation V18"]
+    );
 }
 
 #[test]

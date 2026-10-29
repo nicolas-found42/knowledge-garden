@@ -865,3 +865,75 @@ it("navigates repaired ordinary links and exposes duplicate files through the re
   dispose = await mountReader(root, api);
   expect(await screen.findByText(/Neither file is selected/)).toBeTruthy();
 });
+
+it("browses a native collection group, reads its source and restores the canvas with Back", async () => {
+  workspace = mkdtempSync(join(tmpdir(), "knowledge-garden-groups-test-"));
+  const collection = join(workspace, "collection");
+  const input = join(workspace, "Ungrouped.txt");
+  writeFileSync(input, "A source awaiting semantic organization.");
+  const call = <T>(operation: string, ...args: string[]): T =>
+    JSON.parse(
+      execFileSync(driver, [collection, operation, ...args], {
+        encoding: "utf8",
+        timeout: 30000,
+      }),
+    );
+  call("import", input, "picker");
+  const unsupported = async (): Promise<never> => {
+    throw new Error("Outside this collection fixture");
+  };
+  const api: GardenApi = {
+    collectionGroups: async (request) =>
+      call("collection-groups", JSON.stringify(request)),
+    collectionMembers: async (request) =>
+      call("collection-members", JSON.stringify(request)),
+    chooseFile: async () => null,
+    importSource: unsupported,
+    listSources: async (offset) => call("list", String(offset)),
+    openSource: async (id) => call("open", id),
+    openKnowledgePage: async (id) => call("knowledge", id),
+    openOriginal: unsupported,
+    openOriginalVersion: unsupported,
+    openOriginalAsset: unsupported,
+    onDrop: async () => () => {},
+    chooseRepositoryDirectory: async () => null,
+    importRepository: unsupported,
+    importUrl: unsupported,
+    listUrlAcquisitions: async () => [],
+    searchPages: unsupported,
+    queryPages: unsupported,
+    cancelQuery: unsupported,
+    pathGraphRevision: unsupported,
+    explorePaths: unsupported,
+    explorePathDetails: unsupported,
+  };
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(
+    await screen.findByRole("button", {
+      name: "Unclassified or processing · 1 items",
+    }),
+  );
+  await screen.findByRole("button", { name: "Ungrouped" });
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Collection presentation" }),
+    "canvas",
+  );
+  await user.click(screen.getByRole("button", { name: "Ungrouped" }));
+  await screen.findByRole("heading", { name: "Ungrouped" });
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(
+    (
+      screen.getByRole("combobox", {
+        name: "Collection presentation",
+      }) as HTMLSelectElement
+    ).value,
+  ).toBe("canvas");
+  expect(
+    screen
+      .getByRole("button", { name: "Ungrouped" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+});

@@ -69,9 +69,21 @@ impl SemanticProvider for RecordedPathProvider {
             evidence: evidence(quote),
         })
         .collect();
+        let facts = ["2024-05-17", "May 2024"]
+            .into_iter()
+            .filter(|date| text.contains(date))
+            .map(|date| FactDraft {
+                subject: "V17".into(),
+                property: "occurred_on".into(),
+                value: date.into(),
+                record_key: None,
+                evidence: evidence(date),
+            })
+            .collect();
         Ok(KnowledgeDraft {
             entities,
             relationships,
+            facts,
             ..KnowledgeDraft::default()
         })
     }
@@ -85,6 +97,7 @@ impl SystemOneTransport for RecordedConversationTransport {
         for (index, intent) in [
             (0, "question"),
             (1, "proposal"),
+            (2, "nonknowledge"),
             (3, "tool_report"),
             (4, "reasoning_event"),
             (5, "recorded_decision"),
@@ -173,7 +186,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let operation = args.get(2).map(String::as_str).ok_or("missing operation")?;
     let live = matches!(
         operation,
-        "live-import" | "url-live-import" | "audio-live-import" | "repository-live-import"
+        "live-import"
+            | "url-live-import"
+            | "audio-live-import"
+            | "repository-live-import"
+            | "live-suggest-trail"
     );
     if live && std::env::var("KNOWLEDGE_GARDEN_LIVE_SEMANTICS").as_deref() != Ok("1") {
         return Err("live semantic evaluation requires KNOWLEDGE_GARDEN_LIVE_SEMANTICS=1".into());
@@ -236,6 +253,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .unwrap_or(128),
             )?;
             output(app.list_watched_directories()?);
+        }
+        "collection-groups" => output(app.collection_groups(serde_json::from_str(
+            args.get(3).ok_or("missing collection request")?,
+        )?)?),
+        "collection-members" => output(app.collection_members(serde_json::from_str(
+            args.get(3).ok_or("missing collection member request")?,
+        )?)?),
+        "comparison-side" => output(app.comparison_side(serde_json::from_str(
+            args.get(3).ok_or("missing comparison request")?,
+        )?)?),
+        "comparison-original" => output(app.comparison_original_path(serde_json::from_str(
+            args.get(3).ok_or("missing comparison request")?,
+        )?)?),
+        "inspect-gaps" => output(app.inspect_gaps(args.get(3).ok_or("missing page identity")?)?),
+        "timeline" => output(app.timeline(serde_json::from_str(
+            args.get(3).ok_or("missing timeline request")?,
+        )?)?),
+        "resolve-trail" => output(app.resolve_trail(serde_json::from_str(
+            args.get(3).ok_or("missing trail stops")?,
+        )?)?),
+        "trail-source-choices" => output(app.trail_source_choices(
+            args.get(3).ok_or("missing source identity")?,
+            args.get(4).map(|v| v.parse()).transpose()?.unwrap_or(0),
+        )?),
+        "trail-passage" => output(app.trail_selected_passage(
+            args.get(3).ok_or("missing source identity")?,
+            args.get(4).ok_or("missing passage")?,
+        )?),
+        "suggest-trail" | "live-suggest-trail" => {
+            let job = app.prepare_trail_suggestions(args.get(3).ok_or("missing reading goal")?)?;
+            output(app.finish_trail_suggestions(job.evaluate())?);
+        }
+        "views" => output(app.list_saved_views(
+            args.get(3).map(String::as_str).unwrap_or(""),
+            args.get(4).map(|s| s.parse()).transpose()?.unwrap_or(0),
+        )?),
+        "save-view" => output(app.create_saved_view(
+            args.get(3).ok_or("missing view name")?,
+            serde_json::from_str(args.get(4).ok_or("missing view criteria")?)?,
+        )?),
+        "open-view" => output(app.open_saved_view(args.get(3).ok_or("missing view identity")?)?),
+        "rename-view" => output(app.rename_saved_view(
+            args.get(3).ok_or("missing view identity")?,
+            args.get(4).ok_or("missing view name")?,
+        )?),
+        "remove-view" => {
+            app.remove_saved_view(args.get(3).ok_or("missing view identity")?)?;
+            output(());
         }
         "collection-status" => output(app.collection_status()),
         "resolve-link" => output(app.resolve_page_link(
@@ -321,6 +386,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "knowledge" => {
             output(app.open_knowledge_page(args.get(3).ok_or("missing knowledge page identity")?)?)
         }
+        "media-step" => {
+            app.resume_due_audio_jobs()?;
+            output(app.open_source(args.get(3).ok_or("missing source identity")?)?);
+        }
+        "video-preview" => output(app.preview_video_frame(
+            args.get(3).ok_or("missing source identity")?,
+            args.get(4).ok_or("missing version")?,
+            args.get(5).ok_or("missing asset")?,
+            args.get(6).ok_or("missing time")?.parse()?,
+        )?),
         "original" => output(app.original_path(args.get(3).ok_or("missing source identity")?)?),
         "original-version" => output(app.original_version_path(
             args.get(3).ok_or("missing source identity")?,

@@ -100,7 +100,19 @@ impl QueryConstraint {
             ));
         }
         if self.processing_status.as_deref().is_some_and(|s| {
-            !["pending", "processing", "complete", "failed", "unavailable"].contains(&s)
+            ![
+                "pending",
+                "processing",
+                "complete",
+                "failed",
+                "unavailable",
+                "update_pending",
+                "update_failed",
+                "identity_ambiguous",
+                "extraction_incomplete",
+                "source_unavailable",
+            ]
+            .contains(&s)
         }) {
             return Err(GardenError::Invalid("Unknown processing status.".into()));
         }
@@ -501,4 +513,23 @@ impl Application {
             }
         }
     }
+}
+
+/// Validate durable criteria without creating a disposable execution session.
+pub(super) fn saved_query_targets(request: &BooleanQueryRequest) -> Result<Vec<String>> {
+    if request.continuation.is_some()
+        || !(1..=MAX_PATH_WORK_BUDGET).contains(&request.work_budget)
+        || !(1..=PAGE_SIZE).contains(&request.page_size)
+    {
+        return Err(GardenError::Invalid(
+            "Saved queries require bounded criteria without a continuation cursor.".into(),
+        ));
+    }
+    request.returned.validate()?;
+    let mut paths = Vec::new();
+    clauses(&request.expression, &mut paths, &mut 0, 0)?;
+    Ok(paths.into_iter().map(|p| p.start).collect())
+}
+pub(super) fn validate_saved_constraint(constraint: &QueryConstraint) -> Result<()> {
+    constraint.validate()
 }

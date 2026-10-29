@@ -213,7 +213,19 @@ export function renderBooleanQuery(
       "Processing status",
       constraint.processing_status ?? "",
       (s) => (constraint.processing_status = s || null),
-      ["", "pending", "processing", "complete", "failed", "unavailable"],
+      [
+        "",
+        "pending",
+        "processing",
+        "complete",
+        "failed",
+        "unavailable",
+        "update_pending",
+        "update_failed",
+        "identity_ambiguous",
+        "extraction_incomplete",
+        "source_unavailable",
+      ],
     );
   }
   function editor(
@@ -501,7 +513,7 @@ export function renderBooleanQuery(
         }),
       );
   }
-  async function run(cursor: string | null) {
+  async function run(cursor: string | null): Promise<boolean> {
     const version = ++generation;
     running = true;
     status.textContent = "Computing indexed query…";
@@ -513,7 +525,7 @@ export function renderBooleanQuery(
       if (version !== generation || !callbacks.active()) {
         if (response.next_cursor)
           void api.cancelQuery(response.next_cursor).catch(callbacks.error);
-        return;
+        return false;
       }
       if (state.revision && state.revision !== response.graph_revision)
         throw new Error(
@@ -534,6 +546,7 @@ export function renderBooleanQuery(
       state.diagnostics = [...diagnostics.values()];
       status.textContent = `${response.work_units} indexed work units in this batch. ${response.diagnostics.length} unavailable relationship(s) disclosed.`;
       showResults();
+      return true;
     } catch (error) {
       if (version === generation && callbacks.active()) {
         if (/stale|expired/i.test(String(error))) {
@@ -547,6 +560,7 @@ export function renderBooleanQuery(
             "Collection changed. Run query again for current matches.";
         } else callbacks.error(error);
       }
+      return false;
     } finally {
       if (version === generation) running = false;
     }
@@ -566,6 +580,7 @@ export function renderBooleanQuery(
       ?.focus();
   else controls.querySelector<HTMLElement>("select, input")?.focus();
   return {
+    run: () => run(null),
     invalidate() {
       if (!state.stale) {
         cancel();
