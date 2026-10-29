@@ -40,6 +40,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 const MAX_URL_ATTEMPTS: u32 = 8;
+const CONTROLLED_EXIT_RECEIPT: &str = "knowledge-garden-controlled-exit-v1\n";
 
 pub const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 
@@ -564,6 +565,44 @@ fn semantic_pending() -> String {
 }
 
 impl Application {
+    fn ensure_running(&self) -> Result<()> {
+        if crate::processes::stopping() {
+            return Err(GardenError::Invalid(
+                "Processing paused for application Quit; retained work remains resumable.".into(),
+            ));
+        }
+        Ok(())
+    }
+    fn extract_while_running(
+        &self,
+        path: &Path,
+        format: &str,
+        title: &str,
+    ) -> Result<std::result::Result<crate::office::OfficeProjection, String>> {
+        let result = self.extractor.extract(path, format, title);
+        self.ensure_running()?;
+        Ok(result)
+    }
+    /// Persist an explicit-stop receipt without waiting for a long extraction lock.
+    /// The next exclusive collection opener consumes it only after recovery succeeds.
+    pub fn record_controlled_shutdown(root: &Path) -> Result<()> {
+        if !root.is_dir() {
+            return Err(GardenError::Invalid(
+                "The collection is unavailable; controlled shutdown could not be recorded.".into(),
+            ));
+        }
+        let path = root.join(".runtime/controlled-exit");
+        validate_real_collection_ancestors(root, &path)?;
+        fs::create_dir_all(path.parent().unwrap())?;
+        let mut temporary = tempfile::NamedTempFile::new_in(path.parent().unwrap())?;
+        temporary.write_all(CONTROLLED_EXIT_RECEIPT.as_bytes())?;
+        temporary.as_file().sync_all()?;
+        temporary
+            .persist(&path)
+            .map_err(|e| GardenError::Io(e.error))?;
+        sync_directory(path.parent().unwrap())?;
+        Ok(())
+    }
     pub fn timeline(
         &self,
         request: crate::timeline::TimelineRequest,
@@ -924,8 +963,20 @@ impl Application {
             _lock: CollectionLock(lock),
         };
         while !app.reconcile_collection(1000)?.complete {}
-        app.recover_interrupted_url_acquisitions()?;
-        app.recover_interrupted_audio_jobs()?;
+        let receipt = app.root.join(".runtime/controlled-exit");
+        let orderly = validate_real_collection_ancestors(&app.root, &receipt).is_ok()
+            && fs::symlink_metadata(&receipt).is_ok_and(|m| m.file_type().is_file())
+            && read_bounded_text(&receipt, 128).is_ok_and(|value| value == CONTROLLED_EXIT_RECEIPT);
+        app.recover_interrupted_url_acquisitions(orderly)?;
+        app.recover_interrupted_jobs(orderly)?;
+        if orderly {
+            match fs::remove_file(&receipt) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
+            };
+            sync_directory(receipt.parent().unwrap())?;
+        }
         Ok(app)
     }
 
@@ -1053,7 +1104,7 @@ impl Application {
                 repository_path: repository_path_text(&root),
                 relative_path: relative_path.clone(),
             });
-            self.write_source_page(&page)?;
+            self.write_source_page(&mut page)?;
             self.index_page(&page.info)?;
             sources.push(RepositorySourceSummary {
                 source_id: page.info.source_id,
@@ -1084,7 +1135,9 @@ impl Application {
         status.state = "processing".into();
         status.retry_at = None;
         self.write_url_status(&status)?;
-        match self.fetch_and_import_url(&url) {
+        let result = self.fetch_and_import_url(&url);
+        self.ensure_running()?;
+        match result {
             Ok(page) => {
                 self.remove_url_status(&url)?;
                 Ok(page)
@@ -1291,10 +1344,16 @@ impl Application {
         Ok(records)
     }
 
-    fn recover_interrupted_url_acquisitions(&self) -> Result<()> {
+    fn recover_interrupted_url_acquisitions(&self, orderly: bool) -> Result<()> {
         for mut status in self.list_url_acquisitions()? {
             if status.state == "processing" {
-                if status.attempts >= MAX_URL_ATTEMPTS {
+                if orderly {
+                    status.attempts = status.attempts.saturating_sub(1);
+                    status.state = "pending".into();
+                    status.retry_at = Some(0);
+                    status.last_error =
+                        "Retrieval paused on Quit; automatic retry is queued.".into();
+                } else if status.attempts >= MAX_URL_ATTEMPTS {
                     status.state = "failed".into();
                     status.retry_at = None;
                     status.last_error = "The application restarted during the final permitted retrieval attempt; the retry budget is exhausted.".into();
@@ -1448,6 +1507,7 @@ impl Application {
             let mut existing = self.open_source(&source_id)?;
             let (inspected_audio, inspected_media) =
                 self.inspect_timed_media(audio_format, &staging.path().join(&asset));
+            self.ensure_running()?;
             let acquisition_exists = existing.info.acquisitions.iter().any(|old| {
                 old.path == acquisition.path
                     && old.method == acquisition.method
@@ -1543,14 +1603,18 @@ impl Application {
                 }
             } else if crate::extraction::is_structured_source(&staging.path().join(&asset), &format)
             {
-                match self.extractor.extract(
+                existing.info.semantic_error = None;
+                existing.info.semantic_retry_at = None;
+                existing.info.provider_availability = None;
+                self.write_source_page(&mut existing)?;
+                match self.extract_while_running(
                     &staging.path().join(&asset),
                     &format,
                     path.file_stem()
                         .unwrap_or_default()
                         .to_string_lossy()
                         .as_ref(),
-                ) {
+                )? {
                     Ok(projection) => (
                         if projection.partial {
                             ExtractionState::PartialText
@@ -1565,7 +1629,7 @@ impl Application {
                         existing.info.semantic_error = Some(format!(
                             "The changed Office version was retained, but extraction failed: {detail}"
                         ));
-                        self.write_source_page(&existing)?;
+                        self.write_source_page(&mut existing)?;
                         self.index_page(&existing.info)?;
                         return self.open_source(&source_id);
                     }
@@ -1590,7 +1654,7 @@ impl Application {
                     "The changed source version was retained, but {} prevented a complete replacement.",
                     extraction_detail
                 ));
-                self.write_source_page(&existing)?;
+                self.write_source_page(&mut existing)?;
                 self.index_page(&existing.info)?;
                 return self.open_source(&source_id);
             }
@@ -1616,7 +1680,7 @@ impl Application {
             existing.info.semantic_error = None;
             existing.info.semantic_retry_at = None;
             existing.info.provider_availability = None;
-            self.write_source_page(&existing)?;
+            self.write_source_page(&mut existing)?;
             self.index_page(&existing.info)?;
             return self.open_source(&source_id);
         }
@@ -1639,6 +1703,9 @@ impl Application {
         let web_projection = web_result.as_ref().and_then(|result| result.as_ref().ok());
         let (inspected_audio, inspected_media) =
             self.inspect_timed_media(audio_format, &staging.path().join(&asset));
+        self.ensure_running()?;
+        let page_id = format!("page-{}", Uuid::new_v4());
+        let mut initial_structured_published = false;
         let (extraction, extraction_detail, text, office_projection, extraction_coverage) =
             if let (Some(media), true) = (inspected_media.as_ref(), audio_format) {
                 (
@@ -1696,14 +1763,71 @@ impl Application {
             }
             } else if crate::extraction::is_structured_source(&staging.path().join(&asset), &format)
             {
-                match self.extractor.extract(
-                    &staging.path().join(&asset),
+                let pending = SourceInfo {
+                    owner_metadata: Default::default(),
+                    schema: 1,
+                    source_id: source_id.clone(),
+                    page_id: page_id.clone(),
+                    title: path
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned(),
+                    original_name: original_name.clone(),
+                    asset: asset.clone(),
+                    sha256: digest.clone(),
+                    bytes: count,
+                    format: format.clone(),
+                    repository: None,
+                    extraction: ExtractionState::PartialText,
+                    extraction_detail: "The retained original is awaiting extraction.".into(),
+                    extraction_version_id: None,
+                    extraction_coverage: None,
+                    line_count: 0,
+                    acquisitions: vec![acquisition.clone()],
+                    current_version_id: None,
+                    pending_version_id: Some(digest.clone()),
+                    versions_seen: vec![source_version(
+                        &digest,
+                        count,
+                        &original_name,
+                        &asset,
+                        &format,
+                        &acquisition.received_at,
+                        "pending",
+                    )],
+                    update_status: Some("pending".into()),
+                    ordering_uncertain: false,
+                    semantic_state: "pending".into(),
+                    semantic_error: None,
+                    semantic_attempts: 0,
+                    semantic_retry_at: None,
+                    provider_availability: None,
+                    knowledge_pages: Vec::new(),
+                    semantic_decisions: Vec::new(),
+                    audio_processing: None,
+                    pending_audio_processing: None,
+                };
+                let body = source_body(&pending, "", None);
+                let markdown = serialize_page(&pending, &body)?;
+                let mut page_file = File::create(staging.path().join("index.md"))?;
+                page_file.write_all(markdown.as_bytes())?;
+                page_file.sync_all()?;
+                sync_directory(staging.path())?;
+                fs::rename(staging.path(), &destination)?;
+                sync_directory(&self.root.join("sources"))?;
+                self.index_acquisition(&acquisition, &source_id)?;
+                self.index_version(&source_id, &digest, &format)?;
+                self.index_page(&pending)?;
+                initial_structured_published = true;
+                match self.extract_while_running(
+                    &destination.join(&asset),
                     &format,
                     path.file_stem()
                         .unwrap_or_default()
                         .to_string_lossy()
                         .as_ref(),
-                ) {
+                )? {
                     Ok(projection) => {
                         let extraction = if projection.partial {
                             ExtractionState::PartialText
@@ -1782,11 +1906,11 @@ impl Application {
         } else {
             text.lines().count()
         };
-        let info = SourceInfo {
+        let mut info = SourceInfo {
             owner_metadata: Default::default(),
             schema: 1,
             source_id,
-            page_id: format!("page-{}", Uuid::new_v4()),
+            page_id,
             title: web_projection
                 .as_ref()
                 .map(|web| {
@@ -1868,17 +1992,33 @@ impl Application {
                 .map(|audio| audio_processing_info(audio, &digest, inspected_media)),
             pending_audio_processing: None,
         };
-        let body = web_projection
+        let mut body = web_projection
             .as_ref()
             .map(|web| web.markdown.replace("ORIGINAL_ASSET", &info.asset))
             .unwrap_or_else(|| source_body(&info, &text, office_projection.as_ref()));
-        let markdown = serialize_page(&info, &body)?;
-        let mut page_file = File::create(staging.path().join("index.md"))?;
-        page_file.write_all(markdown.as_bytes())?;
-        page_file.sync_all()?;
-        sync_directory(staging.path())?;
-        fs::rename(staging.path(), &destination)?;
-        sync_directory(&self.root.join("sources"))?;
+        let mut markdown = serialize_page(&info, &body)?;
+        if initial_structured_published {
+            let mut pending = read_page(&destination.join("index.md"))?;
+            let placeholder = source_body(&pending.info, "", None);
+            body = if let Some(suffix) = pending.body.strip_prefix(&placeholder) {
+                format!("{body}{suffix}")
+            } else {
+                format!("{}\n\n{body}", pending.body)
+            };
+            info.owner_metadata = pending.info.owner_metadata.clone();
+            info.title = pending.info.title.clone();
+            pending.info = info.clone();
+            pending.body = body.clone();
+            self.write_source_page(&mut pending)?;
+            markdown = serialize_page(&info, &body)?;
+        } else {
+            let mut page_file = File::create(staging.path().join("index.md"))?;
+            page_file.write_all(markdown.as_bytes())?;
+            page_file.sync_all()?;
+            sync_directory(staging.path())?;
+            fs::rename(staging.path(), &destination)?;
+            sync_directory(&self.root.join("sources"))?;
+        }
         let page = SourcePage {
             disk_markdown: markdown.clone(),
             info,
@@ -2589,7 +2729,7 @@ impl Application {
                 let delay_seconds = (1_u64 << interrupted.info.semantic_attempts.min(12)).min(3600);
                 interrupted.info.semantic_retry_at =
                     (!exhausted).then(|| (now + u128::from(delay_seconds * 1000)).to_string());
-                self.write_source_page(&interrupted)?;
+                self.write_source_page(&mut interrupted)?;
                 self.index_page(&interrupted.info)?;
                 continue;
             }
@@ -2632,16 +2772,6 @@ impl Application {
                 continue;
             };
             let initial = page.info.current_version_id.is_none();
-            if !matches!(
-                page.info.extraction,
-                ExtractionState::TextPreserved
-                    | ExtractionState::StructuredText
-                    | ExtractionState::PartialText
-            ) || (initial && page.info.semantic_state != "pending")
-                || (!initial && page.info.update_status.as_deref() != Some("pending"))
-            {
-                continue;
-            }
             let version = page
                 .info
                 .versions_seen
@@ -2662,6 +2792,20 @@ impl Application {
             } else {
                 version_path
             };
+            let structured_candidate =
+                crate::extraction::is_structured_source(&candidate_path, &version.format);
+            if (!structured_candidate
+                && !matches!(
+                    page.info.extraction,
+                    ExtractionState::TextPreserved
+                        | ExtractionState::StructuredText
+                        | ExtractionState::PartialText
+                ))
+                || (initial && page.info.semantic_state != "pending")
+                || (!initial && page.info.update_status.as_deref() != Some("pending"))
+            {
+                continue;
+            }
             let acquisition_history = if page.info.format == "html"
                 && page
                     .info
@@ -2717,22 +2861,71 @@ impl Application {
                 crate::web::project(&prefix, final_url)
                     .map_err(GardenError::Invalid)?
                     .semantic_text
-            } else if matches!(
-                page.info.extraction,
-                ExtractionState::StructuredText | ExtractionState::PartialText
-            ) {
-                let projection =
-                    match self
-                        .extractor
-                        .extract(&candidate_path, &version.format, &page.info.title)
+            } else if structured_candidate {
+                let projection = match self.extract_while_running(
+                    &candidate_path,
+                    &version.format,
+                    &page.info.title,
+                )? {
+                    Ok(projection) => projection,
+                    Err(detail) if !initial => {
+                        self.record_extraction_recovery(&mut page, &source_version_id, detail)?;
+                        continue;
+                    }
+                    Err(detail)
+                        if page.info.extraction_version_id.as_deref()
+                            != Some(source_version_id.as_str()) =>
                     {
-                        Ok(projection) => projection,
-                        Err(detail) if !initial => {
-                            self.record_extraction_recovery(&mut page, &source_version_id, detail)?;
-                            continue;
+                        let prior_placeholder = source_body(&page.info, "", None);
+                        let scope = if crate::photo::is_photo(&version.format) {
+                            CoverageScope::ImagePixels
+                        } else if crate::conversation::is_conversation(&version.format) {
+                            CoverageScope::ConversationMessages
+                        } else if version.format == "pdf" {
+                            CoverageScope::PdfPages
+                        } else if version.format == "docx" {
+                            CoverageScope::MainDocument
+                        } else {
+                            CoverageScope::SlideText
+                        };
+                        page.info.extraction = ExtractionState::InvalidContainer;
+                        page.info.extraction_detail =
+                            format!("Source container could not be read. {detail}");
+                        page.info.extraction_version_id = Some(source_version_id.clone());
+                        page.info.extraction_coverage = Some(vec![CoveragePart {
+                            scope,
+                            status: CoverageStatus::Failed,
+                            source_location: Some(
+                                if version.format == "pdf" {
+                                    "PDF document"
+                                } else {
+                                    "package"
+                                }
+                                .into(),
+                            ),
+                            detail,
+                        }]);
+                        page.info.semantic_state = "unavailable".into();
+                        page.info.pending_version_id = None;
+                        page.info.update_status = None;
+                        if let Some(version) = page
+                            .info
+                            .versions_seen
+                            .iter_mut()
+                            .find(|version| version.source_version_id == source_version_id)
+                        {
+                            version.state = "unavailable".into();
                         }
-                        Err(detail) => return Err(GardenError::Invalid(detail)),
-                    };
+                        let unavailable_body = source_body(&page.info, "", None);
+                        if let Some(suffix) = page.body.strip_prefix(&prior_placeholder) {
+                            page.body = format!("{unavailable_body}{suffix}");
+                        }
+                        self.write_source_page(&mut page)?;
+                        self.index_page(&page.info)?;
+                        continue;
+                    }
+                    Err(detail) => return Err(GardenError::Invalid(detail)),
+                };
                 if !initial
                     && (projection.partial
                         || projection
@@ -2747,11 +2940,31 @@ impl Application {
                     )?;
                     continue;
                 }
+                let recovering_initial_extraction = initial
+                    && (page.info.extraction_version_id.is_none()
+                        || page.info.extraction == ExtractionState::InvalidContainer);
+                let prior_placeholder =
+                    recovering_initial_extraction.then(|| source_body(&page.info, "", None));
                 page.info.extraction_version_id = Some(source_version_id.clone());
                 page.info.extraction_detail = projection.detail.clone();
-                page.info.extraction_coverage = Some(projection.coverage);
-                if !projection.partial {
-                    page.info.extraction = ExtractionState::StructuredText;
+                page.info.extraction_coverage = Some(projection.coverage.clone());
+                page.info.extraction = if projection.partial {
+                    ExtractionState::PartialText
+                } else {
+                    ExtractionState::StructuredText
+                };
+                if recovering_initial_extraction {
+                    page.info.line_count = projection.semantic_text.lines().count();
+                    let projection_body =
+                        source_body(&page.info, &projection.semantic_text, Some(&projection));
+                    page.body = if let Some(suffix) = page
+                        .body
+                        .strip_prefix(prior_placeholder.as_deref().unwrap())
+                    {
+                        format!("{projection_body}{suffix}")
+                    } else {
+                        format!("{}\n\n{projection_body}", page.body)
+                    };
                 }
                 projection.semantic_text
             } else {
@@ -2795,6 +3008,7 @@ impl Application {
             } else {
                 None
             };
+            self.ensure_running()?;
             if initial {
                 page.info.semantic_state = "processing".into();
             } else {
@@ -2813,7 +3027,7 @@ impl Application {
             {
                 version.state = "processing".into();
             }
-            self.write_source_page(&page)?;
+            self.write_source_page(&mut page)?;
             self.index_page(&page.info)?;
             jobs.push(SemanticJob {
                 source_id,
@@ -3481,7 +3695,7 @@ impl Application {
                                             // Knowledge reconciliation ranks support through persisted
                                             // source versions. Persist this still-pending source's
                                             // validated date/order before it selects the current value.
-                                            self.write_source_page(&page)?;
+                                            self.write_source_page(&mut page)?;
                                         }
                                         // A first acquisition has no existing facts to withdraw. Even
                                         // an unknown/conditional relationship can publish the grounded
@@ -3537,6 +3751,9 @@ impl Application {
                                 }
                             }
                             Err(error) => {
+                                // A cancelled native projection is not an invalid draft.
+                                // Leave the processing lease for controlled-exit recovery.
+                                self.ensure_running()?;
                                 self.staged_publication.clear();
                                 page = prior_page;
                                 self.record_semantic_failure(
@@ -3555,7 +3772,7 @@ impl Application {
             }
         }
         if self.staged_publication.is_empty() {
-            self.write_source_page(&page)?;
+            self.write_source_page(&mut page)?;
         } else {
             let markdown = serialize_page(&page.info, &page.body)?;
             self.staged_publication
@@ -3827,7 +4044,7 @@ impl Application {
         })
     }
 
-    fn recover_interrupted_audio_jobs(&mut self) -> Result<()> {
+    fn recover_interrupted_jobs(&mut self, orderly: bool) -> Result<()> {
         for entry in fs::read_dir(self.root.join("sources"))? {
             let entry = entry?;
             if !entry.file_type()?.is_dir() {
@@ -3835,27 +4052,53 @@ impl Application {
             }
             let source_id = read_page(&entry.path().join("index.md"))?.info.source_id;
             let mut page = self.open_source(&source_id)?;
-            let Some(pending_version_id) = page.info.pending_version_id.clone() else {
+            let Some(pending) = page.info.pending_version_id.clone() else {
                 continue;
             };
-            let Some(audio) = candidate_audio_processing_mut(&mut page.info, &pending_version_id)
-            else {
-                continue;
-            };
-            if audio.state == "processing" {
-                audio.retry_at_ms = None;
-                audio.processing_interruptions = audio.processing_interruptions.saturating_add(1);
-                if audio.processing_interruptions >= MAX_AUDIO_INTERRUPTION_ATTEMPTS {
-                    audio.state = "failed".into();
-                    audio.detail = "Audio transcription stopped after three interrupted segment attempts for this source version. The exact retained original and any previously published transcript remain available; a new source version has an independent recovery budget.".into();
-                } else {
-                    audio.state = "pending".into();
-                    audio.detail = format!(
-                        "A bounded audio segment was interrupted ({}/{}). The same time range remains queued within this source version's interruption budget; the retained original remains available.",
-                        audio.processing_interruptions, MAX_AUDIO_INTERRUPTION_ATTEMPTS
-                    );
+            let mut changed = false;
+            if orderly
+                && (page.info.semantic_state == "processing"
+                    || page.info.update_status.as_deref() == Some("processing"))
+            {
+                if let Some(version) = page
+                    .info
+                    .versions_seen
+                    .iter_mut()
+                    .find(|v| v.source_version_id == pending && v.state == "processing")
+                {
+                    version.state = "pending".into();
+                    if page.info.current_version_id.is_none() {
+                        page.info.semantic_state = "pending".into();
+                    } else {
+                        page.info.update_status = Some("pending".into());
+                    }
+                    page.info.semantic_error = None;
+                    page.info.semantic_retry_at = None;
+                    changed = true;
                 }
-                self.write_source_page(&page)?;
+            }
+            if let Some(audio) = candidate_audio_processing_mut(&mut page.info, &pending) {
+                if audio.state == "processing" {
+                    audio.retry_at_ms = None;
+                    if orderly {
+                        audio.state = "pending".into();
+                        audio.detail="A bounded media window was paused on Quit. Its stable time range remains queued without consuming the crash-recovery budget.".into();
+                    } else {
+                        audio.processing_interruptions =
+                            audio.processing_interruptions.saturating_add(1);
+                        if audio.processing_interruptions >= MAX_AUDIO_INTERRUPTION_ATTEMPTS {
+                            audio.state = "failed".into();
+                            audio.detail="Audio transcription stopped after three interrupted segment attempts for this source version. The exact retained original and any previously published transcript remain available; a new source version has an independent recovery budget.".into();
+                        } else {
+                            audio.state = "pending".into();
+                            audio.detail=format!("A bounded audio segment was interrupted ({}/{}). The same time range remains queued within this source version's interruption budget; the retained original remains available.",audio.processing_interruptions,MAX_AUDIO_INTERRUPTION_ATTEMPTS);
+                        }
+                    }
+                    changed = true;
+                }
+            }
+            if changed {
+                self.write_source_page(&mut page)?;
                 self.index_page(&page.info)?;
             }
         }
@@ -3919,7 +4162,7 @@ impl Application {
                 "Transcribing original audio from {start} to {} ms with the pinned local Whisper model. Speaker identity is unavailable.",
                 start + duration
             );
-            self.write_source_page(&page)?;
+            self.write_source_page(&mut page)?;
             self.index_page(&page.info)?;
         }
         let current_page = self.open_source(&source_id)?;
@@ -3986,6 +4229,9 @@ impl Application {
                     .transcribe_segment(&path, start, duration)
             })
         };
+        if crate::processes::stopping() {
+            return Err(GardenError::Invalid("Media processing paused for application Quit; its durable window remains resumable.".into()));
+        }
         match outcome {
             Ok(batch)
                 if batch.schema == 1
@@ -5048,17 +5294,16 @@ impl Application {
         let office_projection =
             if crate::extraction::is_structured_source(&candidate_path, &candidate.format) {
                 Some(
-                    self.extractor
-                        .extract(
-                            &candidate_path,
-                            &candidate.format,
-                            Path::new(&candidate.original_name)
-                                .file_stem()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                                .as_ref(),
-                        )
-                        .map_err(GardenError::Invalid)?,
+                    self.extract_while_running(
+                        &candidate_path,
+                        &candidate.format,
+                        Path::new(&candidate.original_name)
+                            .file_stem()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .as_ref(),
+                    )?
+                    .map_err(GardenError::Invalid)?,
                 )
             } else {
                 None
@@ -6021,8 +6266,12 @@ impl Application {
                 page.info.semantic_state = "pending".into();
             }
             page.info.semantic_error = Some(error.message.chars().take(300).collect());
-            page.info.semantic_retry_at =
-                Some((now_millis().unwrap_or(0) + u128::from(delay_seconds * 1000)).to_string());
+            page.info.semantic_retry_at = Some(
+                (now_millis().unwrap_or(0).saturating_add(u128::from(
+                    (delay_seconds * 1000).max(error.retry_after_ms.unwrap_or(0)),
+                )))
+                .to_string(),
+            );
             page.markdown = serialize_page(&page.info, &page.body)?;
             return Ok(());
         }
@@ -6050,15 +6299,17 @@ impl Application {
         self.record_semantic_failure(page, error.message, retryable, false)
     }
 
-    fn write_source_page(&self, page: &SourcePage) -> Result<()> {
+    fn write_source_page(&self, page: &mut SourcePage) -> Result<()> {
         let markdown = serialize_page(&page.info, &page.body)?;
         let path = self.page_path(&page.info.source_id)?;
         commit_publication(
             &self.root,
-            vec![(path.clone(), markdown.into_bytes())],
+            vec![(path.clone(), markdown.clone().into_bytes())],
             &HashMap::from([(path, page.disk_markdown.as_bytes().to_vec())]),
             None,
-        )
+        )?;
+        page.disk_markdown = markdown;
+        Ok(())
     }
 
     pub fn page_path(&self, source_id: &str) -> Result<PathBuf> {

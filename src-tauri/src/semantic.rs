@@ -203,6 +203,8 @@ pub struct ProviderError {
     pub message: String,
     pub retryable: bool,
     pub availability: Option<ProviderAvailability>,
+    /// Earliest provider-requested retry delay; persisted in the durable queue.
+    pub retry_after_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -221,6 +223,7 @@ impl ProviderError {
             message,
             retryable: true,
             availability: None,
+            retry_after_ms: None,
         }
     }
 
@@ -229,6 +232,7 @@ impl ProviderError {
             message,
             retryable: false,
             availability: None,
+            retry_after_ms: None,
         }
     }
 
@@ -237,6 +241,7 @@ impl ProviderError {
             message,
             retryable: true,
             availability: Some(cause),
+            retry_after_ms: None,
         }
     }
 }

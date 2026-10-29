@@ -453,15 +453,20 @@ fn verify_model_once(path: &Path) -> Result<(), String> {
     if verified.contains(&canonical) {
         return Ok(());
     }
-    let mut child = Command::new("/usr/bin/shasum")
-        .arg("-a")
-        .arg("256")
-        .arg(&canonical)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|error| format!("The bundled model hash could not be checked with the macOS system utility: {error}"))?;
+    let mut child = crate::processes::spawn(
+        Command::new("/usr/bin/shasum")
+            .arg("-a")
+            .arg("256")
+            .arg(&canonical)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null()),
+    )
+    .map_err(|error| {
+        format!(
+            "The bundled model hash could not be checked with the macOS system utility: {error}"
+        )
+    })?;
     let started = Instant::now();
     let status = loop {
         if let Some(status) = child.try_wait().map_err(|error| {
@@ -531,12 +536,11 @@ fn run_whisper(arguments: Vec<String>, stderr_path: &Path) -> Result<(), String>
     }
     let stderr = std::fs::File::create(stderr_path)
         .map_err(|error| format!("The local speech processor log could not be created: {error}"))?;
-    let mut child = Command::new(helper)
+    let mut child = crate::processes::spawn(Command::new(helper)
         .args(arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::from(stderr))
-        .spawn()
+        .stderr(Stdio::from(stderr)))
         .map_err(|error| format!("The bundled local speech processor could not start; transcription remains resumable and the original is retained: {error}"))?;
     let started = Instant::now();
     let status = loop {
@@ -611,9 +615,7 @@ fn run_helper<T: for<'de> Deserialize<'de>>(arguments: Vec<String>) -> Result<T,
     #[cfg(target_os = "macos")]
     {
         let helper = native_helper_path()?;
-        let output = Command::new(helper)
-            .args(arguments)
-            .output()
+        let output = crate::processes::output(Command::new(helper).args(arguments))
             .map_err(|error| format!("The native audio helper could not start: {error}"))?;
         if !output.status.success() {
             let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();

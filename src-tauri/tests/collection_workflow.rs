@@ -6265,3 +6265,512 @@ fn link_repair_preserves_literal_content_and_already_adjusted_editor_links() {
         .unwrap()
         .contains("[Already fixed](../Other.md)"));
 }
+
+fn exercise_interrupted_replacement(publication: bool) {
+    use knowledge_garden::{extraction::SourceExtractor, processes};
+    use std::{
+        process::Command,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        },
+        time::Duration,
+    };
+    struct BlockingExtractor {
+        blocking: AtomicBool,
+        started: mpsc::Sender<()>,
+    }
+    impl SourceExtractor for BlockingExtractor {
+        fn extract(
+            &self,
+            path: &Path,
+            format: &str,
+            title: &str,
+        ) -> Result<knowledge_garden::office::OfficeProjection, String> {
+            if self.blocking.load(Ordering::SeqCst) {
+                let mut child = processes::spawn(Command::new("/bin/sleep").arg("60")).unwrap();
+                self.started.send(()).unwrap();
+                child.wait().unwrap();
+                return Err("Extraction was cancelled on Quit.".into());
+            }
+            RecoveringProjection {
+                fails: AtomicBool::new(false),
+                recovered: AtomicBool::new(true),
+            }
+            .extract(path, format, title)
+        }
+    }
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("report.docx");
+    let collection = workspace.path().join("collection");
+    let (started, receiver) = mpsc::channel();
+    let extractor = Arc::new(BlockingExtractor {
+        blocking: AtomicBool::new(false),
+        started,
+    });
+    let provider = Arc::new(RecordedProvider::sequence(vec![Ok(replacement_recording(
+        REVISION_1, 12, true,
+    ))]));
+    fs::write(&path, REVISION_1).unwrap();
+    let mut app =
+        Application::open_with_providers(&collection, provider, extractor.clone()).unwrap();
+    let first = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    fs::write(&path, REVISION_2).unwrap();
+    let mut pending = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    let version_id = pending.info.pending_version_id.clone().unwrap();
+    let version = pending
+        .info
+        .versions_seen
+        .iter_mut()
+        .find(|v| v.source_version_id == version_id)
+        .unwrap();
+    if publication {
+        version.semantic_integrity_failures = 2;
+    } else {
+        version.extraction_attempts = 2;
+    }
+    fs::write(
+        app.page_path(&first.info.source_id).unwrap(),
+        format!(
+            "---\n{}---\n{}",
+            serde_yaml_ng::to_string(&pending.info).unwrap(),
+            pending.body
+        ),
+    )
+    .unwrap();
+    let job = publication.then(|| {
+        app.claim_due_semantic_jobs_at(1, u128::MAX)
+            .unwrap()
+            .remove(0)
+    });
+    extractor.blocking.store(true, Ordering::SeqCst);
+    let worker = std::thread::spawn(move || {
+        let result = if let Some(job) = job {
+            app.finish_semantic_job(job, Ok(replacement_recording(REVISION_2, 15, false)))
+        } else {
+            app.claim_due_semantic_jobs_at(1, u128::MAX).map(|_| ())
+        };
+        (app, result)
+    });
+    receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+    Application::record_controlled_shutdown(&collection).unwrap();
+    processes::shutdown();
+    let (app, result) = worker.join().unwrap();
+    assert!(result.is_err(), "Cancelled extraction must stop the turn");
+    drop(app);
+    let reopened = Application::open(&collection).unwrap();
+    let restored = reopened.open_source(&first.info.source_id).unwrap();
+    assert_eq!(restored.info.update_status.as_deref(), Some("pending"));
+    let version = restored
+        .info
+        .versions_seen
+        .iter()
+        .find(|v| v.source_version_id == version_id)
+        .unwrap();
+    assert_eq!(
+        if publication {
+            version.semantic_integrity_failures
+        } else {
+            version.extraction_attempts
+        },
+        2
+    );
+}
+
+fn isolated_replacement_quit(test_name: &str, publication: bool) {
+    if std::env::var_os("KG_REPLACEMENT_QUIT_CHILD").is_some() {
+        exercise_interrupted_replacement(publication);
+    } else {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", test_name, "--nocapture"])
+            .env("KG_REPLACEMENT_QUIT_CHILD", "1")
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+}
+#[test]
+fn quitting_during_replacement_extraction_preserves_its_retry_budget() {
+    isolated_replacement_quit(
+        "quitting_during_replacement_extraction_preserves_its_retry_budget",
+        false,
+    );
+}
+
+#[test]
+fn quitting_during_changed_source_import_preserves_and_resumes_the_candidate() {
+    use knowledge_garden::{extraction::SourceExtractor, processes};
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    };
+
+    if let Some(collection) = std::env::var_os("KG_IMPORT_QUIT_RECOVERY") {
+        let source_id = std::env::var("KG_IMPORT_QUIT_SOURCE").unwrap();
+        let provider = Arc::new(RecordedProvider::sequence(vec![Ok(replacement_recording(
+            REVISION_2, 15, false,
+        ))]));
+        let extractor = Arc::new(RecoveringProjection {
+            fails: AtomicBool::new(std::env::var_os("KG_RECOVERY_FAIL").is_some()),
+            recovered: AtomicBool::new(true),
+        });
+        let mut app = Application::open_with_providers(collection, provider, extractor).unwrap();
+        if std::env::var_os("KG_RECOVERY_FAIL").is_some() {
+            let healthy_input = tempdir().unwrap();
+            let healthy_path = healthy_input.path().join("healthy.txt");
+            fs::write(&healthy_path, "Healthy source remains available.").unwrap();
+            let healthy = app
+                .import_source(&healthy_path, AcquisitionMethod::Picker)
+                .unwrap();
+            let jobs = app.claim_due_semantic_jobs_at(4, u128::MAX).unwrap();
+            assert!(jobs
+                .iter()
+                .any(|job| job.source_id == healthy.info.source_id));
+            let source = app.open_source(&source_id).unwrap();
+            assert_eq!(source.info.semantic_state, "unavailable");
+            assert_eq!(source.info.extraction, ExtractionState::InvalidContainer);
+            if std::env::var_os("KG_INITIAL_IMPORT").is_some() {
+                assert!(source.body.contains("OWNER-CORRECTION-TRACER"));
+            }
+            assert_eq!(
+                fs::read_to_string(app.original_path(&source_id).unwrap()).unwrap(),
+                if std::env::var_os("KG_INVALID_INITIAL").is_some() {
+                    REVISION_1
+                } else {
+                    REVISION_2
+                }
+            );
+            return;
+        }
+        app.resume_due_semantic_jobs().unwrap();
+        let source = app.open_source(&source_id).unwrap();
+        assert_eq!(source.info.update_status, None);
+        assert!(source.body.contains(REVISION_2));
+        assert_eq!(source.info.line_count, REVISION_2.lines().count());
+        if std::env::var_os("KG_INITIAL_IMPORT").is_some() {
+            assert!(source.body.contains("OWNER-CORRECTION-TRACER"));
+        }
+        assert_eq!(
+            fs::read_to_string(app.original_path(&source_id).unwrap()).unwrap(),
+            REVISION_2
+        );
+        return;
+    }
+    if std::env::var_os("KG_IMPORT_QUIT_CHILD").is_none() {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "quitting_during_changed_source_import_preserves_and_resumes_the_candidate",
+                "--nocapture",
+            ])
+            .env("KG_IMPORT_QUIT_CHILD", "1")
+            .status()
+            .unwrap();
+        assert!(status.success());
+        return;
+    }
+
+    struct BlockingImport {
+        blocking: AtomicBool,
+        invalid_initial: bool,
+        started: mpsc::Sender<()>,
+    }
+    impl SourceExtractor for BlockingImport {
+        fn extract(
+            &self,
+            path: &Path,
+            format: &str,
+            title: &str,
+        ) -> Result<knowledge_garden::office::OfficeProjection, String> {
+            if self.blocking.load(Ordering::SeqCst) {
+                let duration = if std::env::var_os("KG_NO_QUIT").is_some() {
+                    "2"
+                } else {
+                    "60"
+                };
+                let mut child =
+                    processes::spawn(std::process::Command::new("/bin/sleep").arg(duration))
+                        .unwrap();
+                self.started.send(()).unwrap();
+                child.wait().unwrap();
+                if std::env::var_os("KG_NO_QUIT").is_none() {
+                    return Err("Extraction was cancelled on Quit.".into());
+                }
+            }
+            if self.invalid_initial && fs::read_to_string(path).unwrap() == REVISION_1 {
+                return Err("Initial source cannot be extracted.".into());
+            }
+            RecoveringProjection {
+                fails: AtomicBool::new(false),
+                recovered: AtomicBool::new(true),
+            }
+            .extract(path, format, title)
+        }
+    }
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("report.docx");
+    let collection = workspace.path().join("collection");
+    let (started, receiver) = mpsc::channel();
+    let extractor = Arc::new(BlockingImport {
+        blocking: AtomicBool::new(false),
+        invalid_initial: std::env::var_os("KG_INVALID_INITIAL").is_some(),
+        started,
+    });
+    let provider = Arc::new(RecordedProvider::sequence(vec![Ok(replacement_recording(
+        REVISION_1, 12, true,
+    ))]));
+    let initial_import = std::env::var_os("KG_INITIAL_IMPORT").is_some();
+    fs::write(
+        &path,
+        if initial_import {
+            REVISION_2
+        } else {
+            REVISION_1
+        },
+    )
+    .unwrap();
+    let mut app =
+        Application::open_with_providers(&collection, provider, extractor.clone()).unwrap();
+    let first = if initial_import {
+        None
+    } else {
+        let first = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+        app.resume_due_semantic_jobs().unwrap();
+        fs::write(&path, REVISION_2).unwrap();
+        Some(first)
+    };
+    extractor.blocking.store(true, Ordering::SeqCst);
+    let worker = std::thread::spawn(move || {
+        let result = app.import_source(&path, AcquisitionMethod::Picker);
+        (app, result)
+    });
+    receiver
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    if std::env::var_os("KG_NO_QUIT").is_some() {
+        use std::io::Write;
+        let entry = fs::read_dir(collection.join("sources"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap();
+        writeln!(
+            fs::OpenOptions::new()
+                .append(true)
+                .open(entry.path().join("index.md"))
+                .unwrap(),
+            "OWNER-WHILE-EXTRACTING"
+        )
+        .unwrap();
+        let (app, result) = worker.join().unwrap();
+        let source = result.unwrap();
+        assert!(app
+            .open_source(&source.info.source_id)
+            .unwrap()
+            .body
+            .contains("OWNER-WHILE-EXTRACTING"));
+        return;
+    }
+    Application::record_controlled_shutdown(&collection).unwrap();
+    processes::shutdown();
+    let (app, result) = worker.join().unwrap();
+    assert!(result.is_err());
+    drop(app);
+    let reopened = Application::open(&collection).unwrap();
+    let source_id = first
+        .as_ref()
+        .map(|first| first.info.source_id.clone())
+        .unwrap_or_else(|| {
+            let directory = fs::read_dir(collection.join("sources"))
+                .unwrap()
+                .next()
+                .expect("cancelled initial import must retain its source")
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .into_owned();
+            format!("source-{directory}")
+        });
+    let restored = reopened.open_source(&source_id).unwrap();
+    let candidate = restored
+        .info
+        .pending_version_id
+        .as_deref()
+        .expect("cancelled import must retain its pending version");
+    assert_eq!(restored.info.update_status.as_deref(), Some("pending"));
+    if !initial_import {
+        assert_eq!(
+            fs::read_to_string(
+                reopened
+                    .original_version_path(&source_id, candidate, "original.docx")
+                    .unwrap()
+            )
+            .unwrap(),
+            REVISION_2
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(reopened.original_path(&source_id).unwrap()).unwrap(),
+        if initial_import {
+            REVISION_2
+        } else {
+            REVISION_1
+        }
+    );
+    if initial_import {
+        use std::io::Write;
+        writeln!(
+            fs::OpenOptions::new()
+                .append(true)
+                .open(reopened.page_path(&source_id).unwrap())
+                .unwrap(),
+            "OWNER-CORRECTION-TRACER"
+        )
+        .unwrap();
+    }
+    drop(reopened);
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "quitting_during_changed_source_import_preserves_and_resumes_the_candidate",
+            "--nocapture",
+        ])
+        .env("KG_IMPORT_QUIT_RECOVERY", &collection)
+        .env("KG_IMPORT_QUIT_SOURCE", &source_id)
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn quitting_during_initial_structured_source_import_preserves_and_resumes_it() {
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "quitting_during_changed_source_import_preserves_and_resumes_the_candidate",
+            "--nocapture",
+        ])
+        .env("KG_IMPORT_QUIT_CHILD", "1")
+        .env("KG_INITIAL_IMPORT", "1")
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn initial_structured_import_recovery_records_permanent_extraction_failure() {
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "quitting_during_changed_source_import_preserves_and_resumes_the_candidate",
+            "--nocapture",
+        ])
+        .env("KG_IMPORT_QUIT_CHILD", "1")
+        .env("KG_INITIAL_IMPORT", "1")
+        .env("KG_RECOVERY_FAIL", "1")
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn initial_structured_import_preserves_owner_edits_made_during_extraction() {
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "quitting_during_changed_source_import_preserves_and_resumes_the_candidate",
+            "--nocapture",
+        ])
+        .env("KG_IMPORT_QUIT_CHILD", "1")
+        .env("KG_INITIAL_IMPORT", "1")
+        .env("KG_NO_QUIT", "1")
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn invalid_initial_source_changed_import_recovery_records_extraction_failure() {
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "quitting_during_changed_source_import_preserves_and_resumes_the_candidate",
+            "--nocapture",
+        ])
+        .env("KG_IMPORT_QUIT_CHILD", "1")
+        .env("KG_INVALID_INITIAL", "1")
+        .env("KG_RECOVERY_FAIL", "1")
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn quitting_during_changed_source_import_after_invalid_initial_source_recovers() {
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "quitting_during_changed_source_import_preserves_and_resumes_the_candidate",
+            "--nocapture",
+        ])
+        .env("KG_IMPORT_QUIT_CHILD", "1")
+        .env("KG_INVALID_INITIAL", "1")
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+#[test]
+fn quitting_during_replacement_publication_preserves_integrity_budget() {
+    isolated_replacement_quit(
+        "quitting_during_replacement_publication_preserves_integrity_budget",
+        true,
+    );
+}
+
+#[test]
+fn structured_update_does_not_invent_a_concurrent_owner_save() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("report.docx");
+    let collection = workspace.path().join("collection");
+    let extractor = Arc::new(RecoveringProjection {
+        fails: std::sync::atomic::AtomicBool::new(false),
+        recovered: std::sync::atomic::AtomicBool::new(true),
+    });
+    let provider = Arc::new(RecordedProvider::sequence(vec![
+        Ok(replacement_recording(REVISION_1, 12, true)),
+        Ok(replacement_recording(REVISION_2, 15, false)),
+    ]));
+    fs::write(&path, REVISION_1).unwrap();
+    let mut app = Application::open_with_providers(&collection, provider, extractor).unwrap();
+    let first = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    fs::write(&path, REVISION_2).unwrap();
+    let updated = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    assert_eq!(updated.info.source_id, first.info.source_id);
+    let page = app.open_source(&first.info.source_id).unwrap();
+    assert!(
+        !page
+            .info
+            .owner_metadata
+            .contains_key("external_edit_status"),
+        "no owner edited this source, so an update cannot report an external edit: {:?}",
+        page.info.owner_metadata
+    );
+    assert!(
+        !page
+            .info
+            .owner_metadata
+            .contains_key("concurrent_owner_save"),
+        "no concurrent save exists to retain: {:?}",
+        page.info.owner_metadata
+    );
+    assert!(
+        !collection.join("owner-edits").exists()
+            || fs::read_dir(collection.join("owner-edits"))
+                .unwrap()
+                .next()
+                .is_none(),
+        "the update retained no competing owner bytes"
+    );
+}
