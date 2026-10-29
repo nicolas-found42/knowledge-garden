@@ -444,3 +444,65 @@ fn missing_or_corrupt_runtime_and_model_assets_are_explicit_application_states()
         assert!(results.pages.is_empty());
     }
 }
+
+#[test]
+fn removed_pages_leave_no_stale_vectors_after_rebuild_and_restart() {
+    let assets = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/meaning");
+    let collection = tempdir().unwrap();
+    let inputs = tempdir().unwrap();
+    let first_path = inputs.path().join("river.txt");
+    let second_path = inputs.path().join("garden.txt");
+    fs::write(&first_path, "We paddled slowly along the quiet river.").unwrap();
+    fs::write(
+        &second_path,
+        "The community garden grows tomatoes and herbs.",
+    )
+    .unwrap();
+    let mut app = Application::open_with_meaning_assets(collection.path(), Some(&assets)).unwrap();
+    let removed = app
+        .import_source(&first_path, AcquisitionMethod::Picker)
+        .unwrap();
+    let retained = app
+        .import_source(&second_path, AcquisitionMethod::Picker)
+        .unwrap();
+    let source_directory = app
+        .page_path(&removed.info.source_id)
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_owned();
+    fs::remove_dir_all(source_directory).unwrap();
+    app.rebuild_index().unwrap();
+    let index =
+        rusqlite::Connection::open(collection.path().join(".derived/lookup.sqlite")).unwrap();
+    let count: i64 = index
+        .query_row(
+            "SELECT COUNT(*) FROM meaning_vectors WHERE page_id=?1",
+            [&removed.info.page_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
+    assert!(app
+        .search_pages(meaning_request("quiet river paddling"))
+        .unwrap()
+        .pages
+        .iter()
+        .all(|page| page.page_id != removed.info.page_id));
+    drop(index);
+    drop(app);
+    let mut reopened =
+        Application::open_with_meaning_assets(collection.path(), Some(&assets)).unwrap();
+    assert!(reopened
+        .search_pages(meaning_request("tomatoes in a garden"))
+        .unwrap()
+        .pages
+        .iter()
+        .any(|page| page.page_id == retained.info.page_id));
+    assert!(reopened
+        .search_pages(meaning_request("quiet river paddling"))
+        .unwrap()
+        .pages
+        .iter()
+        .all(|page| page.page_id != removed.info.page_id));
+}

@@ -259,19 +259,17 @@ impl MeaningSearch {
             }
         }
 
-        let stale_keys = {
+        {
             let mut query = database.prepare(
                 "SELECT v.vector_key FROM meaning_vectors v LEFT JOIN page_search p ON p.page_id=v.page_id AND p.doc_kind='page' WHERE p.page_id IS NULL"
             ).map_err(|error| error.to_string())?;
             let rows = query
                 .query_map([], |row| row.get::<_, i64>(0))
-                .map_err(|error| error.to_string())?
-                .collect::<Result<Vec<_>, _>>()
                 .map_err(|error| error.to_string())?;
-            rows
-        };
-        for key in stale_keys {
-            let _ = index.remove(key as u64);
+            for row in rows {
+                let key = row.map_err(|error| error.to_string())?;
+                let _ = index.remove(key as u64);
+            }
         }
         database.execute(
             "DELETE FROM meaning_vectors WHERE page_id NOT IN (SELECT page_id FROM page_search WHERE doc_kind='page')", [],
