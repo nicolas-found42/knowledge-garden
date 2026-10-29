@@ -229,10 +229,12 @@ impl Application {
                 return Ok(false);
             }
             // Never rewrite a damaged source record while reporting its gap.
-            if diagnostics.iter().any(|diagnostic| {
-                diagnostic.kind == "malformed_metadata"
-                    && diagnostic.paths.iter().any(|item| item == path)
-            }) {
+            if is_source_index(path)
+                && diagnostics.iter().any(|diagnostic| {
+                    diagnostic.kind == "malformed_metadata"
+                        && diagnostic.paths.iter().any(|item| item == path)
+                })
+            {
                 continue;
             }
             let is_ambiguous = candidates
