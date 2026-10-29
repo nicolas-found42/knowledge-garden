@@ -3978,6 +3978,7 @@ fn search_omits_superseded_source_text_and_locates_independent_support_after_reb
     app.import_source(&pending_path, AcquisitionMethod::Picker)
         .unwrap();
     drop(app);
+    fs::remove_dir_all(collection.join(".derived")).unwrap();
     let mut reopened = Application::open(&collection).unwrap();
     reopened.rebuild_index().unwrap();
     let after_rebuild = reopened
@@ -5454,9 +5455,96 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
         .markdown
         .contains("duration: 12 minutes"));
 
+    let search_definition: knowledge_garden::application::views::ViewDefinition =
+        serde_json::from_value(serde_json::json!({
+            "active":"search", "search":{"query":"11 minutes"}, "query":null, "collection":null,
+            "timeline":null, "paths":null, "comparison":[], "target":null
+        }))
+        .unwrap();
+    let trail_definition: knowledge_garden::application::views::ViewDefinition = serde_json::from_value(serde_json::json!({
+        "active":"trail", "trail":[{"stop_id":uuid::Uuid::new_v4().to_string(), "label":"Corrected observation", "target":{"source_id":null,"page_id":event.page_id,"title":"Observation V17"},"context":null}],
+        "search":null,"query":null,"collection":null,"timeline":null,"paths":null,"comparison":[],"target":null
+    })).unwrap();
+    let saved_search = app
+        .create_saved_view("Corrected observations", search_definition.clone())
+        .unwrap();
+    let saved_trail = app
+        .create_saved_view("Reviewed route", trail_definition.clone())
+        .unwrap();
+    let unfinished = workspace.path().join("unfinished.txt");
+    fs::write(
+        &unfinished,
+        "Unfinished input remains queued after rebuilding.",
+    )
+    .unwrap();
+    let unfinished = app
+        .import_source(&unfinished, AcquisitionMethod::Picker)
+        .unwrap();
+    let before_location = app
+        .search_pages(PageSearchRequest {
+            query: "16 visits".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .pages
+        .into_iter()
+        .find(|page| page.page_id == event.page_id)
+        .unwrap()
+        .match_location
+        .expect("the current fact has a source location");
+    let moved_page = collection.join("pages/owner-moved-observation.md");
+    fs::rename(&page_path, &moved_page).unwrap();
+    let original = fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap();
     drop(app);
     fs::remove_dir_all(collection.join(".derived")).unwrap();
     let mut reopened = Application::open(&collection).unwrap();
+    let reopened_search = reopened.open_saved_view(&saved_search.view_id).unwrap();
+    let reopened_trail = reopened.open_saved_view(&saved_trail.view_id).unwrap();
+    assert_eq!(
+        serde_json::to_value(&reopened_search.definition).unwrap(),
+        serde_json::to_value(&search_definition).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&reopened_trail.definition).unwrap(),
+        serde_json::to_value(&trail_definition).unwrap()
+    );
+    let route = reopened
+        .resolve_trail(reopened_trail.definition.trail)
+        .unwrap();
+    assert_eq!(route.len(), 1);
+    assert_eq!(route[0].status, "available");
+    assert_eq!(
+        route[0].stop.target.page_id.as_deref(),
+        Some(event.page_id.as_str())
+    );
+    assert_eq!(
+        reopened
+            .open_source(&unfinished.info.source_id)
+            .unwrap()
+            .info
+            .semantic_state,
+        "pending"
+    );
+    assert_eq!(
+        fs::read(reopened.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        original
+    );
+    let after_location = reopened
+        .search_pages(PageSearchRequest {
+            query: "16 visits".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .pages
+        .into_iter()
+        .find(|page| page.page_id == event.page_id)
+        .unwrap()
+        .match_location
+        .expect("a moved page retains its source evidence location");
+    assert_eq!(
+        serde_json::to_value(after_location).unwrap(),
+        serde_json::to_value(before_location).unwrap()
+    );
     let after_rebuild = reopened.open_knowledge_page(&event.page_id).unwrap();
     assert!(after_rebuild
         .markdown
@@ -5467,12 +5555,7 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
     assert!(after_rebuild
         .markdown
         .contains("Owner note: reviewed and corrected after field playback."));
-    let durable_page = fs::read_to_string(
-        collection
-            .join("pages")
-            .join(format!("{}.md", event.page_id)),
-    )
-    .unwrap();
+    let durable_page = fs::read_to_string(&moved_page).unwrap();
     assert!(durable_page.contains("review: field-playback"));
     assert!(durable_page.contains("manual_correction:"));
     assert!(durable_page.contains("value: 11 minutes"));

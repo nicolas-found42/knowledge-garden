@@ -2032,9 +2032,22 @@ impl Application {
         Ok(page)
     }
 
+    // A damaged or mismatched durable source is reported by reconciliation.
+    // It must not prevent unrelated sources from being recovered or scheduled.
+    fn readable_source_entry(&self, entry: &fs::DirEntry) -> Option<SourcePage> {
+        let page = read_page(&entry.path().join("index.md")).ok()?;
+        if entry.path() != self.source_dir(&page.info.source_id).ok()? {
+            return None;
+        }
+        self.open_source(&page.info.source_id).ok()
+    }
+
     pub fn open_source(&self, source_id: &str) -> Result<SourcePage> {
         recover_publications(&self.root)?;
         let mut page = read_page(&self.page_path(source_id)?)?;
+        if page.info.source_id != source_id {
+            return Err(GardenError::Invalid("Source metadata identity does not match its directory; retained content is preserved.".into()));
+        }
         let contexts = self.source_dir(source_id)?.join("acquisitions");
         if contexts.exists() {
             for entry in fs::read_dir(contexts)? {
@@ -2647,7 +2660,9 @@ impl Application {
         if !path.is_file() {
             return Ok(None);
         }
-        let source = read_page(&path)?;
+        let Ok(source) = self.open_source(&support.source_id) else {
+            return Ok(None);
+        };
         if let Some(version) = source
             .info
             .versions_seen
@@ -2689,8 +2704,9 @@ impl Application {
             if !entry.file_type()?.is_dir() {
                 continue;
             }
-            let source_id = read_page(&entry.path().join("index.md"))?.info.source_id;
-            let page = self.open_source(&source_id)?;
+            let Some(page) = self.readable_source_entry(&entry) else {
+                continue;
+            };
             if page.info.semantic_state == "processing"
                 || page.info.update_status.as_deref() == Some("processing")
             {
@@ -4050,8 +4066,9 @@ impl Application {
             if !entry.file_type()?.is_dir() {
                 continue;
             }
-            let source_id = read_page(&entry.path().join("index.md"))?.info.source_id;
-            let mut page = self.open_source(&source_id)?;
+            let Some(mut page) = self.readable_source_entry(&entry) else {
+                continue;
+            };
             let Some(pending) = page.info.pending_version_id.clone() else {
                 continue;
             };
@@ -4117,8 +4134,10 @@ impl Application {
             if !entry.file_type()?.is_dir() {
                 continue;
             }
-            let source_id = read_page(&entry.path().join("index.md"))?.info.source_id;
-            let page = self.open_source(&source_id)?;
+            let Some(page) = self.readable_source_entry(&entry) else {
+                continue;
+            };
+            let source_id = page.info.source_id.clone();
             if let Some(pending_version_id) = page.info.pending_version_id.as_deref() {
                 if let Some(audio) = candidate_audio_processing(&page.info, pending_version_id) {
                     if audio.state == "pending" && audio.retry_at_ms.unwrap_or(0) <= now {
@@ -5734,7 +5753,13 @@ impl Application {
         if !path.exists() {
             return Ok((None, None, String::new(), source_version_id.to_owned()));
         }
-        let info = read_page(&path)?.info;
+        // Sort metadata comes from `index.md` alone. `open_source` also validates
+        // the auxiliary acquisition records, so a damaged one would rank a valid
+        // source as undated and let an older support value publish as current.
+        let Ok(page) = read_page(&path) else {
+            return Ok((None, None, String::new(), source_version_id.to_owned()));
+        };
+        let info = page.info;
         let version = info
             .versions_seen
             .iter()
@@ -5772,15 +5797,11 @@ impl Application {
         let Some(short_id) = support.source_id.strip_prefix("source-") else {
             return Ok(("unavailable".into(), "unavailable".into()));
         };
-        let source_dir = self.source_dir(&support.source_id)?;
-        let source_page = match read_page(&source_dir.join("index.md")) {
+        let source_page = match self.open_source(&support.source_id) {
             Ok(page) => page,
             // Source removal must not prevent rebuilding the derived graph. The
             // retained knowledge stays readable, with unavailable support links.
-            Err(GardenError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(("unavailable".into(), "unavailable".into()));
-            }
-            Err(error) => return Err(error),
+            Err(_) => return Ok(("unavailable".into(), "unavailable".into())),
         };
         let version = source_page
             .info
@@ -6832,7 +6853,10 @@ impl Application {
             }
             return Ok(None);
         }
-        let path = self.root.join("pages").join(format!("{page_id}.md"));
+        let path = match self.knowledge_path(page_id) {
+            Ok(path) => path,
+            Err(_) => return Ok(None),
+        };
         let markdown = match read_bounded_text(&path, MAX_PAGE_BYTES) {
             Ok(markdown) => markdown,
             Err(_) => return Ok(None),
@@ -6904,7 +6928,26 @@ impl Application {
         // not exit. Finish it before capturing edits or rebuilding derived state.
         recover_publications(&self.root)?;
         self.capture_external_knowledge_edits()?;
+        // Resolve identities once per generation instead of rescanning every page
+        // for each source. Keep the lookup in SQLite so it remains disposable.
+        let knowledge_paths = self.knowledge_paths()?;
+        self.index.execute_batch("PRAGMA temp_store=FILE;")?;
         let transaction = self.index.unchecked_transaction()?;
+        transaction.execute_batch(
+            "CREATE TEMP TABLE rebuild_page_paths(page_id TEXT PRIMARY KEY, path TEXT NOT NULL);",
+        )?;
+        let mut has_non_utf8_paths = false;
+        for path in &knowledge_paths {
+            if let Some(path_text) = path.to_str() {
+                let header = read_knowledge_header(path)?;
+                transaction.execute(
+                    "INSERT INTO rebuild_page_paths(page_id,path) VALUES (?1,?2)",
+                    params![header.page_id, path_text],
+                )?;
+            } else {
+                has_non_utf8_paths = true;
+            }
+        }
         transaction.execute("DELETE FROM sources", [])?;
         transaction.execute("DELETE FROM page_search", [])?;
         transaction.execute("DELETE FROM query_page_metadata", [])?;
@@ -6920,10 +6963,7 @@ impl Application {
             if !entry.file_type()?.is_dir() {
                 continue;
             }
-            let Ok(page) = read_page(&entry.path().join("index.md")) else {
-                continue;
-            };
-            let Ok(page) = self.open_source(&page.info.source_id) else {
+            let Some(page) = self.readable_source_entry(&entry) else {
                 continue;
             };
             transaction.execute(
@@ -6941,22 +6981,24 @@ impl Application {
             }
             index_collection_activity(&transaction, &page.info)?;
             collection::index_source(&transaction, &page.info)?;
-            let documents = self.search_documents_for_source(&page.info)?;
+            let documents =
+                self.search_documents_for_source(&page.info, &transaction, has_non_utf8_paths)?;
             write_search_documents(&transaction, &documents)?;
         }
         transaction.execute("DELETE FROM collection_source_pages WHERE NOT EXISTS (SELECT 1 FROM sources WHERE sources.source_id=collection_source_pages.source_id)",[])?;
         let pages_dir = self.root.join("pages");
         if pages_dir.is_dir() {
-            for path in self.knowledge_paths()? {
+            for path in &knowledge_paths {
                 if path.extension().and_then(|extension| extension.to_str()) != Some("md") {
                     continue;
                 }
-                let header = read_knowledge_header(&path)?;
-                if !self
-                    .source_dir(&header.source_id)?
-                    .join("index.md")
-                    .exists()
-                {
+                let header = read_knowledge_header(path)?;
+                let source_indexed: bool = transaction.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sources WHERE source_id = ?1)",
+                    [&header.source_id],
+                    |row| row.get(0),
+                )?;
+                if !source_indexed {
                     // Authoritative owner edits outlive removal of their last source.
                     write_search_documents(
                         &transaction,
@@ -7098,20 +7140,27 @@ impl Application {
             // Bind those exact inputs so a promoted source version cannot leave
             // an old path-detail token looking current when its edge JSON is
             // unchanged (for example, an aligned Office refresh).
-            let mut support_keys = HashSet::new();
-            let mut statement = transaction.prepare(
-                "SELECT relationship_json FROM relationship_edges ORDER BY relationship_id",
-            )?;
-            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
-            for row in rows {
-                let relationship: RelationshipRecord = serde_json::from_str(&row?)?;
-                for support in relationship.supports {
-                    support_keys.insert((support.source_id, support.source_version_id));
+            transaction.execute_batch("CREATE TEMP TABLE rebuild_support_keys(source_id TEXT NOT NULL, version_id TEXT NOT NULL, PRIMARY KEY(source_id,version_id)) WITHOUT ROWID;")?;
+            {
+                let mut statement = transaction.prepare(
+                    "SELECT relationship_json FROM relationship_edges ORDER BY relationship_id",
+                )?;
+                let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+                for row in rows {
+                    let relationship: RelationshipRecord = serde_json::from_str(&row?)?;
+                    for support in relationship.supports {
+                        transaction.execute("INSERT OR IGNORE INTO rebuild_support_keys(source_id,version_id) VALUES (?1,?2)", params![support.source_id,support.source_version_id])?;
+                    }
                 }
             }
-            let mut support_keys = support_keys.into_iter().collect::<Vec<_>>();
-            support_keys.sort();
-            for (source_id, source_version_id) in support_keys {
+            let mut statement = transaction.prepare(
+                "SELECT source_id,version_id FROM rebuild_support_keys ORDER BY source_id,version_id",
+            )?;
+            let support_keys = statement.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for pair in support_keys {
+                let (source_id, source_version_id) = pair?;
                 for value in [&source_id, &source_version_id] {
                     digest.update((value.len() as u64).to_be_bytes());
                     digest.update(value.as_bytes());
@@ -7136,7 +7185,11 @@ impl Application {
                     digest.update([0]);
                     continue;
                 }
-                let info = read_page(&path)?.info;
+                let Ok(page) = self.open_source(&source_id) else {
+                    digest.update([0]);
+                    continue;
+                };
+                let info = page.info;
                 if let Some(version) = info
                     .versions_seen
                     .iter()
@@ -7179,6 +7232,8 @@ impl Application {
             "INSERT INTO relationship_graph_meta(singleton, revision) VALUES (1, ?1) ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision",
             [graph_revision],
         )?;
+        transaction
+            .execute_batch("DROP TABLE rebuild_page_paths; DROP TABLE rebuild_support_keys;")?;
         transaction.commit()?;
         if let Some(meaning) = self.meaning_search.as_mut() {
             match meaning.sync(&self.index) {
@@ -7257,7 +7312,12 @@ impl Application {
             .join(&version.asset))
     }
 
-    fn search_documents_for_source(&self, info: &SourceInfo) -> Result<Vec<SearchDocument>> {
+    fn search_documents_for_source(
+        &self,
+        info: &SourceInfo,
+        lookup: &Connection,
+        has_non_utf8_paths: bool,
+    ) -> Result<Vec<SearchDocument>> {
         let source_page = read_page(&self.page_path(&info.source_id)?)?;
         let mut knowledge = Vec::new();
         let status = if self.original_path(&info.source_id).is_err() {
@@ -7266,9 +7326,22 @@ impl Application {
             processing_status(&source_page.info)
         };
         for summary in &source_page.info.knowledge_pages {
-            let Ok(path) = self.knowledge_path(&summary.page_id) else {
-                // A damaged or duplicate owner page stays on disk and unavailable
-                // by identity; it must not prevent unrelated sources from indexing.
+            let indexed_path: Option<String> = lookup
+                .query_row(
+                    "SELECT path FROM rebuild_page_paths WHERE page_id=?1",
+                    [&summary.page_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            let path = if let Some(path) = indexed_path {
+                PathBuf::from(path)
+            } else if has_non_utf8_paths {
+                let Ok(path) = self.knowledge_path(&summary.page_id) else {
+                    continue;
+                };
+                path
+            } else {
+                // Damaged and duplicate pages remain unavailable by identity.
                 continue;
             };
             let markdown = match read_bounded_text(&path, MAX_PAGE_BYTES) {
@@ -7282,7 +7355,7 @@ impl Application {
             // A reconciled page is linked from every source that supports it.
             // Index the canonical page once, under its stable owning source,
             // while its Markdown already contains the current support set.
-            if header.source_id != source_page.info.source_id {
+            if header.page_id != summary.page_id || header.source_id != source_page.info.source_id {
                 continue;
             }
             let body = knowledge_search_content(&header);
