@@ -34,6 +34,9 @@ or directory change. Parsed page candidates are checkpointed in the disposable
 SQLite index and reused only after a fresh scan matches their generation and
 fingerprints. Source diagnostics are recalculated. The final
 snapshot and index passes are not bounded. The SQLite index update is transactional.
+A final pre-publication pass rechecks scanned files, unreadable records,
+directories, and the page-location ledger. An external editor can still change
+them after that check; the check does not make filesystem publication atomic.
 A temporary file-backed SQLite lookup resolves
 unique page paths once per rebuild instead of rescanning every page for each source.
 Distinct relationship-support keys are also sorted through a temporary SQLite

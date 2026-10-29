@@ -63,8 +63,8 @@ enum PageCandidate {
 // Bump when page-header parsing or its cached fields change.
 const PAGE_CANDIDATE_CACHE_VERSION: &str = "page-candidate-v1";
 
-fn scan_directories_unchanged(scan: &Scan) -> bool {
-    scan.directory_mtimes.iter().all(|(path, expected)| {
+fn scan_directories_unchanged(directories: &BTreeMap<PathBuf, std::time::SystemTime>) -> bool {
+    directories.iter().all(|(path, expected)| {
         fs::metadata(path)
             .and_then(|metadata| metadata.modified())
             .is_ok_and(|modified| modified == *expected)
@@ -164,7 +164,7 @@ impl Application {
         }
         let mut scan = self.collection_scan.take().unwrap();
         if scan.candidate_digest.is_none() {
-            if !scan_directories_unchanged(&scan) {
+            if !scan_directories_unchanged(&scan.directory_mtimes) {
                 return Ok(self.reconciliation_status(false));
             }
             for directory in &scan.source_directories {
@@ -226,11 +226,16 @@ impl Application {
                 if pruned != 0 {
                     continue;
                 }
-                if !scan_directories_unchanged(&scan) {
+                if !scan_directories_unchanged(&scan.directory_mtimes) {
                     return Ok(self.reconciliation_status(false));
                 }
                 let digest = scan.candidate_digest.take().unwrap();
-                if !self.reconcile_snapshot(scan.files, scan.unreadable, scan.candidates)? {
+                if !self.reconcile_snapshot(
+                    scan.files,
+                    scan.unreadable,
+                    scan.candidates,
+                    &scan.directory_mtimes,
+                )? {
                     return Ok(self.reconciliation_status(false));
                 }
                 self.rebuild_index()?;
@@ -347,11 +352,12 @@ impl Application {
         files: BTreeMap<String, String>,
         mut diagnostics: Vec<CollectionDiagnostic>,
         candidates: BTreeMap<String, Vec<String>>,
+        directory_mtimes: &BTreeMap<PathBuf, std::time::SystemTime>,
     ) -> Result<bool> {
         let ledger_path = self.root.join(".reconciliation/paths.md");
-        let previous: Ledger = if ledger_path.exists() {
+        let (previous, ledger_snapshot): (Ledger, Option<Vec<u8>>) = if ledger_path.exists() {
             let text = read_bounded_text(&ledger_path, MAX_PAGE_BYTES)?;
-            serde_yaml_ng::from_str(
+            let previous = serde_yaml_ng::from_str(
                 text.strip_prefix("---\n")
                     .and_then(|v| v.split_once("\n---\n"))
                     .ok_or_else(|| {
@@ -361,9 +367,10 @@ impl Application {
                         )
                     })?
                     .0,
-            )?
+            )?;
+            (previous, Some(text.into_bytes()))
         } else {
-            Ledger::default()
+            (Ledger::default(), None)
         };
         let mut ledger = Ledger {
             pages: previous.pages.clone(),
@@ -461,14 +468,47 @@ impl Application {
             }
         }
         let ledger_text = format!("---\n{}---\n\n# Page locations\n\nLast unambiguous paths, used to repair ordinary links after moves. Markdown pages remain authoritative.\n", serde_yaml_ng::to_string(&ledger)?);
-        let ledger_bytes = fs::read(&ledger_path).ok();
+        let ledger_bytes = ledger_snapshot.clone();
         if ledger_bytes.as_deref() != Some(ledger_text.as_bytes())
             && (!ledger.pages.is_empty() || ledger_bytes.is_some())
         {
             if let Some(bytes) = ledger_bytes {
                 bases.insert(ledger_path.clone(), bytes);
             }
-            writes.push((ledger_path, ledger_text.into_bytes()));
+            writes.push((ledger_path.clone(), ledger_text.into_bytes()));
+        }
+        #[cfg(test)]
+        if let Some(hook) = self.before_reconciliation_publication.take() {
+            hook();
+        }
+        for (path, fingerprint) in &files {
+            let Ok(text) = read_bounded_text(&self.root.join(path), MAX_PAGE_BYTES) else {
+                return Ok(false);
+            };
+            if hex::encode(Sha256::digest(text.as_bytes())) != *fingerprint {
+                return Ok(false);
+            }
+        }
+        for diagnostic in &diagnostics {
+            if diagnostic.kind == "unreadable_markdown"
+                && diagnostic
+                    .paths
+                    .iter()
+                    .any(|path| read_bounded_text(&self.root.join(path), MAX_PAGE_BYTES).is_ok())
+            {
+                return Ok(false);
+            }
+        }
+        let ledger_unchanged = match (
+            read_bounded_text(&ledger_path, MAX_PAGE_BYTES),
+            ledger_snapshot.as_deref(),
+        ) {
+            (Ok(actual), Some(expected)) => actual.as_bytes() == expected,
+            (Err(GardenError::Io(error)), None) => error.kind() == std::io::ErrorKind::NotFound,
+            _ => false,
+        };
+        if !scan_directories_unchanged(directory_mtimes) || !ledger_unchanged {
+            return Ok(false);
         }
         commit_publication(
             &self.root,
@@ -721,4 +761,166 @@ fn replace_destination(
     let mut result = capture[0].to_owned();
     result.replace_range(offset..offset + raw.len(), &replacement);
     result
+}
+
+#[cfg(test)]
+mod publication_race_tests {
+    use super::*;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+
+    fn exercise_changed_read_dependency(add_page: bool) {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("collection");
+        let mut app = Application::open(&root).unwrap();
+        let pages = root.join("pages");
+        fs::create_dir_all(&pages).unwrap();
+        let original = pages.join("owner.md");
+        fs::write(&original, "original owner content").unwrap();
+        let target = if add_page {
+            pages.join("added.md")
+        } else {
+            original.clone()
+        };
+        let hook_called = Arc::new(AtomicBool::new(false));
+        let called = Arc::clone(&hook_called);
+        app.before_reconciliation_publication = Some(Box::new(move || {
+            fs::write(target, "new owner content").unwrap();
+            called.store(true, Ordering::SeqCst);
+        }));
+        let revision = app.collection_status().revision;
+        for _ in 0..10 {
+            let status = app.reconcile_collection(100).unwrap();
+            if hook_called.load(Ordering::SeqCst) {
+                assert!(
+                    !status.complete,
+                    "a changed read dependency must reject the snapshot"
+                );
+                assert_eq!(status.revision, revision);
+                assert!(status.diagnostics.is_empty());
+                break;
+            }
+        }
+        assert!(hook_called.load(Ordering::SeqCst));
+        for _ in 0..10 {
+            let status = app.reconcile_collection(100).unwrap();
+            if status.complete {
+                let expected = if add_page { 2 } else { 1 };
+                assert_eq!(
+                    status
+                        .diagnostics
+                        .iter()
+                        .filter(|item| item.kind == "malformed_metadata")
+                        .count(),
+                    expected
+                );
+                assert_eq!(
+                    fs::read_to_string(if add_page {
+                        pages.join("added.md")
+                    } else {
+                        original
+                    })
+                    .unwrap(),
+                    "new owner content"
+                );
+                return;
+            }
+        }
+        panic!("the stable snapshot should eventually reconcile");
+    }
+
+    #[test]
+    fn changed_unwritten_page_rejects_the_snapshot() {
+        exercise_changed_read_dependency(false);
+    }
+
+    #[test]
+    fn added_page_rejects_the_snapshot() {
+        exercise_changed_read_dependency(true);
+    }
+
+    #[test]
+    fn newly_readable_page_rejects_the_snapshot() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("collection");
+        let mut app = Application::open(&root).unwrap();
+        let page = root.join("pages/owner.md");
+        fs::create_dir_all(page.parent().unwrap()).unwrap();
+        fs::write(&page, [0xff]).unwrap();
+        let target = page.clone();
+        let hook_called = Arc::new(AtomicBool::new(false));
+        let called = Arc::clone(&hook_called);
+        app.before_reconciliation_publication = Some(Box::new(move || {
+            fs::write(target, "now readable").unwrap();
+            called.store(true, Ordering::SeqCst);
+        }));
+        for _ in 0..10 {
+            let status = app.reconcile_collection(100).unwrap();
+            if hook_called.load(Ordering::SeqCst) {
+                assert!(
+                    !status.complete,
+                    "a newly readable page must reject the snapshot"
+                );
+                for _ in 0..10 {
+                    let status = app.reconcile_collection(100).unwrap();
+                    if status.complete {
+                        assert!(status
+                            .diagnostics
+                            .iter()
+                            .any(|item| item.kind == "malformed_metadata"
+                                && item.paths.iter().any(|path| path == "pages/owner.md")));
+                        assert!(!status
+                            .diagnostics
+                            .iter()
+                            .any(|item| item.kind == "unreadable_markdown"));
+                        return;
+                    }
+                }
+                panic!("the readable page should be reconsidered");
+            }
+        }
+        panic!("the publication hook should run");
+    }
+
+    #[test]
+    fn oversized_ledger_edit_rejects_the_snapshot() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("collection");
+        let ledger = root.join(".reconciliation/paths.md");
+        fs::create_dir_all(ledger.parent().unwrap()).unwrap();
+        fs::write(&ledger, "---\npages: {}\n---\n\n# Locations\n").unwrap();
+        let mut app = Application::open(&root).unwrap();
+        let original_ledger = fs::read(&ledger).unwrap();
+        fs::create_dir_all(root.join("pages")).unwrap();
+        fs::write(root.join("pages/owner.md"), "owner content").unwrap();
+        let target = ledger.clone();
+        let hook_called = Arc::new(AtomicBool::new(false));
+        let called = Arc::clone(&hook_called);
+        app.before_reconciliation_publication = Some(Box::new(move || {
+            File::create(target)
+                .unwrap()
+                .set_len(MAX_PAGE_BYTES + 1)
+                .unwrap();
+            called.store(true, Ordering::SeqCst);
+        }));
+        for _ in 0..10 {
+            let status = app.reconcile_collection(100).unwrap();
+            if hook_called.load(Ordering::SeqCst) {
+                assert!(
+                    !status.complete,
+                    "the oversized ledger edit must reject the snapshot"
+                );
+                fs::write(&ledger, original_ledger).unwrap();
+                for _ in 0..10 {
+                    if app.reconcile_collection(100).unwrap().complete {
+                        return;
+                    }
+                }
+                panic!("a restored ledger should allow reconciliation");
+            }
+        }
+        panic!("the publication hook should run");
+    }
 }

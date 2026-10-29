@@ -545,6 +545,8 @@ pub struct Application {
     watch_cursor: usize,
     collection_scan: Option<reconciliation::Scan>,
     collection_reconcile_pending: bool,
+    #[cfg(test)]
+    before_reconciliation_publication: Option<Box<dyn FnOnce() + Send>>,
     collection_digest: Option<String>,
     collection_revision: u64,
     collection_diagnostics: Vec<reconciliation::CollectionDiagnostic>,
@@ -913,6 +915,8 @@ impl Application {
             audio_processor,
             collection_scan: None,
             collection_reconcile_pending: false,
+            #[cfg(test)]
+            before_reconciliation_publication: None,
             collection_digest: None,
             collection_revision: 0,
             collection_diagnostics: Vec::new(),
