@@ -38,7 +38,7 @@ import type {
   TimelineResults,
 } from "./api";
 
-const LAST_SOURCE = "knowledge-garden:last-source";
+const LAST_NAVIGATION = "knowledge-garden:last-navigation";
 const PATH_PAGE_SIZE = 50;
 const PATH_WORK_BUDGET = 50;
 const labels = {
@@ -1099,14 +1099,17 @@ export async function mountReader(
 
   function syncBackButton() {
     backButton.hidden = navigationHistory.length === 0;
+    // Every view transition ends here, so this is the one place the durable
+    // navigation record follows what the reader is actually showing.
+    persistNavigation(captureState());
   }
 
-  function pushCurrentState() {
+  function captureState(): NavigationState | null {
     const mainArticle = main.querySelector("article");
     if (currentView === "trail") {
-      navigationHistory.push({ kind: "trail", stops: trailController.stops() });
+      return { kind: "trail", stops: trailController.stops() };
     } else if (currentView === "comparison") {
-      navigationHistory.push({
+      return {
         kind: "comparison",
         state: structuredClone(currentComparison),
         scrollTop: main.scrollTop,
@@ -1115,9 +1118,9 @@ export async function mountReader(
           document.activeElement instanceof HTMLElement
             ? (document.activeElement.dataset.focusId ?? null)
             : null,
-      });
+      };
     } else if (currentView === "collection") {
-      navigationHistory.push({
+      return {
         kind: "collection",
         state: structuredClone(currentCollection),
         scrollTop: main.scrollTop,
@@ -1126,17 +1129,17 @@ export async function mountReader(
           document.activeElement instanceof HTMLElement
             ? (document.activeElement.dataset.focusId ?? null)
             : null,
-      });
+      };
     } else if (currentView === "query" && queryView) {
       queryView.scrollTop = main.scrollTop;
-      navigationHistory.push({
+      return {
         kind: "query",
         state: structuredClone(queryView),
         windowScroll: window.scrollY,
-      });
+      };
     } else if (currentView === "paths" && currentPathExplore) {
       currentPathExplore.scrollTop = main.scrollTop;
-      navigationHistory.push({
+      return {
         kind: "paths",
         focusId:
           document.activeElement instanceof HTMLElement
@@ -1156,27 +1159,27 @@ export async function mountReader(
           ),
         },
         windowScroll: window.scrollY,
-      });
+      };
     } else if (currentView === "timeline" && currentTimeline) {
-      navigationHistory.push({
+      return {
         kind: "timeline",
         request: { ...currentTimeline, tags: [...currentTimeline.tags] },
         selectedEntry: selectedTimelineEntry,
         selectedAction: selectedTimelineAction,
         scrollTop: main.scrollTop,
         windowScroll: window.scrollY,
-      });
+      };
     } else if (currentView === "search" && currentSearch) {
-      navigationHistory.push({
+      return {
         kind: "search",
         request: { ...currentSearch, tags: [...currentSearch.tags] },
         selectedPageId: currentSelectedPageId,
         scrollTop: main.scrollTop,
         windowScroll: window.scrollY,
-      });
+      };
     } else if (currentView === "source" && currentSourceId) {
       const activeLink = document.activeElement?.closest("a");
-      navigationHistory.push({
+      return {
         kind: "source",
         sourceId: currentSourceId,
         scrollTop: mainArticle?.scrollTop ?? 0,
@@ -1187,10 +1190,10 @@ export async function mountReader(
           document.activeElement instanceof HTMLElement
             ? (document.activeElement.dataset.focusId ?? null)
             : null,
-      });
+      };
     } else if (currentView === "knowledge" && currentKnowledgePageId) {
       const activeLink = document.activeElement?.closest("a");
-      navigationHistory.push({
+      return {
         kind: "knowledge",
         pageId: currentKnowledgePageId,
         scrollTop: mainArticle?.scrollTop ?? 0,
@@ -1201,8 +1204,36 @@ export async function mountReader(
           document.activeElement instanceof HTMLElement
             ? (document.activeElement.dataset.focusId ?? null)
             : null,
-      });
+      };
     }
+    return null;
+  }
+
+  // Navigation context is durable across restarts without an explicitly saved
+  // view: the last page, scope, filters, selection, and scroll travel together.
+  function persistNavigation(state: NavigationState | null) {
+    if (disposed) return;
+    try {
+      if (state) localStorage.setItem(LAST_NAVIGATION, JSON.stringify(state));
+      else localStorage.removeItem(LAST_NAVIGATION);
+    } catch {
+      /* Reading works without browser storage. */
+    }
+  }
+
+  function readNavigation(): NavigationState | null {
+    try {
+      const stored = localStorage.getItem(LAST_NAVIGATION);
+      return stored ? (JSON.parse(stored) as NavigationState) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function pushCurrentState() {
+    const state = captureState();
+    if (state) navigationHistory.push(state);
+    persistNavigation(state);
     syncBackButton();
   }
 
@@ -1378,11 +1409,7 @@ export async function mountReader(
     main.replaceChildren(article);
     sources.hidden = true;
     sourcesButton.setAttribute("aria-expanded", "false");
-    try {
-      localStorage.setItem(LAST_SOURCE, sourceId);
-    } catch {
-      /* Reading works without browser storage. */
-    }
+    persistNavigation(captureState());
     article.focus();
     return article;
   }
@@ -2977,20 +3004,19 @@ export async function mountReader(
   const unlisten = await api.onDrop((paths) => {
     void importPaths(paths, "drop");
   });
-  let lastSource: string | null = null;
-  try {
-    lastSource = localStorage.getItem(LAST_SOURCE);
-  } catch {
-    /* Optional navigation state. */
-  }
-  if (lastSource) {
+  const restored = readNavigation();
+  if (restored) {
     try {
-      showPage(await api.openSource(lastSource));
+      await restoreNavigation(restored);
     } catch (error) {
       report(error);
     }
   }
-  if (!lastSource && api.collectionGroups && api.collectionMembers)
+  if (
+    (!restored || currentView === "empty") &&
+    api.collectionGroups &&
+    api.collectionMembers
+  )
     showCollection();
   let collectionRevision: number | null = null;
   let refreshingCollection = false;
