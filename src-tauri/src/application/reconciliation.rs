@@ -51,6 +51,18 @@ struct Ledger {
     pages: BTreeMap<String, String>,
 }
 
+#[derive(Serialize, Deserialize)]
+enum PageCandidate {
+    Parsed {
+        page_id: String,
+        retained_owner_edits: Vec<String>,
+    },
+    Malformed,
+}
+
+// Bump when page-header parsing or its cached fields change.
+const PAGE_CANDIDATE_CACHE_VERSION: &str = "page-candidate-v1";
+
 fn scan_directories_unchanged(scan: &Scan) -> bool {
     scan.directory_mtimes.iter().all(|(path, expected)| {
         fs::metadata(path)
@@ -174,6 +186,16 @@ impl Application {
                 self.collection_reconcile_pending = false;
                 return Ok(self.reconciliation_status(true));
             }
+            self.index.execute_batch(
+                "CREATE TABLE IF NOT EXISTS reconciliation_page_candidates (
+                    generation TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL,
+                    outcome TEXT NOT NULL,
+                    checksum TEXT NOT NULL,
+                    PRIMARY KEY (generation, path)
+                ) WITHOUT ROWID;",
+            )?;
             scan.candidate_digest = Some(digest);
             self.collection_scan = Some(scan);
             return Ok(self.reconciliation_status(false));
@@ -187,6 +209,23 @@ impl Application {
                 None => scan.files.iter().next(),
             };
             let Some((path, fingerprint)) = next else {
+                let generation = format!(
+                    "{PAGE_CANDIDATE_CACHE_VERSION}:{}",
+                    scan.candidate_digest.as_deref().unwrap()
+                );
+                let mut pruned = self.index.execute(
+                    "DELETE FROM reconciliation_page_candidates WHERE (generation,path) = (SELECT generation,path FROM reconciliation_page_candidates WHERE generation < ?1 ORDER BY generation,path LIMIT 1)",
+                    [&generation],
+                )?;
+                if pruned == 0 {
+                    pruned = self.index.execute(
+                        "DELETE FROM reconciliation_page_candidates WHERE (generation,path) = (SELECT generation,path FROM reconciliation_page_candidates WHERE generation > ?1 ORDER BY generation,path LIMIT 1)",
+                        [&generation],
+                    )?;
+                }
+                if pruned != 0 {
+                    continue;
+                }
                 if !scan_directories_unchanged(&scan) {
                     return Ok(self.reconciliation_status(false));
                 }
@@ -207,12 +246,29 @@ impl Application {
             if hex::encode(Sha256::digest(text.as_bytes())) != *fingerprint {
                 return Ok(self.reconciliation_status(false));
             }
-            self.inspect_reconciliation_candidate(
-                &path,
-                &text,
-                &mut scan.unreadable,
-                &mut scan.candidates,
-            );
+            if path.starts_with("pages/") {
+                let generation = format!(
+                    "{PAGE_CANDIDATE_CACHE_VERSION}:{}",
+                    scan.candidate_digest.as_deref().unwrap()
+                );
+                let candidate =
+                    self.cached_page_candidate(&generation, &path, fingerprint, &text)?;
+                match candidate {
+                    PageCandidate::Parsed { page_id, retained_owner_edits } => {
+                        if !retained_owner_edits.is_empty() {
+                            scan.unreadable.push(CollectionDiagnostic { kind: "retained_owner_save".into(), paths: retained_owner_edits, detail: "Exact owner saves retained with uncertainty. Supported manual corrections remain authoritative; unedited facts continue updating.".into() });
+                        }
+                        scan.candidates.entry(page_id).or_default().push(path.clone());
+                    }
+                    PageCandidate::Malformed => scan.unreadable.push(CollectionDiagnostic {
+                        kind: "malformed_metadata".into(),
+                        paths: vec![path.clone()],
+                        detail: "No unambiguous page identity can be read. Original content is preserved.".into(),
+                    }),
+                }
+            } else {
+                self.inspect_reconciliation_candidate(&path, &mut scan.unreadable);
+            }
             scan.candidate_cursor = Some(path);
         }
         self.collection_scan = Some(scan);
@@ -231,12 +287,45 @@ impl Application {
         }
     }
 
+    fn cached_page_candidate(
+        &self,
+        generation: &str,
+        path: &str,
+        fingerprint: &str,
+        text: &str,
+    ) -> Result<PageCandidate> {
+        let cached: Option<(Option<String>, Option<String>)> = self.index.query_row(
+            "SELECT outcome, checksum FROM reconciliation_page_candidates WHERE generation=?1 AND path=?2 AND fingerprint=?3",
+            params![generation, path, fingerprint],
+            |row| Ok((row.get(0).ok(), row.get(1).ok())),
+        ).optional()?;
+        if let Some((Some(outcome), Some(checksum))) = cached {
+            if hex::encode(Sha256::digest(outcome.as_bytes())) == checksum {
+                if let Ok(candidate) = serde_json::from_str(&outcome) {
+                    return Ok(candidate);
+                }
+            }
+        }
+        let candidate = match parse_knowledge_header(text) {
+            Ok(header) => PageCandidate::Parsed {
+                page_id: header.page_id,
+                retained_owner_edits: header.uninterpreted_owner_edits,
+            },
+            Err(_) => PageCandidate::Malformed,
+        };
+        let outcome = serde_json::to_string(&candidate)?;
+        let checksum = hex::encode(Sha256::digest(outcome.as_bytes()));
+        self.index.execute(
+            "INSERT INTO reconciliation_page_candidates(generation,path,fingerprint,outcome,checksum) VALUES (?1,?2,?3,?4,?5) ON CONFLICT(generation,path) DO UPDATE SET fingerprint=excluded.fingerprint,outcome=excluded.outcome,checksum=excluded.checksum",
+            params![generation, path, fingerprint, outcome, checksum],
+        )?;
+        Ok(candidate)
+    }
+
     fn inspect_reconciliation_candidate(
         &self,
         path: &str,
-        text: &str,
         diagnostics: &mut Vec<CollectionDiagnostic>,
-        candidates: &mut BTreeMap<String, Vec<String>>,
     ) {
         if is_source_acquisition(path) && read_acquisition_record(&self.root.join(path)).is_err() {
             diagnostics.push(CollectionDiagnostic { kind: "malformed_acquisition".into(), paths: vec![path.to_owned()], detail: "This acquisition record is unreadable; its original content is preserved for recovery.".into() });
@@ -250,26 +339,6 @@ impl Application {
             if !usable {
                 diagnostics.push(CollectionDiagnostic { kind: "malformed_metadata".into(), paths: vec![path.to_owned()], detail: "Source metadata, identity, or acquisition records are unreadable or inconsistent; original files and retained assets remain preserved.".into() });
             }
-        }
-        if !path.starts_with("pages/") {
-            return;
-        }
-        match parse_knowledge_header(text) {
-            Ok(header) => {
-                if !header.uninterpreted_owner_edits.is_empty() {
-                    diagnostics.push(CollectionDiagnostic { kind: "retained_owner_save".into(), paths: header.uninterpreted_owner_edits.clone(), detail: "Exact owner saves retained with uncertainty. Supported manual corrections remain authoritative; unedited facts continue updating.".into() });
-                }
-                candidates
-                    .entry(header.page_id)
-                    .or_default()
-                    .push(path.to_owned());
-            }
-            Err(_) => diagnostics.push(CollectionDiagnostic {
-                kind: "malformed_metadata".into(),
-                paths: vec![path.to_owned()],
-                detail: "No unambiguous page identity can be read. Original content is preserved."
-                    .into(),
-            }),
         }
     }
 

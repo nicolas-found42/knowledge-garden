@@ -1,6 +1,136 @@
 use knowledge_garden::application::{AcquisitionMethod, Application, PageSearchRequest};
 use std::fs;
 
+#[test]
+fn obsolete_checkpoint_cleanup_respects_reconciliation_budget() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("collection");
+    let mut app = Application::open(&root).unwrap();
+    let pages = root.join("pages");
+    fs::create_dir_all(&pages).unwrap();
+    for index in 0..24 {
+        fs::write(pages.join(format!("owner-{index}.md")), "owner content").unwrap();
+    }
+    while !app.reconcile_collection(100).unwrap().complete {}
+    let database = rusqlite::Connection::open(root.join(".derived/lookup.sqlite")).unwrap();
+    let generation: String = database
+        .query_row(
+            "SELECT generation FROM reconciliation_page_candidates LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let count_old = || -> i64 {
+        database
+            .query_row(
+                "SELECT count(*) FROM reconciliation_page_candidates WHERE generation=?1",
+                [&generation],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    let mut previous = count_old();
+    assert_eq!(previous, 24);
+    fs::remove_file(pages.join("owner-0.md")).unwrap();
+    for _ in 0..200 {
+        let status = app.reconcile_collection(1).unwrap();
+        let current = count_old();
+        assert!(
+            previous - current <= 1,
+            "each budget unit may prune at most one checkpoint"
+        );
+        previous = current;
+        if status.complete {
+            assert_eq!(current, 0);
+            return;
+        }
+    }
+    panic!("obsolete checkpoints should eventually be pruned");
+}
+
+#[test]
+fn interrupted_candidate_inspection_keeps_a_reusable_derived_checkpoint() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("collection");
+    let mut app = Application::open(&root).unwrap();
+    let pages = root.join("pages");
+    fs::create_dir_all(&pages).unwrap();
+    for index in 0..24 {
+        fs::write(pages.join(format!("owner-{index}.md")), "owner content").unwrap();
+    }
+    for _ in 0..32 {
+        assert!(!app.reconcile_collection(1).unwrap().complete);
+    }
+    drop(app);
+    let database = rusqlite::Connection::open(root.join(".derived/lookup.sqlite")).unwrap();
+    let saved: i64 = database
+        .query_row(
+            "SELECT count(*) FROM reconciliation_page_candidates",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        saved > 0,
+        "completed candidate work must survive process exit"
+    );
+    database.execute(
+        "UPDATE reconciliation_page_candidates SET outcome = x'ff' WHERE path = (SELECT path FROM reconciliation_page_candidates LIMIT 1)", [],
+    ).unwrap();
+    database
+        .execute_batch(
+            "CREATE TRIGGER verify_checkpoint_reuse BEFORE INSERT ON reconciliation_page_candidates
+         WHEN EXISTS (SELECT 1 FROM reconciliation_page_candidates
+                      WHERE generation=NEW.generation AND path=NEW.path AND typeof(outcome) = 'text')
+         BEGIN SELECT RAISE(ABORT, 'valid checkpoint was recomputed'); END;",
+        )
+        .unwrap();
+    drop(database);
+    let app = Application::open(&root).unwrap();
+    let status = app.collection_status();
+    assert!(status.complete);
+    assert_eq!(
+        status
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.kind == "malformed_metadata")
+            .count(),
+        24
+    );
+    let database = rusqlite::Connection::open(root.join(".derived/lookup.sqlite")).unwrap();
+    let corrupt: i64 = database
+        .query_row(
+            "SELECT count(*) FROM reconciliation_page_candidates WHERE typeof(outcome) <> 'text'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(corrupt, 0, "unreadable checkpoint entries must be reparsed");
+    drop(database);
+    for index in 0..24 {
+        assert_eq!(
+            fs::read_to_string(pages.join(format!("owner-{index}.md"))).unwrap(),
+            "owner content"
+        );
+    }
+    drop(app);
+    fs::remove_file(pages.join("owner-0.md")).unwrap();
+    let app = Application::open(&root).unwrap();
+    let status = app.collection_status();
+    assert_eq!(
+        status
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.kind == "malformed_metadata")
+            .count(),
+        23
+    );
+    assert!(!status.diagnostics.iter().any(|diagnostic| diagnostic
+        .paths
+        .iter()
+        .any(|path| path == "pages/owner-0.md")));
+}
+
 #[cfg(unix)]
 #[test]
 fn inaccessible_directory_retries_without_omitting_its_pages() {
@@ -11,7 +141,7 @@ fn inaccessible_directory_retries_without_omitting_its_pages() {
     let blocked = root.join("pages/blocked");
     fs::create_dir_all(&blocked).unwrap();
     fs::write(blocked.join("owner.md"), "owner content").unwrap();
-    fs::set_permissions(&blocked, fs::Permissions::from_mode(0)).unwrap();
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o0)).unwrap();
     if fs::read_dir(&blocked).is_ok() {
         fs::set_permissions(&blocked, fs::Permissions::from_mode(0o700)).unwrap();
         return;

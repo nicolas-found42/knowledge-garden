@@ -30,7 +30,9 @@ recovery gaps.
 
 Reconciliation scans directory entries and inspects candidate files with an
 explicit per-call budget. It restarts the scan if its validation detects a file
-or directory change. Candidate state is held in memory, and the final
+or directory change. Parsed page candidates are checkpointed in the disposable
+SQLite index and reused only after a fresh scan matches their generation and
+fingerprints. Source diagnostics are recalculated. The final
 snapshot and index passes are not bounded. The SQLite index update is transactional.
 A temporary file-backed SQLite lookup resolves
 unique page paths once per rebuild instead of rescanning every page for each source.
