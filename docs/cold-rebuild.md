@@ -46,6 +46,12 @@ interrupted preparation resumes only when a fresh path-and-identity scan matches
 otherwise it discards the incomplete generation. The active lookup is unchanged
 until staging completes and the index transaction commits. The caller still drives
 all batches synchronously, and the scans and final index transaction remain unbounded.
+Source-version rows are also prepared in committed batches. A matching scan can
+resume them after interruption, while changed or corrupt checkpoints restart.
+The final transaction checks the source records it reads against the staged
+rows and rechecks source input before commit. The current source's whole version map stays in
+memory across batches, and it is read again after restart. Source enumeration
+and acquisition reads are still unbounded, and the batches are driven synchronously.
 Distinct relationship-support keys are also sorted through a temporary SQLite
 table instead of collecting the entire set in Rust memory. Obsolete meaning-vector
 keys are removed as they are read, without allocating a list proportional to all

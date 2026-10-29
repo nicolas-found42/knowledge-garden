@@ -6,6 +6,7 @@ pub mod gaps;
 mod index_stage;
 mod publication;
 pub mod reconciliation;
+mod source_version_stage;
 pub mod trails;
 pub mod views;
 pub mod watched;
@@ -550,6 +551,14 @@ pub struct Application {
     before_reconciliation_publication: Option<Box<dyn FnOnce() + Send>>,
     #[cfg(test)]
     interrupt_page_lookup_after_batch: bool,
+    #[cfg(test)]
+    interrupt_source_versions_after_batch: bool,
+    #[cfg(test)]
+    before_source_version_indexing: Option<Box<dyn FnOnce() + Send>>,
+    #[cfg(test)]
+    before_final_source_validation: Option<Box<dyn FnOnce() + Send>>,
+    #[cfg(test)]
+    before_source_index_commit: Option<Box<dyn FnOnce() + Send>>,
     collection_digest: Option<String>,
     collection_revision: u64,
     collection_diagnostics: Vec<reconciliation::CollectionDiagnostic>,
@@ -922,6 +931,14 @@ impl Application {
             before_reconciliation_publication: None,
             #[cfg(test)]
             interrupt_page_lookup_after_batch: false,
+            #[cfg(test)]
+            interrupt_source_versions_after_batch: false,
+            #[cfg(test)]
+            before_source_version_indexing: None,
+            #[cfg(test)]
+            before_final_source_validation: None,
+            #[cfg(test)]
+            before_source_index_commit: None,
             collection_digest: None,
             collection_revision: 0,
             collection_diagnostics: Vec::new(),
@@ -6685,6 +6702,11 @@ impl Application {
         // for each source. Keep the lookup in SQLite so it remains disposable.
         let knowledge_paths = self.knowledge_paths()?;
         let staged_generation = self.prepare_page_lookup_stage(&knowledge_paths)?;
+        let staged_source_versions = self.prepare_source_version_stage()?;
+        #[cfg(test)]
+        if let Some(hook) = self.before_source_version_indexing.take() {
+            hook();
+        }
         self.index.execute_batch("PRAGMA temp_store=FILE;")?;
         let transaction = self.index.unchecked_transaction()?;
         transaction.execute_batch(
@@ -6724,12 +6746,34 @@ impl Application {
         transaction.execute("DELETE FROM knowledge_pages", [])?;
         transaction.execute("DELETE FROM relationship_edges", [])?;
         transaction.execute("DELETE FROM timeline_entries", [])?;
+        if staged_source_versions.is_some() {
+            transaction.execute_batch("CREATE TEMP TABLE rebuild_source_observations(path TEXT PRIMARY KEY, observation TEXT NOT NULL);
+                CREATE TEMP TABLE rebuild_expected_source_versions(source_id TEXT NOT NULL, version_id TEXT NOT NULL, format TEXT NOT NULL, PRIMARY KEY(source_id,version_id)) WITHOUT ROWID;")?;
+        }
         for entry in fs::read_dir(self.root.join("sources"))? {
             let entry = entry?;
             if !entry.file_type()?.is_dir() {
                 continue;
             }
-            let Some(page) = self.readable_source_entry(&entry) else {
+            let page = self.readable_source_entry(&entry);
+            if staged_source_versions.is_some() {
+                let path = entry.path();
+                let path = path.to_str().ok_or_else(|| {
+                    GardenError::Invalid(
+                        "Source directory paths changed during staging; retry reconciliation."
+                            .into(),
+                    )
+                })?;
+                let observation = source_version_stage::source_observation(
+                    path,
+                    page.as_ref().map(|page| &page.info),
+                )?;
+                transaction.execute(
+                    "INSERT INTO rebuild_source_observations(path,observation) VALUES (?1,?2)",
+                    params![path, observation],
+                )?;
+            }
+            let Some(page) = page else {
                 continue;
             };
             transaction.execute(
@@ -6740,16 +6784,46 @@ impl Application {
                 index_acquisition_record(&transaction, acquisition, &page.info.source_id)?;
             }
             for version in &page.info.versions_seen {
-                transaction.execute(
-                    "INSERT OR REPLACE INTO source_versions(source_id, source_version_id, format) VALUES (?1, ?2, ?3)",
-                    params![page.info.source_id, version.source_version_id, version.format],
-                )?;
+                if staged_source_versions.is_some() {
+                    transaction.execute("INSERT OR REPLACE INTO rebuild_expected_source_versions(source_id,version_id,format) VALUES (?1,?2,?3)", params![page.info.source_id,version.source_version_id,version.format])?;
+                } else {
+                    transaction.execute(
+                        "INSERT OR REPLACE INTO source_versions(source_id, source_version_id, format) VALUES (?1, ?2, ?3)",
+                        params![page.info.source_id, version.source_version_id, version.format],
+                    )?;
+                }
             }
             index_collection_activity(&transaction, &page.info)?;
             collection::index_source(&transaction, &page.info)?;
             let documents =
                 self.search_documents_for_source(&page.info, &transaction, has_non_utf8_paths)?;
             write_search_documents(&transaction, &documents)?;
+        }
+        if let Some(stage) = &staged_source_versions {
+            #[cfg(test)]
+            if let Some(hook) = self.before_final_source_validation.take() {
+                hook();
+            }
+            let matches: bool = transaction.query_row(
+                "SELECT NOT EXISTS(SELECT source_id,version_id,format FROM rebuild_source_versions_stage WHERE generation=?1 EXCEPT SELECT source_id,version_id,format FROM rebuild_expected_source_versions) AND NOT EXISTS(SELECT source_id,version_id,format FROM rebuild_expected_source_versions EXCEPT SELECT source_id,version_id,format FROM rebuild_source_versions_stage WHERE generation=?1)",
+                [&stage.generation], |row| row.get(0),
+            )?;
+            if !matches
+                || source_version_stage::observed_source_digest(&transaction)? != stage.digest
+                || !self.source_stage_inputs_match(stage)?
+            {
+                return Err(GardenError::Invalid(
+                    "Source versions changed during indexing; retry reconciliation.".into(),
+                ));
+            }
+            let complete: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM rebuild_source_versions_progress WHERE singleton=1 AND generation=?1 AND complete=1)", [&stage.generation], |row| row.get(0))?;
+            if !complete {
+                return Err(GardenError::Invalid(
+                    "Source version staging is incomplete; retry reconciliation.".into(),
+                ));
+            }
+            transaction.execute("INSERT INTO source_versions(source_id,source_version_id,format) SELECT source_id,version_id,format FROM rebuild_source_versions_stage WHERE generation=?1", [&stage.generation])?;
+            transaction.execute_batch("DROP TABLE rebuild_source_observations; DROP TABLE rebuild_expected_source_versions;")?;
         }
         transaction.execute("DELETE FROM collection_source_pages WHERE NOT EXISTS (SELECT 1 FROM sources WHERE sources.source_id=collection_source_pages.source_id)",[])?;
         let pages_dir = self.root.join("pages");
@@ -7000,6 +7074,18 @@ impl Application {
         )?;
         transaction
             .execute_batch("DROP TABLE rebuild_page_paths; DROP TABLE rebuild_support_keys;")?;
+        #[cfg(test)]
+        if let Some(hook) = self.before_source_index_commit.take() {
+            hook();
+        }
+        if let Some(stage) = &staged_source_versions {
+            if !self.source_stage_inputs_match(stage)? {
+                return Err(GardenError::Invalid(
+                    "Source versions changed before index publication; retry reconciliation."
+                        .into(),
+                ));
+            }
+        }
         transaction.commit()?;
         if let Some(meaning) = self.meaning_search.as_mut() {
             match meaning.sync(&self.index) {
@@ -9831,6 +9917,510 @@ fn stable_frame_id(version_id: &str, requested_ms: u64) -> String {
     digest.update(version_id.as_bytes());
     digest.update(requested_ms.to_be_bytes());
     format!("video-frame-{}", hex::encode(digest.finalize()))
+}
+
+#[cfg(test)]
+mod source_version_stage_tests {
+    use super::*;
+
+    fn fixture() -> (tempfile::TempDir, Application, PathBuf, String, String) {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("collection");
+        let mut app = Application::open(&root).unwrap();
+        let mut first = None;
+        for number in 0..3 {
+            let path = temp.path().join(format!("source-{number}.txt"));
+            fs::write(&path, format!("Retained orchard observation {number}.")).unwrap();
+            let source = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+            if first.is_none() {
+                first = Some((
+                    source.info.source_id.clone(),
+                    source.info.versions_seen[0].source_version_id.clone(),
+                ));
+            }
+        }
+        let (source_id, version_id) = first.unwrap();
+        (temp, app, root, source_id, version_id)
+    }
+
+    fn update_version_format(app: &Application, source_id: &str, value: &str) {
+        let path = app.page_path(source_id).unwrap();
+        let mut page = read_page(&path).unwrap();
+        page.info.versions_seen[0].format = value.into();
+        fs::write(path, serialize_page(&page.info, &page.body).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn interrupted_source_versions_keep_live_rows_until_resume() {
+        let (_temp, mut app, root, source_id, version_id) = fixture();
+        let old_format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        update_version_format(&app, &source_id, "updated-format");
+        app.interrupt_source_versions_after_batch = true;
+        assert!(
+            app.rebuild_index().is_err(),
+            "an interrupted source-version stage must not publish"
+        );
+        let live_format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(live_format, old_format);
+        let (count, complete): (i64, i64) = app.index.query_row("SELECT (SELECT count(*) FROM rebuild_source_versions_stage), complete FROM rebuild_source_versions_progress WHERE singleton=1", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+        assert_eq!((count, complete), (1, 0));
+        drop(app);
+        let reopened = Application::open(&root).unwrap();
+        let format: String = reopened
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(format, "updated-format");
+    }
+
+    #[test]
+    fn changed_and_corrupt_source_version_checkpoints_are_rebuilt() {
+        for damage in ["changed", "negative", "large", "missing", "altered"] {
+            let (_temp, mut app, root, source_id, version_id) = fixture();
+            update_version_format(&app, &source_id, "first-format");
+            app.interrupt_source_versions_after_batch = true;
+            assert!(app.rebuild_index().is_err());
+            if damage == "changed" {
+                update_version_format(&app, &source_id, "latest-format");
+            }
+            drop(app);
+            let connection = Connection::open(root.join(".derived/lookup.sqlite")).unwrap();
+            match damage {
+                "negative" => {
+                    connection
+                        .execute(
+                            "UPDATE rebuild_source_versions_progress SET source_cursor=-1",
+                            [],
+                        )
+                        .unwrap();
+                }
+                "large" => {
+                    connection
+                        .execute(
+                            "UPDATE rebuild_source_versions_progress SET source_cursor=999999",
+                            [],
+                        )
+                        .unwrap();
+                }
+                "missing" => {
+                    connection
+                        .execute("DELETE FROM rebuild_source_versions_stage", [])
+                        .unwrap();
+                }
+                "altered" => {
+                    connection
+                        .execute(
+                            "UPDATE rebuild_source_versions_stage SET format='forged'",
+                            [],
+                        )
+                        .unwrap();
+                }
+                "changed" => {}
+                _ => unreachable!(),
+            }
+            drop(connection);
+            let reopened = Application::open(&root).unwrap();
+            let format: String = reopened.index.query_row("SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2", params![source_id,version_id], |row| row.get(0)).unwrap();
+            assert_eq!(
+                format,
+                if damage == "changed" {
+                    "latest-format"
+                } else {
+                    "first-format"
+                },
+                "damage: {damage}"
+            );
+        }
+    }
+
+    #[test]
+    fn duplicate_versions_preserve_last_format() {
+        let (_temp, mut app, _root, source_id, version_id) = fixture();
+        let path = app.page_path(&source_id).unwrap();
+        let mut page = read_page(&path).unwrap();
+        page.info.versions_seen[0].format = "z-format".into();
+        let mut duplicate = page.info.versions_seen[0].clone();
+        duplicate.format = "a-format".into();
+        page.info.versions_seen.push(duplicate);
+        fs::write(path, serialize_page(&page.info, &page.body).unwrap()).unwrap();
+        app.rebuild_index().unwrap();
+        let format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(format, "a-format");
+    }
+
+    #[test]
+    fn corrupt_completed_source_versions_are_not_published() {
+        let (_temp, mut app, _root, source_id, version_id) = fixture();
+        update_version_format(&app, &source_id, "expected-format");
+        app.rebuild_index().unwrap();
+        app.index
+            .execute(
+                "UPDATE rebuild_source_versions_stage SET format='forged'",
+                [],
+            )
+            .unwrap();
+        app.rebuild_index().unwrap();
+        let format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(format, "expected-format");
+    }
+
+    #[test]
+    fn changed_source_after_staging_rejects_the_final_index() {
+        let (_temp, mut app, _root, source_id, version_id) = fixture();
+        let old_format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let path = app.page_path(&source_id).unwrap();
+        app.before_source_version_indexing = Some(Box::new(move || {
+            let mut page = read_page(&path).unwrap();
+            page.info.versions_seen[0].format = "late-format".into();
+            fs::write(path, serialize_page(&page.info, &page.body).unwrap()).unwrap();
+        }));
+        assert!(app.rebuild_index().is_err());
+        let format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(format, old_format);
+        app.rebuild_index().unwrap();
+        let format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(format, "late-format");
+    }
+
+    #[test]
+    fn stage_corrupted_after_validation_rejects_the_final_index() {
+        let (_temp, mut app, root, source_id, version_id) = fixture();
+        let old_format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let database = root.join(".derived/lookup.sqlite");
+        app.before_source_version_indexing = Some(Box::new(move || {
+            let connection = Connection::open(database).unwrap();
+            connection
+                .execute(
+                    "UPDATE rebuild_source_versions_stage SET format='forged'",
+                    [],
+                )
+                .unwrap();
+        }));
+        assert!(app.rebuild_index().is_err());
+        let format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(format, old_format);
+        app.rebuild_index().unwrap();
+    }
+
+    #[test]
+    fn source_becoming_unreadable_after_staging_rejects_the_final_index() {
+        let (_temp, mut app, _root, source_id, version_id) = fixture();
+        let old_format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let path = app
+            .source_dir(&source_id)
+            .unwrap()
+            .join("acquisitions/corrupt.md");
+        let target = path.clone();
+        app.before_source_version_indexing = Some(Box::new(move || {
+            fs::create_dir_all(target.parent().unwrap()).unwrap();
+            fs::write(target, "---\nmethod: [broken\n---\n").unwrap();
+        }));
+        assert!(app.rebuild_index().is_err());
+        let format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(format, old_format);
+        fs::remove_file(path).unwrap();
+        app.rebuild_index().unwrap();
+    }
+
+    #[test]
+    fn source_changed_after_final_loop_rejects_the_index() {
+        let (_temp, mut app, _root, source_id, version_id) = fixture();
+        let old_format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let path = app.page_path(&source_id).unwrap();
+        app.before_final_source_validation = Some(Box::new(move || {
+            let mut page = read_page(&path).unwrap();
+            page.info.versions_seen[0].format = "later-format".into();
+            fs::write(path, serialize_page(&page.info, &page.body).unwrap()).unwrap();
+        }));
+        assert!(app.rebuild_index().is_err());
+        let format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(format, old_format);
+        app.rebuild_index().unwrap();
+        let format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(format, "later-format");
+    }
+
+    #[test]
+    fn source_changed_immediately_before_commit_rejects_the_index() {
+        let (_temp, mut app, _root, source_id, version_id) = fixture();
+        let old_format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let path = app.page_path(&source_id).unwrap();
+        app.before_source_index_commit = Some(Box::new(move || {
+            let mut page = read_page(&path).unwrap();
+            page.info.versions_seen[0].format = "last-moment-format".into();
+            fs::write(path, serialize_page(&page.info, &page.body).unwrap()).unwrap();
+        }));
+        assert!(app.rebuild_index().is_err());
+        let format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(format, old_format);
+        app.rebuild_index().unwrap();
+        let format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(format, "last-moment-format");
+    }
+
+    #[test]
+    fn source_becoming_readable_after_staging_rejects_the_final_index() {
+        let (_temp, mut app, _root, source_id, version_id) = fixture();
+        let old_format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let path = app.page_path(&source_id).unwrap();
+        let original = fs::read(&path).unwrap();
+        fs::write(&path, "---\nschema: [broken\n---\n").unwrap();
+        app.before_source_version_indexing = Some(Box::new(move || {
+            fs::write(path, original).unwrap();
+        }));
+        assert!(app.rebuild_index().is_err());
+        let format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(format, old_format);
+        app.rebuild_index().unwrap();
+    }
+
+    #[test]
+    fn source_directory_added_after_staging_rejects_the_final_index() {
+        let (_temp, mut app, root, _source_id, _version_id) = fixture();
+        let original_count: i64 = app
+            .index
+            .query_row("SELECT count(*) FROM source_versions", [], |row| row.get(0))
+            .unwrap();
+        let added = root.join("sources/new-unreadable-source");
+        let target = added.clone();
+        app.before_source_version_indexing = Some(Box::new(move || {
+            fs::create_dir_all(target).unwrap();
+        }));
+        assert!(app.rebuild_index().is_err());
+        let count: i64 = app
+            .index
+            .query_row("SELECT count(*) FROM source_versions", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, original_count);
+        fs::remove_dir(added).unwrap();
+        app.rebuild_index().unwrap();
+    }
+
+    #[test]
+    fn abrupt_source_version_exit_child() {
+        let Some(root) = std::env::var_os("KNOWLEDGE_GARDEN_SOURCE_STAGE_CRASH_FIXTURE") else {
+            return;
+        };
+        let source_id = std::env::var("KNOWLEDGE_GARDEN_SOURCE_STAGE_CRASH_SOURCE").unwrap();
+        let mut app = Application::open(PathBuf::from(root)).unwrap();
+        update_version_format(&app, &source_id, "crash-format");
+        app.interrupt_source_versions_after_batch = true;
+        assert!(app.rebuild_index().is_err());
+        std::process::exit(77);
+    }
+
+    #[test]
+    fn abrupt_exit_resumes_source_versions_without_partial_publication() {
+        let (_temp, app, root, source_id, version_id) = fixture();
+        let old_format: String = app
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(app);
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "application::source_version_stage_tests::abrupt_source_version_exit_child",
+            ])
+            .env("KNOWLEDGE_GARDEN_SOURCE_STAGE_CRASH_FIXTURE", &root)
+            .env("KNOWLEDGE_GARDEN_SOURCE_STAGE_CRASH_SOURCE", &source_id)
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(77));
+        let connection = Connection::open(root.join(".derived/lookup.sqlite")).unwrap();
+        let live_format: String = connection
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let complete: i64 = connection
+            .query_row(
+                "SELECT complete FROM rebuild_source_versions_progress WHERE singleton=1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(live_format, old_format);
+        assert_eq!(complete, 0);
+        drop(connection);
+        let reopened = Application::open(&root).unwrap();
+        let format: String = reopened
+            .index
+            .query_row(
+                "SELECT format FROM source_versions WHERE source_id=?1 AND source_version_id=?2",
+                params![source_id, version_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(format, "crash-format");
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn non_utf8_collection_path_uses_existing_source_version_index() {
+        use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp
+            .path()
+            .join(OsString::from_vec(b"collection-\xff".to_vec()));
+        let input = temp.path().join("source.txt");
+        fs::write(&input, "retained source").unwrap();
+        let mut app = Application::open(&root).unwrap();
+        let source = app.import_source(input, AcquisitionMethod::Picker).unwrap();
+        app.rebuild_index().unwrap();
+        let count: i64 = app
+            .index
+            .query_row(
+                "SELECT count(*) FROM source_versions WHERE source_id=?1",
+                [&source.info.source_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(count > 0);
+    }
 }
 
 #[cfg(test)]
