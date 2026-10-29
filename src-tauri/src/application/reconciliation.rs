@@ -50,6 +50,7 @@ impl Application {
     /// Visit at most `budget` directory entries. Complete generations repair links
     /// and refresh derived navigation; incomplete scans never infer deletions.
     pub fn reconcile_collection(&mut self, budget: usize) -> Result<ReconciliationStatus> {
+        self.collection_reconcile_pending = true;
         recover_publications(&self.root)?;
         if self.collection_scan.is_none() {
             let mut scan = Scan::default();
@@ -133,11 +134,12 @@ impl Application {
             self.collection_digest = Some(digest);
             self.collection_revision += 1;
         }
+        self.collection_reconcile_pending = false;
         Ok(self.reconciliation_status(true))
     }
 
     pub fn collection_status(&self) -> ReconciliationStatus {
-        self.reconciliation_status(self.collection_scan.is_none())
+        self.reconciliation_status(!self.collection_reconcile_pending)
     }
 
     fn reconciliation_status(&self, complete: bool) -> ReconciliationStatus {

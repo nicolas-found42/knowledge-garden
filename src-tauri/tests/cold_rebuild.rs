@@ -2,6 +2,43 @@ use knowledge_garden::application::{AcquisitionMethod, Application, PageSearchRe
 use std::fs;
 
 #[test]
+fn changed_files_keep_reconciliation_status_incomplete_until_retry_succeeds() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("collection");
+    let mut app = Application::open(&root).unwrap();
+    let pages = root.join("pages");
+    fs::create_dir_all(&pages).unwrap();
+    for index in 0..12 {
+        fs::write(pages.join(format!("owner-{index}.md")), "initial").unwrap();
+    }
+    for revision in 0..200 {
+        let status = app.reconcile_collection(1).unwrap();
+        assert!(
+            !status.complete,
+            "a continually changing scan cannot complete"
+        );
+        assert!(
+            !app.collection_status().complete,
+            "a rejected snapshot still needs a retry"
+        );
+        for index in 0..12 {
+            fs::write(
+                pages.join(format!("owner-{index}.md")),
+                format!("revision {revision}"),
+            )
+            .unwrap();
+        }
+    }
+    for _ in 0..100 {
+        if app.reconcile_collection(100).unwrap().complete {
+            assert!(app.collection_status().complete);
+            return;
+        }
+    }
+    panic!("a stable collection should eventually reconcile");
+}
+
+#[test]
 fn malformed_source_is_reported_without_blocking_cold_rebuild_or_other_pending_work() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("collection");
