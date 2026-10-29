@@ -1603,6 +1603,10 @@ impl Application {
                 }
             } else if crate::extraction::is_structured_source(&staging.path().join(&asset), &format)
             {
+                existing.info.semantic_error = None;
+                existing.info.semantic_retry_at = None;
+                existing.info.provider_availability = None;
+                self.write_source_page(&existing)?;
                 match self.extract_while_running(
                     &staging.path().join(&asset),
                     &format,
@@ -1700,6 +1704,8 @@ impl Application {
         let (inspected_audio, inspected_media) =
             self.inspect_timed_media(audio_format, &staging.path().join(&asset));
         self.ensure_running()?;
+        let page_id = format!("page-{}", Uuid::new_v4());
+        let mut initial_structured_published = false;
         let (extraction, extraction_detail, text, office_projection, extraction_coverage) =
             if let (Some(media), true) = (inspected_media.as_ref(), audio_format) {
                 (
@@ -1757,8 +1763,65 @@ impl Application {
             }
             } else if crate::extraction::is_structured_source(&staging.path().join(&asset), &format)
             {
+                let pending = SourceInfo {
+                    owner_metadata: Default::default(),
+                    schema: 1,
+                    source_id: source_id.clone(),
+                    page_id: page_id.clone(),
+                    title: path
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned(),
+                    original_name: original_name.clone(),
+                    asset: asset.clone(),
+                    sha256: digest.clone(),
+                    bytes: count,
+                    format: format.clone(),
+                    repository: None,
+                    extraction: ExtractionState::PartialText,
+                    extraction_detail: "The retained original is awaiting extraction.".into(),
+                    extraction_version_id: None,
+                    extraction_coverage: None,
+                    line_count: 0,
+                    acquisitions: vec![acquisition.clone()],
+                    current_version_id: None,
+                    pending_version_id: Some(digest.clone()),
+                    versions_seen: vec![source_version(
+                        &digest,
+                        count,
+                        &original_name,
+                        &asset,
+                        &format,
+                        &acquisition.received_at,
+                        "pending",
+                    )],
+                    update_status: Some("pending".into()),
+                    ordering_uncertain: false,
+                    semantic_state: "pending".into(),
+                    semantic_error: None,
+                    semantic_attempts: 0,
+                    semantic_retry_at: None,
+                    provider_availability: None,
+                    knowledge_pages: Vec::new(),
+                    semantic_decisions: Vec::new(),
+                    audio_processing: None,
+                    pending_audio_processing: None,
+                };
+                let body = source_body(&pending, "", None);
+                let markdown = serialize_page(&pending, &body)?;
+                let mut page_file = File::create(staging.path().join("index.md"))?;
+                page_file.write_all(markdown.as_bytes())?;
+                page_file.sync_all()?;
+                sync_directory(staging.path())?;
+                fs::rename(staging.path(), &destination)?;
+                sync_directory(&self.root.join("sources"))?;
+                self.index_acquisition(&acquisition, &source_id)?;
+                self.index_version(&source_id, &digest, &format)?;
+                self.index_page(&pending)?;
+                initial_structured_published = true;
                 match self.extract_while_running(
-                    &staging.path().join(&asset),
+                    &destination.join(&asset),
                     &format,
                     path.file_stem()
                         .unwrap_or_default()
@@ -1843,11 +1906,11 @@ impl Application {
         } else {
             text.lines().count()
         };
-        let info = SourceInfo {
+        let mut info = SourceInfo {
             owner_metadata: Default::default(),
             schema: 1,
             source_id,
-            page_id: format!("page-{}", Uuid::new_v4()),
+            page_id,
             title: web_projection
                 .as_ref()
                 .map(|web| {
@@ -1929,17 +1992,33 @@ impl Application {
                 .map(|audio| audio_processing_info(audio, &digest, inspected_media)),
             pending_audio_processing: None,
         };
-        let body = web_projection
+        let mut body = web_projection
             .as_ref()
             .map(|web| web.markdown.replace("ORIGINAL_ASSET", &info.asset))
             .unwrap_or_else(|| source_body(&info, &text, office_projection.as_ref()));
-        let markdown = serialize_page(&info, &body)?;
-        let mut page_file = File::create(staging.path().join("index.md"))?;
-        page_file.write_all(markdown.as_bytes())?;
-        page_file.sync_all()?;
-        sync_directory(staging.path())?;
-        fs::rename(staging.path(), &destination)?;
-        sync_directory(&self.root.join("sources"))?;
+        let mut markdown = serialize_page(&info, &body)?;
+        if initial_structured_published {
+            let mut pending = read_page(&destination.join("index.md"))?;
+            let placeholder = source_body(&pending.info, "", None);
+            body = if let Some(suffix) = pending.body.strip_prefix(&placeholder) {
+                format!("{body}{suffix}")
+            } else {
+                format!("{}\n\n{body}", pending.body)
+            };
+            info.owner_metadata = pending.info.owner_metadata.clone();
+            info.title = pending.info.title.clone();
+            pending.info = info.clone();
+            pending.body = body.clone();
+            self.write_source_page(&pending)?;
+            markdown = serialize_page(&info, &body)?;
+        } else {
+            let mut page_file = File::create(staging.path().join("index.md"))?;
+            page_file.write_all(markdown.as_bytes())?;
+            page_file.sync_all()?;
+            sync_directory(staging.path())?;
+            fs::rename(staging.path(), &destination)?;
+            sync_directory(&self.root.join("sources"))?;
+        }
         let page = SourcePage {
             disk_markdown: markdown.clone(),
             info,
@@ -2693,16 +2772,6 @@ impl Application {
                 continue;
             };
             let initial = page.info.current_version_id.is_none();
-            if !matches!(
-                page.info.extraction,
-                ExtractionState::TextPreserved
-                    | ExtractionState::StructuredText
-                    | ExtractionState::PartialText
-            ) || (initial && page.info.semantic_state != "pending")
-                || (!initial && page.info.update_status.as_deref() != Some("pending"))
-            {
-                continue;
-            }
             let version = page
                 .info
                 .versions_seen
@@ -2723,6 +2792,20 @@ impl Application {
             } else {
                 version_path
             };
+            let structured_candidate =
+                crate::extraction::is_structured_source(&candidate_path, &version.format);
+            if (!structured_candidate
+                && !matches!(
+                    page.info.extraction,
+                    ExtractionState::TextPreserved
+                        | ExtractionState::StructuredText
+                        | ExtractionState::PartialText
+                ))
+                || (initial && page.info.semantic_state != "pending")
+                || (!initial && page.info.update_status.as_deref() != Some("pending"))
+            {
+                continue;
+            }
             let acquisition_history = if page.info.format == "html"
                 && page
                     .info
@@ -2778,10 +2861,7 @@ impl Application {
                 crate::web::project(&prefix, final_url)
                     .map_err(GardenError::Invalid)?
                     .semantic_text
-            } else if matches!(
-                page.info.extraction,
-                ExtractionState::StructuredText | ExtractionState::PartialText
-            ) {
+            } else if structured_candidate {
                 let projection = match self.extract_while_running(
                     &candidate_path,
                     &version.format,
@@ -2790,6 +2870,58 @@ impl Application {
                     Ok(projection) => projection,
                     Err(detail) if !initial => {
                         self.record_extraction_recovery(&mut page, &source_version_id, detail)?;
+                        continue;
+                    }
+                    Err(detail)
+                        if page.info.extraction_version_id.as_deref()
+                            != Some(source_version_id.as_str()) =>
+                    {
+                        let prior_placeholder = source_body(&page.info, "", None);
+                        let scope = if crate::photo::is_photo(&version.format) {
+                            CoverageScope::ImagePixels
+                        } else if crate::conversation::is_conversation(&version.format) {
+                            CoverageScope::ConversationMessages
+                        } else if version.format == "pdf" {
+                            CoverageScope::PdfPages
+                        } else if version.format == "docx" {
+                            CoverageScope::MainDocument
+                        } else {
+                            CoverageScope::SlideText
+                        };
+                        page.info.extraction = ExtractionState::InvalidContainer;
+                        page.info.extraction_detail =
+                            format!("Source container could not be read. {detail}");
+                        page.info.extraction_version_id = Some(source_version_id.clone());
+                        page.info.extraction_coverage = Some(vec![CoveragePart {
+                            scope,
+                            status: CoverageStatus::Failed,
+                            source_location: Some(
+                                if version.format == "pdf" {
+                                    "PDF document"
+                                } else {
+                                    "package"
+                                }
+                                .into(),
+                            ),
+                            detail,
+                        }]);
+                        page.info.semantic_state = "unavailable".into();
+                        page.info.pending_version_id = None;
+                        page.info.update_status = None;
+                        if let Some(version) = page
+                            .info
+                            .versions_seen
+                            .iter_mut()
+                            .find(|version| version.source_version_id == source_version_id)
+                        {
+                            version.state = "unavailable".into();
+                        }
+                        let unavailable_body = source_body(&page.info, "", None);
+                        if let Some(suffix) = page.body.strip_prefix(&prior_placeholder) {
+                            page.body = format!("{unavailable_body}{suffix}");
+                        }
+                        self.write_source_page(&page)?;
+                        self.index_page(&page.info)?;
                         continue;
                     }
                     Err(detail) => return Err(GardenError::Invalid(detail)),
@@ -2808,11 +2940,31 @@ impl Application {
                     )?;
                     continue;
                 }
+                let recovering_initial_extraction = initial
+                    && (page.info.extraction_version_id.is_none()
+                        || page.info.extraction == ExtractionState::InvalidContainer);
+                let prior_placeholder =
+                    recovering_initial_extraction.then(|| source_body(&page.info, "", None));
                 page.info.extraction_version_id = Some(source_version_id.clone());
                 page.info.extraction_detail = projection.detail.clone();
-                page.info.extraction_coverage = Some(projection.coverage);
-                if !projection.partial {
-                    page.info.extraction = ExtractionState::StructuredText;
+                page.info.extraction_coverage = Some(projection.coverage.clone());
+                page.info.extraction = if projection.partial {
+                    ExtractionState::PartialText
+                } else {
+                    ExtractionState::StructuredText
+                };
+                if recovering_initial_extraction {
+                    page.info.line_count = projection.semantic_text.lines().count();
+                    let projection_body =
+                        source_body(&page.info, &projection.semantic_text, Some(&projection));
+                    page.body = if let Some(suffix) = page
+                        .body
+                        .strip_prefix(prior_placeholder.as_deref().unwrap())
+                    {
+                        format!("{projection_body}{suffix}")
+                    } else {
+                        format!("{}\n\n{projection_body}", page.body)
+                    };
                 }
                 projection.semantic_text
             } else {
