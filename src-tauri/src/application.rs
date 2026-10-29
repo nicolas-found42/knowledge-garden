@@ -1,10 +1,18 @@
 //! Public, disk-backed collection operations. Markdown and originals are authoritative.
 pub mod boolean;
+pub mod collection;
+pub mod comparison;
+pub mod gaps;
+mod publication;
+pub mod reconciliation;
+pub mod trails;
+pub mod views;
 pub mod watched;
 use crate::extraction::{LocalExtractor, SourceExtractor};
 use crate::meaning::{MeaningFilters, MeaningSearch};
 use crate::media::{
-    AudioInfo, AudioProcessingInfo, AudioProcessor, NativeAudioProcessor, MAX_AUDIO_SEGMENT_MS,
+    AudioInfo, AudioProcessingInfo, AudioProcessor, MediaGap, MediaInfo, NativeAudioProcessor,
+    VideoFrameEvidence, MAX_AUDIO_SEGMENT_MS,
 };
 use crate::office::{CoveragePart, CoverageScope, CoverageStatus, OfficeProjection};
 use crate::semantic::{
@@ -13,6 +21,10 @@ use crate::semantic::{
     SourceUpdateRole,
 };
 use fs2::FileExt;
+use publication::{
+    commit_publication, commit_publication_with_removals, recover_publications,
+    validate_real_collection_ancestors,
+};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -36,6 +48,14 @@ pub(crate) fn is_audio_format(format: &str) -> bool {
         format,
         "wav" | "wave" | "aiff" | "aif" | "caf" | "m4a" | "mp3" | "aac"
     )
+}
+pub(crate) fn is_video_format(format: &str) -> bool {
+    matches!(format, "mp4" | "mov" | "m4v")
+}
+
+/// Audio recordings and saved videos share one bounded, resumable time-window queue.
+pub(crate) fn is_timed_media_format(format: &str) -> bool {
+    is_audio_format(format) || is_video_format(format)
 }
 const MAX_PAGE_BYTES: u64 = (MAX_TEXT_BYTES * 3 + 64 * 1024) as u64;
 const PAGE_SIZE: usize = 50;
@@ -197,6 +217,8 @@ pub struct SourceVersion {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceInfo {
+    #[serde(flatten)]
+    pub owner_metadata: std::collections::BTreeMap<String, serde_yaml_ng::Value>,
     pub schema: u32,
     pub source_id: String,
     pub page_id: String,
@@ -210,6 +232,9 @@ pub struct SourceInfo {
     pub repository: Option<RepositorySourceContext>,
     pub extraction: ExtractionState,
     pub extraction_detail: String,
+    /// Version that produced extraction detail and coverage; old records may omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extraction_version_id: Option<String>,
     #[serde(default)]
     pub extraction_coverage: Option<Vec<CoveragePart>>,
     pub line_count: usize,
@@ -255,6 +280,8 @@ pub struct SourceSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourcePage {
+    #[serde(skip)]
+    disk_markdown: String,
     pub info: SourceInfo,
     pub markdown: String,
     pub body: String,
@@ -510,11 +537,16 @@ pub struct Application {
     extractor: Arc<dyn SourceExtractor>,
     audio_processor: Arc<dyn AudioProcessor>,
     staged_publication: Vec<(PathBuf, Vec<u8>)>,
+    publication_bases: std::cell::RefCell<Option<HashMap<PathBuf, Vec<u8>>>>,
     fail_after_publication_files: Option<usize>,
     meaning_search: Option<MeaningSearch>,
     meaning_search_status: String,
     watch_readers: HashMap<String, fs::ReadDir>,
     watch_cursor: usize,
+    collection_scan: Option<reconciliation::Scan>,
+    collection_digest: Option<String>,
+    collection_revision: u64,
+    collection_diagnostics: Vec<reconciliation::CollectionDiagnostic>,
     // Declared last so the collection lock releases after the index and providers drop.
     _lock: CollectionLock,
 }
@@ -537,20 +569,42 @@ impl Application {
         request: crate::timeline::TimelineRequest,
     ) -> Result<crate::timeline::TimelineResults> {
         use crate::timeline::{DateMeaning, DateOrder, TimelineEntry, TimelineResults};
-        if request.date_meaning != DateMeaning::SourceEvent {
-            return Ok(TimelineResults {
-                entries: Vec::new(),
-                next_offset: None,
-            });
+        if request.query.len() > 1024 || request.tags.len() > 32 {
+            return Err(GardenError::Invalid(
+                "Timeline filters are too large.".into(),
+            ));
         }
+        let meaning = match request.date_meaning {
+            DateMeaning::SourceEvent => "source_event",
+            DateMeaning::ReasoningEvent => "reasoning_event",
+            DateMeaning::CollectionActivity => "collection_activity",
+        };
+        let tags = request
+            .tags
+            .iter()
+            .map(|tag| normalize_tag(tag))
+            .collect::<Result<Vec<_>>>()?;
         let order = match request.order {
             DateOrder::Ascending => "ASC",
             DateOrder::Descending => "DESC",
         };
         let offset = i64::try_from(request.offset)
             .map_err(|_| GardenError::Invalid("Timeline offset is too large.".into()))?;
-        let mut statement = self.index.prepare(&format!("SELECT entry FROM timeline_entries WHERE date_meaning='source_event' ORDER BY date_start IS NULL, date_start {order}, date_end {order}, entry_id ASC LIMIT ?1 OFFSET ?2"))?;
-        let rows = statement.query_map(params![PAGE_SIZE + 1, offset], |row| {
+        let mut filters = vec!["t.date_meaning = ?".to_string(), "(? = '' OR instr(lower(json_extract(t.entry,'$.title') || ' ' || json_extract(t.entry,'$.date_label') || ' ' || coalesce(json_extract(t.entry,'$.qualifier'),'')), lower(?)) > 0 OR EXISTS (SELECT 1 FROM page_search p WHERE p.page_id=json_extract(t.entry,'$.page_id') AND instr(lower(p.content),lower(?))>0))".to_string()];
+        let mut values: Vec<rusqlite::types::Value> = vec![
+            meaning.to_string().into(),
+            request.query.trim().to_string().into(),
+            request.query.trim().to_string().into(),
+            request.query.trim().to_string().into(),
+        ];
+        for tag in tags {
+            filters.push("EXISTS (SELECT 1 FROM page_tags pt WHERE (pt.page_id=json_extract(t.entry,'$.page_id') OR (t.date_meaning='collection_activity' AND pt.source_id=json_extract(t.entry,'$.source_id'))) AND pt.normalized=?)".into());
+            values.push(tag.into());
+        }
+        values.push(((PAGE_SIZE + 1) as i64).into());
+        values.push(offset.into());
+        let mut statement = self.index.prepare(&format!("SELECT t.entry FROM timeline_entries t WHERE {} ORDER BY t.date_start IS NULL, t.date_start {order}, t.date_end {order}, t.entry_id ASC LIMIT ? OFFSET ?",filters.join(" AND ")))?;
+        let rows = statement.query_map(rusqlite::params_from_iter(values), |row| {
             row.get::<_, String>(0)
         })?;
         let mut entries = rows
@@ -724,6 +778,14 @@ impl Application {
                  source_id TEXT NOT NULL, source_version_id TEXT NOT NULL, format TEXT NOT NULL,
                  PRIMARY KEY(source_id, source_version_id)
              );
+             CREATE TABLE IF NOT EXISTS collection_source_pages (
+                 source_page_id TEXT NOT NULL, source_id TEXT NOT NULL, knowledge_page_id TEXT NOT NULL,
+                 PRIMARY KEY(source_page_id,knowledge_page_id)
+             );
+             CREATE INDEX IF NOT EXISTS collection_source_pages_knowledge ON collection_source_pages(knowledge_page_id,source_page_id);
+             CREATE INDEX IF NOT EXISTS collection_source_pages_source ON collection_source_pages(source_id,knowledge_page_id);
+             CREATE TABLE IF NOT EXISTS collection_group_meta(singleton INTEGER PRIMARY KEY,revision TEXT NOT NULL);
+             INSERT OR IGNORE INTO collection_group_meta VALUES(1,'initial');
              CREATE TABLE IF NOT EXISTS page_tags (
                  page_id TEXT NOT NULL,
                  normalized TEXT NOT NULL,
@@ -848,7 +910,12 @@ impl Application {
             semantic_provider,
             extractor,
             audio_processor,
+            collection_scan: None,
+            collection_digest: None,
+            collection_revision: 0,
+            collection_diagnostics: Vec::new(),
             staged_publication: Vec::new(),
+            publication_bases: Default::default(),
             fail_after_publication_files: None,
             meaning_search,
             meaning_search_status,
@@ -856,7 +923,7 @@ impl Application {
             watch_cursor: 0,
             _lock: CollectionLock(lock),
         };
-        app.rebuild_index()?;
+        while !app.reconcile_collection(1000)?.complete {}
         app.recover_interrupted_url_acquisitions()?;
         app.recover_interrupted_audio_jobs()?;
         Ok(app)
@@ -881,8 +948,8 @@ impl Application {
             return Err(GardenError::Invalid("Choose a repository folder.".into()));
         }
         let repository_id = format!(
-            "repository-{:x}",
-            Sha256::digest(root.as_os_str().as_encoded_bytes())
+            "repository-{}",
+            hex::encode(Sha256::digest(root.as_os_str().as_encoded_bytes()))
         );
         let mut paths = Vec::new();
         let mut exclusions = Vec::new();
@@ -1173,7 +1240,7 @@ impl Application {
         let digest = Sha256::digest(url.as_bytes());
         self.root
             .join("url-acquisitions")
-            .join(format!("{:x}.json", digest))
+            .join(format!("{}.json", hex::encode(digest)))
     }
 
     fn read_url_status(&self, url: &str) -> Result<Option<UrlAcquisitionStatus>> {
@@ -1299,7 +1366,7 @@ impl Application {
             .into_owned();
         let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
         let format = format_override.unwrap_or_else(|| extension.to_lowercase());
-        let audio_format = is_audio_format(&format);
+        let audio_format = is_timed_media_format(&format);
         let asset = if extension.len() <= 16
             && !extension.is_empty()
             && extension.chars().all(|c| c.is_ascii_alphanumeric())
@@ -1327,7 +1394,7 @@ impl Application {
             }
         }
         output.sync_all()?;
-        let digest = format!("{:x}", hasher.finalize());
+        let digest = hex::encode(hasher.finalize());
         // A format label changes extraction coverage and the retained asset name.
         // Keep exact-byte imports together only when that label also agrees.
         let received_at = SystemTime::now()
@@ -1355,16 +1422,22 @@ impl Application {
         identity.update(format.as_bytes());
         identity.update([0]);
         identity.update(digest.as_bytes());
-        let content_source_id = format!("source-{:x}", identity.finalize());
+        let content_source_id = format!("source-{}", hex::encode(identity.finalize()));
         let existing_origin = self.source_for_origin(acquisition_origin(&acquisition)?)?;
         let source_id = if method == AcquisitionMethod::Url {
             existing_origin.unwrap_or_else(|| {
                 let identity = format!("url-origin:{path_key}");
-                format!("source-{:x}", Sha256::digest(identity.as_bytes()))
+                format!(
+                    "source-{}",
+                    hex::encode(Sha256::digest(identity.as_bytes()))
+                )
             })
         } else if let Some(scope) = source_identity_scope {
             let identity = format!("repository-source:{format}:{scope}");
-            format!("source-{:x}", Sha256::digest(identity.as_bytes()))
+            format!(
+                "source-{}",
+                hex::encode(Sha256::digest(identity.as_bytes()))
+            )
         } else {
             existing_origin
                 .or(self.source_for_version(&digest, &format)?)
@@ -1373,13 +1446,8 @@ impl Application {
         let destination = self.source_dir(&source_id)?;
         if destination.exists() {
             let mut existing = self.open_source(&source_id)?;
-            let inspected_audio = if audio_format {
-                self.audio_processor
-                    .inspect(&staging.path().join(&asset))
-                    .ok()
-            } else {
-                None
-            };
+            let (inspected_audio, inspected_media) =
+                self.inspect_timed_media(audio_format, &staging.path().join(&asset));
             let acquisition_exists = existing.info.acquisitions.iter().any(|old| {
                 old.path == acquisition.path
                     && old.method == acquisition.method
@@ -1433,7 +1501,13 @@ impl Application {
             }
             self.index_acquisition(&acquisition, &source_id)?;
             let (extraction, extraction_detail, extraction_coverage) = if audio_format {
-                if let Some(audio) = inspected_audio.as_ref() {
+                if let Some(media) = inspected_media.as_ref() {
+                    (
+                        ExtractionState::PartialText,
+                        video_extraction_detail(media, true),
+                        Some(video_coverage(media)),
+                    )
+                } else if let Some(audio) = inspected_audio.as_ref() {
                     (
                         ExtractionState::PartialText,
                         "The changed audio original is retained as a new source version. Its transcript is reset and queued for bounded processing; the previous version's transcript is not evidence for this recording.".into(),
@@ -1520,11 +1594,12 @@ impl Application {
                 self.index_page(&existing.info)?;
                 return self.open_source(&source_id);
             }
+            existing.info.extraction_version_id = Some(digest.clone());
             existing.info.extraction = extraction;
             existing.info.extraction_detail = extraction_detail;
             existing.info.extraction_coverage = extraction_coverage;
             if let Some(audio) = inspected_audio {
-                let candidate_audio = audio_processing_info(audio, &digest);
+                let candidate_audio = audio_processing_info(audio, &digest, inspected_media);
                 if existing.info.current_version_id.is_some() {
                     existing.info.pending_audio_processing = Some(candidate_audio);
                 } else {
@@ -1562,18 +1637,28 @@ impl Application {
             None
         };
         let web_projection = web_result.as_ref().and_then(|result| result.as_ref().ok());
-        let inspected_audio = if audio_format {
-            self.audio_processor
-                .inspect(&staging.path().join(&asset))
-                .ok()
-        } else {
-            None
-        };
+        let (inspected_audio, inspected_media) =
+            self.inspect_timed_media(audio_format, &staging.path().join(&asset));
         let (extraction, extraction_detail, text, office_projection, extraction_coverage) =
-            if audio_format && inspected_audio.is_some() {
+            if let (Some(media), true) = (inspected_media.as_ref(), audio_format) {
+                (
+                    ExtractionState::PartialText,
+                    video_extraction_detail(media, false),
+                    String::new(),
+                    None,
+                    Some(video_coverage(media)),
+                )
+            } else if audio_format && inspected_audio.is_some() {
                 (ExtractionState::PartialText,
                  "The exact audio original is retained. Pinned local Whisper transcription is queued in resumable segments; silence, overlap, speaker identity, and uncertain wording require review against playback.".into(),
                 String::new(), None, Some(vec![CoveragePart { scope: CoverageScope::AudioRecording, status: CoverageStatus::Partial, source_location: Some("timeline".into()), detail: "Automatic transcription is not complete or word-for-word verified; no diarization, silence detection, noise classification, or overlap attribution is available.".into() }]))
+            } else if audio_format && is_video_format(&format) {
+                (ExtractionState::Unsupported,
+                 "The exact video original is retained, but its container could not be inspected by the installed local media decoder.".into(),
+                 String::new(), None, Some(vec![
+                    CoveragePart { scope: CoverageScope::VideoFrames, status: CoverageStatus::Failed, source_location: Some("video container".into()), detail: "The container could not be inspected with this native decoder.".into() },
+                    CoveragePart { scope: CoverageScope::AudioRecording, status: CoverageStatus::Failed, source_location: Some("video container".into()), detail: "The container could not be inspected with this native decoder.".into() },
+                 ]))
             } else if audio_format {
                 (ExtractionState::Unsupported,
                  "The exact audio original is retained, but this audio codec could not be inspected by the installed local media decoder.".into(),
@@ -1698,6 +1783,7 @@ impl Application {
             text.lines().count()
         };
         let info = SourceInfo {
+            owner_metadata: Default::default(),
             schema: 1,
             source_id,
             page_id: format!("page-{}", Uuid::new_v4()),
@@ -1724,6 +1810,7 @@ impl Application {
             repository: None,
             extraction,
             extraction_detail,
+            extraction_version_id: Some(digest.clone()),
             extraction_coverage,
             line_count,
             acquisitions: vec![acquisition.clone()],
@@ -1777,7 +1864,8 @@ impl Application {
             provider_availability: None,
             knowledge_pages: Vec::new(),
             semantic_decisions: Vec::new(),
-            audio_processing: inspected_audio.map(|audio| audio_processing_info(audio, &digest)),
+            audio_processing: inspected_audio
+                .map(|audio| audio_processing_info(audio, &digest, inspected_media)),
             pending_audio_processing: None,
         };
         let body = web_projection
@@ -1792,6 +1880,7 @@ impl Application {
         fs::rename(staging.path(), &destination)?;
         sync_directory(&self.root.join("sources"))?;
         let page = SourcePage {
+            disk_markdown: markdown.clone(),
             info,
             markdown,
             body,
@@ -1804,6 +1893,7 @@ impl Application {
     }
 
     pub fn open_source(&self, source_id: &str) -> Result<SourcePage> {
+        recover_publications(&self.root)?;
         let mut page = read_page(&self.page_path(source_id)?)?;
         let contexts = self.source_dir(source_id)?.join("acquisitions");
         if contexts.exists() {
@@ -1851,6 +1941,7 @@ impl Application {
     }
 
     pub fn open_knowledge_page(&self, page_id: &str) -> Result<KnowledgePage> {
+        recover_publications(&self.root)?;
         if !page_id.starts_with("page-")
             || !page_id
                 .bytes()
@@ -1864,11 +1955,10 @@ impl Application {
         read_knowledge_page(&path)
     }
 
-    fn knowledge_paths(&self) -> Result<Vec<PathBuf>> {
-        let mut pending = vec![self.root.join("pages")];
+    fn all_knowledge_candidates(&self) -> Result<Vec<PathBuf>> {
+        let mut directories = vec![self.root.join("pages")];
         let mut paths = Vec::new();
-        let mut identities = HashMap::<String, Vec<PathBuf>>::new();
-        while let Some(directory) = pending.pop() {
+        while let Some(directory) = directories.pop() {
             if !directory.is_dir() {
                 continue;
             }
@@ -1876,21 +1966,28 @@ impl Application {
                 let entry = entry?;
                 let kind = entry.file_type()?;
                 if kind.is_dir() {
-                    pending.push(entry.path());
+                    directories.push(entry.path());
                 } else if kind.is_file() && entry.path().extension().is_some_and(|ext| ext == "md")
                 {
-                    let path = entry.path();
-                    if let Ok(header) = read_knowledge_header(&path) {
-                        identities.entry(header.page_id).or_default().push(path);
-                    }
+                    paths.push(entry.path());
                 }
             }
         }
-        for (_, candidates) in identities {
-            if candidates.len() == 1 {
-                paths.extend(candidates);
+        Ok(paths)
+    }
+
+    fn knowledge_paths(&self) -> Result<Vec<PathBuf>> {
+        let mut identities = HashMap::<String, Vec<PathBuf>>::new();
+        for path in self.all_knowledge_candidates()? {
+            if let Ok(header) = read_knowledge_header(&path) {
+                identities.entry(header.page_id).or_default().push(path);
             }
         }
+        let mut paths = identities
+            .into_values()
+            .filter(|paths| paths.len() == 1)
+            .flatten()
+            .collect::<Vec<_>>();
         paths.sort();
         Ok(paths)
     }
@@ -1900,6 +1997,15 @@ impl Application {
             if read_knowledge_header(&path)?.page_id == page_id {
                 return Ok(path);
             }
+        }
+        if self
+            .all_knowledge_candidates()?
+            .iter()
+            .any(|path| read_knowledge_header(path).is_ok_and(|header| header.page_id == page_id))
+        {
+            return Err(GardenError::Invalid(format!(
+                "Knowledge identity {page_id} is ambiguous; original files remain preserved."
+            )));
         }
         let canonical = self.root.join("pages").join(format!("{page_id}.md"));
         if canonical.exists() {
@@ -2500,13 +2606,12 @@ impl Application {
                 .versions_seen
                 .iter()
                 .find(|version| Some(version.source_version_id.as_str()) == pending_version_id)
-                .is_some_and(|version| is_audio_format(&version.format));
+                .is_some_and(|version| is_timed_media_format(&version.format));
             let audio_ready = if pending_is_audio {
                 pending_version_id.is_some_and(|version_id| {
                     candidate_audio_processing(&page.info, version_id).is_some_and(|audio| {
                         audio.state == "complete"
-                            && (page.info.current_version_id.is_none()
-                                || !audio.segments.is_empty())
+                            && (page.info.current_version_id.is_none() || audio.has_evidence())
                     })
                 })
             } else {
@@ -2568,7 +2673,7 @@ impl Application {
             } else {
                 page.info.acquisitions.clone()
             };
-            let text = if is_audio_format(&version.format) {
+            let text = if is_timed_media_format(&version.format) {
                 let Some(audio) = candidate_audio_processing(&page.info, &source_version_id) else {
                     continue;
                 };
@@ -2642,6 +2747,8 @@ impl Application {
                     )?;
                     continue;
                 }
+                page.info.extraction_version_id = Some(source_version_id.clone());
+                page.info.extraction_detail = projection.detail.clone();
                 page.info.extraction_coverage = Some(projection.coverage);
                 if !projection.partial {
                     page.info.extraction = ExtractionState::StructuredText;
@@ -3170,9 +3277,22 @@ impl Application {
         job: SemanticJob,
         result: std::result::Result<KnowledgeDraft, ProviderError>,
     ) -> Result<()> {
-        self.recover_pending_publications()?;
+        let outcome = self.finish_semantic_job_inner(job, result);
+        self.publication_bases.borrow_mut().take();
+        outcome
+    }
+
+    fn finish_semantic_job_inner(
+        &mut self,
+        job: SemanticJob,
+        result: std::result::Result<KnowledgeDraft, ProviderError>,
+    ) -> Result<()> {
+        recover_publications(&self.root)?;
         self.staged_publication.clear();
-        let mut page = read_page(&self.page_path(&job.source_id)?)?;
+        *self.publication_bases.borrow_mut() = Some(HashMap::new());
+        let source_path = self.page_path(&job.source_id)?;
+        let mut page = read_page(&source_path)?;
+        self.remember_publication_base(&source_path, page.markdown.as_bytes());
         let initial = page.info.current_version_id.is_none();
         let active = if initial {
             page.info.semantic_state == "processing"
@@ -3222,7 +3342,8 @@ impl Application {
                     })?;
                 let candidate_audio =
                     candidate_audio_processing(&page.info, &job.source_version_id);
-                let version_audio = is_audio_format(&source_format) && candidate_audio.is_some();
+                let version_audio =
+                    is_timed_media_format(&source_format) && candidate_audio.is_some();
                 if draft_has_audio_provenance(&draft) && !version_audio {
                     self.record_semantic_failure(
                         &mut page,
@@ -3241,6 +3362,15 @@ impl Application {
                         true,
                         true,
                     )?;
+                } else if version_audio
+                    && video_draft_promotes_capture_time(&draft, &job.source_text)
+                {
+                    self.record_semantic_failure(
+                        &mut page,
+                        "A date or time read from a video frame cannot establish the recording's capture time; semantic coverage remains incomplete and will retry automatically.".into(),
+                        true,
+                        true,
+                    )?;
                 } else if version_audio && draft_claims_audio_speaker_identity(&draft) {
                     self.record_semantic_failure(
                         &mut page,
@@ -3250,7 +3380,7 @@ impl Application {
                     )?;
                 } else {
                     if version_audio {
-                        qualify_audio_evidence(&mut draft);
+                        qualify_audio_evidence(&mut draft, &job.source_text);
                     }
                     let is_office = matches!(page.info.format.as_str(), "docx" | "pptx" | "pdf");
                     let office_facts = draft
@@ -3447,12 +3577,18 @@ impl Application {
                 .collect::<std::collections::HashSet<_>>();
             let files = std::mem::take(&mut self.staged_publication);
             let fail_after = self.fail_after_publication_files.take();
-            commit_publication(&self.root, files, fail_after)?;
+            let bases = self
+                .publication_bases
+                .borrow_mut()
+                .take()
+                .unwrap_or_default();
+            commit_publication(&self.root, files, &bases, fail_after)?;
             for source_id in changed_source_ids {
                 let indexed = read_page(&self.page_path(&source_id)?)?;
                 self.index_page(&indexed.info)?;
             }
         }
+        self.publication_bases.borrow_mut().take();
         self.index_page(&page.info)?;
         Ok(())
     }
@@ -3606,6 +3742,91 @@ impl Application {
         Ok(())
     }
 
+    /// Audio is inspected as a recording; a saved video also reports its decodable tracks.
+    fn inspect_timed_media(
+        &self,
+        timed: bool,
+        path: &Path,
+    ) -> (Option<AudioInfo>, Option<MediaInfo>) {
+        if !timed {
+            return (None, None);
+        }
+        let video = crate::media::is_video_path(path);
+        let media = if video {
+            self.audio_processor.inspect_media(path).ok()
+        } else {
+            None
+        };
+        if video && media.is_none() {
+            return (None, None);
+        }
+        let audio = if video {
+            media
+                .clone()
+                .and_then(|media| crate::media::video_audio_info(media).ok())
+        } else {
+            self.audio_processor.inspect(path).ok()
+        };
+        (audio, media.filter(|_| video))
+    }
+
+    /// One bounded frame every three seconds of the window. A frame that cannot be decoded or read
+    /// becomes a disclosed gap; it never blocks speech or other frames.
+    fn sample_window_frames(
+        &self,
+        path: &Path,
+        version_id: &str,
+        start: u64,
+        duration: u64,
+        tracks: Option<&MediaInfo>,
+    ) -> (Vec<VideoFrameEvidence>, Vec<MediaGap>) {
+        let mut frames = Vec::new();
+        let mut gaps = Vec::new();
+        if tracks.is_some_and(|tracks| !tracks.video.present) {
+            return (frames, gaps);
+        }
+        let end = start + duration;
+        let mut at = start;
+        while at < end {
+            match self.frame_evidence(path, version_id, at) {
+                Ok(frame) => frames.push(frame),
+                Err(detail) => gaps.push(MediaGap {
+                    track: "video".into(),
+                    start_ms: at,
+                    end_ms: (at + VIDEO_FRAME_INTERVAL_MS).min(end),
+                    detail,
+                }),
+            }
+            at += VIDEO_FRAME_INTERVAL_MS;
+        }
+        (frames, gaps)
+    }
+
+    fn frame_evidence(
+        &self,
+        path: &Path,
+        version_id: &str,
+        at_ms: u64,
+    ) -> std::result::Result<VideoFrameEvidence, String> {
+        let workspace = tempfile::tempdir()
+            .map_err(|error| format!("A private frame workspace could not be created: {error}"))?;
+        let jpeg = workspace.path().join("frame.jpg");
+        let frame = self.audio_processor.extract_frame(path, at_ms, &jpeg)?;
+        let vision = crate::photo::frame_vision(&jpeg)?;
+        Ok(VideoFrameEvidence {
+            frame_id: stable_frame_id(version_id, at_ms),
+            requested_ms: at_ms,
+            time_ms: frame.actual_ms,
+            width: frame.width,
+            height: frame.height,
+            ocr: vision.ocr,
+            classifications: vision.classifications,
+            gaps: vision.gaps,
+            ocr_revision: vision.ocr_revision,
+            classification_revision: vision.classification_revision,
+        })
+    }
+
     fn recover_interrupted_audio_jobs(&mut self) -> Result<()> {
         for entry in fs::read_dir(self.root.join("sources"))? {
             let entry = entry?;
@@ -3723,10 +3944,48 @@ impl Application {
         } else {
             version_asset
         };
-        let outcome = self.audio_processor.install_assets().and_then(|()| {
-            self.audio_processor
-                .transcribe_segment(&path, start, duration)
-        });
+        let video = snapshot.is_video();
+        let audio_usable = snapshot
+            .tracks
+            .as_ref()
+            .is_none_or(|tracks| tracks.audio.present && tracks.audio.decodable);
+        let (frames, frame_gaps) = if video {
+            self.sample_window_frames(
+                &path,
+                &version_id,
+                start,
+                duration,
+                snapshot.tracks.as_ref(),
+            )
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        let visuals = WindowVisuals {
+            start_ms: start,
+            end_ms: start + duration,
+            frames,
+            gaps: frame_gaps,
+        };
+        let outcome = if video && !audio_usable {
+            // No decodable speech track: the window still resolves, and the track's own
+            // coverage state records why. Visual evidence is not held back by it.
+            Ok(crate::media::TranscriptionBatch {
+                schema: 1,
+                requested_start_ms: start,
+                requested_duration_ms: duration,
+                processed_duration_ms: duration,
+                media_duration_ms: snapshot.duration_ms,
+                state: "no_recognized_speech".into(),
+                coverage: "partial".into(),
+                detail: "This video has no decodable audio track.".into(),
+                segments: Vec::new(),
+            })
+        } else {
+            self.audio_processor.install_assets().and_then(|()| {
+                self.audio_processor
+                    .transcribe_segment(&path, start, duration)
+            })
+        };
         match outcome {
             Ok(batch)
                 if batch.schema == 1
@@ -3741,7 +4000,7 @@ impl Application {
                 let mut page = self.open_source(&source_id)?;
                 if page.info.pending_version_id.as_deref() != Some(&version_id) { return Ok(()); }
                 let replacement = page.info.current_version_id.is_some();
-                let (complete, no_segments) = {
+                let (complete, no_evidence) = {
                     let audio = candidate_audio_processing_mut(&mut page.info, &version_id)
                         .ok_or_else(|| GardenError::Invalid("Pending audio processing state disappeared.".into()))?;
                     let window_end = start.saturating_add(batch.processed_duration_ms);
@@ -3757,36 +4016,40 @@ impl Application {
                         audio.segments.push(segment);
                     }
                     audio.segments.sort_by_key(|segment| (segment.start_ms, segment.end_ms, segment.segment_id.clone()));
+                    if video {
+                        audio.failed_attempts = 0;
+                        if snapshot.tracks.as_ref().is_some_and(|tracks| tracks.audio.present) && !audio_usable {
+                            audio.gaps.retain(|gap| !(gap.track == "audio" && gap.start_ms == start));
+                            audio.gaps.push(MediaGap {
+                                track: "audio".into(),
+                                start_ms: start,
+                                end_ms: window_end,
+                                detail: "The audio track could not be decoded, so this interval has no speech evidence.".into(),
+                            });
+                        }
+                        attach_window_visuals(audio, visuals);
+                    }
                     audio.next_start_ms = window_end;
                     audio.state = if window_end >= audio.duration_ms { "complete" } else { "pending" }.into();
                     audio.retry_at_ms = None;
-                    audio.detail = format!("{} ms examined. Local large-v3-turbo Whisper output is a best-guess transcript without calibrated confidence or alternatives. Silence, overlap, accent/noise effects, and unrecognized speech are not distinguishable from omitted words; timestamps are estimates and speakers remain unidentified. Compare the original.", audio.next_start_ms);
-                    if audio.state == "complete" && audio.segments.is_empty() && replacement {
-                        audio.detail = format!("{} ms examined. No speech passage was recognized in this replacement. This does not distinguish silence, background noise, overlap, or unintelligible speech. The prior published transcript and original remain current; compare this exact candidate original.", audio.next_start_ms);
-                    }
-                    (audio.state == "complete", audio.segments.is_empty())
-                };
-                if complete && no_segments {
-                    if replacement {
-                        page.info.update_status = Some("pending".into());
-                        page.info.semantic_error = Some("The replacement audio was examined, but no speech passage was recognized. This does not prove silence; the prior published transcript and original remain current, and the exact replacement original is retained as an unpublished version.".into());
+                    audio.detail = if video {
+                        format!("{} ms examined. Speech is a best-guess Whisper transcript without calibrated confidence; sampled frames carry local OCR and an uncertain classifier. Speech and frame evidence keep separate origins, and intervals between sampled frames are not examined. Compare the original.", audio.next_start_ms)
                     } else {
-                        page.info.current_version_id = Some(version_id.clone());
-                        page.info.pending_version_id = None;
-                        page.info.update_status = None;
-                        page.info.semantic_state = "unavailable".into();
-                        promote_candidate_audio(&mut page.info, &version_id);
+                        format!("{} ms examined. Local large-v3-turbo Whisper output is a best-guess transcript without calibrated confidence or alternatives. Silence, overlap, accent/noise effects, and unrecognized speech are not distinguishable from omitted words; timestamps are estimates and speakers remain unidentified. Compare the original.", audio.next_start_ms)
+                    };
+                    if audio.state == "complete" && !audio.has_evidence() && replacement {
+                        audio.detail = format!("{} ms examined. No speech passage or frame evidence was recognized in this replacement. This does not distinguish silence, background noise, overlap, or unintelligible speech. The prior published evidence and original remain current; compare this exact candidate original.", audio.next_start_ms);
                     }
-                } else if complete {
-                    page.info.semantic_state = "pending".into();
-                }
+                    (audio.state == "complete", !audio.has_evidence())
+                };
+                settle_completed_media(&mut page, &version_id, replacement, complete, no_evidence);
                 let body = source_body(&page.info, "", None);
                 page.body = body.clone();
                 page.markdown = serialize_page(&page.info, &body)?;
                 self.publish_updated_page(&page)?;
             }
-            Ok(batch) => self.fail_audio_attempt(&source_id, &version_id, format!("The local recognizer returned an incomplete or misaligned result for {start}–{} ms (reported request {}–{} ms, media duration {} ms, examined {} ms). The same range remains resumable.", start + duration, batch.requested_start_ms, batch.requested_start_ms.saturating_add(batch.requested_duration_ms), batch.media_duration_ms, batch.processed_duration_ms))?,
-            Err(error) => self.fail_audio_attempt(&source_id, &version_id, error)?,
+            Ok(batch) => self.fail_audio_attempt(&source_id, &version_id, format!("The local recognizer returned an incomplete or misaligned result for {start}–{} ms (reported request {}–{} ms, media duration {} ms, examined {} ms). The same range remains resumable.", start + duration, batch.requested_start_ms, batch.requested_start_ms.saturating_add(batch.requested_duration_ms), batch.media_duration_ms, batch.processed_duration_ms), visuals)?,
+            Err(error) => self.fail_audio_attempt(&source_id, &version_id, error, visuals)?,
         }
         Ok(())
     }
@@ -3796,16 +4059,48 @@ impl Application {
         source_id: &str,
         version_id: &str,
         error: String,
+        visuals: WindowVisuals,
     ) -> Result<()> {
         let mut page = self.open_source(source_id)?;
         if page.info.pending_version_id.as_deref() != Some(version_id) {
             return Ok(());
         }
+        let replacement = page.info.current_version_id.is_some();
         let Some(audio) = candidate_audio_processing_mut(&mut page.info, version_id) else {
             return Ok(());
         };
         audio.failed_attempts = audio.failed_attempts.saturating_add(1);
-        if audio.failed_attempts >= MAX_AUDIO_FAILED_ATTEMPTS {
+        if audio.is_video() && audio.failed_attempts >= MAX_AUDIO_FAILED_ATTEMPTS {
+            // A damaged window must not discard the rest of the video: record the gap, keep this
+            // window's frames, and give the next window its own retry budget.
+            let window_end = visuals.end_ms.min(audio.duration_ms);
+            audio
+                .gaps
+                .retain(|gap| !(gap.track == "audio" && gap.start_ms == visuals.start_ms));
+            audio.gaps.push(MediaGap {
+                track: "audio".into(),
+                start_ms: visuals.start_ms,
+                end_ms: window_end,
+                detail: format!(
+                    "Speech for this interval could not be decoded after {} attempts: {error}",
+                    audio.failed_attempts
+                ),
+            });
+            attach_window_visuals(audio, visuals);
+            audio.failed_attempts = 0;
+            audio.next_start_ms = window_end;
+            audio.state = if window_end >= audio.duration_ms {
+                "complete"
+            } else {
+                "pending"
+            }
+            .into();
+            audio.retry_at_ms = None;
+            audio.detail = format!("{} ms examined. One or more intervals could not be decoded and are listed as gaps; evidence from other intervals and from the other track is retained.", audio.next_start_ms);
+            let complete = audio.state == "complete";
+            let no_evidence = !audio.has_evidence();
+            settle_completed_media(&mut page, version_id, replacement, complete, no_evidence);
+        } else if audio.failed_attempts >= MAX_AUDIO_FAILED_ATTEMPTS {
             audio.state = "failed".into();
             audio.retry_at_ms = None;
             audio.detail = format!(
@@ -3847,9 +4142,12 @@ impl Application {
     }
 
     fn publish_updated_page(&mut self, page: &SourcePage) -> Result<()> {
-        write_atomic(
-            &self.page_path(&page.info.source_id)?,
-            page.markdown.as_bytes(),
+        let path = self.page_path(&page.info.source_id)?;
+        commit_publication(
+            &self.root,
+            vec![(path.clone(), page.markdown.as_bytes().to_vec())],
+            &HashMap::from([(path, page.disk_markdown.as_bytes().to_vec())]),
+            None,
         )?;
         self.index_page(&page.info)
     }
@@ -4082,6 +4380,7 @@ impl Application {
                     EvidenceOffsetBasis::WebVisibleText => {
                         "extracted web visible-text projection; offsets are not downloaded HTML byte offsets"
                     }
+                    EvidenceOffsetBasis::ExtractedVideoProjection => "extracted video frame projection; offsets are not original video byte offsets; frame text is unverified OCR, not an authenticated capture time",
                     EvidenceOffsetBasis::AudioTranscript => {
                         "machine-generated transcript; audio wording and speaker remain unverified"
                     }
@@ -4092,26 +4391,37 @@ impl Application {
                     .as_deref()
                     .map(|value| format!(" · original locator: {value}"))
                     .unwrap_or_default();
-                let audio_link =
-                    if fact.evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript {
-                        fact.evidence
-                            .source_location
-                            .as_deref()
-                            .and_then(audio_start_from_locator)
-                            .map(|start_ms| {
-                                format!(
-                                    " · [Open audio at this timestamp]({})",
-                                    audio_seek_href(
-                                        &source.info.source_id,
-                                        Some((source_version_id, &source.info.asset)),
-                                        start_ms,
-                                    )
+                let audio_link = if matches!(
+                    fact.evidence.offset_basis,
+                    EvidenceOffsetBasis::AudioTranscript
+                        | EvidenceOffsetBasis::ExtractedVideoProjection
+                ) {
+                    fact.evidence
+                        .source_location
+                        .as_deref()
+                        .and_then(audio_start_from_locator)
+                        .map(|start_ms| {
+                            format!(
+                                " · [{}]({})",
+                                if matches!(
+                                    fact.evidence.offset_basis,
+                                    EvidenceOffsetBasis::ExtractedVideoProjection
+                                ) {
+                                    "Open retained media at this timestamp"
+                                } else {
+                                    "Open audio at this timestamp"
+                                },
+                                audio_seek_href(
+                                    &source.info.source_id,
+                                    Some((source_version_id, &source.info.asset)),
+                                    start_ms,
                                 )
-                            })
-                            .unwrap_or_default()
-                    } else {
-                        String::new()
-                    };
+                            )
+                        })
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
                 let (line_basis, byte_basis) = match fact.evidence.offset_basis {
                     EvidenceOffsetBasis::PreservedText => ("source lines", "source bytes"),
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
@@ -4129,6 +4439,10 @@ impl Application {
                     EvidenceOffsetBasis::WebVisibleText => (
                         "visible-text projection lines",
                         "visible-text projection bytes",
+                    ),
+                    EvidenceOffsetBasis::ExtractedVideoProjection => (
+                        "video frame projection lines",
+                        "video frame projection bytes",
                     ),
                     EvidenceOffsetBasis::AudioTranscript => {
                         ("transcript lines", "transcript bytes")
@@ -4218,6 +4532,17 @@ impl Application {
                             .unwrap_or_default(),
                         "The retained original opens as a fallback; offsets refer to the stated web visible-text projection.",
                     ),
+                    EvidenceOffsetBasis::ExtractedVideoProjection => (
+                        "video frame projection lines",
+                        "video frame projection bytes",
+                        relationship
+                            .evidence
+                            .source_location
+                            .as_deref()
+                            .map(|location| format!(" · video locator: {location}"))
+                            .unwrap_or_default(),
+                        "Open the on-demand frame preview or retained original at the stated frame time; frame text is unverified OCR and not an authenticated capture time.",
+                    ),
                     EvidenceOffsetBasis::AudioTranscript => (
                         "transcript lines",
                         "transcript bytes",
@@ -4230,27 +4555,38 @@ impl Application {
                         "Open the retained original and seek manually to the timestamp; precise seeking is unavailable. The statement is machine-transcribed and unverified.",
                     ),
                 };
-                let audio_link =
-                    if relationship.evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript {
-                        relationship
-                            .evidence
-                            .source_location
-                            .as_deref()
-                            .and_then(audio_start_from_locator)
-                            .map(|start_ms| {
-                                format!(
-                                    " · [Open audio at this timestamp]({})",
-                                    audio_seek_href(
-                                        &source.info.source_id,
-                                        Some((source_version_id, &source.info.asset)),
-                                        start_ms,
-                                    )
+                let audio_link = if matches!(
+                    relationship.evidence.offset_basis,
+                    EvidenceOffsetBasis::AudioTranscript
+                        | EvidenceOffsetBasis::ExtractedVideoProjection
+                ) {
+                    relationship
+                        .evidence
+                        .source_location
+                        .as_deref()
+                        .and_then(audio_start_from_locator)
+                        .map(|start_ms| {
+                            format!(
+                                " · [{}]({})",
+                                if matches!(
+                                    relationship.evidence.offset_basis,
+                                    EvidenceOffsetBasis::ExtractedVideoProjection
+                                ) {
+                                    "Open retained media at this timestamp"
+                                } else {
+                                    "Open audio at this timestamp"
+                                },
+                                audio_seek_href(
+                                    &source.info.source_id,
+                                    Some((source_version_id, &source.info.asset)),
+                                    start_ms,
                                 )
-                            })
-                            .unwrap_or_default()
-                    } else {
-                        String::new()
-                    };
+                            )
+                        })
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
                 body.push_str(&format!(
                     "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{}{}\n  - {}\n  - Links: [Source page](../sources/{}/index.md) · [Retained original](../sources/{}/{}){}\n",
                     escape_markdown(&from.0.label), from.1.page_id, escape_markdown(&relationship.kind.replace('_', " ")), escape_markdown(&to.0.label), to.1.page_id,
@@ -4377,6 +4713,7 @@ impl Application {
                     &replaced_sources,
                 )?;
                 header.tags = self.reconcile_tags(old.tags, header.tags, &replaced_sources);
+                header.title = old.title;
                 header.owner_content = old.owner_content;
                 header.uninterpreted_owner_edits = old.uninterpreted_owner_edits;
                 header.owner_metadata = old.owner_metadata;
@@ -4428,6 +4765,7 @@ impl Application {
                 continue;
             }
             let mut replaced_source = read_page(&path)?;
+            self.remember_publication_base(&path, replaced_source.markdown.as_bytes());
             let mut may_still_support_current_knowledge = false;
             for summary in &replaced_source.info.knowledge_pages {
                 let markdown = if let Some(markdown) = contents.get(&summary.page_id) {
@@ -4748,6 +5086,7 @@ impl Application {
         self.staged_publication
             .push((destination_original, candidate_bytes));
 
+        source.info.extraction_version_id = Some(source_version_id.into());
         source.info.original_name = candidate.original_name.clone();
         source.info.asset = candidate.asset.clone();
         source.info.sha256 = candidate.sha256.clone();
@@ -5231,6 +5570,14 @@ impl Application {
         Ok((format!("../sources/{short_id}/index.md"), asset_path))
     }
 
+    fn remember_publication_base(&self, path: &Path, bytes: &[u8]) {
+        if let Some(bases) = self.publication_bases.borrow_mut().as_mut() {
+            bases
+                .entry(path.to_path_buf())
+                .or_insert_with(|| bytes.to_vec());
+        }
+    }
+
     fn capture_manual_fact_corrections(
         &self,
         header: &mut KnowledgePageHeader,
@@ -5247,6 +5594,14 @@ impl Application {
         labels: &std::collections::HashMap<String, String>,
     ) -> Result<bool> {
         let markdown = fs::read_to_string(path)?;
+        let current = parse_knowledge_header(&markdown)?;
+        if current.page_id != header.page_id {
+            return Err(GardenError::Invalid("A page identity changed during reconciliation; original content is preserved for a fresh scan.".into()));
+        }
+        // Metadata and the publication base must describe the same owner save.
+        *header = current;
+        ensure_legacy_supports(header);
+        self.remember_publication_base(path, markdown.as_bytes());
         let Some((_, body)) = markdown.split_once("\n---\n") else {
             return Ok(false);
         };
@@ -5353,7 +5708,10 @@ impl Application {
         // avoid recursively embedding earlier snapshots in each new owner save.
         // A generated rescan is not a new owner save.
         if missing_generated_content && body != generated_body {
-            let retained_edit = format!("owner-edits/{:x}.md", Sha256::digest(markdown.as_bytes()));
+            let retained_edit = format!(
+                "owner-edits/{}.md",
+                hex::encode(Sha256::digest(markdown.as_bytes()))
+            );
             if !header.uninterpreted_owner_edits.contains(&retained_edit) {
                 write_atomic(&self.root.join(&retained_edit), markdown.as_bytes())?;
                 header.uninterpreted_owner_edits.push(retained_edit);
@@ -5375,6 +5733,7 @@ impl Application {
         // it, avoiding a complete label-file scan for every retained page.
         let labels = self.knowledge_page_labels()?;
         for path in paths {
+            let expected = fs::read(&path)?;
             let mut header = read_knowledge_header(&path)?;
             ensure_legacy_supports(&mut header);
             if self.capture_manual_fact_corrections_with_labels(&mut header, &path, &labels)? {
@@ -5383,7 +5742,12 @@ impl Application {
                     &std::collections::HashMap::new(),
                     &labels,
                 )?;
-                write_atomic(&path, markdown.as_bytes())?;
+                commit_publication(
+                    &self.root,
+                    vec![(path.clone(), markdown.into_bytes())],
+                    &HashMap::from([(path, expected)]),
+                    None,
+                )?;
             }
         }
         Ok(())
@@ -5433,7 +5797,11 @@ impl Application {
                 .unwrap_or_default();
             let (basis, line_label, byte_label, guidance) =
                 evidence_display_basis(evidence.offset_basis);
-            let audio_link = if evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript {
+            let audio_link = if matches!(
+                evidence.offset_basis,
+                EvidenceOffsetBasis::AudioTranscript
+                    | EvidenceOffsetBasis::ExtractedVideoProjection
+            ) {
                 evidence
                     .source_location
                     .as_deref()
@@ -5443,7 +5811,19 @@ impl Application {
                             .map(|value| value.source_id.as_str())
                             .unwrap_or(&header.source_id);
                         self.support_audio_seek_href(source_id, support, start_ms)
-                            .map(|href| format!(" · [Open audio at this timestamp]({href})"))
+                            .map(|href| {
+                                format!(
+                                    " · [{}]({href})",
+                                    if matches!(
+                                        evidence.offset_basis,
+                                        EvidenceOffsetBasis::ExtractedVideoProjection
+                                    ) {
+                                        "Open retained media at this timestamp"
+                                    } else {
+                                        "Open audio at this timestamp"
+                                    }
+                                )
+                            })
                     })
                     .transpose()?
                     .unwrap_or_default()
@@ -5501,7 +5881,11 @@ impl Application {
                 .unwrap_or_default();
             let (basis, line_label, byte_label, guidance) =
                 evidence_display_basis(evidence.offset_basis);
-            let audio_link = if evidence.offset_basis == EvidenceOffsetBasis::AudioTranscript {
+            let audio_link = if matches!(
+                evidence.offset_basis,
+                EvidenceOffsetBasis::AudioTranscript
+                    | EvidenceOffsetBasis::ExtractedVideoProjection
+            ) {
                 evidence
                     .source_location
                     .as_deref()
@@ -5511,7 +5895,19 @@ impl Application {
                             .map(|value| value.source_id.as_str())
                             .unwrap_or(&header.source_id);
                         self.support_audio_seek_href(source_id, support, start_ms)
-                            .map(|href| format!(" · [Open audio at this timestamp]({href})"))
+                            .map(|href| {
+                                format!(
+                                    " · [{}]({href})",
+                                    if matches!(
+                                        evidence.offset_basis,
+                                        EvidenceOffsetBasis::ExtractedVideoProjection
+                                    ) {
+                                        "Open retained media at this timestamp"
+                                    } else {
+                                        "Open audio at this timestamp"
+                                    }
+                                )
+                            })
                     })
                     .transpose()?
                     .unwrap_or_default()
@@ -5545,6 +5941,10 @@ impl Application {
                 body.push('\n');
             }
         }
+        let canonical = format!("pages/{}.md", header.page_id);
+        let path = self.knowledge_path(&header.page_id)?;
+        let actual = path.strip_prefix(&self.root).unwrap().to_string_lossy();
+        body = reconciliation::rebase_links(&canonical, &actual, &body);
         let yaml = serde_yaml_ng::to_string(&header)?;
         Ok(format!("---\n{yaml}---\n\n{body}"))
     }
@@ -5652,7 +6052,13 @@ impl Application {
 
     fn write_source_page(&self, page: &SourcePage) -> Result<()> {
         let markdown = serialize_page(&page.info, &page.body)?;
-        write_atomic(&self.page_path(&page.info.source_id)?, markdown.as_bytes())
+        let path = self.page_path(&page.info.source_id)?;
+        commit_publication(
+            &self.root,
+            vec![(path.clone(), markdown.into_bytes())],
+            &HashMap::from([(path, page.disk_markdown.as_bytes().to_vec())]),
+            None,
+        )
     }
 
     pub fn page_path(&self, source_id: &str) -> Result<PathBuf> {
@@ -5691,6 +6097,29 @@ impl Application {
             ));
         }
         crate::photo::preview(&self.original_path(source_id)?).map_err(GardenError::Invalid)
+    }
+
+    pub fn preview_video_frame(
+        &self,
+        source_id: &str,
+        source_version_id: &str,
+        asset: &str,
+        at_ms: u64,
+    ) -> Result<crate::media::VideoPreview> {
+        let original = self.original_version_path(source_id, source_version_id, asset)?;
+        if !crate::media::is_video_path(&original) {
+            return Err(GardenError::Invalid(
+                "This original is not a supported video.".into(),
+            ));
+        }
+        let workspace = tempfile::tempdir()?;
+        let jpeg = workspace.path().join("frame.jpg");
+        let frame = self
+            .audio_processor
+            .extract_frame(&original, at_ms, &jpeg)
+            .map_err(GardenError::Invalid)?;
+        let data_url = crate::photo::preview(&jpeg).map_err(GardenError::Invalid)?;
+        Ok(crate::media::VideoPreview { data_url, frame })
     }
 
     pub fn original_asset_path(&self, source_id: &str, asset: &str) -> Result<PathBuf> {
@@ -5789,7 +6218,7 @@ impl Application {
         let mut statement = self
             .index
             .prepare("SELECT summary FROM sources ORDER BY source_id LIMIT ?1 OFFSET ?2")?;
-        let rows = statement.query_map(params![PAGE_SIZE + 1, offset_i64], |row| {
+        let rows = statement.query_map(params![(PAGE_SIZE + 1) as i64, offset_i64], |row| {
             row.get::<_, String>(0)
         })?;
         let mut sources = Vec::new();
@@ -5840,7 +6269,19 @@ impl Application {
         }
         let processing_status = request.processing_status.as_deref();
         if processing_status.is_some_and(|status| {
-            !["pending", "processing", "complete", "failed", "unavailable"].contains(&status)
+            ![
+                "pending",
+                "processing",
+                "complete",
+                "failed",
+                "unavailable",
+                "update_pending",
+                "update_failed",
+                "identity_ambiguous",
+                "extraction_incomplete",
+                "source_unavailable",
+            ]
+            .contains(&status)
         }) {
             return Err(GardenError::Invalid("Unknown processing status.".into()));
         }
@@ -6228,8 +6669,12 @@ impl Application {
             if !entry.file_type()?.is_dir() {
                 continue;
             }
-            let page = read_page(&entry.path().join("index.md"))?;
-            let page = self.open_source(&page.info.source_id)?;
+            let Ok(page) = read_page(&entry.path().join("index.md")) else {
+                continue;
+            };
+            let Ok(page) = self.open_source(&page.info.source_id) else {
+                continue;
+            };
             transaction.execute(
                 "INSERT INTO sources (source_id, summary) VALUES (?1, ?2)",
                 params![page.info.source_id, summary_json(&page.info)?],
@@ -6243,24 +6688,12 @@ impl Application {
                     params![page.info.source_id, version.source_version_id, version.format],
                 )?;
             }
+            index_collection_activity(&transaction, &page.info)?;
+            collection::index_source(&transaction, &page.info)?;
             let documents = self.search_documents_for_source(&page.info)?;
             write_search_documents(&transaction, &documents)?;
-            for summary in &page.info.knowledge_pages {
-                if summary.kind != "event" {
-                    continue;
-                }
-                // Match the search index's recovery rule: a damaged knowledge
-                // header must not hide unrelated sources or rewrite owner bytes.
-                let Ok(header) = read_knowledge_header(&self.root.join(&summary.path)) else {
-                    continue;
-                };
-                if header.source_id != page.info.source_id {
-                    continue;
-                }
-                let entry = event_timeline_entry(&header);
-                transaction.execute("INSERT INTO timeline_entries(entry_id,date_meaning,date_start,date_end,entry) VALUES (?1,'source_event',?2,?3,?4)", params![entry.entry_id, entry.date_start, entry.date_end, serde_json::to_string(&entry)?])?;
-            }
         }
+        transaction.execute("DELETE FROM collection_source_pages WHERE NOT EXISTS (SELECT 1 FROM sources WHERE sources.source_id=collection_source_pages.source_id)",[])?;
         let pages_dir = self.root.join("pages");
         if pages_dir.is_dir() {
             for path in self.knowledge_paths()? {
@@ -6274,11 +6707,6 @@ impl Application {
                     .exists()
                 {
                     // Authoritative owner edits outlive removal of their last source.
-                    if header.kind == "event" {
-                        let mut entry = event_timeline_entry(&header);
-                        entry.support = None;
-                        transaction.execute("INSERT INTO timeline_entries(entry_id,date_meaning,date_start,date_end,entry) VALUES (?1,'source_event',?2,?3,?4)", params![entry.entry_id, entry.date_start, entry.date_end, serde_json::to_string(&entry)?])?;
-                    }
                     write_search_documents(
                         &transaction,
                         &[SearchDocument {
@@ -6297,6 +6725,27 @@ impl Application {
                             match_location: None,
                         }],
                     )?;
+                }
+                let reasoning = header.kind == "reasoning_event"
+                    || header
+                        .facts
+                        .iter()
+                        .any(|f| f.property == "message_intent" && f.value == "recorded_decision");
+                if header.kind == "event" || reasoning {
+                    let mut entry = self.event_timeline_entry(&header);
+                    if entry
+                        .support
+                        .as_ref()
+                        .is_some_and(|support| self.open_source(&support.source_id).is_err())
+                    {
+                        entry.support = None;
+                    }
+                    let meaning = if reasoning {
+                        "reasoning_event"
+                    } else {
+                        "source_event"
+                    };
+                    transaction.execute("INSERT INTO timeline_entries(entry_id,date_meaning,date_start,date_end,entry) VALUES (?1,?2,?3,?4,?5)",params![entry.entry_id,meaning,entry.date_start,entry.date_end,serde_json::to_string(&entry)?])?;
                 }
                 transaction.execute(
                     "INSERT OR REPLACE INTO knowledge_pages(page_id, title, kind) VALUES (?1, ?2, ?3)",
@@ -6472,8 +6921,9 @@ impl Application {
                     digest.update([3]);
                 }
             }
-            format!("{:x}", digest.finalize())
+            hex::encode(digest.finalize())
         };
+        collection::index_revision(&transaction, &graph_revision)?;
         transaction.execute(
             "INSERT INTO relationship_graph_meta(singleton, revision) VALUES (1, ?1) ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision",
             [graph_revision],
@@ -6535,7 +6985,9 @@ impl Application {
     }
 
     fn index_acquisition(&self, acquisition: &Acquisition, source_id: &str) -> Result<()> {
-        index_acquisition_record(&self.index, acquisition, source_id)
+        index_acquisition_record(&self.index, acquisition, source_id)?;
+        let page = self.open_source(source_id)?;
+        index_collection_activity(&self.index, &page.info)
     }
 
     fn index_version(&self, source_id: &str, version_id: &str, format: &str) -> Result<()> {
@@ -6557,6 +7009,11 @@ impl Application {
     fn search_documents_for_source(&self, info: &SourceInfo) -> Result<Vec<SearchDocument>> {
         let source_page = read_page(&self.page_path(&info.source_id)?)?;
         let mut knowledge = Vec::new();
+        let status = if self.original_path(&info.source_id).is_err() {
+            "source_unavailable".into()
+        } else {
+            processing_status(&source_page.info)
+        };
         for summary in &source_page.info.knowledge_pages {
             let Ok(path) = self.knowledge_path(&summary.page_id) else {
                 // A damaged or duplicate owner page stays on disk and unavailable
@@ -6600,8 +7057,9 @@ impl Application {
         let source_text = if current_version_is_superseded {
             String::new()
         } else if source_page.info.extraction == ExtractionState::TextPreserved {
-            fs::read(self.original_path(&source_page.info.source_id)?)
+            self.original_path(&source_page.info.source_id)
                 .ok()
+                .and_then(|path| fs::read(path).ok())
                 .and_then(|bytes| String::from_utf8(bytes).ok())
                 .unwrap_or_else(|| source_page.body.clone())
         } else {
@@ -6616,7 +7074,7 @@ impl Application {
             content: source_text,
             format: source_page.info.format.clone(),
             extraction: source_page.info.extraction,
-            processing_status: processing_status(&source_page.info),
+            processing_status: status.clone(),
             event_date: source_event_date,
             tags: Vec::new(),
             doc_kind: "page".into(),
@@ -6634,12 +7092,23 @@ impl Application {
                 page_id: summary.page_id.clone(),
                 source_id: header.source_id.clone(),
                 page_type: "knowledge".into(),
-                title: summary.title.clone(),
-                kind: summary.kind.clone(),
+                title: header.title.clone(),
+                kind: header.kind.clone(),
                 content: body.clone(),
                 format: source_page.info.format.clone(),
                 extraction: source_page.info.extraction,
-                processing_status: processing_status(&source_page.info),
+                processing_status: if status == "source_unavailable" {
+                    status.clone()
+                } else if matches!(
+                    source_page.info.extraction,
+                    ExtractionState::TextPreserved
+                        | ExtractionState::StructuredText
+                        | ExtractionState::PartialText
+                ) {
+                    source_page.info.semantic_state.clone()
+                } else {
+                    "unavailable".into()
+                },
                 event_date: event_date.clone(),
                 tags: tags.clone(),
                 doc_kind: "page".into(),
@@ -6662,6 +7131,23 @@ impl Application {
     }
 }
 
+fn index_collection_activity(index: &Connection, info: &SourceInfo) -> Result<()> {
+    for acquisition in &info.acquisitions {
+        let instant = acquisition
+            .received_at
+            .parse::<i64>()
+            .ok()
+            .and_then(chrono::DateTime::from_timestamp_millis);
+        let timestamp = instant.map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+        let entry = crate::timeline::TimelineEntry {
+                    entry_id: format!("acquired:{}:{}",info.source_id,hex::encode(Sha256::digest(serde_json::to_vec(acquisition)?))), page_id:info.page_id.clone(), source_id:info.source_id.clone(),
+                    title:format!("Acquired {}",info.title),kind:"acquired".into(), date_label:timestamp.clone().unwrap_or_else(||"Unknown acquisition time".into()),date_start:timestamp.clone(),date_end:timestamp.clone(),precision:if timestamp.is_some(){"millisecond"}else{"unknown"}.into(),date_status:if timestamp.is_some(){"known"}else{"unknown"}.into(),qualifier:Some(format!("Collection acquisition from {}; this is not the source-described event date. No historical processing timestamp is inferred.",acquisition.path)),support:None,
+                };
+        index.execute("INSERT OR REPLACE INTO timeline_entries(entry_id,date_meaning,date_start,date_end,entry) VALUES (?1,'collection_activity',?2,?3,?4)",params![entry.entry_id,entry.date_start,entry.date_end,serde_json::to_string(&entry)?])?;
+    }
+    Ok(())
+}
+
 fn summary_json(info: &SourceInfo) -> Result<String> {
     serde_json::to_string(&SourceSummary {
         source_id: info.source_id.clone(),
@@ -6672,45 +7158,52 @@ fn summary_json(info: &SourceInfo) -> Result<String> {
     .map_err(|e| GardenError::Invalid(e.to_string()))
 }
 
-fn event_timeline_entry(header: &KnowledgePageHeader) -> crate::timeline::TimelineEntry {
-    let date_facts = header
-        .facts
-        .iter()
-        .filter(|fact| {
-            ["event_date", "occurred_on", "date"]
-                .iter()
-                .any(|property| fact.property.eq_ignore_ascii_case(property))
-        })
-        .collect::<Vec<_>>();
-    let date = crate::timeline::qualify_dates(
-        &date_facts
+impl Application {
+    fn event_timeline_entry(&self, header: &KnowledgePageHeader) -> crate::timeline::TimelineEntry {
+        let date_facts = header
+            .facts
             .iter()
-            .map(|fact| fact.value.as_str())
-            .collect::<Vec<_>>(),
-    );
-    let date_fact = date_facts.first().copied();
-    crate::timeline::TimelineEntry {
-        entry_id: format!("event:{}", header.page_id),
-        page_id: header.page_id.clone(),
-        source_id: header.source_id.clone(),
-        title: header.title.clone(),
-        kind: header.kind.clone(),
-        date_label: date.label,
-        date_start: date.start,
-        date_end: date.end,
-        precision: date.precision,
-        date_status: date.status,
-        qualifier: date_fact.and_then(|fact| fact.qualifier.clone()),
-        support: Some(search_location(
-            &date_fact
-                .map(|fact| fact.fact_id.clone())
-                .unwrap_or_else(|| header.page_id.clone()),
-            &header.source_id,
-            None,
-            date_fact
-                .map(|fact| &fact.evidence)
-                .unwrap_or(&header.evidence),
-        )),
+            .filter(|fact| {
+                ["event_date", "occurred_on", "date", "message_date"]
+                    .iter()
+                    .any(|property| fact.property.eq_ignore_ascii_case(property))
+            })
+            .collect::<Vec<_>>();
+        let date = crate::timeline::qualify_dates(
+            &date_facts
+                .iter()
+                .map(|fact| fact.value.as_str())
+                .collect::<Vec<_>>(),
+        );
+        let date_fact = date_facts.first().copied();
+        let support = date_fact.and_then(|fact| self.latest_support(&fact.supports).ok().flatten());
+        crate::timeline::TimelineEntry {
+            entry_id: format!("event:{}", header.page_id),
+            page_id: header.page_id.clone(),
+            source_id: header.source_id.clone(),
+            title: header.title.clone(),
+            kind: header.kind.clone(),
+            date_label: date.label,
+            date_start: date.start,
+            date_end: date.end,
+            precision: date.precision,
+            date_status: date.status,
+            qualifier: date_fact.and_then(|fact| fact.qualifier.clone()),
+            support: Some(search_location(
+                &date_fact
+                    .map(|fact| fact.fact_id.clone())
+                    .unwrap_or_else(|| header.page_id.clone()),
+                support
+                    .map(|s| s.source_id.as_str())
+                    .unwrap_or(&header.source_id),
+                support.map(|s| s.source_version_id.as_str()),
+                support.map(|s| &s.evidence).unwrap_or_else(|| {
+                    date_fact
+                        .map(|fact| &fact.evidence)
+                        .unwrap_or(&header.evidence)
+                }),
+            )),
+        }
     }
 }
 
@@ -7094,6 +7587,15 @@ fn parse_extraction(value: &str) -> Result<ExtractionState> {
 }
 
 fn processing_status(info: &SourceInfo) -> String {
+    if info.current_version_id.is_some() {
+        if let Some(status) = gaps::update_category(info) {
+            return status.into();
+        }
+    }
+    if matches!(info.extraction, ExtractionState::PartialText) && info.semantic_state == "complete"
+    {
+        return "extraction_incomplete".into();
+    }
     if !matches!(
         info.extraction,
         ExtractionState::TextPreserved
@@ -7224,7 +7726,7 @@ fn event_date_from_facts(facts: &[FactRecord]) -> Option<String> {
     facts
         .iter()
         .filter(|fact| {
-            ["event_date", "occurred_on", "date"]
+            ["event_date", "occurred_on", "date", "message_date"]
                 .iter()
                 .any(|property| fact.property.eq_ignore_ascii_case(property))
         })
@@ -7243,6 +7745,7 @@ fn evidence_offset_basis_name(basis: EvidenceOffsetBasis) -> &'static str {
         EvidenceOffsetBasis::AudioTranscript => "audio_transcript",
         EvidenceOffsetBasis::ExtractedImageProjection => "extracted_image_projection",
         EvidenceOffsetBasis::ExtractedPdfProjection => "extracted_pdf_projection",
+        EvidenceOffsetBasis::ExtractedVideoProjection => "extracted_video_projection",
         EvidenceOffsetBasis::ExtractedConversationProjection => "extracted_conversation_projection",
     }
 }
@@ -7289,7 +7792,7 @@ fn write_acquisition(destination: &Path, acquisition: &Acquisition) -> Result<()
     fs::create_dir_all(&contexts)?;
     // One requested URL can have several independently acquired redirect contexts.
     // Preserve each record instead of overwriting or colliding with its predecessor.
-    let key = format!("{:x}", Sha256::digest(serde_json::to_vec(acquisition)?));
+    let key = hex::encode(Sha256::digest(serde_json::to_vec(acquisition)?));
     let mut record = tempfile::NamedTempFile::new_in(&contexts)?;
     write!(
         record,
@@ -7432,6 +7935,7 @@ enum EvidenceOffsetBasis {
     AudioTranscript,
     ExtractedImageProjection,
     ExtractedPdfProjection,
+    ExtractedVideoProjection,
 }
 
 fn evidence_display_basis(
@@ -7472,6 +7976,12 @@ fn evidence_display_basis(
             "visible-text projection lines",
             "visible-text projection bytes",
             "The retained original opens as a fallback; offsets refer to the stated web visible-text projection.",
+        ),
+        EvidenceOffsetBasis::ExtractedVideoProjection => (
+            "extracted video frame projection; offsets are not original video byte offsets; frame text is unverified OCR, not an authenticated capture time",
+            "video frame projection lines",
+            "video frame projection bytes",
+            "Open the on-demand frame preview or retained original at the stated frame time; otherwise the whole frame is the disclosed fallback.",
         ),
         EvidenceOffsetBasis::AudioTranscript => (
             "machine-generated audio transcript; offsets are transcript bytes, not audio bytes",
@@ -7709,6 +8219,12 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         }
         None if inferred_location
             .as_deref()
+            .is_some_and(|locator| locator.starts_with("VIDEO FRAME ")) =>
+        {
+            EvidenceOffsetBasis::ExtractedVideoProjection
+        }
+        None if inferred_location
+            .as_deref()
             .is_some_and(|locator| locator.starts_with("PHOTO ")) =>
         {
             EvidenceOffsetBasis::ExtractedImageProjection
@@ -7728,6 +8244,7 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         Some("audio_transcript") => EvidenceOffsetBasis::AudioTranscript,
         Some("extracted_image_projection") => EvidenceOffsetBasis::ExtractedImageProjection,
         Some("extracted_pdf_projection") => EvidenceOffsetBasis::ExtractedPdfProjection,
+        Some("extracted_video_projection") => EvidenceOffsetBasis::ExtractedVideoProjection,
         Some("extracted_conversation_projection") => {
             EvidenceOffsetBasis::ExtractedConversationProjection
         }
@@ -7787,7 +8304,7 @@ fn stable_page_id(entity: &EntityDraft, source_id: &str, source_text: Option<&st
         digest.update([0]);
         digest.update(source_id.as_bytes());
     }
-    format!("page-{:x}", digest.finalize())
+    format!("page-{}", hex::encode(digest.finalize()))
 }
 
 fn explicitly_distinct_event_text(source_text: &str, evidence: &EvidenceDraft) -> bool {
@@ -7874,7 +8391,7 @@ fn stable_fact_id(subject_page_id: &str, property: &str, record_key: Option<&str
         digest.update([0]);
         digest.update(record_key.trim().to_lowercase().as_bytes());
     }
-    format!("fact-{:x}", digest.finalize())
+    format!("fact-{}", hex::encode(digest.finalize()))
 }
 
 fn stable_relationship_id(from_page_id: &str, to_page_id: &str, kind: &str) -> String {
@@ -7884,7 +8401,7 @@ fn stable_relationship_id(from_page_id: &str, to_page_id: &str, kind: &str) -> S
     digest.update(kind.trim().to_lowercase().as_bytes());
     digest.update([0]);
     digest.update(to_page_id.as_bytes());
-    format!("relationship-{:x}", digest.finalize())
+    format!("relationship-{}", hex::encode(digest.finalize()))
 }
 
 fn write_atomic_from_file(path: &Path, source: &Path) -> Result<()> {
@@ -7937,7 +8454,7 @@ fn replace_semantic_section(body: &str, pages: &[KnowledgePageSummary]) -> Strin
             section.push_str(&format!(
                 "- [{}]({}) ({})\n",
                 escape_markdown(&page.title),
-                page.path,
+                format!("../../{}", page.path).replace(' ', "%20"),
                 escape_markdown(&page.kind)
             ));
         }
@@ -8153,29 +8670,83 @@ fn stable_audio_segment_id(version_id: &str, window_start_ms: u64, ordinal: usiz
     digest.update(version_id.as_bytes());
     digest.update(window_start_ms.to_be_bytes());
     digest.update((ordinal as u64).to_be_bytes());
-    format!("audio-segment-{:x}", digest.finalize())
+    format!("audio-segment-{}", hex::encode(digest.finalize()))
 }
+
+const MAX_VIDEO_SEMANTIC_FRAME_LINES: usize = 24;
 
 fn audio_semantic_text(audio: &AudioProcessingInfo) -> String {
     let mut lines = String::from(
         "Machine-generated transcript from retained audio. Wording and timestamps are unverified estimates; this local recognizer emits no calibrated confidence or alternatives, and speaker identity is unavailable.\n",
     );
+    if audio.is_video() {
+        lines.push_str("Frame evidence from retained video. Sampled frames carry local OCR text and an uncertain classifier prediction. Narrated speech is not visual observation, and text visible in a frame, including a date on a title card, is not an authenticated capture time.\n");
+    }
+    let mut entries: Vec<(u64, usize, String)> = Vec::new();
     for segment in &audio.segments {
-        lines.push_str(&format!(
-            "[AUDIO {}–{} ms confidence={} speaker=unidentified] {}\n",
+        entries.push((
             segment.start_ms,
-            segment.end_ms,
-            segment
-                .confidence
-                .map(|value| format!("{value:.2}"))
-                .unwrap_or_else(|| "unavailable".into()),
-            segment.text.replace(['\n', '\r'], " ")
+            0,
+            format!(
+                "[AUDIO {}–{} ms confidence={} speaker=unidentified] {}\n",
+                segment.start_ms,
+                segment.end_ms,
+                segment
+                    .confidence
+                    .map(|value| format!("{value:.2}"))
+                    .unwrap_or_else(|| "unavailable".into()),
+                segment.text.replace(['\n', '\r'], " ")
+            ),
         ));
+    }
+    let mut frame_lines = 0_usize;
+    let mut omitted = 0_usize;
+    for frame in &audio.frames {
+        let mut rows = Vec::new();
+        for (index, row) in frame.ocr.iter().enumerate() {
+            let text = row.text.replace(['\n', '\r', '\0'], " ");
+            if text.trim().is_empty() {
+                continue;
+            }
+            rows.push(format!(
+                "[VIDEO FRAME {} ms; OCR region {}; normalized bottom-left x={:.6},y={:.6},width={:.6},height={:.6}; channel=ocr] {} (OCR transcription of a sampled frame; confidence {:.4}; Vision revision {}; text in a frame does not verify an event, identity or capture time)\n",
+                frame.time_ms, index + 1, row.bounds[0], row.bounds[1], row.bounds[2], row.bounds[3], text, row.confidence, frame.ocr_revision
+            ));
+        }
+        if let Some(top) = frame.classifications.first() {
+            rows.push(format!(
+                "[VIDEO FRAME {} ms; channel=generated_interpretation] Classifier prediction: {} (uncertain model interpretation of a sampled frame; confidence {:.4}; Vision revision {}; whole frame)\n",
+                frame.time_ms,
+                top.label.replace(['\n', '\r', '\0'], " "),
+                top.confidence,
+                frame.classification_revision
+            ));
+        }
+        for row in rows {
+            if frame_lines >= MAX_VIDEO_SEMANTIC_FRAME_LINES {
+                omitted += 1;
+            } else {
+                frame_lines += 1;
+                entries.push((frame.time_ms, 1, row));
+            }
+        }
+    }
+    entries.sort_by_key(|(time, order, _)| (*time, *order));
+    for (_, _, line) in entries {
+        lines.push_str(&line);
+    }
+    if omitted > 0 {
+        lines.push_str(&format!("[VIDEO COVERAGE; channel=coverage_gap] {omitted} further frame evidence lines remain on the source page but were left out of semantic formation to keep it bounded.\n"));
     }
     lines
 }
 
-fn audio_processing_info(audio: AudioInfo, source_version_id: &str) -> AudioProcessingInfo {
+fn audio_processing_info(
+    audio: AudioInfo,
+    source_version_id: &str,
+    media: Option<MediaInfo>,
+) -> AudioProcessingInfo {
+    let video = media.is_some();
     AudioProcessingInfo {
         source_version_id: Some(source_version_id.to_owned()),
         state: "pending".into(),
@@ -8186,8 +8757,16 @@ fn audio_processing_info(audio: AudioInfo, source_version_id: &str) -> AudioProc
         failed_attempts: 0,
         processing_interruptions: 0,
         retry_at_ms: None,
-        detail: "Pinned local Whisper transcription is queued for this retained source version. Speaker attribution is unavailable; all speakers remain unidentified.".into(),
+        detail: if video {
+            "Bounded local processing is queued for this retained video version: speech uses the pinned local Whisper model and sampled frames use local OCR and an uncertain classifier. Speaker attribution is unavailable; speech and visual evidence keep separate origins.".into()
+        } else {
+            "Pinned local Whisper transcription is queued for this retained source version. Speaker attribution is unavailable; all speakers remain unidentified.".into()
+        },
         segments: Vec::new(),
+        media_kind: if video { "video" } else { "" }.into(),
+        tracks: media,
+        frames: Vec::new(),
+        gaps: Vec::new(),
     }
 }
 
@@ -8240,18 +8819,19 @@ fn promote_candidate_audio(info: &mut SourceInfo, source_version_id: &str) {
 
 fn draft_has_audio_provenance(draft: &KnowledgeDraft) -> bool {
     fn audio_evidence(evidence: &EvidenceDraft) -> bool {
-        evidence.offset_basis.as_deref() == Some("audio_transcript")
-            || evidence.origin.eq_ignore_ascii_case("transcribed speech")
-            || evidence
-                .source_location
-                .as_deref()
-                .is_some_and(|location| location.starts_with("AUDIO "))
+        matches!(
+            evidence.offset_basis.as_deref(),
+            Some("audio_transcript" | "extracted_video_projection")
+        ) || evidence.origin.eq_ignore_ascii_case("transcribed speech")
+            || evidence.source_location.as_deref().is_some_and(|location| {
+                location.starts_with("AUDIO ") || location.starts_with("VIDEO FRAME ")
+            })
     }
 
     draft.entities.iter().any(|entity| {
         matches!(
             entity.kind.as_str(),
-            "audio_recording" | "audio_speaker" | "speaker"
+            "audio_recording" | "video_recording" | "audio_speaker" | "speaker"
         ) || audio_evidence(&entity.evidence)
     }) || draft.facts.iter().any(|fact| {
         matches!(
@@ -8261,6 +8841,8 @@ fn draft_has_audio_provenance(draft: &KnowledgeDraft) -> bool {
                 | "spoken_decision"
                 | "spoken_reasoning"
                 | "audio_speaker"
+                | "video_frame_text"
+                | "video_frame_interpretation"
         ) || audio_evidence(&fact.evidence)
     }) || draft.relationships.iter().any(|relationship| {
         matches!(relationship.kind.as_str(), "audio_speaker" | "speaker")
@@ -8346,10 +8928,21 @@ fn draft_audio_evidence_is_segment_grounded(
         else {
             return false;
         };
+        let content_start = line_start + locator_end + 2;
+        if let Some(time_ms) = frame_locator_time(locator) {
+            let quotes_frame_text =
+                evidence.byte_start >= content_start && evidence.byte_end <= line_end;
+            return quotes_frame_text
+                && audio.is_video()
+                && time_ms <= audio.duration_ms
+                && audio.frames.iter().any(|frame| frame.time_ms == time_ms)
+                && evidence.source_location.as_deref().is_none_or(|location| {
+                    location.starts_with(&format!("VIDEO FRAME {time_ms} ms"))
+                });
+        }
         let Some((start_ms, end_ms)) = audio_locator_range(locator) else {
             return false;
         };
-        let content_start = line_start + locator_end + 2;
         let quotes_segment_text =
             evidence.byte_start >= content_start && evidence.byte_end <= line_end;
         let quotes_segment_prefix = evidence.byte_start == line_start
@@ -8433,6 +9026,16 @@ fn is_generated_audio_header_evidence(evidence: &EvidenceDraft, source_text: &st
             .is_none_or(|basis| basis == "preserved_text")
 }
 
+/// Time of the sampled frame named by an evidence-line locator.
+fn frame_locator_time(locator: &str) -> Option<u64> {
+    locator
+        .strip_prefix("VIDEO FRAME ")?
+        .split_once(" ms")?
+        .0
+        .parse()
+        .ok()
+}
+
 fn audio_locator_range(locator: &str) -> Option<(u64, u64)> {
     let locator = locator.strip_prefix("AUDIO ")?;
     let timestamp = locator.split_once(" ms")?.0;
@@ -8444,42 +9047,85 @@ fn audio_locator_range(locator: &str) -> Option<(u64, u64)> {
     (start < end).then_some((start, end))
 }
 
-fn qualify_audio_evidence(draft: &mut KnowledgeDraft) {
-    fn qualify(evidence: &mut EvidenceDraft) {
-        evidence.offset_basis = Some("audio_transcript".into());
-        let caution = "Machine transcription; wording and speaker identity are unverified. Compare the retained original recording.";
+fn qualify_audio_evidence(draft: &mut KnowledgeDraft, source_text: &str) {
+    fn qualify(evidence: &mut EvidenceDraft, source_text: &str) {
+        let line_start = source_text
+            .get(..evidence.byte_start.min(source_text.len()))
+            .and_then(|prefix| prefix.rfind('\n'))
+            .map_or(0, |index| index + 1);
+        let frame = source_text
+            .get(line_start..)
+            .is_some_and(|line| line.starts_with("[VIDEO FRAME "));
+        let caution = if frame {
+            evidence.offset_basis = Some("extracted_video_projection".into());
+            "Sampled video frame; OCR text and classifier output are unverified machine interpretations of one moment, not narrated speech, an authenticated capture time, or an identity. Compare the retained original at this frame time."
+        } else {
+            evidence.offset_basis = Some("audio_transcript".into());
+            "Machine transcription; wording and speaker identity are unverified. Narrated speech is not visual observation. Compare the retained original recording."
+        };
         evidence.qualifier = Some(match evidence.qualifier.take() {
             Some(existing) => format!("{existing}; {caution}"),
             None => caution.into(),
         });
     }
     for entity in &mut draft.entities {
-        qualify(&mut entity.evidence);
+        qualify(&mut entity.evidence, source_text);
     }
     for fact in &mut draft.facts {
-        qualify(&mut fact.evidence);
+        qualify(&mut fact.evidence, source_text);
     }
     for relationship in &mut draft.relationships {
-        qualify(&mut relationship.evidence);
+        qualify(&mut relationship.evidence, source_text);
     }
     for tag in &mut draft.tags {
-        qualify(&mut tag.evidence);
+        qualify(&mut tag.evidence, source_text);
     }
     for correction in &mut draft.correction_candidates {
-        qualify(&mut correction.evidence);
+        qualify(&mut correction.evidence, source_text);
     }
     for alignment in &mut draft.correction_alignments {
-        qualify(&mut alignment.candidate.evidence);
+        qualify(&mut alignment.candidate.evidence, source_text);
     }
     if let Some(update) = &mut draft.source_update {
-        qualify(&mut update.evidence);
+        qualify(&mut update.evidence, source_text);
         if let Some(evidence) = &mut update.source_date_evidence {
-            qualify(evidence);
+            qualify(evidence, source_text);
         }
         if let Some(evidence) = &mut update.source_revision_evidence {
-            qualify(evidence);
+            qualify(evidence, source_text);
         }
     }
+}
+
+/// A date or time read from a frame, or narrated, never becomes the recording's capture time.
+fn video_draft_promotes_capture_time(draft: &KnowledgeDraft, source_text: &str) -> bool {
+    fn from_frame(evidence: &EvidenceDraft, source_text: &str) -> bool {
+        source_text
+            .get(..evidence.byte_start.min(source_text.len()))
+            .map(|prefix| prefix.rfind('\n').map_or(0, |index| index + 1))
+            .and_then(|start| source_text.get(start..))
+            .is_some_and(|line| line.starts_with("[VIDEO FRAME "))
+    }
+    const CAPTURE_PROPERTIES: [&str; 8] = [
+        "capture_time",
+        "capture_date",
+        "captured_at",
+        "recorded_at",
+        "recording_date",
+        "recording_time",
+        "filmed_on",
+        "date_taken",
+    ];
+    draft.facts.iter().any(|fact| {
+        CAPTURE_PROPERTIES.contains(&fact.property.to_ascii_lowercase().as_str())
+            && from_frame(&fact.evidence, source_text)
+    }) || draft.source_update.as_ref().is_some_and(|update| {
+        (update.source_date.is_some() && from_frame(&update.evidence, source_text))
+            || update
+                .source_date_evidence
+                .as_ref()
+                .is_some_and(|evidence| from_frame(evidence, source_text))
+    })
 }
 
 fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>) -> String {
@@ -8504,7 +9150,13 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
             audio.next_start_ms.min(audio.duration_ms),
             audio.duration_ms
         );
-        if audio.segments.is_empty() {
+        if audio
+            .tracks
+            .as_ref()
+            .is_some_and(|tracks| !tracks.audio.present)
+        {
+            body.push_str("No audio track is present; no speech inference was attempted.\n");
+        } else if audio.segments.is_empty() {
             body.push_str("No transcript passages are available yet. The original recording remains playable.\n");
             let examined = audio.next_start_ms.min(audio.duration_ms);
             if examined > 0 {
@@ -8556,6 +9208,10 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
                 body.push_str(&format!("### Not processed yet · {covered_end}–{} ms\n\nThis audio range has not been examined yet.\n", audio.duration_ms));
             }
         }
+        if audio.is_video() {
+            body = body.replace("**Audio processing:**", "**Media processing:**").replace("ms have been examined in bounded segments", "ms of timeline have been processed in bounded windows; only sampled frames were examined");
+            append_video_body(info, audio, &mut body);
+        }
         append_pending_audio_body(info, &mut body);
         return body;
     }
@@ -8582,6 +9238,87 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
         "# {title}\n\n[Open original]({})\n\n## Source text · lines 1–{}\n\n{fence}text\n{text}\n{fence}\n",
         info.asset, info.line_count
     )
+}
+
+fn append_video_body(info: &SourceInfo, audio: &AudioProcessingInfo, body: &mut String) {
+    body.push_str("\n## Sampled visual evidence\n\nFrames are sampled every three seconds in bounded windows. Intervals between samples are unexamined. Narration is not visual observation. OCR and classifier predictions are unverified; a title-card date is not an authenticated capture time.\n\n");
+    if let Some(tracks) = &audio.tracks {
+        let visual = if !tracks.video.present {
+            "absent"
+        } else if tracks.video.decodable {
+            "decoded samples available"
+        } else {
+            "decoding unavailable"
+        };
+        let speech = if !tracks.audio.present {
+            "absent"
+        } else if tracks.audio.decodable {
+            "available for transcription"
+        } else {
+            "decoding unavailable"
+        };
+        body.push_str(&format!(
+            "Visual track: {visual}. Speech track: {speech}. {} {}\n\n",
+            escape_markdown(&tracks.video.detail),
+            escape_markdown(&tracks.audio.detail)
+        ));
+        if !tracks.audio.present {
+            body.push_str("No audio track is present; no speech inference was attempted.\n\n");
+        }
+        body.push_str(match tracks.video.variable_frame_rate {
+            Some(true) => "Variable frame timing was detected. Locations use decoded timestamps, not frame numbers.\n\n",
+            Some(false) => "Frame timing was constant across the inspected track. Locations still use decoded timestamps.\n\n",
+            None => "Frame-rate variation is unknown beyond the inspected samples. Locations use decoded timestamps, not frame numbers.\n\n",
+        });
+    }
+    for frame in &audio.frames {
+        let href = audio_seek_href(
+            &info.source_id,
+            Some((
+                audio.source_version_id.as_deref().unwrap_or(&info.sha256),
+                &info.asset,
+            )),
+            frame.time_ms,
+        )
+        .replace("?audio_seek=", "?video_frame=");
+        body.push_str(&format!("### [Frame at {} ms]({href})\n\nRequested {} ms; decoded {} ms. {} × {} pixels. OCR regions use normalized coordinates with a bottom-left origin.\n\n", frame.time_ms, frame.requested_ms, frame.time_ms, frame.width, frame.height));
+        for row in &frame.ocr {
+            body.push_str(&format!(
+                "- OCR: {} · confidence {:.4} · region x={:.4}, y={:.4}, width={:.4}, height={:.4} · Vision revision {}\n",
+                escape_markdown(&row.text),
+                row.confidence,
+                row.bounds[0], row.bounds[1], row.bounds[2], row.bounds[3],
+                frame.ocr_revision
+            ));
+        }
+        for row in frame.classifications.iter().take(1) {
+            body.push_str(&format!(
+                "- Uncertain classifier prediction: {} · confidence {:.4} · Vision revision {}\n",
+                escape_markdown(&row.label),
+                row.confidence,
+                frame.classification_revision
+            ));
+        }
+        for gap in &frame.gaps {
+            body.push_str(&format!(
+                "- Frame extraction gap: {}\n",
+                escape_markdown(gap)
+            ));
+        }
+        body.push('\n');
+    }
+    if audio.frames.is_empty() {
+        body.push_str("No visual frame evidence is available yet; open the retained original.\n\n");
+    }
+    for gap in &audio.gaps {
+        body.push_str(&format!(
+            "### {} coverage gap · {}–{} ms\n\n{}\n\n",
+            escape_markdown(&gap.track),
+            gap.start_ms,
+            gap.end_ms,
+            escape_markdown(&gap.detail)
+        ));
+    }
 }
 
 fn audio_seek_href(source_id: &str, version: Option<(&str, &str)>, start_ms: u64) -> String {
@@ -8640,6 +9377,9 @@ fn append_pending_audio_body(info: &SourceInfo, body: &mut String) {
 }
 
 fn audio_start_from_locator(locator: &str) -> Option<u64> {
+    if let Some(frame) = locator.strip_prefix("VIDEO FRAME ") {
+        return frame.split_once(" ms")?.0.parse().ok();
+    }
     let time = locator.strip_prefix("AUDIO ")?.split_once('–')?.0;
     time.parse().ok()
 }
@@ -8769,6 +9509,7 @@ fn read_page(path: &Path) -> Result<SourcePage> {
     );
     let knowledge_pages = info.knowledge_pages.clone();
     Ok(SourcePage {
+        disk_markdown: markdown.clone(),
         info,
         markdown,
         body,
@@ -8787,7 +9528,7 @@ fn bind_legacy_audio_version(
     {
         if let Some(version) = versions.iter().find(|version| {
             Some(version.source_version_id.as_str()) == version_id
-                && is_audio_format(&version.format)
+                && is_timed_media_format(&version.format)
         }) {
             audio.source_version_id = Some(version.source_version_id.clone());
         }
@@ -8796,207 +9537,6 @@ fn bind_legacy_audio_version(
 
 fn sync_directory(path: &Path) -> Result<()> {
     File::open(path)?.sync_all()?;
-    Ok(())
-}
-
-#[derive(Serialize, Deserialize)]
-struct PublicationManifest {
-    entries: Vec<PublicationEntry>,
-    #[serde(default)]
-    removals: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct PublicationEntry {
-    destination: String,
-    staged: String,
-}
-
-fn commit_publication(
-    root: &Path,
-    files: Vec<(PathBuf, Vec<u8>)>,
-    fail_after_files: Option<usize>,
-) -> Result<()> {
-    commit_publication_with_removals(root, files, Vec::new(), fail_after_files)
-}
-
-fn commit_publication_with_removals(
-    root: &Path,
-    files: Vec<(PathBuf, Vec<u8>)>,
-    removals: Vec<PathBuf>,
-    fail_after_files: Option<usize>,
-) -> Result<()> {
-    if files.is_empty() && removals.is_empty() {
-        return Ok(());
-    }
-    let removals = removals
-        .into_iter()
-        .map(|path| {
-            let relative = path
-                .strip_prefix(root)
-                .map_err(|_| GardenError::Invalid("A removal escaped the collection.".into()))?;
-            validate_relative_collection_path(relative)?;
-            Ok(relative.to_string_lossy().into_owned())
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let transactions = root.join(".staging/transactions");
-    fs::create_dir_all(&transactions)?;
-    let staging = tempfile::tempdir_in(&transactions)?;
-    let staged_files = staging.path().join("files");
-    fs::create_dir_all(&staged_files)?;
-    let mut entries = Vec::with_capacity(files.len());
-    for (index, (destination, bytes)) in files.into_iter().enumerate() {
-        let relative = destination.strip_prefix(root).map_err(|_| {
-            GardenError::Invalid("A publication path escaped the collection.".into())
-        })?;
-        validate_relative_collection_path(relative)?;
-        let staged = format!("files/{index:04}");
-        let path = staging.path().join(&staged);
-        let mut file = File::create(&path)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        entries.push(PublicationEntry {
-            destination: relative.to_string_lossy().into_owned(),
-            staged,
-        });
-    }
-    sync_directory(&staged_files)?;
-    let manifest = serde_json::to_vec(&PublicationManifest { entries, removals })?;
-    let manifest_path = staging.path().join("manifest.json");
-    let mut file = File::create(&manifest_path)?;
-    file.write_all(&manifest)?;
-    file.sync_all()?;
-    sync_directory(staging.path())?;
-    let transaction_path = staging.keep();
-    sync_directory(&transactions)?;
-    apply_publication(root, &transaction_path, fail_after_files)?;
-    fs::remove_dir_all(&transaction_path)?;
-    sync_directory(&transactions)
-}
-
-fn recover_publications(root: &Path) -> Result<()> {
-    let transactions = root.join(".staging/transactions");
-    fs::create_dir_all(&transactions)?;
-    for entry in fs::read_dir(&transactions)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
-            continue;
-        }
-        let path = entry.path();
-        if !path.join("manifest.json").exists() {
-            fs::remove_dir_all(path)?;
-            continue;
-        }
-        apply_publication(root, &path, None)?;
-        fs::remove_dir_all(path)?;
-    }
-    sync_directory(&transactions)
-}
-
-fn apply_publication(
-    root: &Path,
-    transaction: &Path,
-    fail_after_files: Option<usize>,
-) -> Result<()> {
-    let manifest: PublicationManifest =
-        serde_json::from_slice(&fs::read(transaction.join("manifest.json"))?)?;
-    for (index, entry) in manifest.entries.into_iter().enumerate() {
-        let destination = Path::new(&entry.destination);
-        let staged = Path::new(&entry.staged);
-        validate_relative_collection_path(destination)?;
-        validate_relative_staging_path(staged)?;
-        let bytes = fs::read(transaction.join(staged))?;
-        write_atomic(&root.join(destination), &bytes)?;
-        if fail_after_files == Some(index + 1) {
-            return Err(GardenError::Io(std::io::Error::new(
-                std::io::ErrorKind::Interrupted,
-                "Injected publication interruption after an atomic file replacement.",
-            )));
-        }
-    }
-    for removal in manifest.removals {
-        let relative = Path::new(&removal);
-        validate_relative_collection_path(relative)?;
-        remove_collection_entry(root, relative)?;
-    }
-    Ok(())
-}
-
-// Hold each parent directory open and refuse symlinks at every traversal.
-// Replacing a path ancestor cannot redirect removal to a different tree.
-fn remove_collection_entry(root: &Path, relative: &Path) -> std::io::Result<()> {
-    use rustix::fs::{openat, Mode, OFlags, CWD};
-    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-    let mut directory = openat(CWD, root, flags, Mode::empty())?;
-    for component in relative.parent().unwrap_or(Path::new("")).components() {
-        match openat(&directory, component.as_os_str(), flags, Mode::empty()) {
-            Ok(next) => directory = next,
-            Err(rustix::io::Errno::NOENT) => return Ok(()),
-            Err(error) => return Err(error.into()),
-        }
-    }
-    let name = std::ffi::CString::new(relative.file_name().unwrap().as_encoded_bytes())?;
-    remove_entry_at(&directory, &name, 0)?;
-    File::from(directory).sync_all()
-}
-
-fn remove_entry_at(
-    directory: &impl std::os::fd::AsFd,
-    name: &std::ffi::CStr,
-    depth: usize,
-) -> std::io::Result<()> {
-    use rustix::fs::{openat, unlinkat, AtFlags, Dir, Mode, OFlags};
-    if depth > 256 {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "Removal directory nesting exceeds its recovery bound.",
-        ));
-    }
-    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-    match openat(directory, name, flags, Mode::empty()) {
-        Ok(child) => {
-            let mut entries = Dir::read_from(&child)?;
-            while let Some(entry) = entries.read() {
-                let entry = entry?;
-                let name = entry.file_name();
-                if name.to_bytes() != b"." && name.to_bytes() != b".." {
-                    remove_entry_at(&child, name, depth + 1)?;
-                }
-            }
-            unlinkat(directory, name, AtFlags::REMOVEDIR)?;
-        }
-        Err(rustix::io::Errno::NOENT) => {}
-        Err(rustix::io::Errno::NOTDIR | rustix::io::Errno::LOOP) => {
-            match unlinkat(directory, name, AtFlags::empty()) {
-                Ok(()) | Err(rustix::io::Errno::NOENT) => {}
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Err(error) => return Err(error.into()),
-    }
-    Ok(())
-}
-
-fn validate_real_collection_ancestors(root: &Path, destination: &Path) -> Result<()> {
-    let parent = destination
-        .parent()
-        .ok_or_else(|| GardenError::Invalid("Missing collection parent.".into()))?;
-    let relative = parent
-        .strip_prefix(root)
-        .map_err(|_| GardenError::Invalid("Path escaped collection.".into()))?;
-    let mut path = root.to_path_buf();
-    for component in relative.components() {
-        if !matches!(component, std::path::Component::Normal(_)) {
-            return Err(GardenError::Invalid("Invalid collection ancestor.".into()));
-        }
-        path.push(component);
-        match fs::symlink_metadata(&path) {
-            Ok(metadata) if metadata.is_dir() => {},
-            Ok(_) => return Err(GardenError::Invalid("A collection ancestor is a symlink or is not a directory; publication remains pending.".into())),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error.into()),
-        }
-    }
     Ok(())
 }
 
@@ -9024,24 +9564,161 @@ fn validate_relative_staging_path(path: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod publication_removal_tests {
-    use super::*;
-    #[test]
-    fn removal_keeps_its_open_parent_when_an_ancestor_is_swapped() {
-        use std::os::unix::fs::symlink;
-        let workspace = tempfile::tempdir().unwrap();
-        let parent = workspace.path().join("sources");
-        let outside = workspace.path().join("outside");
-        for directory in [&parent, &outside] {
-            fs::create_dir_all(directory.join("victim")).unwrap();
-            fs::write(directory.join("victim/sentinel"), "retain outside").unwrap();
-        }
-        let held = File::open(&parent).unwrap();
-        fs::rename(&parent, workspace.path().join("moved-sources")).unwrap();
-        symlink(&outside, &parent).unwrap();
-        remove_entry_at(&held, &std::ffi::CString::new("victim").unwrap(), 0).unwrap();
-        assert!(outside.join("victim/sentinel").is_file());
-        assert!(!workspace.path().join("moved-sources/victim").exists());
+fn video_extraction_detail(media: &MediaInfo, replacement: bool) -> String {
+    let lead = if replacement {
+        "The changed video original is retained as a new source version. Its speech and frame evidence are reset and queued for bounded processing; nothing from a different source version is reused."
+    } else {
+        "The exact video original is retained. Bounded local processing is queued in resumable time windows: speech uses the pinned local Whisper model, and sampled frames use local OCR and an uncertain classifier."
+    };
+    let mut notes = Vec::new();
+    if !media.audio.present {
+        notes.push("The container has no audio track, so no speech evidence exists; visual evidence is still processed.");
+    } else if !media.audio.decodable {
+        notes.push("The audio track could not be decoded; visual evidence is still processed.");
     }
+    if !media.video.decodable {
+        notes.push(
+            "The first video sample could not be decoded; frame evidence may be unavailable.",
+        );
+    }
+    if media.video.variable_frame_rate == Some(true) {
+        notes
+            .push("Frame timing varies; frames are sampled by presentation time, not frame count.");
+    }
+    if notes.is_empty() {
+        lead.into()
+    } else {
+        format!("{lead} {}", notes.join(" "))
+    }
+}
+
+fn video_coverage(media: &MediaInfo) -> Vec<CoveragePart> {
+    let visual = if !media.video.present {
+        (
+            CoverageStatus::Unsupported,
+            "The container has no video track.".to_owned(),
+        )
+    } else if !media.video.decodable {
+        (
+            CoverageStatus::Failed,
+            format!(
+                "The video track could not be decoded: {}",
+                media.video.detail
+            ),
+        )
+    } else {
+        (
+            CoverageStatus::Partial,
+            format!(
+                "{}×{} {} video{}. Frames are sampled at bounded intervals; intervals between samples and unrecognized visual content are not examined, and no identity or capture date is established.",
+                media.video.width.unwrap_or(0),
+                media.video.height.unwrap_or(0),
+                media.video.codec,
+                if media.video.variable_frame_rate == Some(true) { " with variable frame timing" } else { "" }
+            ),
+        )
+    };
+    let speech = if !media.audio.present {
+        (
+            CoverageStatus::Unsupported,
+            "The container has no audio track; no speech evidence exists.".to_owned(),
+        )
+    } else if !media.audio.decodable {
+        (
+            CoverageStatus::Failed,
+            format!(
+                "The audio track could not be decoded: {}",
+                media.audio.detail
+            ),
+        )
+    } else {
+        (
+            CoverageStatus::Partial,
+            "Automatic transcription is not complete or word-for-word verified; speaker identity, silence, noise and overlap are not established.".to_owned(),
+        )
+    };
+    vec![
+        CoveragePart {
+            scope: CoverageScope::VideoFrames,
+            status: visual.0,
+            source_location: Some("sampled frame times".into()),
+            detail: visual.1,
+        },
+        CoveragePart {
+            scope: CoverageScope::AudioRecording,
+            status: speech.0,
+            source_location: Some("audio track timeline".into()),
+            detail: speech.1,
+        },
+    ]
+}
+
+/// Evidence gathered for one resumable window; attached only when the window resolves.
+#[derive(Default)]
+struct WindowVisuals {
+    start_ms: u64,
+    end_ms: u64,
+    frames: Vec<VideoFrameEvidence>,
+    gaps: Vec<MediaGap>,
+}
+
+fn attach_window_visuals(audio: &mut AudioProcessingInfo, visuals: WindowVisuals) {
+    let (start, end) = (visuals.start_ms, visuals.end_ms);
+    audio
+        .frames
+        .retain(|frame| frame.requested_ms < start || frame.requested_ms >= end);
+    for frame in visuals.frames {
+        // Keyframe tolerance can map two requests to one decoded frame; it is one observation.
+        if !audio
+            .frames
+            .iter()
+            .any(|known| known.time_ms == frame.time_ms)
+        {
+            audio.frames.push(frame);
+        }
+    }
+    audio
+        .frames
+        .sort_by_key(|frame| (frame.time_ms, frame.requested_ms));
+    audio
+        .gaps
+        .retain(|gap| !(gap.track == "video" && gap.start_ms >= start && gap.start_ms < end));
+    audio.gaps.extend(visuals.gaps);
+    audio
+        .gaps
+        .sort_by_key(|gap| (gap.start_ms, gap.track.clone()));
+}
+
+/// Mirrors the audio completion rules: a first acquisition with no recognized evidence has no
+/// knowledge to form, and a replacement without evidence stays unpublished.
+fn settle_completed_media(
+    page: &mut SourcePage,
+    version_id: &str,
+    replacement: bool,
+    complete: bool,
+    no_evidence: bool,
+) {
+    if complete && no_evidence {
+        if replacement {
+            page.info.update_status = Some("pending".into());
+            page.info.semantic_error = Some("The replacement media was examined, but no speech passage or frame evidence was recognized. This does not prove silence or emptiness; the prior published evidence and original remain current, and the exact replacement original is retained as an unpublished version.".into());
+        } else {
+            page.info.current_version_id = Some(version_id.to_owned());
+            page.info.pending_version_id = None;
+            page.info.update_status = None;
+            page.info.semantic_state = "unavailable".into();
+            promote_candidate_audio(&mut page.info, version_id);
+        }
+    } else if complete {
+        page.info.semantic_state = "pending".into();
+    }
+}
+
+const VIDEO_FRAME_INTERVAL_MS: u64 = 3_000;
+
+fn stable_frame_id(version_id: &str, requested_ms: u64) -> String {
+    let mut digest = Sha256::new();
+    digest.update(version_id.as_bytes());
+    digest.update(requested_ms.to_be_bytes());
+    format!("video-frame-{}", hex::encode(digest.finalize()))
 }

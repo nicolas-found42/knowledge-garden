@@ -47,7 +47,7 @@ impl Application {
                 "Choose a directory outside the collection.".into(),
             ));
         }
-        let watch_id = format!("{:x}", Sha256::digest(path.as_os_str().as_encoded_bytes()));
+        let watch_id = hex::encode(Sha256::digest(path.as_os_str().as_encoded_bytes()));
         let destination = self.root.join("watches").join(&watch_id);
         fs::create_dir_all(destination.join("files"))?;
         fs::create_dir_all(destination.join("directories"))?;
@@ -257,8 +257,8 @@ impl Application {
             }
         } else if kind.is_file() {
             let receipt_path = watch_root.join("files").join(format!(
-                "{:x}.md",
-                Sha256::digest(relative.as_os_str().as_encoded_bytes())
+                "{}.md",
+                hex::encode(Sha256::digest(relative.as_os_str().as_encoded_bytes()))
             ));
             if receipt_path.exists() {
                 let receipt: FileReceipt = read_record(&receipt_path)?;
@@ -386,8 +386,8 @@ impl Application {
             .join(&watch.watch_id)
             .join("directories")
             .join(format!(
-                "{:x}.md",
-                Sha256::digest(relative.as_os_str().as_encoded_bytes())
+                "{}.md",
+                hex::encode(Sha256::digest(relative.as_os_str().as_encoded_bytes()))
             ));
         let old = if receipt_path.exists() {
             Some(read_record::<DirectoryVolume>(&receipt_path)?)
@@ -447,6 +447,7 @@ impl Application {
                 &self.root,
                 Vec::new(),
                 vec![receipt_path.to_owned()],
+                &HashMap::new(),
                 None,
             )?;
             return Ok(());
@@ -487,6 +488,7 @@ impl Application {
                 &self.root,
                 files,
                 removed_contexts,
+                &HashMap::new(),
                 self.fail_after_publication_files.take(),
             )?;
             return self.rebuild_index();
@@ -602,7 +604,7 @@ impl Application {
             ));
         }
         let fail_after = self.fail_after_publication_files.take();
-        commit_publication_with_removals(&self.root, files, removals, fail_after)?;
+        commit_publication_with_removals(&self.root, files, removals, &HashMap::new(), fail_after)?;
         self.rebuild_index()
     }
 }
@@ -754,11 +756,7 @@ fn validate_watch(watch: &WatchedDirectory, directory: &Path) -> Result<()> {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
         || directory.file_name().and_then(|name| name.to_str()) != Some(watch.watch_id.as_str())
         || !watch.path.is_absolute()
-        || watch.watch_id
-            != format!(
-                "{:x}",
-                Sha256::digest(watch.path.as_os_str().as_encoded_bytes())
-            )
+        || watch.watch_id != hex::encode(Sha256::digest(watch.path.as_os_str().as_encoded_bytes()))
     {
         return Err(GardenError::Invalid(
             "Watch identity does not match its storage directory and selected path.".into(),

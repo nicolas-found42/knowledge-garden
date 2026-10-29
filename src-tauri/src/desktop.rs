@@ -36,6 +36,166 @@ async fn with_engine<T: Send + 'static>(
 }
 
 #[tauri::command]
+async fn open_collection_file(engine: State<'_, Engine>, path: String) -> Result<(), String> {
+    with_engine(&engine, move |app| {
+        let path = app.collection_file_path(&path)?;
+        let status = std::process::Command::new("/usr/bin/open")
+            .arg(path)
+            .status()?;
+        if !status.success() {
+            return Err(crate::application::GardenError::Invalid(
+                "macOS could not open this preserved Markdown file.".into(),
+            ));
+        }
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn open_comparison_original(
+    engine: State<'_, Engine>,
+    request: crate::application::comparison::ComparisonRequest,
+) -> Result<(), String> {
+    with_engine(&engine, move |app| {
+        let original = app.comparison_original_path(request)?;
+        open_retained_original(&original)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn comparison_side(
+    engine: State<'_, Engine>,
+    request: crate::application::comparison::ComparisonRequest,
+) -> Result<crate::application::comparison::ComparisonSide, String> {
+    with_engine(&engine, move |app| app.comparison_side(request)).await
+}
+
+#[tauri::command]
+async fn resolve_trail(
+    engine: State<'_, Engine>,
+    stops: Vec<crate::application::trails::TrailStop>,
+) -> Result<Vec<crate::application::trails::ResolvedStop>, String> {
+    with_engine(&engine, move |app| app.resolve_trail(stops)).await
+}
+#[tauri::command]
+async fn trail_source_choices(
+    engine: State<'_, Engine>,
+    source_id: String,
+    offset: usize,
+) -> Result<crate::application::trails::TrailChoices, String> {
+    with_engine(&engine, move |app| {
+        app.trail_source_choices(&source_id, offset)
+    })
+    .await
+}
+#[tauri::command]
+async fn trail_selected_passage(
+    engine: State<'_, Engine>,
+    source_id: String,
+    quote: String,
+) -> Result<crate::application::trails::TrailStop, String> {
+    with_engine(&engine, move |app| {
+        app.trail_selected_passage(&source_id, &quote)
+    })
+    .await
+}
+#[tauri::command]
+async fn suggest_trail_stops(
+    engine: State<'_, Engine>,
+    goal: String,
+) -> Result<crate::application::trails::TrailSuggestions, String> {
+    let job = with_engine(&engine, move |app| app.prepare_trail_suggestions(&goal)).await?;
+    // Remote judgment runs outside the collection mutex; existing reading remains usable.
+    let evaluated = tauri::async_runtime::spawn_blocking(move || job.evaluate())
+        .await
+        .map_err(|e| e.to_string())?;
+    with_engine(&engine, move |app| app.finish_trail_suggestions(evaluated)).await
+}
+#[tauri::command]
+async fn list_saved_views(
+    engine: State<'_, Engine>,
+    query: String,
+    offset: usize,
+) -> Result<crate::application::views::SavedViews, String> {
+    with_engine(&engine, move |app| app.list_saved_views(&query, offset)).await
+}
+#[tauri::command]
+async fn create_saved_view(
+    engine: State<'_, Engine>,
+    name: String,
+    definition: crate::application::views::ViewDefinition,
+) -> Result<crate::application::views::SavedView, String> {
+    with_engine(&engine, move |app| app.create_saved_view(&name, definition)).await
+}
+#[tauri::command]
+async fn open_saved_view(
+    engine: State<'_, Engine>,
+    view_id: String,
+) -> Result<crate::application::views::SavedView, String> {
+    with_engine(&engine, move |app| app.open_saved_view(&view_id)).await
+}
+#[tauri::command]
+async fn rename_saved_view(
+    engine: State<'_, Engine>,
+    view_id: String,
+    name: String,
+) -> Result<crate::application::views::SavedView, String> {
+    with_engine(&engine, move |app| app.rename_saved_view(&view_id, &name)).await
+}
+#[tauri::command]
+async fn remove_saved_view(engine: State<'_, Engine>, view_id: String) -> Result<(), String> {
+    with_engine(&engine, move |app| app.remove_saved_view(&view_id)).await
+}
+
+#[tauri::command]
+async fn collection_groups(
+    engine: State<'_, Engine>,
+    request: crate::application::collection::CollectionGroupRequest,
+) -> Result<crate::application::collection::CollectionGroups, String> {
+    with_engine(&engine, move |app| app.collection_groups(request)).await
+}
+#[tauri::command]
+async fn collection_members(
+    engine: State<'_, Engine>,
+    request: crate::application::collection::CollectionMemberRequest,
+) -> Result<crate::application::collection::CollectionMembers, String> {
+    with_engine(&engine, move |app| app.collection_members(request)).await
+}
+
+#[tauri::command]
+async fn inspect_gaps(
+    engine: State<'_, Engine>,
+    page_id: String,
+) -> Result<crate::application::gaps::GapInspection, String> {
+    with_engine(&engine, move |app| app.inspect_gaps(&page_id)).await
+}
+
+#[tauri::command]
+async fn timeline(
+    engine: State<'_, Engine>,
+    request: crate::timeline::TimelineRequest,
+) -> Result<crate::timeline::TimelineResults, String> {
+    with_engine(&engine, move |app| app.timeline(request)).await
+}
+#[tauri::command]
+async fn collection_status(
+    engine: State<'_, Engine>,
+) -> Result<crate::application::reconciliation::ReconciliationStatus, String> {
+    with_engine(&engine, |app| Ok(app.collection_status())).await
+}
+
+#[tauri::command]
+async fn resolve_page_link(
+    engine: State<'_, Engine>,
+    page_id: String,
+    href: String,
+) -> Result<String, String> {
+    with_engine(&engine, move |app| app.resolve_page_link(&page_id, &href)).await
+}
+
+#[tauri::command]
 async fn import_source(
     engine: State<'_, Engine>,
     path: String,
@@ -161,6 +321,20 @@ async fn preview_original(engine: State<'_, Engine>, source_id: String) -> Resul
 }
 
 #[tauri::command]
+async fn preview_video_frame(
+    engine: State<'_, Engine>,
+    source_id: String,
+    source_version_id: String,
+    asset: String,
+    at_ms: u64,
+) -> Result<crate::media::VideoPreview, String> {
+    with_engine(&engine, move |app| {
+        app.preview_video_frame(&source_id, &source_version_id, &asset, at_ms)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn open_original_version(
     engine: State<'_, Engine>,
     source_id: String,
@@ -192,7 +366,9 @@ fn open_retained_original(original: &Path) -> crate::application::Result<()> {
     if original
         .extension()
         .and_then(|value| value.to_str())
-        .is_some_and(|format| crate::application::is_audio_format(&format.to_ascii_lowercase()))
+        .is_some_and(|format| {
+            crate::application::is_timed_media_format(&format.to_ascii_lowercase())
+        })
     {
         // Open recordings directly, without importing them into a Music library
         // or depending on its onboarding and cloud-library configuration.
@@ -233,6 +409,9 @@ pub fn run() {
                 .spawn(move || loop {
                     std::thread::sleep(std::time::Duration::from_secs(5));
                     if let Ok(mut app) = worker_app.lock() {
+                        if let Err(error) = app.reconcile_collection(256) {
+                            eprintln!("Collection reconciliation will retry: {error}");
+                        }
                         if let Err(error) = app.reconcile_watched_directories(8) {
                             eprintln!("Directory watcher could not reconcile: {error}");
                         }
@@ -275,6 +454,24 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            open_collection_file,
+            collection_status,
+            inspect_gaps,
+            timeline,
+            collection_groups,
+            resolve_trail,
+            trail_source_choices,
+            trail_selected_passage,
+            suggest_trail_stops,
+            list_saved_views,
+            create_saved_view,
+            open_saved_view,
+            rename_saved_view,
+            remove_saved_view,
+            comparison_side,
+            open_comparison_original,
+            collection_members,
+            resolve_page_link,
             import_source,
             import_repository,
             watch_directory,
@@ -293,6 +490,7 @@ pub fn run() {
             explore_path_details,
             open_original,
             preview_original,
+            preview_video_frame,
             open_original_version,
             open_original_asset
         ])

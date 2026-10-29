@@ -17,8 +17,9 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml_ng = "0.10"
-sha2 = "0.10"
-rusqlite = { version = "0.37", features = ["bundled"] }
+sha2 = "0.11"
+hex = "0.4"
+rusqlite = { version = "0.40", features = ["bundled"] }
 fs2 = "0.4"
 rustix = { version = "1", features = ["fs"] }
 tempfile = "3"
@@ -28,9 +29,9 @@ percent-encoding = "2"
 chrono = { version = "=0.4.45", default-features = false, features = ["std"] }
 regex = "1"
 reqwest = { version = "0.13", features = ["blocking", "json"] }
-html5ever = "=0.39.0"
-roxmltree = "=0.20.0"
+html5ever = "=0.40.1"
+roxmltree = "=0.21.1"
 zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
 ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "load-dynamic"] }
 tokenizers = { version = "=0.23.2", default-features = false, features = ["onig"] }
-usearch = "=2.26.4"
+usearch = "=2.26.5"

@@ -7,6 +7,8 @@ import type {
   PageSearchRequest,
   PageSearchResults,
   SourcePage,
+  VideoPreview,
+  ComparisonSide,
 } from "./api";
 
 const riverside: SourcePage = {
@@ -281,6 +283,1968 @@ it("imports a chosen repository, opens its source, and reports excluded paths", 
   expect(screen.getByText("Repository folder")).toBeTruthy();
   expect(screen.getByText(/Rust.*struct.*enum.*trait/)).toBeTruthy();
 });
+it.each([
+  ["network", "Waiting for network access"],
+  ["quota", "Waiting for provider quota"],
+  ["authentication", "Waiting for provider credentials"],
+  ["model_unavailable", "Waiting for the selected model"],
+  ["capability_unavailable", "Waiting for provider capability"],
+] as const)(
+  "discloses %s cooldown while local content and originals stay readable",
+  async (cause, label) => {
+    const api = testApi();
+    api.importSource = vi.fn().mockResolvedValue({
+      ...riverside,
+      info: {
+        ...riverside.info,
+        provider_availability: cause,
+        semantic_retry_at: "1791524900000",
+        semantic_error: "Remote semantic processing will retry automatically.",
+      },
+    });
+    const root = document.createElement("div");
+    document.body.append(root);
+    dispose = await mountReader(root, api);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Add source" }));
+    expect(screen.getByRole("article").textContent).toContain(
+      "Observation V17 took place at Riverside",
+    );
+    await user.click(screen.getByText("Source information"));
+    expect(screen.getByText(label)).toBeTruthy();
+    expect(screen.getByText(/Automatic retry scheduled/)).toBeTruthy();
+    await user.click(screen.getByRole("link", { name: "Open original" }));
+    expect(api.openOriginal).toHaveBeenCalledWith("source-riverside");
+  },
+);
+
+it("restores the selected timeline date meaning, sort, filters and keyboard focus after opening an event", async () => {
+  const api = testApi();
+  api.timeline = vi.fn().mockResolvedValue({
+    entries: [
+      {
+        entry_id: "event-v17",
+        page_id: "page-v17",
+        source_id: "source-riverside",
+        title: "Observation V17",
+        kind: "event",
+        date_label: "2024-05-17",
+        date_start: "2024-05-17",
+        date_end: "2024-05-17",
+        precision: "day",
+        date_status: "known",
+        qualifier: null,
+        support: null,
+      },
+    ],
+    next_offset: null,
+  });
+  api.openKnowledgePage = vi.fn().mockResolvedValue({
+    page_id: "page-v17",
+    source_id: "source-riverside",
+    title: "Observation V17",
+    kind: "event",
+    markdown:
+      "# Observation V17\n\n[Supporting source](../sources/source-riverside/index.md)\n\nOccurred May 17, 2024.",
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Timeline" }));
+  await user.selectOptions(
+    await screen.findByLabelText("Date meaning"),
+    "reasoning_event",
+  );
+  await user.selectOptions(screen.getByLabelText("Sort dates"), "descending");
+  await user.type(screen.getByLabelText("Timeline words or title"), "V17");
+  await user.type(screen.getByLabelText("Timeline tags"), "river, survey");
+  await user.click(
+    screen.getByRole("button", { name: "Apply timeline filters" }),
+  );
+  await waitFor(() =>
+    expect(api.timeline).toHaveBeenLastCalledWith({
+      date_meaning: "reasoning_event",
+      order: "descending",
+      query: "V17",
+      tags: ["river", "survey"],
+      offset: 0,
+    }),
+  );
+  const event = screen.getByRole("button", { name: "Observation V17" });
+  event.focus();
+  screen.getByRole("main").scrollTop = 137;
+  await user.keyboard("{Enter}");
+  expect(
+    await screen.findByRole("article", { name: "Observation V17" }),
+  ).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Supporting source" })).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(await screen.findByDisplayValue("V17")).toBeTruthy();
+  expect(screen.getByDisplayValue("river, survey")).toBeTruthy();
+  expect(
+    (screen.getByLabelText("Date meaning") as HTMLSelectElement).value,
+  ).toBe("reasoning_event");
+  expect((screen.getByLabelText("Sort dates") as HTMLSelectElement).value).toBe(
+    "descending",
+  );
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Observation V17" }),
+    ),
+  );
+  expect(screen.getByRole("main").scrollTop).toBe(137);
+});
+
+it("offers distinct timeline date meanings and user-controlled sorting", async () => {
+  const api = testApi();
+  api.timeline = vi.fn().mockResolvedValue({
+    entries: [
+      {
+        entry_id: "event-v17",
+        page_id: "page-v17",
+        source_id: "source-riverside",
+        title: "Observation V17",
+        kind: "event",
+        date_label: "May 2024",
+        date_start: "2024-05-01",
+        date_end: "2024-05-31",
+        precision: "month",
+        date_status: "approximate",
+        qualifier: "Source gives the month only.",
+        support: null,
+      },
+    ],
+    next_offset: null,
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Timeline" }));
+  expect(await screen.findByText(/May 2024/)).toBeTruthy();
+  expect(screen.getByText(/Source gives the month only/)).toBeTruthy();
+  expect(api.timeline).toHaveBeenLastCalledWith({
+    date_meaning: "source_event",
+    order: "ascending",
+    query: "",
+    tags: [],
+    offset: 0,
+  });
+  await user.selectOptions(
+    screen.getByLabelText("Date meaning"),
+    "reasoning_event",
+  );
+  await waitFor(() =>
+    expect(api.timeline).toHaveBeenLastCalledWith({
+      date_meaning: "reasoning_event",
+      order: "ascending",
+      query: "",
+      tags: [],
+      offset: 0,
+    }),
+  );
+  await user.selectOptions(screen.getByLabelText("Sort dates"), "descending");
+  await waitFor(() =>
+    expect(api.timeline).toHaveBeenLastCalledWith({
+      date_meaning: "reasoning_event",
+      order: "descending",
+      query: "",
+      tags: [],
+      offset: 0,
+    }),
+  );
+  await user.selectOptions(
+    screen.getByLabelText("Date meaning"),
+    "collection_activity",
+  );
+  await waitFor(() =>
+    expect(api.timeline).toHaveBeenLastCalledWith({
+      date_meaning: "collection_activity",
+      order: "descending",
+      query: "",
+      tags: [],
+      offset: 0,
+    }),
+  );
+});
+
+it("loads a photo preview only on request and keeps its region guidance beside the image", async () => {
+  const api = testApi();
+  const preview = vi.fn().mockResolvedValue("data:image/jpeg;base64,/9j/");
+  Object.assign(api, { previewOriginal: preview });
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: { ...riverside.info, format: "png", title: "Photo evidence" },
+    body: "# Photo evidence\n\nOCR region 1 · normalized bottom-left x=0.2,y=0.3,width=0.4,height=0.1 · RIVER SURVEY",
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Add source" }));
+  expect(preview).not.toHaveBeenCalled();
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Show image preview" }));
+  expect(preview).toHaveBeenCalledWith("source-riverside");
+  const image = await screen.findByRole("img", {
+    name: "Retained photo preview: Photo evidence",
+  });
+  expect(image.getAttribute("src")).toBe("data:image/jpeg;base64,/9j/");
+  expect(screen.getByRole("article").textContent).toContain(
+    "normalized bottom-left",
+  );
+  expect(screen.getByText(/whole-image fallback/)).toBeTruthy();
+});
+
+it("keeps prior content readable and shows an incomplete update prominently", async () => {
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: {
+      ...riverside.info,
+      semantic_state: "complete",
+      update_status: "pending",
+    },
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Add source" }));
+  expect(
+    await screen.findByText(
+      "Update pending · Showing the last successful version.",
+    ),
+  ).toBeTruthy();
+  expect(screen.getByRole("article").textContent).toContain("Observation V17");
+  expect(screen.getByRole("link", { name: "Open original" })).toBeTruthy();
+});
+
+it("opens a retained uncertain source version even when it is not pending", async () => {
+  const api = testApi();
+  const currentVersion = "a".repeat(64);
+  const retainedVersion = "b".repeat(64);
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: {
+      ...riverside.info,
+      current_version_id: currentVersion,
+      pending_version_id: null,
+      update_status: "uncertain",
+      versions_seen: [
+        {
+          source_version_id: currentVersion,
+          state: "current",
+          asset: "original.md",
+        },
+        {
+          source_version_id: retainedVersion,
+          state: "retained_without_current_change",
+          asset: "original.md",
+        },
+      ],
+    },
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await screen.findByRole("article", { name: "Riverside notes" });
+  await user.click(screen.getByText("Source information"));
+  await user.click(
+    screen.getByRole("button", {
+      name: `Open retained original · ${retainedVersion.slice(0, 12)}`,
+    }),
+  );
+
+  expect(api.openOriginalVersion).toHaveBeenCalledWith(
+    "source-riverside",
+    retainedVersion,
+    "original.md",
+  );
+});
+
+it("retrieves only the supplied URL, displays its origin, and keeps a failed address available for explicit retry", async () => {
+  const api = testApi();
+  const page: SourcePage = {
+    ...riverside,
+    info: {
+      ...riverside.info,
+      title: "Riverside observation U5",
+      format: "html",
+      extraction: "structured_text",
+      extraction_detail: "Visible page text projected; original retained.",
+      acquisitions: [
+        {
+          path: "http://127.0.0.1:14335/a",
+          method: "url",
+          requested_url: "http://127.0.0.1:14335/a",
+          final_url: "http://127.0.0.1:14335/a",
+          http_status: 200,
+          content_type: "text/html",
+          received_at: "1790784000000",
+        },
+      ],
+    },
+    body: "# Riverside observation U5\n\n[destination report](http://127.0.0.1:14335/b)",
+  };
+  api.importUrl = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("HTTP 503"))
+    .mockResolvedValueOnce(page);
+  api.listUrlAcquisitions = vi.fn().mockResolvedValue([
+    {
+      url: "http://127.0.0.1:14335/temporary",
+      attempts: 1,
+      state: "pending",
+      retry_at: Date.now() + 60_000,
+      last_error: "HTTP 503",
+      previous_source_available: true,
+    },
+  ]);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add URL" }));
+  const input = screen.getByLabelText("Web address") as HTMLInputElement;
+  await user.type(input, "http://127.0.0.1:14335/temporary");
+  await user.click(screen.getByRole("button", { name: "Retrieve this page" }));
+  await screen.findByText("HTTP 503");
+  expect(await screen.findByText(/pending; 1 attempt/)).toBeTruthy();
+  expect(
+    screen.getByText(/Previously retained source material remains available/),
+  ).toBeTruthy();
+  expect(input.value).toBe("http://127.0.0.1:14335/temporary");
+  await user.click(screen.getByRole("button", { name: "Retrieve this page" }));
+  expect(api.importUrl).toHaveBeenNthCalledWith(
+    2,
+    "http://127.0.0.1:14335/temporary",
+  );
+  expect(
+    await screen.findByRole("article", { name: "Riverside observation U5" }),
+  ).toBeTruthy();
+  expect(screen.getByText("http://127.0.0.1:14335/a")).toBeTruthy();
+  expect(
+    screen
+      .getByRole("link", { name: "destination report" })
+      .getAttribute("href"),
+  ).toBe("http://127.0.0.1:14335/b");
+  expect(screen.getByText("200")).toBeTruthy();
+  expect(screen.getByText("text/html")).toBeTruthy();
+  expect(
+    screen.getByText("Page retained. Linked destinations were not retrieved."),
+  ).toBeTruthy();
+});
+
+it("searches durable page results with combined filters and restores the exact result view after opening one", async () => {
+  const api = testApi();
+  const results: PageSearchResults = {
+    pages: [
+      {
+        page_id: "page-v17",
+        source_id: "source-riverside",
+        page_type: "source",
+        title: "Riverside notes",
+        kind: "source",
+        excerpt: "Observation V17 took place at Riverside.",
+        tags: ["fieldwork"],
+        format: "txt",
+        event_date: "2024-05-17",
+        extraction: "text_preserved",
+        processing_status: "complete",
+        matched_by: "keyword",
+        match_location: {
+          record_id: "page-v17",
+          source_id: "source-riverside",
+          source_version_id: "version-riverside-1",
+          quote: "Observation V17",
+          byte_start: 0,
+          byte_end: 15,
+          line_start: 1,
+          line_end: 1,
+          offset_basis: "preserved_text",
+          source_location: null,
+        },
+      },
+    ],
+    next_offset: null,
+    available_tags: ["fieldwork", "riverside"],
+    available_formats: ["txt"],
+    available_statuses: ["complete", "pending"],
+  };
+  api.searchPages = vi.fn(async () => results);
+  api.openSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: {
+      ...riverside.info,
+      semantic_state: "complete",
+      current_version_id: "version-riverside-1",
+      versions_seen: [
+        { source_version_id: "version-riverside-1", state: "superseded" },
+      ],
+    },
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await screen.findByRole("heading", { name: "Search your garden" });
+  await user.type(
+    screen.getByRole("searchbox", { name: "Words or title" }),
+    "Riverside",
+  );
+  await user.click(screen.getByRole("checkbox", { name: "Tag fieldwork" }));
+  fireEvent.change(screen.getByLabelText("From date"), {
+    target: { value: "2024-05-01" },
+  });
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Format" }),
+    "txt",
+  );
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Processing status" }),
+    "complete",
+  );
+  fireEvent.submit(root.querySelector(".search-form")!);
+  const request = (api.searchPages as ReturnType<typeof vi.fn>).mock.calls.at(
+    -1,
+  )?.[0] as PageSearchRequest;
+  expect(request).toEqual({
+    query: "Riverside",
+    mode: "keyword",
+    tags: ["fieldwork"],
+    date_from: "2024-05-01",
+    date_to: null,
+    format: "txt",
+    processing_status: "complete",
+    offset: 0,
+  });
+  expect(
+    await screen.findByText(
+      /Evidence · preserved source text · version version-r/,
+    ),
+  ).toBeTruthy();
+  await user.click(
+    await screen.findByRole("button", { name: "Riverside notes" }),
+  );
+  expect(
+    await screen.findByRole("article", { name: "Riverside notes" }),
+  ).toBeTruthy();
+  await user.click(screen.getByText("Source information"));
+  expect(
+    screen.getByText(
+      "Superseded source version retained as history. Its original remains available.",
+    ),
+  ).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Open original" })).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(
+    await screen.findByRole("heading", { name: "Search your garden" }),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("searchbox", { name: "Words or title" }),
+  ).toHaveProperty("value", "Riverside");
+  expect(
+    screen.getByRole("checkbox", { name: "Tag fieldwork" }),
+  ).toHaveProperty("checked", true);
+  expect(
+    screen.getByRole("button", { name: "Remove #fieldwork filter" }),
+  ).toBeTruthy();
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Riverside notes" }),
+  );
+});
+
+it("opens a conversation match with its neighboring messages and restores the result focus", async () => {
+  const api = testApi();
+  const decision = "Decision: use plan Alder; abandon the Birch suggestion.";
+  const locator =
+    "CONVERSATION session=plan; message=user-2; order=5; role=user; author=owner; date=unknown; channel=message";
+  api.searchPages = vi.fn().mockResolvedValue({
+    pages: [
+      {
+        page_id: "page-conversation",
+        source_id: "source-conversation",
+        page_type: "source",
+        title: "Deployment conversation",
+        kind: "source",
+        excerpt: decision,
+        tags: [],
+        format: "jsonl",
+        event_date: null,
+        extraction: "structured_text",
+        processing_status: "complete",
+        matched_by: "keyword",
+        match_location: {
+          record_id: "message-user-2",
+          source_id: "source-conversation",
+          source_version_id: "version-conversation",
+          quote: decision,
+          byte_start: 0,
+          byte_end: decision.length,
+          line_start: 6,
+          line_end: 6,
+          offset_basis: "extracted_conversation_projection",
+          source_location: locator,
+        },
+      },
+    ],
+    next_offset: null,
+    available_tags: [],
+    available_formats: ["jsonl"],
+    available_statuses: ["complete"],
+  } satisfies PageSearchResults);
+  api.openSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: {
+      ...riverside.info,
+      source_id: "source-conversation",
+      page_id: "page-conversation",
+      title: "Deployment conversation",
+      format: "jsonl",
+      semantic_state: "complete",
+    },
+    body: `# Deployment conversation\n\nSupplied conversation records; not independent evidence that a deployment occurred.\n\n\`\`\`text\n[message=assistant-1; role=assistant; date=unknown] I suggest plan Birch instead.\n[message=output-check-1; role=tool; date=unknown] Check failed: plan Birch has no rollback.\n[${locator}] ${decision}\n[message=reason-1; role=reasoning; date=unknown] Birch lacks rollback; Alder retains one.\n\`\`\``,
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await user.type(
+    await screen.findByRole("searchbox", { name: "Words or title" }),
+    "Alder",
+  );
+  fireEvent.submit(root.querySelector(".search-form")!);
+  expect(
+    await screen.findByText(/Evidence · extracted conversation messages/),
+  ).toBeTruthy();
+  expect(screen.getByText(new RegExp("message=user-2"))).toBeTruthy();
+  await user.click(
+    await screen.findByRole("button", { name: "Deployment conversation" }),
+  );
+  const article = await screen.findByRole("article", {
+    name: "Deployment conversation",
+  });
+  expect(article.textContent).toContain("I suggest plan Birch instead.");
+  expect(article.textContent).toContain(
+    "Check failed: plan Birch has no rollback.",
+  );
+  expect(article.textContent).toContain(decision);
+  expect(article.textContent).toContain(
+    "role=user; author=owner; date=unknown",
+  );
+  expect(article.textContent).toContain(
+    "not independent evidence that a deployment occurred",
+  );
+  expect(article.querySelector("mark")?.textContent).toBe(decision);
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(
+    await screen.findByRole("searchbox", { name: "Words or title" }),
+  ).toHaveProperty("value", "Alder");
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Deployment conversation" }),
+  );
+});
+
+it("sends remembered-meaning searches through shared page results and restores keyword mode from its filter", async () => {
+  const api = testApi();
+  api.searchPages = vi.fn().mockResolvedValue({
+    pages: [],
+    next_offset: null,
+    available_tags: [],
+    available_formats: [],
+    available_statuses: [],
+    meaning_search_status: "missing_assets: local bundle missing",
+  } satisfies PageSearchResults);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await screen.findByRole("heading", { name: "Search your garden" });
+  await user.type(
+    screen.getByRole("searchbox", { name: "Words or title" }),
+    "river notes",
+  );
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Search mode" }),
+    "meaning",
+  );
+  fireEvent.submit(root.querySelector(".search-form")!);
+  await waitFor(() => {
+    expect(api.searchPages).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: "river notes", mode: "meaning" }),
+    );
+  });
+  expect(await screen.findByText(/No matching pages/)).toBeTruthy();
+  expect(
+    screen.getByText(
+      /Meaning search is unavailable: missing_assets: local bundle missing/,
+    ),
+  ).toBeTruthy();
+  await user.click(
+    screen.getByRole("button", { name: "Remove Meaning search filter" }),
+  );
+  await waitFor(() => {
+    expect(api.searchPages).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: "river notes", mode: "keyword" }),
+    );
+  });
+});
+
+it("shows an explicit empty state and removable search filters", async () => {
+  const api = testApi();
+  api.searchPages = vi.fn().mockResolvedValue({
+    pages: [],
+    next_offset: null,
+    available_tags: [],
+    available_formats: [],
+    available_statuses: [],
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await user.type(
+    screen.getByRole("searchbox", { name: "Words or title" }),
+    "missing phrase",
+  );
+  fireEvent.submit(root.querySelector(".search-form")!);
+  expect(await screen.findByText(/No matching pages/)).toBeTruthy();
+  await user.click(
+    screen.getByRole("button", { name: "Remove Words: missing phrase filter" }),
+  );
+  expect(await screen.findByText(/No matching pages/)).toBeTruthy();
+  expect(api.searchPages).toHaveBeenLastCalledWith(
+    expect.objectContaining({ query: "", offset: 0 }),
+  );
+});
+
+it("keeps the latest search visible when an older response arrives later", async () => {
+  const api = testApi();
+  const results: PageSearchResults = {
+    pages: [],
+    next_offset: null,
+    available_tags: [],
+    available_formats: [],
+    available_statuses: [],
+  };
+  let releaseOlder!: (value: PageSearchResults) => void;
+  api.searchPages = vi
+    .fn()
+    .mockResolvedValueOnce(results)
+    .mockImplementationOnce(
+      () =>
+        new Promise<PageSearchResults>((resolve) => {
+          releaseOlder = resolve;
+        }),
+    )
+    .mockResolvedValueOnce(results);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  const query = await screen.findByRole("searchbox", {
+    name: "Words or title",
+  });
+  await user.type(query, "older request");
+  fireEvent.submit(root.querySelector(".search-form")!);
+  await user.clear(query);
+  await user.type(query, "latest request");
+  fireEvent.submit(root.querySelector(".search-form")!);
+  await screen.findByRole("button", {
+    name: "Remove Words: latest request filter",
+  });
+  releaseOlder(results);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(
+    screen.getByRole("searchbox", { name: "Words or title" }),
+  ).toHaveProperty("value", "latest request");
+  expect(
+    screen.getByRole("button", { name: "Remove Words: latest request filter" }),
+  ).toBeTruthy();
+});
+it("keeps an opened source visible when a pending search response arrives", async () => {
+  const api = testApi();
+  let releaseSearch!: (value: PageSearchResults) => void;
+  api.searchPages = vi.fn(
+    () =>
+      new Promise<PageSearchResults>((resolve) => {
+        releaseSearch = resolve;
+      }),
+  );
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await screen.findByRole("article", { name: "Riverside notes" });
+  releaseSearch({
+    pages: [],
+    next_offset: null,
+    available_tags: [],
+    available_formats: [],
+    available_statuses: [],
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(screen.getByRole("article", { name: "Riverside notes" })).toBeTruthy();
+});
+afterEach(() => {
+  vi.useRealTimers();
+  dispose?.();
+  document.body.replaceChildren();
+  localStorage.clear();
+});
+
+describe("collection reader", () => {
+  it("chooses a file, opens its readable page, and opens the retained original", async () => {
+    const api = testApi();
+    const root = document.createElement("div");
+    document.body.append(root);
+    dispose = await mountReader(root, api);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Add source" }));
+    await screen.findByRole("heading", { name: "Riverside notes" });
+    expect(api.importSource).toHaveBeenCalledWith(
+      "/tmp/Riverside notes.md",
+      "picker",
+    );
+    expect(
+      screen.getByText(
+        "Observation V17 took place at Riverside on May 17, 2024.",
+      ),
+    ).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole("article"));
+    await user.click(screen.getByRole("link", { name: "Open original" }));
+    expect(api.openOriginal).toHaveBeenCalledWith("source-riverside");
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(
+      screen
+        .getByText(
+          "Source text preserved. Semantic fact extraction has not run.",
+        )
+        .closest("details")?.open,
+    ).toBe(false);
+  });
+
+  it("opens the retained recording for a transcript timestamp and discloses manual seek fallback", async () => {
+    const api = testApi();
+    const digest = "b".repeat(64);
+    const audioPage: SourcePage = {
+      ...riverside,
+      info: {
+        ...riverside.info,
+        source_id: `source-${digest}`,
+        format: "m4a",
+        asset: "original.m4a",
+      },
+      body: `# Visit recording\n\n[Play retained original](original.m4a)\n\n[1,000–2,000 ms · confidence 0.51 · speaker unidentified](?audio_seek=source-${digest}&at_ms=1000)`,
+      markdown: "# Visit recording",
+    };
+    vi.mocked(api.importSource).mockResolvedValue(audioPage);
+    const root = document.createElement("div");
+    document.body.append(root);
+    dispose = await mountReader(root, api);
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Add source" }));
+    const timestamp = await screen.findByRole("link", {
+      name: /1,000–2,000 ms/,
+    });
+    await userEvent.setup().click(timestamp);
+    await waitFor(() =>
+      expect(api.openOriginal).toHaveBeenCalledWith(`source-${digest}`),
+    );
+    expect(screen.getByText(/Seek to 0:01 in your audio player/)).toBeTruthy();
+    expect(
+      screen.getByText(/precise seeking is unavailable in this reader/),
+    ).toBeTruthy();
+  });
+
+  it("opens the supporting recording version for an audio evidence timestamp", async () => {
+    const api = testApi();
+    const digest = "b".repeat(64);
+    const version = "c".repeat(64);
+    vi.mocked(api.importSource).mockResolvedValue({
+      ...riverside,
+      body: `# Recording evidence\n\n[Open audio at this timestamp](?audio_seek=source-${digest}&at_ms=65432&version=${version}&asset=original.wav)`,
+    });
+    const root = document.createElement("div");
+    document.body.append(root);
+    dispose = await mountReader(root, api);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Add source" }));
+    await user.click(
+      await screen.findByRole("link", { name: "Open audio at this timestamp" }),
+    );
+    await waitFor(() =>
+      expect(api.openOriginalVersion).toHaveBeenCalledWith(
+        `source-${digest}`,
+        version,
+        "original.wav",
+      ),
+    );
+    expect(api.openOriginal).not.toHaveBeenCalled();
+    expect(screen.getByText(/Seek to 1:05 in your audio player/)).toBeTruthy();
+  });
+});
+
+it("imports dropped files and restores the selected page after reopening the reader", async () => {
+  const api = testApi();
+  let dropFiles: ((paths: string[]) => void) | undefined;
+  api.onDrop = vi.fn(async (handler) => {
+    dropFiles = handler;
+    return () => {};
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  dropFiles!(["/tmp/Riverside notes.md"]);
+  await screen.findByRole("heading", { name: "Riverside notes" });
+  expect(api.importSource).toHaveBeenCalledWith(
+    "/tmp/Riverside notes.md",
+    "drop",
+  );
+  dispose();
+  dispose = await mountReader(root, api);
+  expect(api.openSource).toHaveBeenCalledWith("source-riverside");
+  expect(
+    screen.getByText(
+      "Observation V17 took place at Riverside on May 17, 2024.",
+    ),
+  ).toBeTruthy();
+});
+
+it("shows background semantic completion on the active source without closing its details", async () => {
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(riverside);
+  api.openSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: {
+      ...riverside.info,
+      semantic_state: "complete",
+      knowledge_pages: [
+        {
+          page_id: "page-v17",
+          title: "Observation V17",
+          kind: "event",
+          path: "pages/page-v17.md",
+        },
+      ],
+    },
+    body: `${riverside.body}\n\n[Observation V17](../pages/page-v17.md)`,
+    knowledge_pages: [
+      {
+        page_id: "page-v17",
+        title: "Observation V17",
+        kind: "event",
+        path: "pages/page-v17.md",
+      },
+    ],
+  });
+  vi.useFakeTimers();
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await screen.findByRole("heading", { name: "Riverside notes" });
+  await user.click(screen.getByText("Source information"));
+  expect(screen.getByText("Waiting for semantic processing")).toBeTruthy();
+
+  await vi.advanceTimersByTimeAsync(3000);
+
+  expect(await screen.findByText("Ready")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Observation V17" })).toBeTruthy();
+  expect(screen.getByText("Source information").closest("details")?.open).toBe(
+    true,
+  );
+});
+
+it("shows permanent semantic failure separately and stops polling that source", async () => {
+  const failed: SourcePage = {
+    ...riverside,
+    info: {
+      ...riverside.info,
+      semantic_state: "failed",
+      semantic_error: "Jev returned HTTP 400; semantic processing failed.",
+    },
+  };
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(failed);
+  api.openSource = vi.fn().mockResolvedValue(failed);
+  vi.useFakeTimers();
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await screen.findByRole("heading", { name: "Riverside notes" });
+  await user.click(screen.getByText("Source information"));
+  expect(screen.getByText("Processing failed")).toBeTruthy();
+  expect(screen.getByText(failed.info.semantic_error!)).toBeTruthy();
+
+  await vi.advanceTimersByTimeAsync(6000);
+
+  expect(api.openSource).not.toHaveBeenCalled();
+  expect(screen.getByRole("article", { name: "Riverside notes" })).toBeTruthy();
+});
+
+it("exposes unsupported coverage and provenance on demand with keyboard access to the original", async () => {
+  const api = testApi();
+  const unsupported: SourcePage = {
+    ...riverside,
+    info: {
+      ...riverside.info,
+      title: "Unsupported input",
+      extraction: "unsupported",
+      extraction_detail:
+        "This format is not supported by the text importer. The original is retained.",
+    },
+    body: "# Unsupported input\n\n[Open original](original.md)\n\nText is unavailable. The original is retained.",
+  };
+  api.importSource = vi.fn().mockResolvedValue(unsupported);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await screen.findByRole("heading", { name: "Unsupported input" });
+  expect(screen.getByRole("status").textContent).toContain(
+    "The original is retained",
+  );
+  await user.tab();
+  expect(document.activeElement).toBe(
+    screen.getByRole("link", { name: "Open original" }),
+  );
+  await user.keyboard("{Enter}");
+  expect(api.openOriginal).toHaveBeenCalledWith("source-riverside");
+  await user.click(screen.getByText("Source information"));
+  expect(screen.getByText("Unsupported format").closest("details")?.open).toBe(
+    true,
+  );
+});
+
+it("keeps the current page readable after an import fails and allows another import", async () => {
+  const api = testApi();
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await screen.findByRole("heading", { name: "Riverside notes" });
+  api.importSource = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("The file is unavailable."))
+    .mockResolvedValue(riverside);
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await waitFor(() =>
+    expect(screen.getByRole("status").textContent).toContain(
+      "The file is unavailable.",
+    ),
+  );
+  expect(screen.getByRole("heading", { name: "Riverside notes" })).toBeTruthy();
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Add source" })
+      .disabled,
+  ).toBe(false);
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await waitFor(() =>
+    expect(screen.getByRole("status").textContent).toBe("Source added."),
+  );
+});
+
+it("navigates collection pages using bounded source lists and prevents source HTML from executing", async () => {
+  const api = testApi();
+  api.listSources = vi.fn().mockResolvedValue({
+    sources: [
+      {
+        source_id: riverside.info.source_id,
+        page_id: riverside.info.page_id,
+        title: riverside.info.title,
+        extraction: "text_preserved",
+      },
+    ],
+    next_offset: null,
+  });
+  api.openSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    body:
+      riverside.body +
+      '\n<script>window.compromised=true</script><img src="https://example.com/pixel" onerror="alert(1)">',
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Sources" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Riverside notes" }),
+  );
+  await screen.findByRole("heading", { name: "Riverside notes" });
+  expect(api.listSources).toHaveBeenCalledWith(0);
+  expect(api.openSource).toHaveBeenCalledWith(riverside.info.source_id);
+  expect(screen.getByRole("article").querySelector("script, img")).toBeNull();
+  expect(screen.getByRole("navigation", { hidden: true }).hidden).toBe(true);
+});
+
+it("opens linked knowledge pages, returns to their source, and opens the retained original", async () => {
+  const digest = "b".repeat(64);
+  const oldVersion = "c".repeat(64);
+  const source: SourcePage = {
+    ...riverside,
+    info: { ...riverside.info, source_id: `source-${digest}` },
+    body: `# V17 report\n\n[Observation V17](pages/page-v17.md)\n\n[Open original](original.md)`,
+  };
+  const knowledge = {
+    page_id: "page-v17",
+    source_id: source.info.source_id,
+    title: "Observation V17",
+    kind: "event",
+    external_edit_status: "uncertain",
+    markdown: `---\npage_id: page-v17\n---\n\n# Observation V17\n\n12 visits.\n\n[Source page](../sources/${digest}/index.md) · [Current original](../sources/${digest}/original.txt) · [Retained original](../sources/${digest}/versions/${oldVersion}/original.txt)`,
+  };
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(source);
+  api.openKnowledgePage = vi.fn().mockResolvedValue(knowledge);
+  api.openSource = vi.fn().mockResolvedValue(source);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(
+    await screen.findByRole("link", { name: "Observation V17" }),
+  );
+  expect(
+    await screen.findByRole("article", { name: "Observation V17" }),
+  ).toBeTruthy();
+  const editStatus = await screen.findByText(
+    /Some external Markdown changes could not be interpreted safely\./,
+  );
+  expect(editStatus.getAttribute("role")).toBe("status");
+  expect(api.openKnowledgePage).toHaveBeenCalledWith("page-v17");
+  await user.click(screen.getByRole("link", { name: "Source page" }));
+  expect(api.openSource).toHaveBeenCalledWith(source.info.source_id);
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(
+    await screen.findByRole("article", { name: "Observation V17" }),
+  ).toBeTruthy();
+  expect(document.activeElement).toBe(
+    screen.getByRole("link", { name: "Source page" }),
+  );
+  await user.click(screen.getByRole("link", { name: "Current original" }));
+  expect(api.openOriginalAsset).toHaveBeenCalledWith(
+    source.info.source_id,
+    "original.txt",
+  );
+  await user.click(screen.getByRole("link", { name: "Retained original" }));
+  expect(api.openOriginalVersion).toHaveBeenCalledWith(
+    source.info.source_id,
+    oldVersion,
+    "original.txt",
+  );
+});
+
+it("shows Office projection offsets, original locators, and fallback guidance in the reader", async () => {
+  const digest = "d".repeat(64);
+  const source: SourcePage = {
+    ...riverside,
+    info: {
+      ...riverside.info,
+      source_id: `source-${digest}`,
+      knowledge_pages: [
+        {
+          page_id: "page-field-visit",
+          title: "Riverside field visit",
+          kind: "event",
+          path: "pages/page-field-visit.md",
+        },
+      ],
+    },
+    body: `# Field report\n\n[Riverside field visit](pages/page-field-visit.md)`,
+  };
+  const knowledge = {
+    page_id: "page-field-visit",
+    source_id: source.info.source_id,
+    title: "Riverside field visit",
+    kind: "event",
+    markdown: `---\npage_id: page-field-visit\n---\n\n# Riverside field visit\n\n## Facts\n\n- **visit count:** 12 visits\n  - Evidence: “12 visits, excluding two unverified reports.”\n  - Origin: observed · extracted projection lines 2–2, extracted projection bytes 20–68 · extracted Office projection; offsets are not original package byte offsets · original locator: DOCX table 1 row 2; channel=table\n  - The retained original opens as a fallback; the offsets above refer to the stated extracted projection.\n  - Links: [Source page](../sources/${digest}/index.md) · [Retained original](../sources/${digest}/original.docx)`,
+  };
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(source);
+  api.openKnowledgePage = vi.fn().mockResolvedValue(knowledge);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(
+    await screen.findByRole("link", { name: "Riverside field visit" }),
+  );
+
+  expect(
+    await screen.findByText(
+      /extracted Office projection; offsets are not original package byte offsets/,
+    ),
+  ).toBeTruthy();
+  expect(screen.getByText(/DOCX table 1 row 2; channel=table/)).toBeTruthy();
+  expect(
+    screen.getByText(
+      /retained original opens as a fallback.*stated extracted projection/i,
+    ),
+  ).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Retained original" })).toBeTruthy();
+});
+
+it("opens a relationship path by keyboard and pointer, then restores its scope and focus with Back", async () => {
+  const startSummary = {
+    page_id: "page-maya",
+    title: "Maya",
+    kind: "person",
+    path: "pages/page-maya.md",
+  };
+  const source: SourcePage = {
+    ...riverside,
+    info: { ...riverside.info, knowledge_pages: [startSummary] },
+    body: "# Field note\n\n[Maya](pages/page-maya.md)",
+  };
+  const startPage = {
+    page_id: "page-maya",
+    source_id: source.info.source_id,
+    title: "Maya",
+    kind: "person",
+    markdown: "---\npage_id: page-maya\n---\n\n# Maya",
+  };
+  const targetPage = {
+    page_id: "page-riverside",
+    source_id: source.info.source_id,
+    title: "Riverside",
+    kind: "place",
+    markdown: "---\npage_id: page-riverside\n---\n\n# Riverside",
+  };
+  const pathStep = {
+    from_page_id: "page-v17",
+    from_title: "V17",
+    to_page_id: targetPage.page_id,
+    to_title: targetPage.title,
+    kind: "occurred_at",
+    qualifier: "location reported with uncertainty",
+    traversal_direction: "with_arrow" as const,
+    evidence_quote: "V17 occurred at Riverside, uncertainly.",
+    source_id: source.info.source_id,
+    source_version_id: "d".repeat(64),
+    original_asset: "original.txt",
+    source_is_current: true,
+  };
+  const earlierPathStep = {
+    from_page_id: "page-v17",
+    from_title: "V17",
+    to_page_id: "page-maya",
+    to_title: "Maya",
+    kind: "observed_by",
+    qualifier: "field note",
+    traversal_direction: "against_arrow" as const,
+    evidence_quote: "Maya observed V17.",
+    source_id: source.info.source_id,
+    source_version_id: "d".repeat(64),
+    original_asset: "original.txt",
+    source_is_current: true,
+  };
+  const paths = {
+    start_page_id: startPage.page_id,
+    max_hops: 2,
+    graph_revision: "revision-1",
+    paths: [
+      {
+        target_page_id: targetPage.page_id,
+        target_title: targetPage.title,
+        target_kind: targetPage.kind,
+        detail_token: "detail-1",
+        step_count: 2,
+      },
+    ],
+    complete: true,
+    next_cursor: null,
+    relationships_examined: 3,
+    diagnostics: [],
+  };
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(source);
+  api.openSource = vi.fn().mockResolvedValue(source);
+  api.openKnowledgePage = vi
+    .fn()
+    .mockImplementation((pageId: string) =>
+      Promise.resolve(pageId === "page-maya" ? startPage : targetPage),
+    );
+  const explorePaths = vi.fn().mockResolvedValue(paths);
+  Object.assign(api, { explorePaths });
+  const explorePathDetails = vi
+    .fn()
+    .mockResolvedValueOnce({
+      target_page_id: targetPage.page_id,
+      target_title: targetPage.title,
+      steps: [pathStep],
+      complete: false,
+      next_cursor: "detail-page-2",
+      work_units: 1,
+    })
+    .mockResolvedValueOnce({
+      target_page_id: targetPage.page_id,
+      target_title: targetPage.title,
+      steps: [earlierPathStep],
+      complete: true,
+      next_cursor: null,
+      work_units: 1,
+    });
+  Object.assign(api, { explorePathDetails });
+
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(await screen.findByRole("link", { name: "Maya" }));
+
+  const exploreButton = await screen.findByRole("button", {
+    name: "Explore relationships",
+  });
+  exploreButton.focus();
+  await user.keyboard("{Enter}");
+  const hopLimit = await screen.findByRole("spinbutton", {
+    name: "Maximum relationship hops",
+  });
+  await user.clear(hopLimit);
+  await user.type(hopLimit, "2");
+  await user.keyboard("{Enter}");
+
+  await screen.findByRole("button", { name: /Open path stop Riverside/ });
+  expect(explorePaths).toHaveBeenCalledWith(
+    expect.objectContaining({ start_page_id: "page-maya", max_hops: 2 }),
+  );
+  expect(screen.getByText(/up to 2 relationship hops/)).toBeTruthy();
+  expect(
+    screen.queryByText("V17 occurred at Riverside, uncertainly."),
+  ).toBeNull();
+  await user.click(
+    screen.getByRole("button", { name: "Inspect path (2 steps)" }),
+  );
+  expect(
+    screen.getByText("V17 occurred at Riverside, uncertainly."),
+  ).toBeTruthy();
+  // Leave while the route is only partly loaded. Returning starts another
+  // reachability batch, but the detail continuation must keep its old token.
+  const partialTarget = screen.getByRole("button", {
+    name: "Open path stop Riverside",
+  });
+  partialTarget.focus();
+  await user.keyboard("{Enter}");
+  await screen.findByRole("article", { name: "Riverside" });
+  explorePaths.mockResolvedValue({
+    ...paths,
+    paths: paths.paths.map((path) => ({
+      ...path,
+      detail_token: "refreshed-detail-token",
+    })),
+  });
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  await screen.findByRole("button", { name: "Load next path steps" });
+  await user.click(
+    screen.getByRole("button", { name: "Load next path steps" }),
+  );
+  expect(
+    screen.getByText(
+      "V17 — observed by → Maya (field note) · traversed against the stored arrow",
+    ),
+  ).toBeTruthy();
+  await user.click(
+    screen.getAllByRole("button", { name: /Open supporting original/ })[0],
+  );
+  expect(api.openOriginalAsset).toHaveBeenCalledWith(
+    source.info.source_id,
+    "original.txt",
+  );
+  expect(explorePathDetails).toHaveBeenNthCalledWith(1, {
+    detail_token: "detail-1",
+    continuation: null,
+    work_budget: 50,
+  });
+  expect(explorePathDetails).toHaveBeenNthCalledWith(2, {
+    detail_token: "detail-1",
+    continuation: "detail-page-2",
+    work_budget: 50,
+  });
+
+  const intermediate = screen.getByRole("button", {
+    name: "Open path endpoint V17",
+  });
+  intermediate.focus();
+  await user.keyboard("{Enter}");
+  expect(api.openKnowledgePage).toHaveBeenLastCalledWith("page-v17");
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(document.activeElement).toBe(
+    await screen.findByRole("button", { name: "Open path endpoint V17" }),
+  );
+  const support = screen.getAllByRole("button", {
+    name: "Read supporting source",
+  })[0];
+  support.focus();
+  await user.keyboard("{Enter}");
+  expect(api.openSource).toHaveBeenLastCalledWith(source.info.source_id);
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(document.activeElement).toBe(
+    (
+      await screen.findAllByRole("button", { name: "Read supporting source" })
+    )[0],
+  );
+
+  const main = root.querySelector("main")!;
+  main.scrollTop = 137;
+  screen.getByRole("button", { name: "Open path stop Riverside" }).focus();
+  await user.keyboard("{Enter}");
+  expect(
+    await screen.findByRole("article", { name: "Riverside" }),
+  ).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(
+    await screen.findByRole("spinbutton", {
+      name: "Maximum relationship hops",
+    }),
+  ).toHaveProperty("value", "2");
+  expect(document.activeElement).toBe(
+    await screen.findByRole("button", { name: "Open path stop Riverside" }),
+  );
+  expect(main.scrollTop).toBe(137);
+});
+
+it("discards a stale path cursor and restarts against the changed collection", async () => {
+  const summary = {
+    page_id: "page-maya",
+    title: "Maya",
+    kind: "person",
+    path: "pages/page-maya.md",
+  };
+  const source = {
+    ...riverside,
+    info: { ...riverside.info, knowledge_pages: [summary] },
+    body: "# Field note\n\n[Maya](pages/page-maya.md)",
+  };
+  const startPage = {
+    page_id: summary.page_id,
+    source_id: source.info.source_id,
+    title: summary.title,
+    kind: summary.kind,
+    markdown: "---\npage_id: page-maya\n---\n\n# Maya",
+  };
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(source);
+  api.openKnowledgePage = vi.fn().mockResolvedValue(startPage);
+  const explorePaths = vi
+    .fn()
+    .mockResolvedValueOnce({
+      start_page_id: "page-maya",
+      max_hops: 1,
+      graph_revision: "revision-1",
+      paths: [],
+      complete: false,
+      next_cursor: "cursor-from-revision-1",
+      relationships_examined: 1,
+      diagnostics: [],
+    })
+    .mockRejectedValueOnce(
+      new Error(
+        "Path exploration cursor is stale because the collection changed.",
+      ),
+    )
+    .mockResolvedValueOnce({
+      start_page_id: "page-maya",
+      max_hops: 1,
+      graph_revision: "revision-2",
+      paths: [],
+      complete: true,
+      next_cursor: null,
+      relationships_examined: 0,
+      diagnostics: [],
+    });
+  Object.assign(api, { explorePaths });
+
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(await screen.findByRole("link", { name: "Maya" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Explore relationships" }),
+  );
+  await user.click(
+    await screen.findByRole("button", { name: "Continue exploring" }),
+  );
+  expect(
+    await screen.findByText(
+      /collection changed while this path search was open/i,
+    ),
+  ).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Restart exploration" }));
+  await waitFor(() => expect(explorePaths).toHaveBeenCalledTimes(3));
+  expect(explorePaths.mock.calls[1][0].continuation).toBe(
+    "cursor-from-revision-1",
+  );
+  expect(explorePaths.mock.calls[2][0].continuation).toBeNull();
+});
+
+it("keeps a newer hop-scope result when an older path request resolves later", async () => {
+  const summary = {
+    page_id: "page-maya",
+    title: "Maya",
+    kind: "person",
+    path: "pages/page-maya.md",
+  };
+  const source = {
+    ...riverside,
+    info: { ...riverside.info, knowledge_pages: [summary] },
+    body: "# Field note\n\n[Maya](pages/page-maya.md)",
+  };
+  const startPage = {
+    page_id: summary.page_id,
+    source_id: source.info.source_id,
+    title: "Maya",
+    kind: "person",
+    markdown: "---\npage_id: page-maya\n---\n\n# Maya",
+  };
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(source);
+  api.openSource = vi.fn().mockResolvedValue(source);
+  api.openKnowledgePage = vi.fn().mockResolvedValue(startPage);
+  const pending: Array<(value: unknown) => void> = [];
+  const explorePaths = vi
+    .fn()
+    .mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
+  Object.assign(api, { explorePaths });
+
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(await screen.findByRole("link", { name: "Maya" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Explore relationships" }),
+  );
+
+  const response = (
+    maxHops: number,
+    targetId: string,
+    targetTitle: string,
+  ) => ({
+    start_page_id: "page-maya",
+    max_hops: maxHops,
+    graph_revision: "revision-1",
+    paths: [
+      {
+        target_page_id: targetId,
+        target_title: targetTitle,
+        target_kind: "event",
+        detail_token: `detail-${targetId}`,
+        step_count: maxHops,
+      },
+    ],
+    complete: true,
+    next_cursor: null,
+    relationships_examined: 1,
+    diagnostics: [],
+  });
+  pending.shift()!(response(1, "page-initial", "Initial"));
+  await screen.findByRole("button", { name: /Open path stop Initial/ });
+
+  const hopLimit = screen.getByRole("spinbutton", {
+    name: "Maximum relationship hops",
+  });
+  await user.clear(hopLimit);
+  await user.type(hopLimit, "1");
+  await user.click(screen.getByRole("button", { name: "Find paths" }));
+  await user.clear(hopLimit);
+  await user.type(hopLimit, "2");
+  await user.click(screen.getByRole("button", { name: "Find paths" }));
+  expect(explorePaths).toHaveBeenCalledTimes(3);
+
+  pending[1]!(response(2, "page-v18", "V18"));
+  await screen.findByRole("button", { name: /Open path stop V18/ });
+  pending[0]!(response(1, "page-v17", "V17"));
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: /Open path stop V18/ }),
+    ).toBeTruthy(),
+  );
+  expect(
+    screen.queryByRole("button", { name: /Open path stop V17/ }),
+  ).toBeNull();
+  expect(screen.getByText(/up to 2 relationship hops/)).toBeTruthy();
+});
+
+it("retires displayed paths after a source update without loading another neighborhood", async () => {
+  const source = {
+    ...riverside,
+    body: "# Field note\n\n[Maya](pages/page-maya.md)",
+  };
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(source);
+  api.openKnowledgePage = vi.fn().mockResolvedValue({
+    page_id: "page-maya",
+    source_id: source.info.source_id,
+    title: "Maya",
+    kind: "person",
+    markdown: "# Maya",
+  });
+  api.explorePaths = vi.fn().mockResolvedValue({
+    start_page_id: "page-maya",
+    max_hops: 1,
+    graph_revision: "revision-1",
+    paths: [
+      {
+        target_page_id: "page-v17",
+        target_title: "V17",
+        target_kind: "event",
+        detail_token: "fixed",
+        step_count: 1,
+      },
+    ],
+    complete: true,
+    next_cursor: null,
+    relationships_examined: 1,
+    diagnostics: [],
+  });
+  const revision = vi.fn().mockResolvedValue("revision-1");
+  api.pathGraphRevision = revision;
+  const interval = vi.spyOn(window, "setInterval");
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(await screen.findByRole("link", { name: "Maya" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Explore relationships" }),
+  );
+  await screen.findByRole("button", { name: "Open path stop V17" });
+  try {
+    revision.mockResolvedValue("revision-2");
+    const refresh = interval.mock.calls.find(
+      (call) => call[1] === 3000,
+    )![0] as () => void;
+    refresh();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Open path stop V17" }),
+      ).toBeNull(),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Open path stop V17" }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Restart exploration" }),
+    ).toBeTruthy();
+    expect(api.explorePaths).toHaveBeenCalledTimes(1);
+    expect(api.pathGraphRevision).toHaveBeenCalled();
+  } finally {
+    interval.mockRestore();
+  }
+});
+
+it("constructs a grouped typed Boolean query through keyboard controls with explicit constraint scope", async () => {
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    body: "# Notes\n\n[Maya](pages/page-maya.md)",
+  });
+  api.openKnowledgePage = vi.fn().mockResolvedValue({
+    page_id: "page-maya",
+    source_id: "source-riverside",
+    title: "Maya",
+    kind: "person",
+    markdown: "# Maya",
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(await screen.findByRole("link", { name: "Maya" }));
+  const builder = await screen.findByRole("button", {
+    name: "Build Boolean query",
+  });
+  builder.focus();
+  await user.keyboard("{Enter}");
+  expect(
+    await screen.findByRole("group", { name: "Boolean query expression" }),
+  ).toBeTruthy();
+  expect(document.activeElement).toBe(screen.getByLabelText("Group operator"));
+  await user.selectOptions(screen.getByLabelText("Group operator"), "or");
+  await user.click(screen.getByRole("button", { name: "Add path clause" }));
+  await user.type(
+    screen.getAllByLabelText("Relationship type")[0],
+    "observed_by",
+  );
+  await user.selectOptions(
+    screen.getAllByLabelText("Hop direction")[0],
+    "against_arrow",
+  );
+  // The builder starts with one path; Add path clause creates a second.
+  expect(screen.getAllByLabelText("Relationship type")).toHaveLength(2);
+  screen.getAllByRole("button", { name: "Add hop" })[0].focus();
+  await user.keyboard("{Enter}");
+  expect(document.activeElement).toBe(
+    screen.getAllByRole("button", { name: "Add hop" })[0],
+  );
+  expect(screen.getAllByLabelText("Relationship type")).toHaveLength(3);
+  // Remove the new hop: one hop remains in each of the two path clauses.
+  await user.keyboard("{Shift>}{Tab}{/Shift}{Enter}");
+  expect(screen.getAllByLabelText("Relationship type")).toHaveLength(2);
+  expect(document.activeElement).toBe(
+    screen.getAllByRole("button", { name: "Add hop" })[0],
+  );
+  await user.keyboard("{Enter}");
+  await user.type(
+    screen.getAllByLabelText("Relationship type")[1],
+    "occurred_at",
+  );
+  await user.selectOptions(
+    screen.getAllByLabelText("Constraint scope")[0],
+    "intermediate",
+  );
+  await user.type(screen.getAllByLabelText("Event date from")[0], "2024-05-17");
+  expect(screen.getByLabelText("Visible Boolean query").textContent).toContain(
+    "OR",
+  );
+  expect(
+    screen.getByText(/NOT removes pages from the known indexed set/),
+  ).toBeTruthy();
+  screen.getByRole("button", { name: "Add group" }).focus();
+  await user.keyboard("{Enter}");
+  expect(document.activeElement?.textContent).toBe("Remove clause");
+  await user.tab();
+  await user.keyboard("{Enter}");
+  expect(document.activeElement?.textContent).toBe("Remove NOT");
+  await user.keyboard("{Enter}");
+  expect(document.activeElement?.textContent).toBe("Wrap in NOT");
+  await user.tab({ shift: true });
+  await user.keyboard("{Enter}");
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Add path clause" }),
+  );
+  screen.getByRole("button", { name: "Clear query" }).focus();
+  await user.keyboard("{Enter}");
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Clear query" }),
+  );
+});
+
+it("runs current Boolean clauses, clears stale results, cancels old work and restores selected query with Back", async () => {
+  const api = testApi();
+  const maya = {
+    page_id: "page-maya",
+    source_id: "source-riverside",
+    title: "Maya",
+    kind: "person",
+    markdown: "# Maya",
+  };
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    body: "# Notes\n\n[Maya](pages/page-maya.md)",
+  });
+  api.openKnowledgePage = vi.fn().mockImplementation(async (id) =>
+    id === "page-maya"
+      ? maya
+      : {
+          ...maya,
+          page_id: "page-paris",
+          title: "Paris",
+          markdown: "# Paris",
+        },
+  );
+  const query = vi.fn().mockResolvedValue({
+    results: [
+      {
+        page_id: "page-paris",
+        source_id: "source-riverside",
+        page_type: "knowledge",
+        title: "Paris",
+        kind: "place",
+        paths: [],
+      },
+    ],
+    graph_revision: "revision-1",
+    next_cursor: null,
+    complete: true,
+    work_units: 8,
+    diagnostics: [],
+  });
+  api.queryPages = query;
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(await screen.findByRole("link", { name: "Maya" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Build Boolean query" }),
+  );
+  await user.type(screen.getByLabelText("Relationship type"), "occurred_at");
+  await user.click(screen.getByRole("button", { name: "Run query" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Open query result Paris" }),
+  );
+  await screen.findByRole("heading", { name: "Paris" });
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(await screen.findByLabelText("Relationship type")).toHaveProperty(
+    "value",
+    "occurred_at",
+  );
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Open query result Paris" }),
+  );
+  await user.clear(screen.getByLabelText("Relationship type"));
+  await user.type(screen.getByLabelText("Relationship type"), "links_to");
+  expect(
+    screen.queryByRole("button", { name: "Open query result Paris" }),
+  ).toBeNull();
+  expect(screen.getByText("0 matching pages · partial.")).toBeTruthy();
+  let resolve: (response: unknown) => void = () => {};
+  query.mockImplementationOnce(() => new Promise((r) => (resolve = r)));
+  await user.click(screen.getByRole("button", { name: "Run query" }));
+  await user.click(screen.getByRole("button", { name: "Clear query" }));
+  resolve({
+    results: [{ page_id: "page-old", title: "Old match", paths: [] }],
+    graph_revision: "revision-1",
+    next_cursor: "old-cursor",
+    complete: false,
+    work_units: 1,
+    diagnostics: [],
+  });
+  await waitFor(() =>
+    expect(api.cancelQuery).toHaveBeenCalledWith("old-cursor"),
+  );
+  expect(
+    screen.queryByRole("button", { name: "Open query result Old match" }),
+  ).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Run query" }));
+  await waitFor(() =>
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        expression: { op: "and", children: [] },
+        returned: {
+          date_from: null,
+          date_to: null,
+          format: null,
+          processing_status: null,
+        },
+        continuation: null,
+      }),
+    ),
+  );
+});
+
+it("ignores older watched source responses and never replaces a newer navigation view", async () => {
+  const interval = vi.spyOn(window, "setInterval");
+  const api = testApi();
+  api.listWatchedDirectories = vi.fn().mockResolvedValue([]);
+  api.listSources = vi
+    .fn()
+    .mockResolvedValue({ sources: [riverside.info], next_offset: null });
+  api.openSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: { ...riverside.info, semantic_state: "complete" },
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Sources" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Riverside notes" }),
+  );
+  const refresh = interval.mock.calls[0][0] as () => void;
+  const replies: ((value: SourcePage) => void)[] = [];
+  api.openSource = vi
+    .fn()
+    .mockImplementation(
+      () => new Promise<SourcePage>((resolve) => replies.push(resolve)),
+    );
+  refresh();
+  refresh();
+  replies[1]({
+    ...riverside,
+    markdown: "newest",
+    body: "# Newest watched text",
+  });
+  expect(
+    await screen.findByRole("heading", { name: "Newest watched text" }),
+  ).toBeTruthy();
+  replies[0]({ ...riverside, markdown: "old", body: "# Older watched text" });
+  await Promise.resolve();
+  expect(
+    screen.queryByRole("heading", { name: "Older watched text" }),
+  ).toBeNull();
+  refresh();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await screen.findByRole("heading", { name: /Search/ });
+  replies[2]({ ...riverside, markdown: "late", body: "# Late watched text" });
+  await Promise.resolve();
+  expect(
+    screen.queryByRole("heading", { name: "Late watched text" }),
+  ).toBeNull();
+});
+
+it("applies a slow watched refresh even when another poll was issued meanwhile", async () => {
+  const interval = vi.spyOn(window, "setInterval");
+  const api = testApi();
+  api.listWatchedDirectories = vi.fn().mockResolvedValue([]);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await screen.findByRole("article");
+  const replies: ((value: SourcePage) => void)[] = [];
+  api.openSource = vi
+    .fn()
+    .mockImplementation(
+      () => new Promise<SourcePage>((resolve) => replies.push(resolve)),
+    );
+  const refresh = interval.mock.calls[0][0] as () => void;
+  refresh();
+  refresh();
+  refresh();
+  replies[0]({
+    ...riverside,
+    markdown: "slow change",
+    body: "# Slow watched response",
+  });
+  expect(
+    await screen.findByRole("heading", { name: "Slow watched response" }),
+  ).toBeTruthy();
+});
+
+it("a newer unchanged watched response supersedes an older changed response", async () => {
+  const interval = vi.spyOn(window, "setInterval");
+  const api = testApi();
+  api.listWatchedDirectories = vi.fn().mockResolvedValue([]);
+  api.importSource = vi.fn().mockResolvedValue(riverside);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await screen.findByRole("article");
+  const replies: ((value: SourcePage) => void)[] = [];
+  api.openSource = vi
+    .fn()
+    .mockImplementation(
+      () => new Promise<SourcePage>((resolve) => replies.push(resolve)),
+    );
+  const refresh = interval.mock.calls[0][0] as () => void;
+  refresh();
+  refresh();
+  replies[1](riverside);
+  await Promise.resolve();
+  await Promise.resolve();
+  replies[0]({
+    ...riverside,
+    markdown: "obsolete",
+    body: "# Obsolete watched source",
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(
+    screen.queryByRole("heading", { name: "Obsolete watched source" }),
+  ).toBeNull();
+  expect(screen.getByRole("article").textContent).toContain("Observation V17");
+});
+
+it("opens a PDF search span in source context with a disclosed original-location fallback", async () => {
+  const api = testApi();
+  const locator =
+    "PDF page 2 region 1; PDF points bottom-left x=48,y=680,width=370,height=20; rotation=90; channel=ocr";
+  const source: SourcePage = {
+    ...riverside,
+    info: { ...riverside.info, format: "pdf", asset: "original.pdf" },
+    body: `# Scanned report\n\n[Open original](original.pdf)\n\n## PDF page 2\n\n[${locator}] V17 lasted 10 minutes, excluding setup time. (OCR transcription; unverified)\n\nThe original opens at the beginning as a disclosed fallback; use the page number and PDF-point region above.`,
+  };
+  api.openSource = vi.fn().mockResolvedValue(source);
+  api.searchPages = vi.fn().mockResolvedValue({
+    pages: [
+      {
+        page_id: source.info.page_id,
+        source_id: source.info.source_id,
+        page_type: "source",
+        title: "Scanned report",
+        kind: "source",
+        excerpt: "V17 lasted 10 minutes, excluding setup time.",
+        tags: [],
+        format: "pdf",
+        event_date: null,
+        extraction: "structured_text",
+        processing_status: "complete",
+        matched_by: "keyword",
+        match_location: {
+          record_id: "duration",
+          source_id: source.info.source_id,
+          source_version_id: "pdf-version",
+          quote: "V17 lasted 10 minutes, excluding setup time.",
+          byte_start: 140,
+          byte_end: 182,
+          line_start: 2,
+          line_end: 2,
+          offset_basis: "extracted_pdf_projection",
+          source_location: locator,
+        },
+      },
+    ],
+    next_offset: null,
+    available_tags: [],
+    available_formats: ["pdf"],
+    available_statuses: ["complete"],
+  } satisfies PageSearchResults);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  expect(
+    await screen.findByText(
+      /Evidence · extracted PDF text; original opens at the beginning/,
+    ),
+  ).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Scanned report" }));
+  expect(
+    await screen.findByRole("heading", { name: "PDF page 2" }),
+  ).toBeTruthy();
+  expect(screen.getByText(/OCR transcription; unverified/)).toBeTruthy();
+  expect(root.querySelector("mark")?.textContent).toContain(
+    "V17 lasted 10 minutes",
+  );
+  await user.click(screen.getByRole("link", { name: "Open original" }));
+  await waitFor(() =>
+    expect(api.openOriginal).toHaveBeenCalledWith(source.info.source_id),
+  );
+});
+
 it.each([
   ["network", "Waiting for network access"],
   ["quota", "Waiting for provider quota"],
@@ -2242,4 +4206,771 @@ it("opens a PDF search span in source context with a disclosed original-location
   await waitFor(() =>
     expect(api.openOriginal).toHaveBeenCalledWith(source.info.source_id),
   );
+});
+
+it("loads a version-specific video frame on keyboard request and discloses decoded time", async () => {
+  const api = testApi();
+  const source = `source-${"b".repeat(64)}`;
+  const version = "c".repeat(64);
+  const previewVideoFrame = vi.fn().mockResolvedValue({
+    data_url: "data:image/jpeg;base64,/9j/",
+    frame: { requested_ms: 6000, actual_ms: 6100, width: 320, height: 240 },
+  });
+  api.previewVideoFrame = previewVideoFrame;
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: { ...riverside.info, source_id: source, format: "mp4" },
+    body: `# Video\n\n[Frame at 6000 ms](?video_frame=${source}&at_ms=6000&version=${version}&asset=original.mp4)`,
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  expect(previewVideoFrame).not.toHaveBeenCalled();
+  const link = screen.getByRole("link", { name: "Frame at 6000 ms" });
+  link.focus();
+  await user.keyboard("{Enter}");
+  expect(previewVideoFrame).toHaveBeenCalledWith(
+    source,
+    version,
+    "original.mp4",
+    6000,
+  );
+  expect(
+    await screen.findByRole("img", { name: "Retained video frame at 6100 ms" }),
+  ).toBeTruthy();
+  expect(screen.getByText(/Requested 6000 ms; decoded 6100 ms/)).toBe(
+    document.activeElement,
+  );
+  await user.click(link);
+  expect(screen.getAllByRole("img")).toHaveLength(1);
+});
+
+it("keeps the latest requested video frame when an earlier decode finishes late", async () => {
+  const api = testApi();
+  const source = `source-${"b".repeat(64)}`;
+  const version = "c".repeat(64);
+  let completeFirst!: (value: VideoPreview) => void;
+  const first = new Promise<VideoPreview>((resolve) => {
+    completeFirst = resolve;
+  });
+  const preview = (at: number): VideoPreview => ({
+    data_url: "data:image/jpeg;base64,/9j/",
+    frame: { requested_ms: at, actual_ms: at, width: 320, height: 240 },
+  });
+  api.previewVideoFrame = vi
+    .fn()
+    .mockImplementation((_source, _version, _asset, at) =>
+      at === 0 ? first : Promise.resolve(preview(at)),
+    );
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: { ...riverside.info, source_id: source, format: "mp4" },
+    body: `# Video\n\n[First frame](?video_frame=${source}&at_ms=0&version=${version}&asset=original.mp4)\n\n[Second frame](?video_frame=${source}&at_ms=6000&version=${version}&asset=original.mp4)`,
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(screen.getByRole("link", { name: "First frame" }));
+  await user.click(screen.getByRole("link", { name: "Second frame" }));
+  await screen.findByRole("img", { name: "Retained video frame at 6000 ms" });
+  completeFirst(preview(0));
+  await first;
+  expect(
+    screen.queryByRole("img", { name: "Retained video frame at 0 ms" }),
+  ).toBeNull();
+  expect(screen.getAllByRole("img")).toHaveLength(1);
+});
+
+it("restores collection canvas, selected item, filter and expansion with Back after reading", async () => {
+  const api = testApi();
+  api.collectionGroups = vi.fn().mockResolvedValue({
+    groups: [{ group_id: "tag:river", label: "River", members: 1 }],
+    next_offset: null,
+    revision: "r1",
+  });
+  api.collectionMembers = vi.fn().mockResolvedValue({
+    items: [
+      {
+        page_id: riverside.info.page_id,
+        source_id: riverside.info.source_id,
+        page_type: "source",
+        title: riverside.info.title,
+        kind: "source",
+        format: "md",
+        processing_status: "complete",
+      },
+    ],
+    next_offset: null,
+    revision: "r1",
+    changed: false,
+  });
+  api.openSource = vi.fn().mockResolvedValue(riverside);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Collection" }));
+  await user.type(screen.getByRole("searchbox"), "river");
+  await user.click(screen.getByRole("button", { name: "Apply group filter" }));
+  await user.click(
+    await screen.findByRole("button", { name: "River · 1 items" }),
+  );
+  await screen.findByRole("button", { name: "Riverside notes" });
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Collection presentation" }),
+    "canvas",
+  );
+  const choice = screen.getByRole("button", {
+    name: "Riverside notes",
+  });
+  choice.focus();
+  await user.keyboard("{Enter}");
+  await screen.findByRole("heading", { name: "Riverside notes" });
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(
+    (
+      screen.getByRole("combobox", {
+        name: "Collection presentation",
+      }) as HTMLSelectElement
+    ).value,
+  ).toBe("canvas");
+  expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe(
+    "river",
+  );
+  expect(
+    screen
+      .getByRole("button", { name: "Riverside notes" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+  expect(screen.getByRole("button", { name: "Riverside notes" })).toBe(
+    document.activeElement,
+  );
+});
+
+it("compares two sources, returns from evidence context and closes to the previous reader focus", async () => {
+  const api = testApi();
+  const second: SourcePage = {
+    ...riverside,
+    info: {
+      ...riverside.info,
+      source_id: "source-second",
+      page_id: "page-second",
+      title: "Second report",
+    },
+    body: "# Second report\n\n15 visits, provisional count.",
+  };
+  api.importSource = vi
+    .fn()
+    .mockResolvedValueOnce(riverside)
+    .mockResolvedValueOnce(second);
+  api.openSource = vi
+    .fn()
+    .mockImplementation(async (id) =>
+      id === second.info.source_id ? second : riverside,
+    );
+  api.comparisonSide = vi
+    .fn()
+    .mockImplementation(async (request): Promise<ComparisonSide> => {
+      const isSecond = request.source_id === second.info.source_id;
+      return {
+        source_id: request.source_id,
+        title: isSecond ? "Second report" : "Riverside notes",
+        format: "txt",
+        original_name: "report.txt",
+        origin: null,
+        source_version_id: "v1",
+        asset: "original.txt",
+        signature: "s1",
+        status: "fresh",
+        detail: "Source qualification retained.",
+        processing_status: "complete",
+        coverage: [],
+        context_gaps: [],
+        passage: {
+          text: isSecond
+            ? "15 visits, provisional count."
+            : "12 visits, two unverified.",
+          line_start: 1,
+          line_end: 1,
+          byte_start: 0,
+          byte_end: 30,
+          offset_basis: "retained_original_text",
+          next_line: null,
+          truncated: false,
+        },
+      };
+    });
+  api.openComparisonOriginal = vi.fn().mockResolvedValue(undefined);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(screen.getByRole("button", { name: "Compare this source" }));
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  const compare = screen.getByRole("button", { name: "Compare this source" });
+  compare.focus();
+  await user.keyboard("{Enter}");
+  await screen.findByText("12 visits, two unverified.");
+  expect(screen.getByText("15 visits, provisional count.")).toBeTruthy();
+  const context = screen.getByRole("button", {
+    name: "Read left source context",
+  });
+  context.focus();
+  await user.keyboard("{Enter}");
+  await screen.findByRole("heading", { name: "Riverside notes" });
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  await screen.findByText("12 visits, two unverified.");
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: "Read left source context" }),
+    ).toBe(document.activeElement),
+  );
+  await user.click(screen.getByRole("button", { name: "Close comparison" }));
+  await screen.findByRole("heading", { name: "Second report" });
+  expect(screen.getByRole("button", { name: "Compare this source" })).toBe(
+    document.activeElement,
+  );
+});
+
+it("keeps timeline keyboard context across supporting evidence and bounded page changes", async () => {
+  const api = testApi();
+  api.timeline = vi.fn().mockImplementation(async (request) => ({
+    entries:
+      request.offset === 0
+        ? [
+            {
+              entry_id: "event-v17",
+              page_id: "page-v17",
+              source_id: riverside.info.source_id,
+              title: "Observation V17",
+              kind: "event",
+              date_label: "May 2024",
+              date_start: "2024-05-01",
+              date_end: "2024-05-31",
+              precision: "month",
+              date_status: "approximate",
+              qualifier: "Month only",
+              support: {
+                record_id: "date",
+                source_id: riverside.info.source_id,
+                source_version_id: null,
+                quote: "Riverside",
+                byte_start: 0,
+                byte_end: 9,
+                line_start: 1,
+                line_end: 1,
+                offset_basis: "preserved_text",
+                source_location: "Original source line 1",
+              },
+            },
+          ]
+        : [],
+    next_offset: request.offset === 0 ? 50 : null,
+  }));
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Timeline" }));
+  await user.selectOptions(
+    screen.getByLabelText("Date meaning"),
+    "reasoning_event",
+  );
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByLabelText("Date meaning")),
+  );
+  const support = screen.getByRole("button", {
+    name: "Read timeline supporting source",
+  });
+  support.focus();
+  screen.getByRole("main").scrollTop = 137;
+  await user.keyboard("{Enter}");
+  await screen.findByRole("article", { name: riverside.info.title });
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Read timeline supporting source" }),
+    ),
+  );
+  expect(screen.getByRole("main").scrollTop).toBe(137);
+  await user.click(screen.getByRole("button", { name: "Next timeline page" }));
+  await screen.findByText("No events match this timeline.");
+  expect(api.timeline).toHaveBeenLastCalledWith(
+    expect.objectContaining({ date_meaning: "reasoning_event", offset: 50 }),
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Previous timeline page" }),
+  );
+  await screen.findByRole("button", { name: "Observation V17" });
+  expect(api.timeline).toHaveBeenLastCalledWith(
+    expect.objectContaining({ date_meaning: "reasoning_event", offset: 0 }),
+  );
+});
+
+it("discloses timeline evidence from an earlier retained version and opens that exact original", async () => {
+  const api = testApi();
+  const old = "older-version";
+  api.timeline = vi.fn().mockResolvedValue({
+    entries: [
+      {
+        entry_id: "old-date",
+        page_id: "page-v17",
+        source_id: riverside.info.source_id,
+        title: "Qualified old date",
+        kind: "event",
+        date_label: "2024-05-17",
+        date_start: "2024-05-17",
+        date_end: "2024-05-17",
+        precision: "day",
+        date_status: "known",
+        qualifier: null,
+        support: {
+          record_id: "date",
+          source_id: riverside.info.source_id,
+          source_version_id: old,
+          quote: "Earlier qualified wording",
+          byte_start: 0,
+          byte_end: 25,
+          line_start: 1,
+          line_end: 1,
+          offset_basis: "preserved_text",
+          source_location: "Original line 1",
+        },
+      },
+    ],
+    next_offset: null,
+  });
+  api.openSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: {
+      ...riverside.info,
+      current_version_id: "new-version",
+      versions_seen: [
+        { source_version_id: old, state: "retained", asset: "original.txt" },
+        {
+          source_version_id: "new-version",
+          state: "complete",
+          asset: "original.txt",
+        },
+      ],
+    },
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Timeline" }));
+  await user.click(
+    await screen.findByRole("button", {
+      name: "Read timeline supporting source",
+    }),
+  );
+  await screen.findByText(
+    /Timeline evidence is from an earlier retained source version/,
+  );
+  expect(screen.getByText("Earlier qualified wording")).toBeTruthy();
+  await user.click(
+    screen.getByRole("button", { name: "Open timeline supporting original" }),
+  );
+  expect(api.openOriginalVersion).toHaveBeenCalledWith(
+    riverside.info.source_id,
+    old,
+    "original.txt",
+  );
+});
+
+it("explicitly saves applied criteria, opens fresh results, and manages the durable view by stable identity", async () => {
+  const api = testApi();
+  let definition: import("./api").SavedViewDefinition | null = null;
+  let name = "River fieldwork";
+  let removed = false;
+  const saved = () => ({
+    view_id: "view-river",
+    name,
+    definition: definition!,
+    warnings: [],
+    resolved_groups: [],
+    resolved_references: [],
+  });
+  api.listSavedViews = vi.fn().mockImplementation(async () => ({
+    views:
+      definition && !removed
+        ? [{ view_id: "view-river", name, path: "views/owner.md" }]
+        : [],
+    next_offset: null,
+    diagnostics: [],
+  }));
+  api.createSavedView = vi.fn().mockImplementation(async (title, criteria) => {
+    name = title;
+    definition = criteria;
+    return saved();
+  });
+  api.openSavedView = vi.fn().mockImplementation(async () => saved());
+  api.renameSavedView = vi.fn().mockImplementation(async (_id, title) => {
+    name = title;
+    return saved();
+  });
+  api.removeSavedView = vi.fn().mockImplementation(async () => {
+    removed = true;
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await user.click(screen.getByRole("button", { name: "Saved views" }));
+  expect(api.createSavedView).not.toHaveBeenCalled();
+  await user.type(screen.getByLabelText("View name"), name);
+  await user.click(
+    screen.getByRole("button", { name: "Save current applied view" }),
+  );
+  await screen.findByRole("button", {
+    name: "Open saved view River fieldwork",
+  });
+  expect(api.createSavedView).toHaveBeenCalledWith(
+    "River fieldwork",
+    expect.objectContaining({
+      active: "search",
+      search: expect.objectContaining({ query: "", offset: 0 }),
+      collection: expect.objectContaining({ presentation: "reading" }),
+    }),
+  );
+  const count = vi.mocked(api.searchPages).mock.calls.length;
+  await user.click(
+    screen.getByRole("button", { name: "Open saved view River fieldwork" }),
+  );
+  await waitFor(() =>
+    expect(vi.mocked(api.searchPages).mock.calls.length).toBe(count + 1),
+  );
+  expect(api.searchPages).toHaveBeenLastCalledWith(definition!.search);
+  await user.click(
+    screen.getByRole("button", { name: "Rename River fieldwork" }),
+  );
+  const input = screen.getByLabelText("New name for River fieldwork");
+  await user.clear(input);
+  await user.type(input, "River 2024");
+  await user.click(screen.getByRole("button", { name: "Save view name" }));
+  await screen.findByRole("button", { name: "Open saved view River 2024" });
+  expect(api.renameSavedView).toHaveBeenCalledWith("view-river", "River 2024");
+  await user.click(screen.getByRole("button", { name: "Remove River 2024" }));
+  await waitFor(() =>
+    expect(api.removeSavedView).toHaveBeenCalledWith("view-river"),
+  );
+  await screen.findByText(/No saved views match/);
+  expect(api.createSavedView).toHaveBeenCalledOnce();
+});
+
+it("ignores a late saved-view lookup after the owner navigates elsewhere", async () => {
+  const api = testApi();
+  api.listSavedViews = vi.fn().mockResolvedValue({
+    views: [{ view_id: "view-river", name: "River", path: "views/river.md" }],
+    next_offset: null,
+    diagnostics: [],
+  });
+  api.createSavedView = vi.fn();
+  api.renameSavedView = vi.fn();
+  api.removeSavedView = vi.fn();
+  let finish!: (view: import("./api").SavedView) => void;
+  api.openSavedView = vi.fn().mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Saved views" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Open saved view River" }),
+  );
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  const count = vi.mocked(api.searchPages).mock.calls.length;
+  finish({
+    view_id: "view-river",
+    name: "River",
+    warnings: [],
+    resolved_groups: [],
+    resolved_references: [],
+    definition: {
+      active: "search",
+      search: {
+        query: "Obsolete delayed scope",
+        tags: [],
+        date_from: null,
+        date_to: null,
+        format: null,
+        processing_status: null,
+        offset: 0,
+      },
+      query: null,
+      collection: null,
+      timeline: null,
+      paths: null,
+      comparison: [],
+      target: null,
+    },
+  });
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole("button", { name: "Open saved view River" })
+        .hasAttribute("disabled"),
+    ).toBe(false),
+  );
+  expect(vi.mocked(api.searchPages).mock.calls.length).toBe(count);
+  expect(screen.queryByText(/Opened River against/)).toBeNull();
+});
+
+it("cannot resave the previous source when a saved target is unavailable", async () => {
+  const api = testApi();
+  api.listSavedViews = vi.fn().mockResolvedValue({
+    views: [
+      {
+        view_id: "view-missing",
+        name: "Missing B",
+        path: "views/missing.md",
+      },
+    ],
+    next_offset: null,
+    diagnostics: [],
+  });
+  api.createSavedView = vi.fn();
+  api.renameSavedView = vi.fn();
+  api.removeSavedView = vi.fn();
+  api.openSavedView = vi.fn().mockResolvedValue({
+    view_id: "view-missing",
+    name: "Missing B",
+    warnings: ["Saved B is unavailable."],
+    resolved_groups: [],
+    resolved_references: [],
+    definition: {
+      active: "source",
+      search: null,
+      query: null,
+      collection: null,
+      timeline: null,
+      paths: null,
+      comparison: [],
+      target: { source_id: "missing-b", page_id: null },
+    },
+  });
+  api.openSource = vi.fn().mockImplementation(async (id) => {
+    if (id === "missing-b") throw new Error("Source B was removed");
+    return riverside;
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await screen.findByRole("article", { name: "Riverside notes" });
+  await user.click(screen.getByRole("button", { name: "Saved views" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Open saved view Missing B" }),
+  );
+  await screen.findByRole("heading", {
+    name: "Saved view “Missing B” is unavailable",
+  });
+  await user.type(screen.getByLabelText("View name"), "Copy of missing B");
+  await user.click(
+    screen.getByRole("button", { name: "Save current applied view" }),
+  );
+  expect(api.createSavedView).not.toHaveBeenCalled();
+  await screen.findByText("Open a reading or exploration view before saving.");
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  await screen.findByRole("article", { name: "Riverside notes" });
+});
+
+it("saves a source-context trail explicitly, reopens its mixed route, and returns to the originating page", async () => {
+  const api = testApi();
+  const quote = "Observation V17 took place at Riverside on May 17, 2024.";
+  const stop: import("./api").TrailStop = {
+    stop_id: crypto.randomUUID(),
+    label: "Riverside passage",
+    target: {
+      source_id: riverside.info.source_id,
+      page_id: null,
+      title: riverside.info.title,
+    },
+    context: {
+      kind: "span",
+      source_version_id: riverside.info.sha256,
+      basis: "retained_original_text",
+      byte_start: 0,
+      byte_end: quote.length,
+      quote,
+    },
+  };
+  api.resolveTrail = vi
+    .fn()
+    .mockImplementation(async (stops: import("./api").TrailStop[]) =>
+      stops.map((s) => ({
+        stop: s,
+        status: "available",
+        title: s.target.title,
+        detail: "Current contextual source",
+        quote: s.context?.kind === "span" ? s.context.quote : null,
+        locator: s.context ? "Source passage" : null,
+        retained_asset: "original.md",
+      })),
+    );
+  api.trailSourceChoices = vi.fn().mockResolvedValue({
+    stops: [],
+    next_offset: null,
+    detail: "No message locations",
+  });
+  api.trailSelectedPassage = vi.fn().mockResolvedValue(stop);
+  api.suggestTrailStops = vi.fn();
+  let definition: import("./api").SavedViewDefinition | null = null;
+  const saved = () => ({
+    view_id: "view-route",
+    name: "Field route",
+    definition: definition!,
+    warnings: [],
+    resolved_groups: [],
+    resolved_references: [],
+  });
+  api.createSavedView = vi.fn().mockImplementation(async (_name, d) => {
+    definition = d;
+    return saved();
+  });
+  api.listSavedViews = vi.fn().mockResolvedValue({
+    views: [
+      { view_id: "view-route", name: "Field route", path: "views/route.md" },
+    ],
+    next_offset: null,
+    diagnostics: [],
+  });
+  api.openSavedView = vi.fn().mockImplementation(async () => saved());
+  api.renameSavedView = vi.fn();
+  api.removeSavedView = vi.fn();
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(screen.getByRole("button", { name: "Trails" }));
+  await user.click(
+    screen.getByRole("button", { name: "Add current page to trail" }),
+  );
+  const code = screen.getByRole("article").querySelector("code")!.firstChild!;
+  const selection = window.getSelection()!;
+  const range = document.createRange();
+  range.selectNodeContents(code);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  await user.click(
+    screen.getByRole("button", { name: "Add selected source passage" }),
+  );
+  await screen.findByRole("button", {
+    name: "Read trail stop 2: Riverside passage",
+  });
+  expect(api.createSavedView).not.toHaveBeenCalled();
+  await user.click(
+    screen.getByRole("button", {
+      name: "Read trail stop 2: Riverside passage",
+    }),
+  );
+  await screen.findByRole("region", { name: "Trail stop context" });
+  expect(screen.getByRole("article").querySelector("mark")?.textContent).toBe(
+    quote,
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Return to trail origin" }),
+  );
+  await screen.findByText("Returned to the originating view.");
+  expect(
+    screen.queryByRole("region", { name: "Trail stop context" }),
+  ).toBeNull();
+  expect(document.activeElement?.textContent).toBe("Return to trail origin");
+  await user.type(screen.getByLabelText("Trail name"), "Field route");
+  await user.click(screen.getByRole("button", { name: "Save this trail" }));
+  await waitFor(() =>
+    expect(api.createSavedView).toHaveBeenCalledWith(
+      "Field route",
+      expect.objectContaining({
+        active: "trail",
+        trail: expect.arrayContaining([
+          expect.objectContaining({ context: stop.context }),
+        ]),
+      }),
+    ),
+  );
+  await user.click(screen.getByRole("button", { name: "Saved views" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Open saved view Field route" }),
+  );
+  await screen.findByRole("heading", { name: "Saved trail" });
+  await user.click(
+    screen.getByRole("button", {
+      name: "Read trail stop 2: Riverside passage",
+    }),
+  );
+  await screen.findByRole("region", { name: "Trail stop context" });
+  await user.click(
+    screen.getByRole("button", { name: "Open trail supporting original" }),
+  );
+  expect(api.openOriginalVersion).toHaveBeenCalledWith(
+    riverside.info.source_id,
+    riverside.info.sha256,
+    "original.md",
+  );
+});
+
+it("does not navigate to a removed route stop when its source-open response arrives late", async () => {
+  const api = testApi();
+  let finish!: (source: SourcePage) => void;
+  api.openSource = vi.fn().mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  api.resolveTrail = vi
+    .fn()
+    .mockImplementation(async (stops: import("./api").TrailStop[]) =>
+      stops.map((stop) => ({
+        stop,
+        status: "available",
+        title: stop.label,
+        detail: "Current",
+        quote: null,
+        locator: null,
+        retained_asset: null,
+      })),
+    );
+  api.trailSourceChoices = vi.fn();
+  api.trailSelectedPassage = vi.fn();
+  api.suggestTrailStops = vi.fn();
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(screen.getByRole("button", { name: "Trails" }));
+  await user.click(
+    screen.getByRole("button", { name: "Add current page to trail" }),
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Read trail stop 1: Riverside notes" }),
+  );
+  await waitFor(() => expect(api.openSource).toHaveBeenCalled());
+  await user.click(screen.getByRole("button", { name: "Remove trail stop 1" }));
+  finish({
+    ...riverside,
+    info: { ...riverside.info, title: "Late removed target" },
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(screen.getByRole("article").getAttribute("aria-label")).toBe(
+    "Riverside notes",
+  );
+  expect(screen.queryByText(/Selected route stop 1 of/)).toBeNull();
 });

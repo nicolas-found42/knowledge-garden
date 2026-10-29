@@ -100,7 +100,19 @@ impl QueryConstraint {
             ));
         }
         if self.processing_status.as_deref().is_some_and(|s| {
-            !["pending", "processing", "complete", "failed", "unavailable"].contains(&s)
+            ![
+                "pending",
+                "processing",
+                "complete",
+                "failed",
+                "unavailable",
+                "update_pending",
+                "update_failed",
+                "identity_ambiguous",
+                "extraction_incomplete",
+                "source_unavailable",
+            ]
+            .contains(&s)
         }) {
             return Err(GardenError::Invalid("Unknown processing status.".into()));
         }
@@ -281,10 +293,10 @@ impl Application {
         let mut diagnostics = Vec::new();
         while work_units < request.work_budget && results.len() < request.page_size {
             work_units += 1;
-            let frontier=self.index.query_row("SELECT sequence,leaf,page_id,depth,last_edge,node_id FROM boolean_frontier WHERE query_id=?1 ORDER BY sequence LIMIT 1",[&id],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,usize>(3)?,r.get::<_,String>(4)?,r.get::<_,Option<String>>(5)?))).optional()?;
+            let frontier=self.index.query_row("SELECT sequence,leaf,page_id,depth,last_edge,node_id FROM boolean_frontier WHERE query_id=?1 ORDER BY sequence LIMIT 1",[&id],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?,r.get::<_,String>(4)?,r.get::<_,Option<String>>(5)?))).optional()?;
             if let Some((sequence, leaf, page_id, depth, last_edge, parent)) = frontier {
                 let path = &paths[leaf as usize];
-                let hop = &path.hops[depth];
+                let hop = &path.hops[depth as usize];
                 let sql = if hop.direction == TraversalDirection::WithArrow {
                     "SELECT relationship_id,from_page_id,to_page_id,relationship_json FROM relationship_edges WHERE from_page_id=?1 AND relationship_id>?2 ORDER BY relationship_id LIMIT 1"
                 } else {
@@ -336,7 +348,7 @@ impl Application {
                     });
                     continue;
                 };
-                let final_hop = depth + 1 == path.hops.len();
+                let final_hop = depth as usize + 1 == path.hops.len();
                 if !(if final_hop {
                     &path.endpoint
                 } else {
@@ -501,4 +513,23 @@ impl Application {
             }
         }
     }
+}
+
+/// Validate durable criteria without creating a disposable execution session.
+pub(super) fn saved_query_targets(request: &BooleanQueryRequest) -> Result<Vec<String>> {
+    if request.continuation.is_some()
+        || !(1..=MAX_PATH_WORK_BUDGET).contains(&request.work_budget)
+        || !(1..=PAGE_SIZE).contains(&request.page_size)
+    {
+        return Err(GardenError::Invalid(
+            "Saved queries require bounded criteria without a continuation cursor.".into(),
+        ));
+    }
+    request.returned.validate()?;
+    let mut paths = Vec::new();
+    clauses(&request.expression, &mut paths, &mut 0, 0)?;
+    Ok(paths.into_iter().map(|p| p.start).collect())
+}
+pub(super) fn validate_saved_constraint(constraint: &QueryConstraint) -> Result<()> {
+    constraint.validate()
 }

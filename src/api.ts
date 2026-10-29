@@ -21,6 +21,7 @@ export type CoverageScope =
   | "speaker_notes"
   | "embedded_object"
   | "conversation_messages"
+  | "video_frames"
   | "audio_recording"
   | "image_pixels"
   | "image_metadata"
@@ -73,6 +74,7 @@ export interface SourceInfo {
   }[];
   extraction: ExtractionState;
   extraction_detail: string;
+  extraction_version_id?: string | null;
   extraction_coverage?: CoveragePart[] | null;
   line_count: number;
   acquisitions: Acquisition[];
@@ -121,6 +123,16 @@ export interface AudioProcessingInfo {
     speaker_state: string;
     final_result: boolean;
   }[];
+}
+
+export interface VideoPreview {
+  data_url: string;
+  frame: {
+    requested_ms: number;
+    actual_ms: number;
+    width: number;
+    height: number;
+  };
 }
 
 export interface SourceSummary {
@@ -189,6 +201,7 @@ export interface SearchMatchLocation {
     | "extracted_office_projection"
     | "extracted_conversation_projection"
     | "web_visible_text"
+    | "extracted_video_projection"
     | "audio_transcript"
     | "extracted_image_projection"
     | "extracted_pdf_projection";
@@ -207,7 +220,16 @@ export interface PageResult {
   event_date: string | null;
   extraction: ExtractionState;
   processing_status:
-    "pending" | "processing" | "complete" | "failed" | "unavailable";
+    | "pending"
+    | "processing"
+    | "complete"
+    | "failed"
+    | "unavailable"
+    | "update_pending"
+    | "update_failed"
+    | "identity_ambiguous"
+    | "extraction_incomplete"
+    | "source_unavailable";
   matched_by: "title" | "tag" | "keyword" | "meaning";
   match_location: SearchMatchLocation | null;
   meaning_score?: number | null;
@@ -364,11 +386,225 @@ export interface TimelineResults {
   next_offset: number | null;
 }
 
+export interface CollectionStatus {
+  complete: boolean;
+  revision: number;
+  diagnostics: Array<{ kind: string; paths: string[]; detail: string }>;
+}
+
 /** The reader's application boundary. Desktop paths never come from page HTML. */
+export type CollectionAxis = "topic" | "person" | "place" | "date" | "format";
+export interface CollectionGroupRequest {
+  axis: CollectionAxis;
+  query: string;
+  offset: number;
+}
+export interface CollectionGroup {
+  group_id: string;
+  label: string;
+  members: number;
+}
+export interface CollectionGroups {
+  groups: CollectionGroup[];
+  next_offset: number | null;
+  revision: string;
+}
+export interface CollectionItem {
+  page_id: string;
+  source_id: string;
+  page_type: string;
+  title: string;
+  kind: string;
+  format: string;
+  processing_status: string;
+}
+export interface CollectionMembers {
+  items: CollectionItem[];
+  next_offset: number | null;
+  revision: string;
+  changed: boolean;
+}
+export interface CollectionMemberRequest {
+  group_id: string;
+  offset: number;
+  revision: string | null;
+}
+
+export interface ComparisonRequest {
+  source_id: string;
+  line_start: number;
+  expected_signature: string | null;
+}
+export interface ComparisonPassage {
+  text: string;
+  line_start: number;
+  line_end: number;
+  byte_start: number;
+  byte_end: number;
+  offset_basis: string;
+  next_line: number | null;
+  truncated: boolean;
+}
+export interface ComparisonSide {
+  source_id: string;
+  title: string;
+  format: string;
+  original_name: string;
+  origin: string | null;
+  source_version_id: string | null;
+  asset: string | null;
+  signature: string | null;
+  status: "fresh" | "stale" | "unavailable";
+  detail: string;
+  processing_status: string;
+  coverage: CoveragePart[];
+  context_gaps: string[];
+  passage: ComparisonPassage | null;
+}
+
+export interface KnowledgeGap {
+  original_version: [string, string] | null;
+  category:
+    | "source_unavailable"
+    | "extraction_incomplete"
+    | "update_pending"
+    | "update_failed"
+    | "identity_ambiguous"
+    | "insufficient_support";
+  scope: string;
+  detail: string;
+  recovery: string;
+  source_id: string | null;
+  original_available: boolean;
+  evidence: string | null;
+}
+export interface GapInspection {
+  gaps: KnowledgeGap[];
+  truncated: boolean;
+}
+export interface ViewTarget {
+  title?: string;
+  source_id: string | null;
+  page_id: string | null;
+}
+export interface SavedGroup {
+  group_id: string;
+  label: string;
+}
+export type TrailContext =
+  | {
+      kind: "span";
+      source_version_id: string;
+      basis: string;
+      byte_start: number;
+      byte_end: number;
+      quote: string;
+    }
+  | { kind: "message"; source_version_id: string; message_id: string }
+  | {
+      kind: "media";
+      source_version_id: string;
+      at_ms: number;
+      channel: "audio" | "video";
+    };
+export interface TrailStop {
+  stop_id: string;
+  label: string;
+  target: ViewTarget;
+  context: TrailContext | null;
+}
+export interface ResolvedTrailStop {
+  stop: TrailStop;
+  status: string;
+  title: string;
+  detail: string;
+  quote: string | null;
+  locator: string | null;
+  retained_asset: string | null;
+}
+export interface TrailChoices {
+  stops: TrailStop[];
+  next_offset: number | null;
+  detail: string;
+}
+export interface TrailSuggestions {
+  stops: TrailStop[];
+  judgments: number[];
+  model: string | null;
+  detail: string;
+}
+export interface SavedViewDefinition {
+  active:
+    | "collection"
+    | "search"
+    | "query"
+    | "timeline"
+    | "paths"
+    | "comparison"
+    | "source"
+    | "knowledge"
+    | "trail";
+  trail?: TrailStop[];
+  search: PageSearchRequest | null;
+  query: BooleanQueryRequest | null;
+  collection: {
+    axis: CollectionAxis;
+    query: string;
+    presentation: "reading" | "research" | "canvas";
+    expanded_groups: SavedGroup[];
+    selected: ViewTarget | null;
+  } | null;
+  timeline: TimelineRequest | null;
+  paths: {
+    start_page_id: string;
+    start_title: string;
+    max_hops: number;
+    selected_target_page_id: string | null;
+  } | null;
+  comparison: Array<{ source_id: string; title: string; line_start: number }>;
+  target: ViewTarget | null;
+}
+export interface SavedView {
+  view_id: string;
+  name: string;
+  definition: SavedViewDefinition;
+  warnings: string[];
+  resolved_groups: SavedGroup[];
+  resolved_references: CollectionItem[];
+}
+export interface SavedViews {
+  views: Array<{ view_id: string; name: string; path: string }>;
+  next_offset: number | null;
+  diagnostics: Array<{ path: string; detail: string }>;
+}
+
 export interface GardenApi {
+  resolveTrail?(stops: TrailStop[]): Promise<ResolvedTrailStop[]>;
+  trailSourceChoices?(sourceId: string, offset: number): Promise<TrailChoices>;
+  trailSelectedPassage?(sourceId: string, quote: string): Promise<TrailStop>;
+  suggestTrailStops?(goal: string): Promise<TrailSuggestions>;
+  listSavedViews?(query: string, offset: number): Promise<SavedViews>;
+  createSavedView?(
+    name: string,
+    definition: SavedViewDefinition,
+  ): Promise<SavedView>;
+  openSavedView?(viewId: string): Promise<SavedView>;
+  renameSavedView?(viewId: string, name: string): Promise<SavedView>;
+  removeSavedView?(viewId: string): Promise<void>;
+  comparisonSide?(request: ComparisonRequest): Promise<ComparisonSide>;
+  openComparisonOriginal?(request: ComparisonRequest): Promise<void>;
+
+  inspectGaps?(pageId: string): Promise<GapInspection>;
+  collectionGroups?(request: CollectionGroupRequest): Promise<CollectionGroups>;
+  collectionMembers?(
+    request: CollectionMemberRequest,
+  ): Promise<CollectionMembers>;
   chooseDirectory?(): Promise<string | null>;
   watchDirectory?(path: string): Promise<WatchedDirectory>;
   listWatchedDirectories?(): Promise<WatchedDirectory[]>;
+  openCollectionFile?(path: string): Promise<void>;
+  collectionStatus?(): Promise<CollectionStatus>;
+  resolvePageLink?(pageId: string, href: string): Promise<string>;
   timeline?(request: TimelineRequest): Promise<TimelineResults>;
   chooseFile(): Promise<string | null>;
   chooseRepositoryDirectory(): Promise<string | null>;
@@ -388,6 +624,12 @@ export interface GardenApi {
   openKnowledgePage(pageId: string): Promise<KnowledgePage>;
   openOriginal(sourceId: string): Promise<void>;
   previewOriginal?(sourceId: string): Promise<string>;
+  previewVideoFrame?(
+    sourceId: string,
+    sourceVersionId: string,
+    asset: string,
+    atMs: number,
+  ): Promise<VideoPreview>;
   openOriginalVersion(
     sourceId: string,
     sourceVersionId: string,
@@ -415,6 +657,27 @@ export interface UrlAcquisitionStatus {
 }
 
 export const desktopApi: GardenApi = {
+  resolveTrail: (stops) => invoke("resolve_trail", { stops }),
+  trailSourceChoices: (sourceId, offset) =>
+    invoke("trail_source_choices", { sourceId, offset }),
+  trailSelectedPassage: (sourceId, quote) =>
+    invoke("trail_selected_passage", { sourceId, quote }),
+  suggestTrailStops: (goal) => invoke("suggest_trail_stops", { goal }),
+  listSavedViews: (query, offset) =>
+    invoke("list_saved_views", { query, offset }),
+  createSavedView: (name, definition) =>
+    invoke("create_saved_view", { name, definition }),
+  openSavedView: (viewId) => invoke("open_saved_view", { viewId }),
+  renameSavedView: (viewId, name) =>
+    invoke("rename_saved_view", { viewId, name }),
+  removeSavedView: (viewId) => invoke("remove_saved_view", { viewId }),
+  timeline: (request) => invoke("timeline", { request }),
+  comparisonSide: (request) => invoke("comparison_side", { request }),
+  openComparisonOriginal: (request) =>
+    invoke("open_comparison_original", { request }),
+  inspectGaps: (pageId) => invoke("inspect_gaps", { pageId }),
+  collectionGroups: (request) => invoke("collection_groups", { request }),
+  collectionMembers: (request) => invoke("collection_members", { request }),
   async chooseDirectory() {
     const selected = await open({
       multiple: false,
@@ -425,6 +688,10 @@ export const desktopApi: GardenApi = {
   },
   watchDirectory: (path) => invoke("watch_directory", { path }),
   listWatchedDirectories: () => invoke("list_watched_directories"),
+  openCollectionFile: (path) => invoke("open_collection_file", { path }),
+  collectionStatus: () => invoke("collection_status"),
+  resolvePageLink: (pageId, href) =>
+    invoke("resolve_page_link", { pageId, href }),
   async chooseFile() {
     const selected = await open({
       multiple: false,
@@ -458,6 +725,8 @@ export const desktopApi: GardenApi = {
   openKnowledgePage: (pageId) => invoke("open_knowledge_page", { pageId }),
   openOriginal: (sourceId) => invoke("open_original", { sourceId }),
   previewOriginal: (sourceId) => invoke("preview_original", { sourceId }),
+  previewVideoFrame: (sourceId, sourceVersionId, asset, atMs) =>
+    invoke("preview_video_frame", { sourceId, sourceVersionId, asset, atMs }),
   openOriginalVersion: (sourceId, sourceVersionId, asset) =>
     invoke("open_original_version", { sourceId, sourceVersionId, asset }),
   openOriginalAsset: (sourceId, asset) =>

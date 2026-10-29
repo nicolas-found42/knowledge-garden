@@ -153,7 +153,35 @@ pub struct EvidenceDraft {
     pub source_location: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NavigationCandidate {
+    pub label: String,
+    pub excerpt: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NavigationUsage {
+    pub input_tokens: Option<u64>,
+    pub cost_usd: Option<f64>,
+    pub elapsed_ms: u128,
+}
+#[derive(Debug, Clone)]
+pub struct NavigationJudgments {
+    pub usage: Option<NavigationUsage>,
+    pub probabilities: Vec<f64>,
+    pub model: String,
+}
 pub trait SemanticProvider: Send + Sync {
+    fn judge_navigation(
+        &self,
+        _goal: &str,
+        _candidates: &[NavigationCandidate],
+    ) -> std::result::Result<NavigationJudgments, ProviderError> {
+        Err(ProviderError::unavailable(
+            "This provider does not supply Jev reading-stop judgments.".into(),
+            ProviderAvailability::CapabilityUnavailable,
+        ))
+    }
+
     fn form_knowledge(
         &self,
         source_text: &str,

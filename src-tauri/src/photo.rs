@@ -82,6 +82,46 @@ pub fn extract(path: &Path, title: &str) -> Result<OfficeProjection, String> {
     Ok(OfficeProjection { markdown, semantic_text, line_count: lines.len(), coverage, partial, detail: "Native ImageIO/Vision photo projection; origins, uncertainties and region locators retained.".into() })
 }
 
+/// Visual channels of one decoded video frame. Frames carry no file metadata or caption.
+pub struct FrameVision {
+    pub width: u64,
+    pub height: u64,
+    pub ocr: Vec<crate::media::FrameText>,
+    pub classifications: Vec<crate::media::FrameClassification>,
+    pub gaps: Vec<String>,
+    pub ocr_revision: u64,
+    pub classification_revision: u64,
+}
+
+pub fn frame_vision(path: &Path) -> Result<FrameVision, String> {
+    let photo: Photo =
+        serde_json::from_slice(&run_helper(path, false)?).map_err(|e| e.to_string())?;
+    Ok(FrameVision {
+        width: photo.width,
+        height: photo.height,
+        ocr: photo
+            .ocr
+            .into_iter()
+            .map(|row| crate::media::FrameText {
+                text: row.text,
+                confidence: row.confidence,
+                bounds: row.bounds,
+            })
+            .collect(),
+        classifications: photo
+            .classifications
+            .into_iter()
+            .map(|row| crate::media::FrameClassification {
+                label: row.label,
+                confidence: row.confidence,
+            })
+            .collect(),
+        gaps: photo.gaps,
+        ocr_revision: photo.ocr_revision,
+        classification_revision: photo.classification_revision,
+    })
+}
+
 pub fn preview(path: &Path) -> Result<String, String> {
     let value: serde_json::Value =
         serde_json::from_slice(&run_helper(path, true)?).map_err(|e| e.to_string())?;

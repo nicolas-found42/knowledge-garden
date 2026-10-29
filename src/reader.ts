@@ -1,7 +1,25 @@
+import { trailPanel } from "./trails";
+import { savedViewsPanel } from "./saved-views";
+import { gapInspector } from "./gaps";
+import {
+  newComparisonView,
+  comparisonSelection,
+  renderComparison,
+  type ComparisonViewState,
+} from "./comparison";
+import {
+  newCollectionView,
+  renderCollection,
+  type CollectionViewState,
+} from "./collection";
 import { newQuery, renderBooleanQuery, type QueryView } from "./boolean-query";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import type {
+  TrailStop,
+  ResolvedTrailStop,
+  SavedViewDefinition,
+  ViewTarget,
   AcquisitionMethod,
   GardenApi,
   ExploredPath,
@@ -49,10 +67,30 @@ export async function mountReader(
   brand.className = "brand";
   const backButton = element("button", "Back");
   backButton.hidden = true;
+  const collectionButton = element("button", "Collection");
+  collectionButton.hidden = !api.collectionGroups || !api.collectionMembers;
   const searchButton = element("button", "Search");
   searchButton.dataset.focusId = "toolbar-search";
   const timelineButton = element("button", "Timeline");
   timelineButton.hidden = !api.timeline;
+  const savedButton = element("button", "Saved views");
+  savedButton.hidden =
+    !api.listSavedViews ||
+    !api.createSavedView ||
+    !api.openSavedView ||
+    !api.renameSavedView ||
+    !api.removeSavedView;
+  const savedHost = element("aside");
+  savedHost.hidden = true;
+  const trailButton = element("button", "Trails");
+  trailButton.dataset.focusId = "toolbar-trails";
+  trailButton.hidden =
+    !api.resolveTrail ||
+    !api.trailSourceChoices ||
+    !api.trailSelectedPassage ||
+    !api.suggestTrailStops;
+  const trailHost = element("aside");
+  trailHost.hidden = true;
   const sourcesButton = element("button", "Sources");
   sourcesButton.setAttribute("aria-expanded", "false");
   const addButton = element("button", "Add source");
@@ -64,8 +102,11 @@ export async function mountReader(
   toolbar.append(
     brand,
     backButton,
+    collectionButton,
     searchButton,
     timelineButton,
+    savedButton,
+    trailButton,
     sourcesButton,
     addButton,
     addRepositoryButton,
@@ -96,6 +137,9 @@ export async function mountReader(
   sources.className = "sources";
   sources.setAttribute("aria-label", "Collection sources");
   sources.hidden = true;
+  const comparisonTray = element("aside");
+  comparisonTray.setAttribute("aria-label", "Comparison selections");
+  comparisonTray.hidden = true;
   const main = element("main");
   main.className = "reader";
   const empty = element("section");
@@ -104,17 +148,35 @@ export async function mountReader(
     element("h1", "A place for what you know"),
     element(
       "p",
-      "Choose a text, Markdown, Word, PowerPoint, or photo file, or drop one anywhere in this window. Your original stays intact.",
+      "Choose a document, recording, photo, or saved video file, or drop one anywhere in this window. Your original stays intact.",
     ),
   );
   main.append(empty);
-  root.replaceChildren(toolbar, notice, urlForm, sources, main);
+  const collectionDiagnostics = element("details");
+  collectionDiagnostics.hidden = true;
+  collectionDiagnostics.setAttribute("aria-label", "External file diagnostics");
+  const readingWorkspace = element("div");
+  readingWorkspace.className = "reading-workspace";
+  readingWorkspace.append(trailHost, main);
+  root.replaceChildren(
+    toolbar,
+    notice,
+    comparisonTray,
+    savedHost,
+    collectionDiagnostics,
+    urlForm,
+    sources,
+    readingWorkspace,
+  );
   let page: SourcePage | null = null;
   let currentKnowledgePageId: string | null = null;
   let currentKnowledgeMarkdown: string | null = null;
   let currentSourceId: string | null = null;
   let currentView:
     | "empty"
+    | "trail"
+    | "collection"
+    | "comparison"
     | "source"
     | "knowledge"
     | "search"
@@ -153,12 +215,422 @@ export async function mountReader(
   let currentSelectedPageId: string | null = null;
   let currentTimeline: TimelineRequest | null = null;
   let selectedTimelineEntry: string | null = null;
+  let selectedTimelineAction: "event" | "support" = "event";
+  let currentCollection = newCollectionView();
+  let collectionController: ReturnType<typeof renderCollection> | null = null;
+  let currentComparison = newComparisonView();
+  let comparisonController: ReturnType<typeof renderComparison> | null = null;
+  let comparisonIntent = 0;
+  let comparisonCandidate: { sourceId: string; title: string } | null = null;
+  const savedPanel = savedViewsPanel(
+    savedHost,
+    api,
+    captureSavedView,
+    openSavedView,
+    report,
+  );
+  savedButton.addEventListener("click", () => savedPanel.toggle());
+  let trailNavigationIntent: number | null = null;
+  let trailOrigin: NavigationState | null = null;
+  let trailOriginDepth = 0;
+  const trailController = trailPanel(trailHost, api, {
+    current: currentTrailStop,
+    source: () => (currentView === "source" ? currentSourceId : null),
+    selection: () => window.getSelection()?.toString() ?? "",
+    begin: () => (trailNavigationIntent = ++searchGeneration),
+    cancel: () => {
+      if (searchGeneration === trailNavigationIntent) ++searchGeneration;
+      trailNavigationIntent = null;
+    },
+    active: (intent) => !disposed && intent === searchGeneration,
+    origin: () => {
+      const depth = navigationHistory.length;
+      pushCurrentState();
+      trailOrigin =
+        navigationHistory.length > depth ? navigationHistory.pop()! : null;
+      trailOriginDepth = depth;
+      syncBackButton();
+    },
+    returnOrigin: async () => {
+      if (!trailOrigin) return;
+      ++searchGeneration;
+      navigationHistory.splice(trailOriginDepth);
+      await restoreNavigation(trailOrigin);
+      syncBackButton();
+    },
+    follow: followTrailStop,
+    save: async (name, stops) => {
+      await api.createSavedView!(name, {
+        active: "trail",
+        trail: stops,
+        search: null,
+        query: null,
+        collection: null,
+        timeline: null,
+        paths: null,
+        comparison: [],
+        target: null,
+      });
+    },
+    error: report,
+  });
+  trailButton.addEventListener("click", () => trailController.toggle());
+  function currentTrailStop(): TrailStop | null {
+    let target: ViewTarget;
+    if (currentView === "source" && currentSourceId)
+      target = {
+        source_id: currentSourceId,
+        page_id: null,
+        title: page?.info.title,
+      };
+    else if (currentView === "knowledge" && currentKnowledgePageId)
+      target = {
+        source_id: null,
+        page_id: currentKnowledgePageId,
+        title:
+          main.querySelector("article")?.getAttribute("aria-label") ??
+          undefined,
+      };
+    else return null;
+    return {
+      stop_id: crypto.randomUUID(),
+      label: target.title ?? "Existing page",
+      target,
+      context: null,
+    };
+  }
+  function showTrailOverview() {
+    ++searchGeneration;
+    currentView = "trail";
+    currentSourceId = null;
+    currentKnowledgePageId = null;
+    page = null;
+    const panel = element("section");
+    panel.setAttribute("aria-label", "Saved trail overview");
+    panel.append(
+      element("h1", "Saved trail"),
+      element(
+        "p",
+        "Choose a route stop in Trail. Each target and location is checked against current material when followed; unavailable stops retain their order.",
+      ),
+    );
+    main.replaceChildren(panel);
+    trailController.show();
+    syncBackButton();
+  }
+  async function followTrailStop(
+    resolved: ResolvedTrailStop,
+    intent: number,
+  ): Promise<boolean> {
+    if (disposed || intent !== searchGeneration) return false;
+    pushCurrentState();
+    const target = resolved.stop.target;
+    if (target.source_id) {
+      const next = await api.openSource(target.source_id);
+      if (disposed || intent !== searchGeneration) return false;
+      if (
+        resolved.stop.context &&
+        resolved.stop.context.source_version_id !==
+          (next.info.current_version_id ?? next.info.sha256)
+      )
+        throw new Error(
+          "The source changed while this trail stop was opening. Resolve the stop again; no different location was selected.",
+        );
+      const published = next.info.current_version_id ?? next.info.sha256;
+      if (
+        next.info.versions_seen?.some(
+          (v) => v.source_version_id === published && v.state === "superseded",
+        )
+      )
+        throw new Error(
+          "The trail source became superseded while opening. Choose current material; obsolete source wording was not replayed.",
+        );
+      showPage(next);
+      if (resolved.quote) highlightQuote(resolved.quote);
+      if (resolved.stop.context) {
+        const context = element("section");
+        context.setAttribute("aria-label", "Trail stop context");
+        context.append(
+          element("h2", resolved.locator ?? resolved.stop.label),
+          element("p", resolved.detail),
+        );
+        if (resolved.quote)
+          context.append(element("blockquote", resolved.quote));
+        if (resolved.retained_asset) {
+          const original = element(
+            "button",
+            resolved.stop.context.kind === "media"
+              ? "Open trail recording original"
+              : "Open trail supporting original",
+          );
+          original.addEventListener("click", () => {
+            void api
+              .openOriginalVersion(
+                target.source_id!,
+                resolved.stop.context!.source_version_id,
+                resolved.retained_asset!,
+              )
+              .then(() => {
+                if (resolved.stop.context?.kind === "media")
+                  message(
+                    `Opened the exact recording. Seek to ${resolved.stop.context.at_ms} ms in your media player; precise seeking is unavailable in this reader.`,
+                  );
+              })
+              .catch(report);
+          });
+          context.append(original);
+        }
+        main.prepend(context);
+      }
+    } else if (target.page_id) {
+      const next = await api.openKnowledgePage(target.page_id);
+      if (disposed || intent !== searchGeneration) return false;
+      showKnowledgePage(next);
+    }
+    return true;
+  }
+  function captureSavedView(): SavedViewDefinition | null {
+    if (
+      currentView === "empty" ||
+      main.querySelector("[data-saved-view-unavailable]")
+    )
+      return null;
+    const target = (
+      sourceId: string | null,
+      pageId: string | null,
+      title?: string,
+    ): ViewTarget | null =>
+      sourceId
+        ? { source_id: sourceId, page_id: null, title }
+        : pageId
+          ? { source_id: null, page_id: pageId, title }
+          : null;
+    return structuredClone({
+      active: currentView,
+      ...(trailController.stops().length
+        ? { trail: trailController.stops() }
+        : {}),
+      search: currentSearch ? { ...currentSearch, offset: 0 } : null,
+      query:
+        queryView && (currentView === "query" || queryView.revision !== null)
+          ? { ...queryView.request, continuation: null }
+          : null,
+      collection: {
+        axis: currentCollection.axis,
+        query: currentCollection.query,
+        presentation: currentCollection.presentation,
+        expanded_groups: Object.values(currentCollection.expanded).map((v) => ({
+          group_id: v.group.group_id,
+          label: v.group.label,
+        })),
+        selected: currentCollection.selected
+          ? target(
+              currentCollection.selected.page_type === "source"
+                ? currentCollection.selected.source_id
+                : null,
+              currentCollection.selected.page_id,
+              currentCollection.selected.title,
+            )
+          : null,
+      },
+      timeline: currentTimeline ? { ...currentTimeline, offset: 0 } : null,
+      paths: currentPathExplore
+        ? {
+            start_page_id: currentPathExplore.startPageId,
+            start_title: currentPathExplore.startTitle,
+            max_hops: currentPathExplore.maxHops,
+            selected_target_page_id: currentPathExplore.selectedTargetPageId,
+          }
+        : null,
+      comparison: currentComparison.selections.flatMap((v) =>
+        v
+          ? [{ source_id: v.sourceId, title: v.title, line_start: v.lineStart }]
+          : [],
+      ),
+      target:
+        currentView === "source"
+          ? target(currentSourceId, null, page?.info.title)
+          : currentView === "knowledge"
+            ? target(
+                null,
+                currentKnowledgePageId,
+                main.querySelector("article")?.getAttribute("aria-label") ??
+                  undefined,
+              )
+            : null,
+    });
+  }
+  async function openSavedView(id: string): Promise<string | null> {
+    const intent = ++searchGeneration;
+    const saved = await api.openSavedView!(id).catch((error) => {
+      if (disposed || intent !== searchGeneration) return null;
+      throw error;
+    });
+    if (!saved) return null;
+    if (disposed || intent !== searchGeneration) return null;
+    pushCurrentState();
+    queryController?.stop();
+    const definition = saved.definition;
+    if (definition.trail) {
+      trailController.replace(definition.trail);
+      trailOrigin = null;
+    }
+    currentSearch = definition.search;
+    currentTimeline = definition.timeline;
+    currentCollection = newCollectionView();
+    if (definition.collection) {
+      const c = definition.collection;
+      Object.assign(currentCollection, {
+        axis: c.axis,
+        query: c.query,
+        draftQuery: c.query,
+        presentation: c.presentation,
+      });
+      for (const group of saved.resolved_groups)
+        currentCollection.expanded[group.group_id] = {
+          group: { ...group, members: 0 },
+          offset: 0,
+          members: {
+            items: [],
+            next_offset: null,
+            revision: "",
+            changed: false,
+          },
+        };
+      const selected = c.selected;
+      currentCollection.selected =
+        saved.resolved_references.find((r) =>
+          selected?.source_id
+            ? r.page_type === "source" && r.source_id === selected.source_id
+            : r.page_id === selected?.page_id,
+        ) ?? null;
+    }
+    currentComparison = newComparisonView();
+    definition.comparison.forEach((v, index) => {
+      const title =
+        saved.resolved_references.find(
+          (r) => r.page_type === "source" && r.source_id === v.source_id,
+        )?.title ?? v.title;
+      currentComparison.selections[index as 0 | 1] = {
+        ...comparisonSelection(v.source_id, title),
+        lineStart: v.line_start,
+        draftLine: String(v.line_start),
+      };
+    });
+    queryView = definition.query
+      ? { ...newQuery(""), request: definition.query }
+      : null;
+    const paths = definition.paths;
+    currentPathExplore = paths
+      ? {
+          startPageId: paths.start_page_id,
+          startTitle:
+            saved.resolved_references.find(
+              (r) => r.page_id === paths.start_page_id,
+            )?.title ?? paths.start_title,
+          maxHops: paths.max_hops,
+          pageSize: PATH_PAGE_SIZE,
+          relationshipWorkBudget: PATH_WORK_BUDGET,
+          requestCursor: null,
+          graphRevision: null,
+          response: null,
+          displayedPaths: [],
+          diagnostics: [],
+          detailsByTarget: {},
+          selectedTargetPageId: paths.selected_target_page_id,
+          scrollTop: 0,
+          staleCursor: false,
+        }
+      : null;
+    updateComparisonTray();
+    // Only evaluated criteria survive. Cursors, revisions and old results are never restored.
+    let pending: Promise<unknown> = Promise.resolve();
+    let generation = searchGeneration;
+    try {
+      if (definition.active === "trail") showTrailOverview();
+      else if (definition.active === "search" && currentSearch)
+        pending = runSearch(currentSearch, false);
+      else if (definition.active === "timeline" && currentTimeline)
+        pending = runTimeline(currentTimeline);
+      else if (definition.active === "collection")
+        pending = showCollection().ready;
+      else if (definition.active === "comparison")
+        pending = showComparison().ready;
+      else if (definition.active === "query" && queryView) {
+        showBooleanQuery(queryView);
+        pending = queryController!.run();
+      } else if (definition.active === "paths" && currentPathExplore)
+        pending = requestPathPage(currentPathExplore, null);
+      else if (definition.active === "source" && definition.target?.source_id) {
+        const next = await api.openSource(definition.target.source_id);
+        if (disposed || intent !== searchGeneration) return null;
+        showPage(next);
+      } else if (
+        definition.active === "knowledge" &&
+        definition.target?.page_id
+      ) {
+        const next = await api.openKnowledgePage(definition.target.page_id);
+        if (disposed || intent !== searchGeneration) return null;
+        showKnowledgePage(next);
+      } else
+        throw new Error(
+          "The saved view's surface is unavailable. Its criteria were preserved.",
+        );
+      generation = searchGeneration;
+      const applied = await pending;
+      if (disposed || generation !== searchGeneration || applied === false)
+        return null;
+      message(
+        saved.warnings.length
+          ? saved.warnings.join(" ")
+          : `Opened saved view “${saved.name}” against current knowledge.`,
+      );
+      return saved.name;
+    } catch (error) {
+      if (disposed || generation !== searchGeneration) return null;
+      currentView = definition.active;
+      currentSourceId = null;
+      currentKnowledgePageId = null;
+      currentKnowledgeMarkdown = null;
+      page = null;
+      const unavailable = element("section");
+      unavailable.dataset.savedViewUnavailable = "true";
+      unavailable.append(
+        element("h1", `Saved view “${saved.name}” is unavailable`),
+        element("p", String(error)),
+        element(
+          "p",
+          saved.warnings.join(" ") ||
+            "The stored criteria remain intact. Use Back to return or inspect its Markdown in Saved views.",
+        ),
+      );
+      main.replaceChildren(unavailable);
+      syncBackButton();
+      throw error;
+    }
+  }
   type NavigationState =
+    | { kind: "trail"; stops: TrailStop[] }
+    | {
+        kind: "comparison";
+        state: ComparisonViewState;
+        scrollTop: number;
+        windowScroll: number;
+        focusId: string | null;
+      }
+    | {
+        kind: "collection";
+        state: CollectionViewState;
+        scrollTop: number;
+        windowScroll: number;
+        focusId: string | null;
+      }
     | { kind: "query"; state: QueryView; windowScroll: number }
     | {
         kind: "timeline";
         request: TimelineRequest;
         selectedEntry: string | null;
+        selectedAction: "event" | "support";
         scrollTop: number;
         windowScroll: number;
       }
@@ -207,6 +679,152 @@ export async function mountReader(
   let sourcesGeneration = 0;
   let sourcesNavigationPending = false;
 
+  function updateComparisonTray() {
+    comparisonTray.hidden = currentComparison.selections.every(
+      (selection) => !selection,
+    );
+    comparisonTray.replaceChildren(element("strong", "Comparison selections"));
+    currentComparison.selections.forEach((selection, index) => {
+      if (selection)
+        comparisonTray.append(
+          element(
+            "span",
+            ` ${index === 0 ? "Left" : "Right"}: ${selection.title}.`,
+          ),
+        );
+    });
+    const open = element("button", "Compare selected sources");
+    open.disabled = currentComparison.selections.some(
+      (selection) => !selection,
+    );
+    open.addEventListener("click", () => {
+      if (currentView !== "comparison") pushCurrentState();
+      showComparison();
+    });
+    const clear = element("button", "Clear comparison selections");
+    clear.addEventListener("click", () => {
+      ++comparisonIntent;
+      currentComparison = newComparisonView();
+      comparisonCandidate = null;
+      updateComparisonTray();
+      if (currentView === "comparison") showComparison();
+    });
+    comparisonTray.append(open, clear);
+    if (comparisonCandidate)
+      for (const index of [0, 1]) {
+        const replace = element(
+          "button",
+          `Use ${comparisonCandidate.title} as ${index === 0 ? "left" : "right"} source`,
+        );
+        replace.addEventListener("click", () => {
+          const candidate = comparisonCandidate!;
+          currentComparison.selections[index] = comparisonSelection(
+            candidate.sourceId,
+            candidate.title,
+          );
+          comparisonCandidate = null;
+          updateComparisonTray();
+          pushCurrentState();
+          showComparison();
+        });
+        comparisonTray.append(replace);
+      }
+  }
+  function chooseComparisonSource(sourceId: string, title: string) {
+    ++comparisonIntent;
+    const index = currentComparison.selections.findIndex(
+      (selection) => !selection,
+    );
+    if (index < 0) {
+      comparisonCandidate = { sourceId, title };
+      updateComparisonTray();
+      message("Choose which comparison side to replace.");
+      return;
+    }
+    currentComparison.selections[index] = comparisonSelection(sourceId, title);
+    updateComparisonTray();
+    if (currentComparison.selections.every((selection) => !!selection)) {
+      pushCurrentState();
+      showComparison();
+      message("Two sources selected.");
+    } else
+      message(
+        "First source selected. Read another source and select it for comparison.",
+      );
+  }
+  function showComparison(state = currentComparison) {
+    currentComparison = state;
+    currentView = "comparison";
+    currentSourceId = null;
+    currentKnowledgePageId = null;
+    ++searchGeneration;
+    sources.hidden = true;
+    sourcesButton.setAttribute("aria-expanded", "false");
+    updateComparisonTray();
+    comparisonController = renderComparison(
+      main,
+      api,
+      currentComparison,
+      (sourceId) => {
+        pushCurrentState();
+        const generation = ++searchGeneration;
+        void api
+          .openSource(sourceId)
+          .then((next) => {
+            if (
+              !disposed &&
+              currentView === "comparison" &&
+              generation === searchGeneration
+            )
+              showPage(next);
+          })
+          .catch(report);
+      },
+      () => backButton.click(),
+      report,
+    );
+    syncBackButton();
+    return comparisonController;
+  }
+
+  function showCollection(state = currentCollection) {
+    currentCollection = state;
+    currentView = "collection";
+    currentSourceId = null;
+    currentKnowledgePageId = null;
+    sources.hidden = true;
+    sourcesButton.setAttribute("aria-expanded", "false");
+    ++searchGeneration;
+    collectionController = renderCollection(
+      main,
+      api,
+      currentCollection,
+      (item) => {
+        pushCurrentState();
+        const navigation = ++searchGeneration;
+        const stillCurrent = () =>
+          !disposed &&
+          currentView === "collection" &&
+          navigation === searchGeneration;
+        const reveal = async () => {
+          if (item.page_type === "source") {
+            const next = await api.openSource(item.source_id);
+            if (stillCurrent()) showPage(next);
+          } else {
+            const next = await api.openKnowledgePage(item.page_id);
+            if (stillCurrent()) showKnowledgePage(next);
+          }
+        };
+        void reveal().catch((error) => {
+          if (stillCurrent()) report(error);
+        });
+      },
+      report,
+    );
+    syncBackButton();
+    return collectionController;
+  }
+
   async function runTimeline(request: TimelineRequest) {
     if (!api.timeline) return;
     const generation = ++searchGeneration;
@@ -216,6 +834,11 @@ export async function mountReader(
   }
 
   function renderTimeline(results: TimelineResults, request: TimelineRequest) {
+    const activeFocus =
+      document.activeElement instanceof HTMLElement &&
+      main.contains(document.activeElement)
+        ? document.activeElement.dataset.focusId
+        : undefined;
     currentTimeline = { ...request, tags: [...request.tags] };
     selectedTimelineEntry = null;
     currentView = "timeline";
@@ -224,10 +847,12 @@ export async function mountReader(
     sources.hidden = true;
     sourcesButton.setAttribute("aria-expanded", "false");
     const panel = element("section");
+    panel.className = "timeline";
     panel.setAttribute("aria-label", "Timeline");
     panel.append(element("h1", "Timeline"));
     const meaningLabel = element("label", "Date meaning");
     const meaning = element("select");
+    meaning.dataset.focusId = "timeline-meaning";
     meaning.setAttribute("aria-label", "Date meaning");
     for (const [value, label] of [
       ["source_event", "Source-described events"],
@@ -242,6 +867,7 @@ export async function mountReader(
     meaningLabel.append(meaning);
     const orderLabel = element("label", "Sort dates");
     const order = element("select");
+    order.dataset.focusId = "timeline-sort";
     order.setAttribute("aria-label", "Sort dates");
     for (const [value, label] of [
       ["ascending", "Oldest first"],
@@ -258,16 +884,19 @@ export async function mountReader(
     const queryLabel = element("label", "Timeline words or title");
     const query = element("input");
     query.type = "search";
+    query.dataset.focusId = "timeline-query";
     query.setAttribute("aria-label", "Timeline words or title");
     query.value = request.query;
     queryLabel.append(query);
     const tagsLabel = element("label", "Timeline tags");
     const tags = element("input");
+    tags.dataset.focusId = "timeline-tags";
     tags.setAttribute("aria-label", "Timeline tags");
     tags.value = request.tags.join(", ");
     tagsLabel.append(tags);
     const apply = element("button", "Apply timeline filters");
     apply.type = "submit";
+    apply.dataset.focusId = "timeline-apply";
     filters.append(queryLabel, tagsLabel, apply);
     panel.append(filters);
     const refresh = () =>
@@ -296,13 +925,22 @@ export async function mountReader(
       const row = element("li");
       const openEvent = element("button", entry.title);
       openEvent.dataset.timelineEntry = entry.entry_id;
+      openEvent.dataset.timelineAction = "event";
       openEvent.addEventListener("click", () => {
         selectedTimelineEntry = entry.entry_id;
+        selectedTimelineAction = "event";
         pushCurrentState();
+        const generation = ++searchGeneration;
         const action =
           entry.kind === "acquired" || entry.kind === "processed"
-            ? api.openSource(entry.source_id).then(showPage)
-            : api.openKnowledgePage(entry.page_id).then(showKnowledgePage);
+            ? api.openSource(entry.source_id).then((page) => {
+                if (!disposed && generation === searchGeneration)
+                  showPage(page);
+              })
+            : api.openKnowledgePage(entry.page_id).then((page) => {
+                if (!disposed && generation === searchGeneration)
+                  showKnowledgePage(page);
+              });
         void action.catch(report);
       });
       const title = element("h2");
@@ -315,12 +953,119 @@ export async function mountReader(
         ),
       );
       if (entry.qualifier) row.append(element("p", entry.qualifier));
+      if (entry.support) {
+        const context = element("button", "Read timeline supporting source");
+        context.dataset.timelineEntry = entry.entry_id;
+        context.dataset.timelineAction = "support";
+        context.addEventListener("click", () => {
+          selectedTimelineEntry = entry.entry_id;
+          selectedTimelineAction = "support";
+          pushCurrentState();
+          const generation = ++searchGeneration;
+          void api
+            .openSource(entry.support!.source_id)
+            .then((next) => {
+              if (!disposed && generation === searchGeneration) {
+                showPage(next);
+                const support = entry.support!;
+                const currentVersion =
+                  next.info.current_version_id ?? next.info.sha256;
+                if (
+                  support.source_version_id &&
+                  support.source_version_id !== currentVersion
+                ) {
+                  const evidence = element("section");
+                  evidence.setAttribute(
+                    "aria-label",
+                    "Timeline supporting evidence",
+                  );
+                  const notice = element(
+                    "p",
+                    "Timeline evidence is from an earlier retained source version; current source text may differ.",
+                  );
+                  notice.setAttribute("role", "status");
+                  evidence.append(notice, element("blockquote", support.quote));
+                  if (support.source_location)
+                    evidence.append(element("p", support.source_location));
+                  const version = next.info.versions_seen?.find(
+                    (v) => v.source_version_id === support.source_version_id,
+                  );
+                  if (version?.asset) {
+                    const original = element(
+                      "button",
+                      "Open timeline supporting original",
+                    );
+                    original.addEventListener(
+                      "click",
+                      () =>
+                        void api
+                          .openOriginalVersion(
+                            support.source_id,
+                            support.source_version_id!,
+                            version.asset!,
+                          )
+                          .catch(report),
+                    );
+                    evidence.append(original);
+                  } else
+                    evidence.append(
+                      element(
+                        "p",
+                        "The supporting retained original is unavailable; no different version has been substituted.",
+                      ),
+                    );
+                  main.prepend(evidence);
+                } else highlightQuote(support.quote);
+              }
+            })
+            .catch(report);
+        });
+        row.append(context);
+        if (entry.support.source_location)
+          row.append(element("p", entry.support.source_location));
+      }
+
       list.append(row);
     }
     if (!results.entries.length)
       panel.append(element("p", "No events match this timeline."));
     panel.append(list);
+    panel.append(
+      element(
+        "p",
+        "Approximate dates sort by interval start, then end. Unknown and conflicting dates follow dated entries in both directions; equal dates use stable entry identity. Acquisition times describe collection activity only.",
+      ),
+    );
+    if (request.offset > 0) {
+      const previous = element("button", "Previous timeline page");
+      previous.addEventListener(
+        "click",
+        () =>
+          void runTimeline({
+            ...request,
+            offset: Math.max(0, request.offset - 50),
+          }).catch(report),
+      );
+      panel.append(previous);
+    }
+    if (results.next_offset !== null) {
+      const next = element("button", "Next timeline page");
+      next.addEventListener(
+        "click",
+        () =>
+          void runTimeline({ ...request, offset: results.next_offset! }).catch(
+            report,
+          ),
+      );
+      panel.append(next);
+    }
     main.replaceChildren(panel);
+    if (activeFocus)
+      main
+        .querySelector<HTMLElement>(
+          `[data-focus-id="${CSS.escape(activeFocus)}"]`,
+        )
+        ?.focus();
   }
 
   function message(text: string) {
@@ -358,7 +1103,31 @@ export async function mountReader(
 
   function pushCurrentState() {
     const mainArticle = main.querySelector("article");
-    if (currentView === "query" && queryView) {
+    if (currentView === "trail") {
+      navigationHistory.push({ kind: "trail", stops: trailController.stops() });
+    } else if (currentView === "comparison") {
+      navigationHistory.push({
+        kind: "comparison",
+        state: structuredClone(currentComparison),
+        scrollTop: main.scrollTop,
+        windowScroll: window.scrollY,
+        focusId:
+          document.activeElement instanceof HTMLElement
+            ? (document.activeElement.dataset.focusId ?? null)
+            : null,
+      });
+    } else if (currentView === "collection") {
+      navigationHistory.push({
+        kind: "collection",
+        state: structuredClone(currentCollection),
+        scrollTop: main.scrollTop,
+        windowScroll: window.scrollY,
+        focusId:
+          document.activeElement instanceof HTMLElement
+            ? (document.activeElement.dataset.focusId ?? null)
+            : null,
+      });
+    } else if (currentView === "query" && queryView) {
       queryView.scrollTop = main.scrollTop;
       navigationHistory.push({
         kind: "query",
@@ -393,6 +1162,7 @@ export async function mountReader(
         kind: "timeline",
         request: { ...currentTimeline, tags: [...currentTimeline.tags] },
         selectedEntry: selectedTimelineEntry,
+        selectedAction: selectedTimelineAction,
         scrollTop: main.scrollTop,
         windowScroll: window.scrollY,
       });
@@ -457,11 +1227,15 @@ export async function mountReader(
         FORBID_ATTR: ["style", "id", "name"],
       },
     );
+    let frameRequest = 0;
     article.addEventListener("click", (event) => {
       const link = (event.target as Element).closest("a");
       if (!link) return;
       event.preventDefault();
       const href = link.getAttribute("href") ?? "";
+      const videoFrameMatch = href.match(
+        /^\?video_frame=(source-[a-f0-9]{64})&at_ms=(\d+)&version=([a-f0-9]{64})&asset=(original(?:\.[a-zA-Z0-9]+)?)$/,
+      );
       const audioSeekMatch = href.match(
         /^\?audio_seek=(source-[a-f0-9]{64})&at_ms=(\d+)(?:&version=([a-f0-9]{64})&asset=(original(?:\.[a-zA-Z0-9]+)?))?$/,
       );
@@ -472,12 +1246,62 @@ export async function mountReader(
         /(?:\.\.\/)?sources\/([a-f0-9]{64})\/index\.md/,
       );
       const versionedOriginalMatch = href.match(
-        /^(?:\.\.\/)?sources\/([a-f0-9]{64})\/versions\/([a-f0-9]{64})\/(original(?:\.[a-zA-Z0-9]+)?)$/,
+        /^(?:\.\.\/)*sources\/([a-f0-9]{64})\/versions\/([a-f0-9]{64})\/(original(?:\.[a-zA-Z0-9]+)?)$/,
       );
       const originalMatch = href.match(
-        /^(?:\.\.\/)?sources\/([a-f0-9]{64})\/(original(?:\.[a-zA-Z0-9]+)?)$/,
+        /^(?:\.\.\/)*sources\/([a-f0-9]{64})\/(original(?:\.[a-zA-Z0-9]+)?)$/,
       );
-      if (audioSeekMatch) {
+      if (videoFrameMatch) {
+        const atMs = Number(videoFrameMatch[2]);
+        if (!Number.isSafeInteger(atMs)) {
+          message(
+            "This frame timestamp is unavailable. Open the retained original instead.",
+          );
+          return;
+        }
+        if (!api.previewVideoFrame) {
+          message(
+            `Frame preview is unavailable. Open the retained original and seek manually to ${atMs} ms.`,
+          );
+          return;
+        }
+        const request = ++frameRequest;
+        void api
+          .previewVideoFrame(
+            videoFrameMatch[1],
+            videoFrameMatch[3],
+            videoFrameMatch[4],
+            atMs,
+          )
+          .then((preview) => {
+            if (disposed || !article.isConnected || request !== frameRequest)
+              return;
+            if (!preview.data_url.startsWith("data:image/jpeg;base64,"))
+              throw new Error("The video preview is unavailable.");
+            const figure = element("figure");
+            figure.dataset.videoPreview = "true";
+            const image = element("img");
+            image.src = preview.data_url;
+            image.alt = `Retained video frame at ${preview.frame.actual_ms} ms`;
+            image.style.maxWidth = "100%";
+            image.style.maxHeight = "640px";
+            const caption = element(
+              "figcaption",
+              `Requested ${atMs} ms; decoded ${preview.frame.actual_ms} ms. This bounded preview shows one moment. OCR regions use a bottom-left origin; speech, captions, and classifier predictions retain their separate qualifications.`,
+            );
+            caption.tabIndex = -1;
+            figure.append(image, caption);
+            article.querySelector("[data-video-preview]")?.remove();
+            link.after(figure);
+            caption.focus();
+          })
+          .catch((error) => {
+            if (!disposed && article.isConnected && request === frameRequest)
+              message(
+                `Frame preview unavailable: ${String(error)}. Open the retained original and seek manually to ${atMs} ms.`,
+              );
+          });
+      } else if (audioSeekMatch) {
         const timestampMs = Number(audioSeekMatch[2]);
         if (!Number.isSafeInteger(timestampMs)) {
           message(
@@ -495,7 +1319,7 @@ export async function mountReader(
         void opening
           .then(() => {
             message(
-              `Opened the retained recording. Seek to ${Math.floor(timestampMs / 60000)}:${String(Math.floor(timestampMs / 1000) % 60).padStart(2, "0")} in your audio player; precise seeking is unavailable in this reader.`,
+              `Opened the retained recording. Seek to ${Math.floor(timestampMs / 60000)}:${String(Math.floor(timestampMs / 1000) % 60).padStart(2, "0")} in your ${/\.(mp4|mov|m4v)$/i.test(audioSeekMatch[4] ?? originalAsset) ? "media" : "audio"} player; precise seeking is unavailable in this reader.`,
             );
           })
           .catch(report);
@@ -504,12 +1328,6 @@ export async function mountReader(
         href === `knowledge-original:${sourceId}`
       ) {
         void api.openOriginal(sourceId).catch(report);
-      } else if (knowledgeMatch) {
-        pushCurrentState();
-        void api
-          .openKnowledgePage(knowledgeMatch[1])
-          .then(showKnowledgePage)
-          .catch(report);
       } else if (sourceMatch) {
         pushCurrentState();
         void api
@@ -527,6 +1345,31 @@ export async function mountReader(
       } else if (originalMatch) {
         void api
           .openOriginalAsset(`source-${originalMatch[1]}`, originalMatch[2])
+          .catch(report);
+      } else if (
+        (currentKnowledgePageId || page?.info.page_id) &&
+        api.resolvePageLink &&
+        /\.md(?:[?#]|$)/i.test(href) &&
+        !/^[a-z]+:/i.test(href)
+      ) {
+        const origin = (currentKnowledgePageId ?? page?.info.page_id)!;
+        void api
+          .resolvePageLink(origin, href)
+          .then((id) => {
+            if (
+              disposed ||
+              (currentKnowledgePageId ?? page?.info.page_id) !== origin
+            )
+              return;
+            pushCurrentState();
+            return api.openKnowledgePage(id).then(showKnowledgePage);
+          })
+          .catch(report);
+      } else if (knowledgeMatch) {
+        pushCurrentState();
+        void api
+          .openKnowledgePage(knowledgeMatch[1])
+          .then(showKnowledgePage)
           .catch(report);
       } else {
         message("This reference is preserved in the Markdown page.");
@@ -557,6 +1400,15 @@ export async function mountReader(
       next.info.asset,
     );
     if (!article) return;
+    if (api.comparisonSide) {
+      const compare = element("button", "Compare this source");
+      compare.dataset.focusId = "compare-source";
+      compare.addEventListener("click", () =>
+        chooseComparisonSource(next.info.source_id, next.info.title),
+      );
+      article.prepend(compare);
+    }
+
     if (
       /^(?:jpg|jpeg|png|heic|heif|tif|tiff|webp)$/.test(next.info.format) &&
       api.previewOriginal
@@ -780,6 +1632,8 @@ export async function mountReader(
     }
     details.append(definition);
     main.append(details);
+    if (api.inspectGaps)
+      main.append(gapInspector(api, next.info.source_id, report));
   }
 
   function showKnowledgePage(next: KnowledgePage) {
@@ -790,6 +1644,37 @@ export async function mountReader(
     currentView = "knowledge";
     const article = showMarkdown(next.markdown, next.title, next.source_id);
     if (!article) return;
+    if (api.comparisonSide) {
+      const compare = element(
+        "button",
+        "Select supporting source for comparison",
+      );
+      compare.dataset.focusId = "compare-supporting-source";
+      compare.addEventListener("click", () => {
+        const intent = ++comparisonIntent;
+        const generation = searchGeneration;
+        void api
+          .openSource(next.source_id)
+          .then((source) => {
+            if (
+              !disposed &&
+              intent === comparisonIntent &&
+              generation === searchGeneration &&
+              currentKnowledgePageId === next.page_id
+            )
+              chooseComparisonSource(source.info.source_id, source.info.title);
+          })
+          .catch((error) => {
+            if (
+              intent === comparisonIntent &&
+              currentKnowledgePageId === next.page_id
+            )
+              report(error);
+          });
+      });
+      article.prepend(compare);
+    }
+
     const returnLink = element("a", "Return to source page");
     returnLink.href = `../sources/${next.source_id.slice("source-".length)}/index.md`;
     const explore = element("button", "Explore relationships");
@@ -825,6 +1710,7 @@ export async function mountReader(
       showBooleanQuery(newQuery(next.page_id));
     });
     article.prepend(query, explore, returnLink);
+    if (api.inspectGaps) main.append(gapInspector(api, next.page_id, report));
     if (next.external_edit_status === "uncertain") {
       const editNotice = element(
         "p",
@@ -837,6 +1723,7 @@ export async function mountReader(
   }
 
   function showBooleanQuery(state: QueryView) {
+    ++searchGeneration;
     queryController?.stop();
     queryView = state;
     currentView = "query";
@@ -1039,6 +1926,15 @@ export async function mountReader(
             ? " · traversed against the stored arrow"
             : "";
         const qualifier = step.qualifier ? ` (${step.qualifier})` : "";
+        if (step.qualifier || step.evidence_qualifier) {
+          item.className = "qualified-relationship";
+          item.append(
+            element(
+              "strong",
+              "Qualified relationship — inspect its support and uncertainty.",
+            ),
+          );
+        }
         item.append(
           element(
             "p",
@@ -1157,6 +2053,7 @@ export async function mountReader(
     focusSelected = false,
     preserveScroll = false,
   ) {
+    ++searchGeneration;
     const requestGeneration = ++pathRequestGeneration;
     currentPathExplore = state;
     currentView = "paths";
@@ -1682,7 +2579,40 @@ export async function mountReader(
   }
 
   async function restoreNavigation(state: NavigationState) {
-    if (state.kind === "query") {
+    const restoration = searchGeneration;
+    if (state.kind === "trail") {
+      trailController.replace(state.stops);
+      showTrailOverview();
+      return;
+    }
+    if (state.kind === "comparison") {
+      const controller = showComparison(state.state);
+      await controller.ready;
+      if (
+        disposed ||
+        currentView !== "comparison" ||
+        comparisonController !== controller
+      )
+        return;
+      main.scrollTop = state.scrollTop;
+      window.scrollTo(0, state.windowScroll);
+      if (state.focusId)
+        main
+          .querySelector<HTMLElement>(
+            `[data-focus-id="${CSS.escape(state.focusId)}"]`,
+          )
+          ?.focus({ preventScroll: true });
+    } else if (state.kind === "collection") {
+      showCollection(state.state);
+      main.scrollTop = state.scrollTop;
+      window.scrollTo(0, state.windowScroll);
+      if (state.focusId)
+        main
+          .querySelector<HTMLElement>(
+            `[data-focus-id="${CSS.escape(state.focusId)}"]`,
+          )
+          ?.focus({ preventScroll: true });
+    } else if (state.kind === "query") {
       if (
         state.state.revision &&
         (await api.pathGraphRevision()) !== state.state.revision
@@ -1698,9 +2628,10 @@ export async function mountReader(
     } else if (state.kind === "timeline") {
       await runTimeline(state.request);
       selectedTimelineEntry = state.selectedEntry;
+      selectedTimelineAction = state.selectedAction;
       const selected = selectedTimelineEntry
         ? main.querySelector<HTMLButtonElement>(
-            `button[data-timeline-entry="${CSS.escape(selectedTimelineEntry)}"]`,
+            `button[data-timeline-entry="${CSS.escape(selectedTimelineEntry)}"][data-timeline-action="${selectedTimelineAction}"]`,
           )
         : null;
       selected?.focus({ preventScroll: true });
@@ -1728,7 +2659,9 @@ export async function mountReader(
           ?.focus({ preventScroll: true });
       window.scrollTo(0, state.windowScroll);
     } else if (state.kind === "source") {
-      showPage(await api.openSource(state.sourceId));
+      const next = await api.openSource(state.sourceId);
+      if (disposed || restoration !== searchGeneration) return;
+      showPage(next);
       const article = main.querySelector<HTMLElement>("article");
       if (article) article.scrollTop = state.scrollTop;
       if (state.focusHref)
@@ -1747,7 +2680,9 @@ export async function mountReader(
           ?.focus({ preventScroll: true });
       window.scrollTo(0, state.windowScroll);
     } else {
-      showKnowledgePage(await api.openKnowledgePage(state.pageId));
+      const next = await api.openKnowledgePage(state.pageId);
+      if (disposed || restoration !== searchGeneration) return;
+      showKnowledgePage(next);
       const article = main.querySelector<HTMLElement>("article");
       if (article) article.scrollTop = state.scrollTop;
       if (state.focusHref)
@@ -1771,21 +2706,30 @@ export async function mountReader(
   backButton.addEventListener("click", () => {
     const state = navigationHistory.pop();
     syncBackButton();
-    if (state) void restoreNavigation(state).catch(report);
+    if (state) {
+      ++searchGeneration;
+      void restoreNavigation(state).catch(report);
+    }
   });
   timelineButton.addEventListener("click", () => {
     pushCurrentState();
-    void runTimeline({
-      date_meaning: "source_event",
-      order: "ascending",
-      query: "",
-      tags: [],
-      offset: 0,
-    }).catch(report);
+    void runTimeline(
+      currentTimeline ?? {
+        date_meaning: "source_event",
+        order: "ascending",
+        query: "",
+        tags: [],
+        offset: 0,
+      },
+    ).catch(report);
+  });
+  collectionButton.addEventListener("click", () => {
+    if (currentView !== "collection") pushCurrentState();
+    showCollection();
   });
   searchButton.addEventListener("click", () => {
     void runSearch(
-      {
+      currentSearch ?? {
         query: "",
         tags: [],
         date_from: null,
@@ -2046,7 +2990,65 @@ export async function mountReader(
       report(error);
     }
   }
+  if (!lastSource && api.collectionGroups && api.collectionMembers)
+    showCollection();
+  let collectionRevision: number | null = null;
+  let refreshingCollection = false;
+  async function refreshCollection() {
+    if (!api.collectionStatus || refreshingCollection || disposed) return;
+    refreshingCollection = true;
+    try {
+      const status = await api.collectionStatus();
+      if (disposed) return;
+      collectionDiagnostics.hidden = status.diagnostics.length === 0;
+      collectionDiagnostics.replaceChildren(
+        element("summary", "External file diagnostics"),
+      );
+      for (const diagnostic of status.diagnostics.slice(0, 100)) {
+        const row = element(
+          "p",
+          `${diagnostic.paths.join(", ")}: ${diagnostic.detail}`,
+        );
+        if (api.openCollectionFile)
+          for (const path of diagnostic.paths) {
+            const open = element("button", `Open ${path}`);
+            open.addEventListener(
+              "click",
+              () => void api.openCollectionFile!(path).catch(report),
+            );
+            row.append(open);
+          }
+        collectionDiagnostics.append(row);
+      }
+      const changed =
+        collectionRevision !== null && status.revision !== collectionRevision;
+      collectionRevision = status.revision;
+      if (!changed || !status.complete) return;
+      const knowledgeId = currentKnowledgePageId;
+      if (knowledgeId) {
+        const next = await api.openKnowledgePage(knowledgeId);
+        if (!disposed && currentKnowledgePageId === knowledgeId) {
+          const scroll = main.querySelector("article")?.scrollTop ?? 0;
+          showKnowledgePage(next);
+          const article = main.querySelector("article");
+          if (article) article.scrollTop = scroll;
+        }
+      } else if (currentView === "search" && currentSearch) {
+        await runSearch(currentSearch, false);
+      }
+    } catch (error) {
+      report(error);
+    } finally {
+      refreshingCollection = false;
+    }
+  }
+  await refreshCollection();
   const refreshTimer = window.setInterval(() => {
+    if (!disposed && currentView === "comparison")
+      comparisonController?.refresh();
+    if (!disposed && currentView === "collection")
+      void collectionController?.refresh();
+    void refreshCollection();
     if (!sources.hidden && !refreshingSources && !sourcesNavigationPending) {
       refreshingSources = true;
       void loadSources(sourcesOffset, false)

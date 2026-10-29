@@ -7,6 +7,7 @@ import {
   rmSync,
   writeFileSync,
   existsSync,
+  copyFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -793,4 +794,146 @@ it("uses the mounted Boolean builder with the real native collection and retains
   expect(screen.getByLabelText("Visible Boolean query").textContent).toContain(
     "2024-05-17",
   );
+});
+
+it("navigates repaired ordinary links and exposes duplicate files through the real Application", async () => {
+  workspace = mkdtempSync(join(tmpdir(), "knowledge-garden-edit-test-"));
+  const collection = join(workspace, "collection");
+  const source = join(workspace, "notes.txt");
+  writeFileSync(
+    source,
+    "Maya observed V17. V17 occurred at Riverside, uncertainly. Riverside is self-linked. Riverside Park is an unrelated place.",
+  );
+  const call = <T>(operation: string, ...args: string[]): T =>
+    JSON.parse(
+      execFileSync(driver, [collection, operation, ...args], {
+        encoding: "utf8",
+        timeout: 10_000,
+      }),
+    );
+  const imported = call<SourcePage>("path-recorded-import", source);
+  const event = imported.knowledge_pages.find((p) => p.title === "V17")!;
+  mkdirSync(join(collection, "pages/Owner folder"), { recursive: true });
+  const renamed = join(collection, "pages/Owner folder/Renamed observation.md");
+  renameSync(join(collection, event.path), renamed);
+  const api: GardenApi = {
+    chooseFile: async () => source,
+    chooseRepositoryDirectory: async () => null,
+    importSource: async () => call("open", imported.info.source_id),
+    importRepository: async () => {
+      throw new Error("Unused fixture action");
+    },
+    importUrl: async () => {
+      throw new Error("Unused fixture action");
+    },
+    listUrlAcquisitions: async () => [],
+    listSources: async (offset) => call("list", String(offset)),
+    searchPages: async (request) => call("search", JSON.stringify(request)),
+    queryPages: async () => {
+      throw new Error("Unused fixture action");
+    },
+    cancelQuery: async () => {},
+    pathGraphRevision: async () => call("path-revision"),
+    explorePaths: async (request) => call("paths", JSON.stringify(request)),
+    explorePathDetails: async (request) =>
+      call("path-details", JSON.stringify(request)),
+    openSource: async (id) => call("open", id),
+    openKnowledgePage: async (id) => call("knowledge", id),
+    openOriginal: async () => {},
+    openOriginalAsset: async () => {},
+    openOriginalVersion: async () => {},
+    collectionStatus: async () => call("collection-status"),
+    resolvePageLink: async (id, href) => call("resolve-link", id, href),
+    onDrop: async () => () => {},
+  };
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(await screen.findByRole("link", { name: "V17" }));
+  expect(await screen.findByRole("article", { name: "V17" })).toBeTruthy();
+  const link = screen.getAllByRole("link", { name: "Riverside" })[0];
+  await user.click(link);
+  expect(
+    await screen.findByRole("article", { name: "Riverside" }),
+  ).toBeTruthy();
+  const repaired = readFileSync(renamed, "utf8");
+  expect(repaired).toContain("../../sources/");
+  dispose();
+  copyFileSync(renamed, join(collection, "pages/Duplicate.md"));
+  dispose = await mountReader(root, api);
+  expect(await screen.findByText(/Neither file is selected/)).toBeTruthy();
+});
+
+it("browses a native collection group, reads its source and restores the canvas with Back", async () => {
+  workspace = mkdtempSync(join(tmpdir(), "knowledge-garden-groups-test-"));
+  const collection = join(workspace, "collection");
+  const input = join(workspace, "Ungrouped.txt");
+  writeFileSync(input, "A source awaiting semantic organization.");
+  const call = <T>(operation: string, ...args: string[]): T =>
+    JSON.parse(
+      execFileSync(driver, [collection, operation, ...args], {
+        encoding: "utf8",
+        timeout: 30000,
+      }),
+    );
+  call("import", input, "picker");
+  const unsupported = async (): Promise<never> => {
+    throw new Error("Outside this collection fixture");
+  };
+  const api: GardenApi = {
+    collectionGroups: async (request) =>
+      call("collection-groups", JSON.stringify(request)),
+    collectionMembers: async (request) =>
+      call("collection-members", JSON.stringify(request)),
+    chooseFile: async () => null,
+    importSource: unsupported,
+    listSources: async (offset) => call("list", String(offset)),
+    openSource: async (id) => call("open", id),
+    openKnowledgePage: async (id) => call("knowledge", id),
+    openOriginal: unsupported,
+    openOriginalVersion: unsupported,
+    openOriginalAsset: unsupported,
+    onDrop: async () => () => {},
+    chooseRepositoryDirectory: async () => null,
+    importRepository: unsupported,
+    importUrl: unsupported,
+    listUrlAcquisitions: async () => [],
+    searchPages: unsupported,
+    queryPages: unsupported,
+    cancelQuery: unsupported,
+    pathGraphRevision: unsupported,
+    explorePaths: unsupported,
+    explorePathDetails: unsupported,
+  };
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(
+    await screen.findByRole("button", {
+      name: "Unclassified or processing · 1 items",
+    }),
+  );
+  await screen.findByRole("button", { name: "Ungrouped" });
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Collection presentation" }),
+    "canvas",
+  );
+  await user.click(screen.getByRole("button", { name: "Ungrouped" }));
+  await screen.findByRole("heading", { name: "Ungrouped" });
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  expect(
+    (
+      screen.getByRole("combobox", {
+        name: "Collection presentation",
+      }) as HTMLSelectElement
+    ).value,
+  ).toBe("canvas");
+  expect(
+    screen
+      .getByRole("button", { name: "Ungrouped" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
 });

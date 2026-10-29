@@ -215,7 +215,7 @@ impl MeaningSearch {
         for row in rows {
             let (page_id, title, kind, content) = row.map_err(|error| error.to_string())?;
             let body = format!("{title}\n{kind}\n{content}");
-            let digest = format!("{:x}", Sha256::digest(body.as_bytes()));
+            let digest = hex::encode(Sha256::digest(body.as_bytes()));
             let unchanged = database.query_row(
                 "SELECT EXISTS(SELECT 1 FROM meaning_vectors WHERE page_id=?1 AND content_hash=?2)",
                 params![page_id, digest], |row| row.get::<_, bool>(0),
@@ -587,7 +587,7 @@ fn verify_sha(path: &Path, expected: &str) -> Result<(), String> {
         }
         digest.update(&buffer[..count]);
     }
-    let actual = format!("{:x}", digest.finalize());
+    let actual = hex::encode(digest.finalize());
     if actual != expected {
         return Err(format!(
             "Meaning asset checksum failed for {}",
