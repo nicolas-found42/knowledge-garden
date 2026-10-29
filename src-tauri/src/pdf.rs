@@ -126,16 +126,17 @@ fn run_helper(path: &Path) -> Result<Vec<u8>, String> {
         .map_err(|error| error.to_string())?;
     let mut stdout = tempfile::tempfile().map_err(|error| error.to_string())?;
     let mut stderr = tempfile::tempfile().map_err(|error| error.to_string())?;
-    let mut child = Command::new(&executable)
-        .arg(path)
-        .stdout(Stdio::from(
-            stdout.try_clone().map_err(|error| error.to_string())?,
-        ))
-        .stderr(Stdio::from(
-            stderr.try_clone().map_err(|error| error.to_string())?,
-        ))
-        .spawn()
-        .map_err(|error| error.to_string())?;
+    let mut child = crate::processes::spawn(
+        Command::new(&executable)
+            .arg(path)
+            .stdout(Stdio::from(
+                stdout.try_clone().map_err(|error| error.to_string())?,
+            ))
+            .stderr(Stdio::from(
+                stderr.try_clone().map_err(|error| error.to_string())?,
+            )),
+    )
+    .map_err(|error| error.to_string())?;
     let started = Instant::now();
     let status = loop {
         if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
