@@ -7028,4 +7028,3 @@ fn structured_update_does_not_invent_a_concurrent_owner_save() {
         "the update retained no competing owner bytes"
     );
 }
-
