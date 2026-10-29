@@ -306,11 +306,12 @@ fn run_helper(path: &Path, preview: bool) -> Result<Vec<u8>, String> {
     if preview {
         command.arg("preview");
     }
-    let mut child = command
-        .stdout(Stdio::from(stdout.try_clone().map_err(|e| e.to_string())?))
-        .stderr(Stdio::from(stderr.try_clone().map_err(|e| e.to_string())?))
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    let mut child = crate::processes::spawn(
+        command
+            .stdout(Stdio::from(stdout.try_clone().map_err(|e| e.to_string())?))
+            .stderr(Stdio::from(stderr.try_clone().map_err(|e| e.to_string())?)),
+    )
+    .map_err(|e| e.to_string())?;
     let started = Instant::now();
     let status = loop {
         if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {

@@ -773,10 +773,7 @@ fn bounded_output(
     timeout: std::time::Duration,
 ) -> std::io::Result<std::process::Output> {
     use std::process::Stdio;
-    let mut child = command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()?;
+    let mut child = crate::processes::spawn(command.stdout(Stdio::piped()).stderr(Stdio::null()))?;
     let start = std::time::Instant::now();
     loop {
         if child.try_wait()?.is_some() {

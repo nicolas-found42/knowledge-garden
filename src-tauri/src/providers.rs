@@ -2872,7 +2872,7 @@ fn authentication_unavailable(message: String) -> ProviderError {
 }
 
 fn keychain_credential(account: &str) -> std::result::Result<String, ProviderError> {
-    let mut child = Command::new("/usr/bin/security")
+    let mut child = crate::processes::spawn(Command::new("/usr/bin/security")
         .args([
             "find-generic-password",
             "-s",
@@ -2882,8 +2882,7 @@ fn keychain_credential(account: &str) -> std::result::Result<String, ProviderErr
             "-w",
         ])
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
+        .stderr(std::process::Stdio::null()))
         .map_err(|_| authentication_unavailable(
             "Jev is waiting for macOS Keychain authorization; semantic work will retry automatically.".into(),
         ))?;
