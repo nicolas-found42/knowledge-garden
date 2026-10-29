@@ -46,6 +46,11 @@ interrupted preparation resumes only when a fresh path-and-identity scan matches
 otherwise it discards the incomplete generation. The active lookup is unchanged
 until staging completes and the index transaction commits. The caller still drives
 all batches synchronously, and the scans and final index transaction remain unbounded.
+Source summaries are staged alongside source versions in the same generation, and the
+published `sources` rows come from the validated stage rather than from the scan, so a
+source whose title or extraction changed mid-rebuild cannot publish a summary the
+generation digest never covered. See
+[ADR 0008](adr/0008-rebuild-derived-stores-through-a-resumable-stage.md).
 Source-version rows are also prepared in committed batches. A matching scan can
 resume them after interruption, while changed or corrupt checkpoints restart.
 The final transaction checks the source records it reads against the staged

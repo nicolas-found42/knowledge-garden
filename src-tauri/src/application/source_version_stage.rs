@@ -2,7 +2,7 @@ use super::*;
 use std::collections::BTreeMap;
 use std::ops::Bound::{Excluded, Unbounded};
 
-const SOURCE_VERSION_STAGE_VERSION: &[u8] = b"source-version-stage-v1";
+const SOURCE_VERSION_STAGE_VERSION: &[u8] = b"source-version-and-summary-stage-v2";
 const SOURCE_VERSION_BATCH: usize = 128;
 
 pub(super) struct SourceVersionStage {
@@ -21,6 +21,8 @@ struct StoredProgress {
 struct CurrentSource {
     cursor: usize,
     source_id: Option<String>,
+    summary: Option<String>,
+    summary_staged: bool,
     versions: BTreeMap<String, String>,
 }
 
@@ -33,7 +35,10 @@ fn version_map(info: &SourceInfo) -> BTreeMap<String, String> {
 }
 
 pub(super) fn source_observation(path: &str, info: Option<&SourceInfo>) -> Result<String> {
-    let source = info.map(|info| (&info.source_id, version_map(info)));
+    let source = match info {
+        Some(info) => Some((&info.source_id, summary_json(info)?, version_map(info))),
+        None => None,
+    };
     Ok(serde_json::to_string(&(path, source))?)
 }
 
@@ -102,6 +107,38 @@ impl Application {
         {
             return Ok(false);
         }
+        let mut expected_summaries = 0_i64;
+        for (index, path) in paths.iter().enumerate() {
+            if index > source_cursor {
+                break;
+            }
+            let Some(page) = self.readable_source_path(path) else {
+                if index == source_cursor && version_cursor.is_some() {
+                    return Ok(false);
+                }
+                continue;
+            };
+            let stored: Option<Option<String>> = self.index.query_row(
+                "SELECT summary FROM rebuild_source_summaries_stage WHERE generation=?1 AND source_id=?2",
+                params![generation,page.info.source_id], |row| Ok(row.get(0).ok()),
+            ).optional()?;
+            let required = index < source_cursor || version_cursor.is_some();
+            match stored {
+                Some(Some(summary)) if summary == summary_json(&page.info)? => {
+                    expected_summaries += 1
+                }
+                None if !required => {}
+                _ => return Ok(false),
+            }
+        }
+        let actual_summaries: i64 = self.index.query_row(
+            "SELECT count(*) FROM rebuild_source_summaries_stage WHERE generation=?1",
+            [generation],
+            |row| row.get(0),
+        )?;
+        if actual_summaries != expected_summaries {
+            return Ok(false);
+        }
         let mut statement = self.index.prepare("SELECT source_id,version_id,format FROM rebuild_source_versions_stage WHERE generation=?1 ORDER BY source_id,version_id")?;
         let mut rows = statement.query([generation])?;
         for (index, path) in paths.iter().enumerate() {
@@ -155,6 +192,9 @@ impl Application {
         self.index.execute_batch("CREATE TABLE IF NOT EXISTS rebuild_source_versions_stage (
             generation TEXT NOT NULL, source_id TEXT NOT NULL, version_id TEXT NOT NULL, format TEXT NOT NULL,
             PRIMARY KEY(generation,source_id,version_id)) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS rebuild_source_summaries_stage (
+            generation TEXT NOT NULL, source_id TEXT NOT NULL, summary TEXT NOT NULL,
+            PRIMARY KEY(generation,source_id)) WITHOUT ROWID;
             CREATE TABLE IF NOT EXISTS rebuild_source_versions_progress (
             singleton INTEGER PRIMARY KEY CHECK(singleton=1), digest TEXT NOT NULL, generation TEXT NOT NULL,
             source_cursor INTEGER NOT NULL, version_cursor TEXT, complete INTEGER NOT NULL);")?;
@@ -210,9 +250,17 @@ impl Application {
             let limit = SOURCE_VERSION_BATCH;
             #[cfg(test)]
             let mut inserted = false;
+            #[cfg(test)]
+            let mut summary_inserted = false;
             let transaction = self.index.unchecked_transaction()?;
             for _ in 0..limit {
-                let mut pruned = transaction.execute("DELETE FROM rebuild_source_versions_stage WHERE (generation,source_id,version_id) = (SELECT generation,source_id,version_id FROM rebuild_source_versions_stage WHERE generation < ?1 ORDER BY generation,source_id,version_id LIMIT 1)", [&generation])?;
+                let mut pruned = transaction.execute("DELETE FROM rebuild_source_summaries_stage WHERE (generation,source_id) = (SELECT generation,source_id FROM rebuild_source_summaries_stage WHERE generation < ?1 ORDER BY generation,source_id LIMIT 1)", [&generation])?;
+                if pruned == 0 {
+                    pruned = transaction.execute("DELETE FROM rebuild_source_summaries_stage WHERE (generation,source_id) = (SELECT generation,source_id FROM rebuild_source_summaries_stage WHERE generation > ?1 ORDER BY generation,source_id LIMIT 1)", [&generation])?;
+                }
+                if pruned == 0 {
+                    pruned = transaction.execute("DELETE FROM rebuild_source_versions_stage WHERE (generation,source_id,version_id) = (SELECT generation,source_id,version_id FROM rebuild_source_versions_stage WHERE generation < ?1 ORDER BY generation,source_id,version_id LIMIT 1)", [&generation])?;
+                }
                 if pruned == 0 {
                     pruned = transaction.execute("DELETE FROM rebuild_source_versions_stage WHERE (generation,source_id,version_id) = (SELECT generation,source_id,version_id FROM rebuild_source_versions_stage WHERE generation > ?1 ORDER BY generation,source_id,version_id LIMIT 1)", [&generation])?;
                 }
@@ -229,6 +277,10 @@ impl Application {
                 {
                     let page = self.readable_source_path(path);
                     let source_id = page.as_ref().map(|page| page.info.source_id.clone());
+                    let summary = page
+                        .as_ref()
+                        .map(|page| summary_json(&page.info))
+                        .transpose()?;
                     let versions = page
                         .as_ref()
                         .map(|page| version_map(&page.info))
@@ -236,10 +288,24 @@ impl Application {
                     current_source = Some(CurrentSource {
                         cursor: source_cursor,
                         source_id,
+                        summary,
+                        summary_staged: false,
                         versions,
                     });
                 }
-                let current = current_source.as_ref().unwrap();
+                let current = current_source.as_mut().unwrap();
+                if !current.summary_staged {
+                    if let (Some(source_id), Some(summary)) =
+                        (current.source_id.clone(), current.summary.clone())
+                    {
+                        transaction.execute("INSERT OR REPLACE INTO rebuild_source_summaries_stage(generation,source_id,summary) VALUES(?1,?2,?3)", params![generation,source_id,summary])?;
+                        #[cfg(test)]
+                        {
+                            summary_inserted = true;
+                        }
+                    }
+                    current.summary_staged = true;
+                }
                 let versions = &current.versions;
                 let next = match &version_cursor {
                     Some(cursor) => versions
@@ -262,6 +328,13 @@ impl Application {
             }
             transaction.execute("UPDATE rebuild_source_versions_progress SET source_cursor=?1,version_cursor=?2,complete=0 WHERE singleton=1 AND generation=?3", params![i64::try_from(source_cursor).map_err(|_| GardenError::Invalid("Too many source directories.".into()))?,version_cursor,generation])?;
             transaction.commit()?;
+            #[cfg(test)]
+            if self.interrupt_source_summaries_after_batch && summary_inserted {
+                self.interrupt_source_summaries_after_batch = false;
+                return Err(GardenError::Invalid(
+                    "Source-summary staging interrupted for testing.".into(),
+                ));
+            }
             #[cfg(test)]
             if self.interrupt_source_versions_after_batch && inserted {
                 self.interrupt_source_versions_after_batch = false;

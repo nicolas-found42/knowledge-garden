@@ -554,6 +554,8 @@ pub struct Application {
     #[cfg(test)]
     interrupt_source_versions_after_batch: bool,
     #[cfg(test)]
+    interrupt_source_summaries_after_batch: bool,
+    #[cfg(test)]
     before_source_version_indexing: Option<Box<dyn FnOnce() + Send>>,
     #[cfg(test)]
     before_final_source_validation: Option<Box<dyn FnOnce() + Send>>,
@@ -933,6 +935,8 @@ impl Application {
             interrupt_page_lookup_after_batch: false,
             #[cfg(test)]
             interrupt_source_versions_after_batch: false,
+            #[cfg(test)]
+            interrupt_source_summaries_after_batch: false,
             #[cfg(test)]
             before_source_version_indexing: None,
             #[cfg(test)]
@@ -6748,7 +6752,8 @@ impl Application {
         transaction.execute("DELETE FROM timeline_entries", [])?;
         if staged_source_versions.is_some() {
             transaction.execute_batch("CREATE TEMP TABLE rebuild_source_observations(path TEXT PRIMARY KEY, observation TEXT NOT NULL);
-                CREATE TEMP TABLE rebuild_expected_source_versions(source_id TEXT NOT NULL, version_id TEXT NOT NULL, format TEXT NOT NULL, PRIMARY KEY(source_id,version_id)) WITHOUT ROWID;")?;
+                CREATE TEMP TABLE rebuild_expected_source_versions(source_id TEXT NOT NULL, version_id TEXT NOT NULL, format TEXT NOT NULL, PRIMARY KEY(source_id,version_id)) WITHOUT ROWID;
+                CREATE TEMP TABLE rebuild_expected_source_summaries(source_id TEXT PRIMARY KEY, summary TEXT NOT NULL);")?;
         }
         for entry in fs::read_dir(self.root.join("sources"))? {
             let entry = entry?;
@@ -6776,10 +6781,20 @@ impl Application {
             let Some(page) = page else {
                 continue;
             };
-            transaction.execute(
-                "INSERT INTO sources (source_id, summary) VALUES (?1, ?2)",
-                params![page.info.source_id, summary_json(&page.info)?],
-            )?;
+            let summary = summary_json(&page.info)?;
+            if staged_source_versions.is_some() {
+                // Publish summaries from the validated stage, so the committed
+                // rows are exactly the ones the generation digest covered.
+                transaction.execute(
+                    "INSERT INTO rebuild_expected_source_summaries(source_id,summary) VALUES (?1,?2)",
+                    params![page.info.source_id, summary],
+                )?;
+            } else {
+                transaction.execute(
+                    "INSERT INTO sources (source_id, summary) VALUES (?1, ?2)",
+                    params![page.info.source_id, summary],
+                )?;
+            }
             for acquisition in &page.info.acquisitions {
                 index_acquisition_record(&transaction, acquisition, &page.info.source_id)?;
             }
@@ -6805,7 +6820,7 @@ impl Application {
                 hook();
             }
             let matches: bool = transaction.query_row(
-                "SELECT NOT EXISTS(SELECT source_id,version_id,format FROM rebuild_source_versions_stage WHERE generation=?1 EXCEPT SELECT source_id,version_id,format FROM rebuild_expected_source_versions) AND NOT EXISTS(SELECT source_id,version_id,format FROM rebuild_expected_source_versions EXCEPT SELECT source_id,version_id,format FROM rebuild_source_versions_stage WHERE generation=?1)",
+                "SELECT NOT EXISTS(SELECT source_id,version_id,format FROM rebuild_source_versions_stage WHERE generation=?1 EXCEPT SELECT source_id,version_id,format FROM rebuild_expected_source_versions) AND NOT EXISTS(SELECT source_id,version_id,format FROM rebuild_expected_source_versions EXCEPT SELECT source_id,version_id,format FROM rebuild_source_versions_stage WHERE generation=?1) AND NOT EXISTS(SELECT source_id,summary FROM rebuild_source_summaries_stage WHERE generation=?1 EXCEPT SELECT source_id,summary FROM rebuild_expected_source_summaries) AND NOT EXISTS(SELECT source_id,summary FROM rebuild_expected_source_summaries EXCEPT SELECT source_id,summary FROM rebuild_source_summaries_stage WHERE generation=?1)",
                 [&stage.generation], |row| row.get(0),
             )?;
             if !matches
@@ -6823,7 +6838,8 @@ impl Application {
                 ));
             }
             transaction.execute("INSERT INTO source_versions(source_id,source_version_id,format) SELECT source_id,version_id,format FROM rebuild_source_versions_stage WHERE generation=?1", [&stage.generation])?;
-            transaction.execute_batch("DROP TABLE rebuild_source_observations; DROP TABLE rebuild_expected_source_versions;")?;
+            transaction.execute("INSERT INTO sources(source_id,summary) SELECT source_id,summary FROM rebuild_source_summaries_stage WHERE generation=?1", [&stage.generation])?;
+            transaction.execute_batch("DROP TABLE rebuild_source_observations; DROP TABLE rebuild_expected_source_versions; DROP TABLE rebuild_expected_source_summaries;")?;
         }
         transaction.execute("DELETE FROM collection_source_pages WHERE NOT EXISTS (SELECT 1 FROM sources WHERE sources.source_id=collection_source_pages.source_id)",[])?;
         let pages_dir = self.root.join("pages");
@@ -9948,6 +9964,58 @@ mod source_version_stage_tests {
         let mut page = read_page(&path).unwrap();
         page.info.versions_seen[0].format = value.into();
         fs::write(path, serialize_page(&page.info, &page.body).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn interrupted_source_summaries_remain_hidden_until_resume() {
+        let (_temp, mut app, root, source_id, _version_id) = fixture();
+        let old: String = app
+            .index
+            .query_row(
+                "SELECT summary FROM sources WHERE source_id=?1",
+                [&source_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let path = app.page_path(&source_id).unwrap();
+        let mut page = read_page(&path).unwrap();
+        page.info.title = "Changed owner title".into();
+        fs::write(path, serialize_page(&page.info, &page.body).unwrap()).unwrap();
+        app.interrupt_source_summaries_after_batch = true;
+        assert!(
+            app.rebuild_index().is_err(),
+            "an incomplete source-summary generation must stay hidden"
+        );
+        let live: String = app
+            .index
+            .query_row(
+                "SELECT summary FROM sources WHERE source_id=?1",
+                [&source_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(live, old);
+        let (count, complete): (i64, i64) = app
+            .index
+            .query_row(
+                "SELECT (SELECT count(*) FROM rebuild_source_summaries_stage), complete FROM rebuild_source_versions_progress WHERE singleton=1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((count, complete), (3, 0));
+        drop(app);
+        let reopened = Application::open(root).unwrap();
+        let summary: String = reopened
+            .index
+            .query_row(
+                "SELECT summary FROM sources WHERE source_id=?1",
+                [&source_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let summary: SourceSummary = serde_json::from_str(&summary).unwrap();
+        assert_eq!(summary.title, "Changed owner title");
     }
 
     #[test]
