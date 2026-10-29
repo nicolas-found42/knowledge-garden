@@ -3,6 +3,7 @@ pub mod boolean;
 pub mod collection;
 pub mod comparison;
 pub mod gaps;
+mod index_stage;
 mod publication;
 pub mod reconciliation;
 pub mod trails;
@@ -547,6 +548,8 @@ pub struct Application {
     collection_reconcile_pending: bool,
     #[cfg(test)]
     before_reconciliation_publication: Option<Box<dyn FnOnce() + Send>>,
+    #[cfg(test)]
+    interrupt_page_lookup_after_batch: bool,
     collection_digest: Option<String>,
     collection_revision: u64,
     collection_diagnostics: Vec<reconciliation::CollectionDiagnostic>,
@@ -917,6 +920,8 @@ impl Application {
             collection_reconcile_pending: false,
             #[cfg(test)]
             before_reconciliation_publication: None,
+            #[cfg(test)]
+            interrupt_page_lookup_after_batch: false,
             collection_digest: None,
             collection_revision: 0,
             collection_diagnostics: Vec::new(),
@@ -6679,21 +6684,34 @@ impl Application {
         // Resolve identities once per generation instead of rescanning every page
         // for each source. Keep the lookup in SQLite so it remains disposable.
         let knowledge_paths = self.knowledge_paths()?;
+        let staged_generation = self.prepare_page_lookup_stage(&knowledge_paths)?;
         self.index.execute_batch("PRAGMA temp_store=FILE;")?;
         let transaction = self.index.unchecked_transaction()?;
         transaction.execute_batch(
             "CREATE TEMP TABLE rebuild_page_paths(page_id TEXT PRIMARY KEY, path TEXT NOT NULL);",
         )?;
         let mut has_non_utf8_paths = false;
-        for path in &knowledge_paths {
-            if let Some(path_text) = path.to_str() {
-                let header = read_knowledge_header(path)?;
-                transaction.execute(
-                    "INSERT INTO rebuild_page_paths(page_id,path) VALUES (?1,?2)",
-                    params![header.page_id, path_text],
-                )?;
-            } else {
-                has_non_utf8_paths = true;
+        if let Some(generation) = staged_generation {
+            let count = transaction.execute(
+                "INSERT INTO rebuild_page_paths(page_id,path) SELECT page_id,path FROM rebuild_page_lookup_stage WHERE generation=?1 AND EXISTS (SELECT 1 FROM rebuild_page_lookup_progress WHERE singleton=1 AND generation=?1 AND complete=1)",
+                [&generation],
+            )?;
+            if count != knowledge_paths.len() {
+                return Err(GardenError::Invalid(
+                    "Page lookup staging is incomplete; retry reconciliation.".into(),
+                ));
+            }
+        } else {
+            for path in &knowledge_paths {
+                if let Some(path_text) = path.to_str() {
+                    let header = read_knowledge_header(path)?;
+                    transaction.execute(
+                        "INSERT INTO rebuild_page_paths(page_id,path) VALUES (?1,?2)",
+                        params![header.page_id, path_text],
+                    )?;
+                } else {
+                    has_non_utf8_paths = true;
+                }
             }
         }
         transaction.execute("DELETE FROM sources", [])?;
@@ -9813,4 +9831,341 @@ fn stable_frame_id(version_id: &str, requested_ms: u64) -> String {
     digest.update(version_id.as_bytes());
     digest.update(requested_ms.to_be_bytes());
     format!("video-frame-{}", hex::encode(digest.finalize()))
+}
+
+#[cfg(test)]
+mod page_lookup_stage_tests {
+    use super::*;
+
+    fn staged_fixture() -> (tempfile::TempDir, Application, PathBuf) {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("collection");
+        let source = temp.path().join("notes.txt");
+        fs::write(&source, "A retained orchard observation.").unwrap();
+        let mut app = Application::open(&root).unwrap();
+        let imported = app
+            .import_source(&source, AcquisitionMethod::Picker)
+            .unwrap();
+        let pages = root.join("pages");
+        fs::create_dir_all(&pages).unwrap();
+        for number in 0..3 {
+            let header = KnowledgePageHeader {
+                schema: 1,
+                page_id: format!("page-stage-{number}"),
+                source_id: imported.info.source_id.clone(),
+                title: format!("Stage {number}"),
+                kind: "entity".into(),
+                evidence: EvidenceLocation {
+                    quote: "orchard".into(),
+                    byte_start: 0,
+                    byte_end: 7,
+                    line_start: 1,
+                    line_end: 1,
+                    origin: "text".into(),
+                    qualifier: None,
+                    offset_basis: EvidenceOffsetBasis::PreservedText,
+                    source_location: None,
+                },
+                facts: Vec::new(),
+                relationships: Vec::new(),
+                tags: Vec::new(),
+                owner_content: Vec::new(),
+                uninterpreted_owner_edits: Vec::new(),
+                owner_metadata: Default::default(),
+                external_edit_status: None,
+            };
+            let yaml = serde_yaml_ng::to_string(&header).unwrap();
+            fs::write(
+                pages.join(format!("{number}.md")),
+                format!("---\n{yaml}---\n\n# Owner\n"),
+            )
+            .unwrap();
+        }
+        (temp, app, root)
+    }
+
+    #[test]
+    fn corrupt_page_lookup_checkpoints_are_rebuilt() {
+        for damage in ["negative", "large", "missing", "altered"] {
+            let (_temp, mut app, root) = staged_fixture();
+            app.interrupt_page_lookup_after_batch = true;
+            assert!(app.rebuild_index().is_err());
+            drop(app);
+            let connection = Connection::open(root.join(".derived/lookup.sqlite")).unwrap();
+            match damage {
+                "negative" => connection
+                    .execute("UPDATE rebuild_page_lookup_progress SET cursor=-1", [])
+                    .unwrap(),
+                "large" => connection
+                    .execute("UPDATE rebuild_page_lookup_progress SET cursor=999999", [])
+                    .unwrap(),
+                "missing" => connection
+                    .execute("DELETE FROM rebuild_page_lookup_stage", [])
+                    .unwrap(),
+                "altered" => connection
+                    .execute("UPDATE rebuild_page_lookup_stage SET page_id='forged'", [])
+                    .unwrap(),
+                _ => unreachable!(),
+            };
+            drop(connection);
+            let reopened = Application::open(&root).unwrap();
+            let count: i64 = reopened
+                .index
+                .query_row(
+                    "SELECT count(*) FROM knowledge_pages WHERE page_id LIKE 'page-stage-%'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 3, "a damaged checkpoint must be rebuilt: {damage}");
+            let forged: bool = reopened
+                .index
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM knowledge_pages WHERE page_id='forged')",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(!forged);
+        }
+    }
+
+    #[test]
+    fn corrupt_completed_page_lookup_is_not_used() {
+        let (_temp, mut app, _root) = staged_fixture();
+        app.rebuild_index().unwrap();
+        app.index.execute("UPDATE rebuild_page_lookup_stage SET page_id='forged' WHERE path=(SELECT path FROM rebuild_page_lookup_stage LIMIT 1)", []).unwrap();
+        app.rebuild_index().unwrap();
+        let count: i64 = app
+            .index
+            .query_row(
+                "SELECT count(*) FROM knowledge_pages WHERE page_id LIKE 'page-stage-%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 3);
+        let forged: bool = app
+            .index
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM knowledge_pages WHERE page_id='forged')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!forged);
+    }
+
+    #[test]
+    fn changed_paths_and_duplicate_identities_invalidate_a_partial_lookup() {
+        let (_temp, mut app, root) = staged_fixture();
+        app.interrupt_page_lookup_after_batch = true;
+        assert!(app.rebuild_index().is_err());
+        drop(app);
+        let pages = root.join("pages");
+        fs::copy(pages.join("0.md"), pages.join("duplicate.md")).unwrap();
+        fs::rename(pages.join("1.md"), pages.join("moved.md")).unwrap();
+        let reopened = Application::open(&root).unwrap();
+        assert!(reopened
+            .open_knowledge_page("page-stage-0")
+            .unwrap_err()
+            .to_string()
+            .contains("ambiguous"));
+        assert_eq!(
+            reopened
+                .open_knowledge_page("page-stage-1")
+                .unwrap()
+                .page_id,
+            "page-stage-1"
+        );
+        let indexed: bool = reopened
+            .index
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM knowledge_pages WHERE page_id='page-stage-0')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!indexed);
+    }
+
+    #[test]
+    fn abrupt_page_lookup_exit_child() {
+        let Some(root) = std::env::var_os("KNOWLEDGE_GARDEN_STAGE_CRASH_FIXTURE") else {
+            return;
+        };
+        let root = PathBuf::from(root);
+        let mut app = Application::open(&root).unwrap();
+        let pages = root.join("pages");
+        let page = fs::read_to_string(pages.join("0.md")).unwrap();
+        fs::write(
+            pages.join("3.md"),
+            page.replace("page-stage-0", "page-stage-3"),
+        )
+        .unwrap();
+        app.interrupt_page_lookup_after_batch = true;
+        assert!(app.rebuild_index().is_err());
+        std::process::exit(77);
+    }
+
+    #[test]
+    fn abrupt_exit_resumes_page_lookup_without_publishing_partial_index() {
+        let (_temp, mut app, root) = staged_fixture();
+        app.rebuild_index().unwrap();
+        drop(app);
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "application::page_lookup_stage_tests::abrupt_page_lookup_exit_child",
+            ])
+            .env("KNOWLEDGE_GARDEN_STAGE_CRASH_FIXTURE", &root)
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(77));
+        let connection = Connection::open(root.join(".derived/lookup.sqlite")).unwrap();
+        let visible: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM knowledge_pages WHERE page_id='page-stage-3')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let (cursor, complete): (i64, i64) = connection
+            .query_row(
+                "SELECT cursor,complete FROM rebuild_page_lookup_progress WHERE singleton=1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert!(!visible, "an incomplete staged page must not be published");
+        assert_eq!((cursor, complete), (1, 0));
+        drop(connection);
+        let reopened = Application::open(&root).unwrap();
+        let visible: bool = reopened
+            .index
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM knowledge_pages WHERE page_id='page-stage-3')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(visible);
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn non_utf8_page_path_uses_existing_lookup() {
+        use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+        let (_temp, mut app, root) = staged_fixture();
+        let pages = root.join("pages");
+        let moved = pages.join(OsString::from_vec(b"owner-\xff.md".to_vec()));
+        fs::rename(pages.join("0.md"), moved).unwrap();
+        app.rebuild_index().unwrap();
+        assert_eq!(
+            app.open_knowledge_page("page-stage-0").unwrap().page_id,
+            "page-stage-0"
+        );
+    }
+
+    #[test]
+    fn interrupted_page_lookup_stays_hidden_and_resumes_after_reopen() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("collection");
+        let source = temp.path().join("notes.txt");
+        fs::write(&source, "A retained orchard observation.").unwrap();
+        let mut app = Application::open(&root).unwrap();
+        let imported = app
+            .import_source(&source, AcquisitionMethod::Picker)
+            .unwrap();
+        let pages = root.join("pages");
+        fs::create_dir_all(&pages).unwrap();
+        for number in 0..3 {
+            let header = KnowledgePageHeader {
+                schema: 1,
+                page_id: format!("page-stage-{number}"),
+                source_id: imported.info.source_id.clone(),
+                title: format!("Stage {number}"),
+                kind: "entity".into(),
+                evidence: EvidenceLocation {
+                    quote: "orchard".into(),
+                    byte_start: 0,
+                    byte_end: 7,
+                    line_start: 1,
+                    line_end: 1,
+                    origin: "text".into(),
+                    qualifier: None,
+                    offset_basis: EvidenceOffsetBasis::PreservedText,
+                    source_location: None,
+                },
+                facts: Vec::new(),
+                relationships: Vec::new(),
+                tags: Vec::new(),
+                owner_content: Vec::new(),
+                uninterpreted_owner_edits: Vec::new(),
+                owner_metadata: Default::default(),
+                external_edit_status: None,
+            };
+            let yaml = serde_yaml_ng::to_string(&header).unwrap();
+            fs::write(
+                pages.join(format!("{number}.md")),
+                format!("---\n{yaml}---\n\n# Owner\n"),
+            )
+            .unwrap();
+        }
+        app.interrupt_page_lookup_after_batch = true;
+        assert!(
+            app.rebuild_index().is_err(),
+            "an interrupted lookup must not be published"
+        );
+        let stage_rows: i64 = app
+            .index
+            .query_row(
+                "SELECT count(*) FROM rebuild_page_lookup_stage",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stage_rows, 1);
+        let complete: i64 = app
+            .index
+            .query_row(
+                "SELECT complete FROM rebuild_page_lookup_progress WHERE singleton=1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(complete, 0);
+        assert!(app
+            .search_pages(PageSearchRequest {
+                query: "orchard".into(),
+                ..Default::default()
+            })
+            .unwrap()
+            .pages
+            .iter()
+            .any(|page| page.source_id == imported.info.source_id));
+        drop(app);
+        let connection = Connection::open(root.join(".derived/lookup.sqlite")).unwrap();
+        connection.execute_batch("CREATE TRIGGER preserve_staged_row BEFORE INSERT ON rebuild_page_lookup_stage WHEN EXISTS (SELECT 1 FROM rebuild_page_lookup_stage WHERE generation=NEW.generation AND path=NEW.path) BEGIN SELECT RAISE(ABORT, 'completed stage row was rewritten'); END;").unwrap();
+        drop(connection);
+        let mut reopened = Application::open(&root).unwrap();
+        let complete: i64 = reopened
+            .index
+            .query_row(
+                "SELECT complete FROM rebuild_page_lookup_progress WHERE singleton=1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(complete, 1);
+        assert!(reopened
+            .search_pages(PageSearchRequest {
+                query: "orchard".into(),
+                ..Default::default()
+            })
+            .unwrap()
+            .pages
+            .iter()
+            .any(|page| page.source_id == imported.info.source_id));
+    }
 }

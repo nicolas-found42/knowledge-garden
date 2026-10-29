@@ -41,6 +41,11 @@ directories, and the page-location ledger. An external editor can still change
 them after that check; the check does not make filesystem publication atomic.
 A temporary file-backed SQLite lookup resolves
 unique page paths once per rebuild instead of rescanning every page for each source.
+Its page-identity rows are prepared in committed batches in a shadow table. An
+interrupted preparation resumes only when a fresh path-and-identity scan matches;
+otherwise it discards the incomplete generation. The active lookup is unchanged
+until staging completes and the index transaction commits. The caller still drives
+all batches synchronously, and the scans and final index transaction remain unbounded.
 Distinct relationship-support keys are also sorted through a temporary SQLite
 table instead of collecting the entire set in Rust memory. Obsolete meaning-vector
 keys are removed as they are read, without allocating a list proportional to all
