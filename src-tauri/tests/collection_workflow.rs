@@ -6810,3 +6810,50 @@ fn quitting_during_replacement_publication_preserves_integrity_budget() {
         true,
     );
 }
+
+#[test]
+fn structured_update_does_not_invent_a_concurrent_owner_save() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("report.docx");
+    let collection = workspace.path().join("collection");
+    let extractor = Arc::new(RecoveringProjection {
+        fails: std::sync::atomic::AtomicBool::new(false),
+        recovered: std::sync::atomic::AtomicBool::new(true),
+    });
+    let provider = Arc::new(RecordedProvider::sequence(vec![
+        Ok(replacement_recording(REVISION_1, 12, true)),
+        Ok(replacement_recording(REVISION_2, 15, false)),
+    ]));
+    fs::write(&path, REVISION_1).unwrap();
+    let mut app = Application::open_with_providers(&collection, provider, extractor).unwrap();
+    let first = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    fs::write(&path, REVISION_2).unwrap();
+    let updated = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    assert_eq!(updated.info.source_id, first.info.source_id);
+    let page = app.open_source(&first.info.source_id).unwrap();
+    assert!(
+        !page
+            .info
+            .owner_metadata
+            .contains_key("external_edit_status"),
+        "no owner edited this source, so an update cannot report an external edit: {:?}",
+        page.info.owner_metadata
+    );
+    assert!(
+        !page
+            .info
+            .owner_metadata
+            .contains_key("concurrent_owner_save"),
+        "no concurrent save exists to retain: {:?}",
+        page.info.owner_metadata
+    );
+    assert!(
+        !collection.join("owner-edits").exists()
+            || fs::read_dir(collection.join("owner-edits"))
+                .unwrap()
+                .next()
+                .is_none(),
+        "the update retained no competing owner bytes"
+    );
+}

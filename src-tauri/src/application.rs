@@ -1104,7 +1104,7 @@ impl Application {
                 repository_path: repository_path_text(&root),
                 relative_path: relative_path.clone(),
             });
-            self.write_source_page(&page)?;
+            self.write_source_page(&mut page)?;
             self.index_page(&page.info)?;
             sources.push(RepositorySourceSummary {
                 source_id: page.info.source_id,
@@ -1606,7 +1606,7 @@ impl Application {
                 existing.info.semantic_error = None;
                 existing.info.semantic_retry_at = None;
                 existing.info.provider_availability = None;
-                self.write_source_page(&existing)?;
+                self.write_source_page(&mut existing)?;
                 match self.extract_while_running(
                     &staging.path().join(&asset),
                     &format,
@@ -1629,7 +1629,7 @@ impl Application {
                         existing.info.semantic_error = Some(format!(
                             "The changed Office version was retained, but extraction failed: {detail}"
                         ));
-                        self.write_source_page(&existing)?;
+                        self.write_source_page(&mut existing)?;
                         self.index_page(&existing.info)?;
                         return self.open_source(&source_id);
                     }
@@ -1654,7 +1654,7 @@ impl Application {
                     "The changed source version was retained, but {} prevented a complete replacement.",
                     extraction_detail
                 ));
-                self.write_source_page(&existing)?;
+                self.write_source_page(&mut existing)?;
                 self.index_page(&existing.info)?;
                 return self.open_source(&source_id);
             }
@@ -1680,7 +1680,7 @@ impl Application {
             existing.info.semantic_error = None;
             existing.info.semantic_retry_at = None;
             existing.info.provider_availability = None;
-            self.write_source_page(&existing)?;
+            self.write_source_page(&mut existing)?;
             self.index_page(&existing.info)?;
             return self.open_source(&source_id);
         }
@@ -2009,7 +2009,7 @@ impl Application {
             info.title = pending.info.title.clone();
             pending.info = info.clone();
             pending.body = body.clone();
-            self.write_source_page(&pending)?;
+            self.write_source_page(&mut pending)?;
             markdown = serialize_page(&info, &body)?;
         } else {
             let mut page_file = File::create(staging.path().join("index.md"))?;
@@ -2745,7 +2745,7 @@ impl Application {
                 let delay_seconds = (1_u64 << interrupted.info.semantic_attempts.min(12)).min(3600);
                 interrupted.info.semantic_retry_at =
                     (!exhausted).then(|| (now + u128::from(delay_seconds * 1000)).to_string());
-                self.write_source_page(&interrupted)?;
+                self.write_source_page(&mut interrupted)?;
                 self.index_page(&interrupted.info)?;
                 continue;
             }
@@ -2936,7 +2936,7 @@ impl Application {
                         if let Some(suffix) = page.body.strip_prefix(&prior_placeholder) {
                             page.body = format!("{unavailable_body}{suffix}");
                         }
-                        self.write_source_page(&page)?;
+                        self.write_source_page(&mut page)?;
                         self.index_page(&page.info)?;
                         continue;
                     }
@@ -3043,7 +3043,7 @@ impl Application {
             {
                 version.state = "processing".into();
             }
-            self.write_source_page(&page)?;
+            self.write_source_page(&mut page)?;
             self.index_page(&page.info)?;
             jobs.push(SemanticJob {
                 source_id,
@@ -3711,7 +3711,7 @@ impl Application {
                                             // Knowledge reconciliation ranks support through persisted
                                             // source versions. Persist this still-pending source's
                                             // validated date/order before it selects the current value.
-                                            self.write_source_page(&page)?;
+                                            self.write_source_page(&mut page)?;
                                         }
                                         // A first acquisition has no existing facts to withdraw. Even
                                         // an unknown/conditional relationship can publish the grounded
@@ -3788,7 +3788,7 @@ impl Application {
             }
         }
         if self.staged_publication.is_empty() {
-            self.write_source_page(&page)?;
+            self.write_source_page(&mut page)?;
         } else {
             let markdown = serialize_page(&page.info, &page.body)?;
             self.staged_publication
@@ -4115,7 +4115,7 @@ impl Application {
                 }
             }
             if changed {
-                self.write_source_page(&page)?;
+                self.write_source_page(&mut page)?;
                 self.index_page(&page.info)?;
             }
         }
@@ -4181,7 +4181,7 @@ impl Application {
                 "Transcribing original audio from {start} to {} ms with the pinned local Whisper model. Speaker identity is unavailable.",
                 start + duration
             );
-            self.write_source_page(&page)?;
+            self.write_source_page(&mut page)?;
             self.index_page(&page.info)?;
         }
         let current_page = self.open_source(&source_id)?;
@@ -5753,7 +5753,10 @@ impl Application {
         if !path.exists() {
             return Ok((None, None, String::new(), source_version_id.to_owned()));
         }
-        let Ok(page) = self.open_source(source_id) else {
+        // Sort metadata comes from `index.md` alone. `open_source` also validates
+        // the auxiliary acquisition records, so a damaged one would rank a valid
+        // source as undated and let an older support value publish as current.
+        let Ok(page) = read_page(&path) else {
             return Ok((None, None, String::new(), source_version_id.to_owned()));
         };
         let info = page.info;
@@ -6317,15 +6320,17 @@ impl Application {
         self.record_semantic_failure(page, error.message, retryable, false)
     }
 
-    fn write_source_page(&self, page: &SourcePage) -> Result<()> {
+    fn write_source_page(&self, page: &mut SourcePage) -> Result<()> {
         let markdown = serialize_page(&page.info, &page.body)?;
         let path = self.page_path(&page.info.source_id)?;
         commit_publication(
             &self.root,
-            vec![(path.clone(), markdown.into_bytes())],
+            vec![(path.clone(), markdown.clone().into_bytes())],
             &HashMap::from([(path, page.disk_markdown.as_bytes().to_vec())]),
             None,
-        )
+        )?;
+        page.disk_markdown = markdown;
+        Ok(())
     }
 
     pub fn page_path(&self, source_id: &str) -> Result<PathBuf> {
