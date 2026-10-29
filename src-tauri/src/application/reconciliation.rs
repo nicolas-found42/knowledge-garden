@@ -1,6 +1,7 @@
 //! Reconcile ordinary Markdown by durable identity; no watcher event is authoritative.
 use super::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Bound::{Excluded, Unbounded};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CollectionDiagnostic {
@@ -19,7 +20,30 @@ pub struct ReconciliationStatus {
 #[derive(Default)]
 pub(super) struct Scan {
     directories: Vec<fs::ReadDir>,
+    directory_mtimes: BTreeMap<PathBuf, std::time::SystemTime>,
     files: BTreeMap<String, String>,
+    source_directories: BTreeSet<String>,
+    unreadable: Vec<CollectionDiagnostic>,
+    unreadable_page_ids: BTreeMap<String, Option<String>>,
+    candidate_cursor: Option<String>,
+    candidate_digest: Option<String>,
+    candidates: BTreeMap<String, Vec<String>>,
+}
+
+fn is_source_index(path: &str) -> bool {
+    let path = Path::new(path);
+    path.file_name() == Some(std::ffi::OsStr::new("index.md"))
+        && path.parent().and_then(Path::parent) == Some(Path::new("sources"))
+}
+
+fn is_source_acquisition(path: &str) -> bool {
+    let path = Path::new(path);
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    path.extension() == Some(std::ffi::OsStr::new("md"))
+        && parent.file_name() == Some(std::ffi::OsStr::new("acquisitions"))
+        && parent.parent().and_then(Path::parent) == Some(Path::new("sources"))
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -28,16 +52,44 @@ struct Ledger {
     pages: BTreeMap<String, String>,
 }
 
+#[derive(Serialize, Deserialize)]
+enum PageCandidate {
+    Parsed {
+        page_id: String,
+        retained_owner_edits: Vec<String>,
+    },
+    Malformed,
+}
+
+// Bump when page-header parsing or its cached fields change.
+const PAGE_CANDIDATE_CACHE_VERSION: &str = "page-candidate-v1";
+
+fn scan_directories_unchanged(directories: &BTreeMap<PathBuf, std::time::SystemTime>) -> bool {
+    directories.iter().all(|(path, expected)| {
+        fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .is_ok_and(|modified| modified == *expected)
+    })
+}
+
 impl Application {
     /// Visit at most `budget` directory entries. Complete generations repair links
     /// and refresh derived navigation; incomplete scans never infer deletions.
     pub fn reconcile_collection(&mut self, budget: usize) -> Result<ReconciliationStatus> {
+        self.collection_reconcile_pending = true;
         recover_publications(&self.root)?;
         if self.collection_scan.is_none() {
             let mut scan = Scan::default();
+            scan.directory_mtimes
+                .insert(self.root.clone(), fs::metadata(&self.root)?.modified()?);
             for directory in ["pages", "sources"] {
-                match fs::read_dir(self.root.join(directory)) {
-                    Ok(entries) => scan.directories.push(entries),
+                let path = self.root.join(directory);
+                let modified = fs::metadata(&path).and_then(|metadata| metadata.modified());
+                match fs::read_dir(&path) {
+                    Ok(entries) => {
+                        scan.directory_mtimes.insert(path, modified?);
+                        scan.directories.push(entries);
+                    }
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                     Err(error) => return Err(error.into()),
                 }
@@ -61,42 +113,195 @@ impl Application {
                     return Err(error.into());
                 }
             };
-            let kind = entry.file_type()?;
-            if kind.is_dir() {
-                if let Ok(entries) = fs::read_dir(entry.path()) {
-                    scan.directories.push(entries);
+            let kind = match entry.file_type() {
+                Ok(kind) => kind,
+                Err(error) => {
+                    self.collection_scan = None;
+                    return Err(error.into());
                 }
-            } else if kind.is_file() && entry.path().extension().is_some_and(|ext| ext == "md") {
-                let path = entry.path();
-                if let Ok(text) = read_bounded_text(&path, MAX_PAGE_BYTES) {
-                    scan.files.insert(
-                        path.strip_prefix(&self.root)
+            };
+            if kind.is_dir() {
+                if entry.path().parent() == Some(self.root.join("sources").as_path()) {
+                    scan.source_directories.insert(
+                        entry
+                            .path()
+                            .strip_prefix(&self.root)
                             .unwrap()
                             .to_string_lossy()
                             .into_owned(),
-                        hex::encode(Sha256::digest(text.as_bytes())),
                     );
+                }
+                let entries = entry
+                    .metadata()
+                    .and_then(|metadata| metadata.modified())
+                    .and_then(|modified| {
+                        fs::read_dir(entry.path()).map(|entries| (modified, entries))
+                    });
+                match entries {
+                    Ok((modified, entries)) => {
+                        scan.directory_mtimes.insert(entry.path(), modified);
+                        scan.directories.push(entries);
+                    }
+                    Err(error) => {
+                        self.collection_scan = None;
+                        return Err(error.into());
+                    }
+                }
+            } else if kind.is_file() && entry.path().extension().is_some_and(|ext| ext == "md") {
+                let path = entry.path();
+                let relative = path
+                    .strip_prefix(&self.root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
+                match read_bounded_text(&path, MAX_PAGE_BYTES) {
+                    Ok(text) => {
+                        scan.files
+                            .insert(relative, hex::encode(Sha256::digest(text.as_bytes())));
+                    }
+                    Err(_) => {
+                        if relative.starts_with("pages/") {
+                            let page_id = read_knowledge_header(&path)
+                                .ok()
+                                .map(|header| header.page_id);
+                            if let Some(page_id) = &page_id {
+                                scan.candidates
+                                    .entry(page_id.clone())
+                                    .or_default()
+                                    .push(relative.clone());
+                            }
+                            scan.unreadable_page_ids.insert(relative.clone(), page_id);
+                        }
+                        scan.unreadable.push(CollectionDiagnostic { kind: "unreadable_markdown".into(), paths: vec![relative], detail: "Markdown could not be read within the supported size or encoding bounds; its original contents remain preserved.".into() });
+                    }
                 }
             }
         }
         if !scan.directories.is_empty() {
             return Ok(self.reconciliation_status(false));
         }
-        let scan = self.collection_scan.take().unwrap();
-        let digest = hex::encode(Sha256::digest(serde_json::to_vec(&scan.files)?));
-        if self.collection_digest.as_ref() != Some(&digest) {
-            if !self.reconcile_snapshot(scan.files)? {
+        let mut scan = self.collection_scan.take().unwrap();
+        if scan.candidate_digest.is_none() {
+            if !scan_directories_unchanged(&scan.directory_mtimes) {
                 return Ok(self.reconciliation_status(false));
             }
-            self.rebuild_index()?;
-            self.collection_digest = Some(digest);
-            self.collection_revision += 1;
+            for directory in &scan.source_directories {
+                let relative = format!("{directory}/index.md");
+                let path = self.root.join(&relative);
+                if !fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_file())
+                {
+                    scan.unreadable.push(CollectionDiagnostic { kind: "missing_metadata".into(), paths: vec![relative], detail: "Source metadata is missing or is not an ordinary file; retained assets are preserved for recovery.".into() });
+                }
+            }
+            scan.unreadable
+                .sort_by(|left, right| left.paths.cmp(&right.paths));
+            let digest = hex::encode(Sha256::digest(serde_json::to_vec(&(
+                &scan.files,
+                &scan.source_directories,
+                &scan.unreadable,
+                &scan.unreadable_page_ids,
+            ))?));
+            if self.collection_digest.as_ref() == Some(&digest) {
+                self.collection_reconcile_pending = false;
+                return Ok(self.reconciliation_status(true));
+            }
+            self.index.execute_batch(
+                "CREATE TABLE IF NOT EXISTS reconciliation_page_candidates (
+                    generation TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL,
+                    outcome TEXT NOT NULL,
+                    checksum TEXT NOT NULL,
+                    PRIMARY KEY (generation, path)
+                ) WITHOUT ROWID;",
+            )?;
+            scan.candidate_digest = Some(digest);
+            self.collection_scan = Some(scan);
+            return Ok(self.reconciliation_status(false));
         }
-        Ok(self.reconciliation_status(true))
+        for _ in 0..budget.clamp(1, 1000) {
+            let next = match &scan.candidate_cursor {
+                Some(cursor) => scan
+                    .files
+                    .range::<str, _>((Excluded(cursor.as_str()), Unbounded))
+                    .next(),
+                None => scan.files.iter().next(),
+            };
+            let Some((path, fingerprint)) = next else {
+                let generation = format!(
+                    "{PAGE_CANDIDATE_CACHE_VERSION}:{}",
+                    scan.candidate_digest.as_deref().unwrap()
+                );
+                let mut pruned = self.index.execute(
+                    "DELETE FROM reconciliation_page_candidates WHERE (generation,path) = (SELECT generation,path FROM reconciliation_page_candidates WHERE generation < ?1 ORDER BY generation,path LIMIT 1)",
+                    [&generation],
+                )?;
+                if pruned == 0 {
+                    pruned = self.index.execute(
+                        "DELETE FROM reconciliation_page_candidates WHERE (generation,path) = (SELECT generation,path FROM reconciliation_page_candidates WHERE generation > ?1 ORDER BY generation,path LIMIT 1)",
+                        [&generation],
+                    )?;
+                }
+                if pruned != 0 {
+                    continue;
+                }
+                if !scan_directories_unchanged(&scan.directory_mtimes) {
+                    return Ok(self.reconciliation_status(false));
+                }
+                let digest = scan.candidate_digest.take().unwrap();
+                if !self.reconcile_snapshot(
+                    scan.files,
+                    scan.unreadable,
+                    scan.candidates,
+                    &scan.directory_mtimes,
+                    &scan.unreadable_page_ids,
+                )? {
+                    return Ok(self.reconciliation_status(false));
+                }
+                self.rebuild_index()?;
+                self.collection_digest = Some(digest);
+                self.collection_revision += 1;
+                self.collection_reconcile_pending = false;
+                return Ok(self.reconciliation_status(true));
+            };
+            let path = path.clone();
+            let Ok(text) = read_bounded_text(&self.root.join(&path), MAX_PAGE_BYTES) else {
+                return Ok(self.reconciliation_status(false));
+            };
+            if hex::encode(Sha256::digest(text.as_bytes())) != *fingerprint {
+                return Ok(self.reconciliation_status(false));
+            }
+            if path.starts_with("pages/") {
+                let generation = format!(
+                    "{PAGE_CANDIDATE_CACHE_VERSION}:{}",
+                    scan.candidate_digest.as_deref().unwrap()
+                );
+                let candidate =
+                    self.cached_page_candidate(&generation, &path, fingerprint, &text)?;
+                match candidate {
+                    PageCandidate::Parsed { page_id, retained_owner_edits } => {
+                        if !retained_owner_edits.is_empty() {
+                            scan.unreadable.push(CollectionDiagnostic { kind: "retained_owner_save".into(), paths: retained_owner_edits, detail: "Exact owner saves retained with uncertainty. Supported manual corrections remain authoritative; unedited facts continue updating.".into() });
+                        }
+                        scan.candidates.entry(page_id).or_default().push(path.clone());
+                    }
+                    PageCandidate::Malformed => scan.unreadable.push(CollectionDiagnostic {
+                        kind: "malformed_metadata".into(),
+                        paths: vec![path.clone()],
+                        detail: "No unambiguous page identity can be read. Original content is preserved.".into(),
+                    }),
+                }
+            } else {
+                self.inspect_reconciliation_candidate(&path, &mut scan.unreadable);
+            }
+            scan.candidate_cursor = Some(path);
+        }
+        self.collection_scan = Some(scan);
+        Ok(self.reconciliation_status(false))
     }
 
     pub fn collection_status(&self) -> ReconciliationStatus {
-        self.reconciliation_status(self.collection_scan.is_none())
+        self.reconciliation_status(!self.collection_reconcile_pending)
     }
 
     fn reconciliation_status(&self, complete: bool) -> ReconciliationStatus {
@@ -107,11 +312,73 @@ impl Application {
         }
     }
 
-    fn reconcile_snapshot(&mut self, files: BTreeMap<String, String>) -> Result<bool> {
+    fn cached_page_candidate(
+        &self,
+        generation: &str,
+        path: &str,
+        fingerprint: &str,
+        text: &str,
+    ) -> Result<PageCandidate> {
+        let cached: Option<(Option<String>, Option<String>)> = self.index.query_row(
+            "SELECT outcome, checksum FROM reconciliation_page_candidates WHERE generation=?1 AND path=?2 AND fingerprint=?3",
+            params![generation, path, fingerprint],
+            |row| Ok((row.get(0).ok(), row.get(1).ok())),
+        ).optional()?;
+        if let Some((Some(outcome), Some(checksum))) = cached {
+            if hex::encode(Sha256::digest(outcome.as_bytes())) == checksum {
+                if let Ok(candidate) = serde_json::from_str(&outcome) {
+                    return Ok(candidate);
+                }
+            }
+        }
+        let candidate = match parse_knowledge_header(text) {
+            Ok(header) => PageCandidate::Parsed {
+                page_id: header.page_id,
+                retained_owner_edits: header.uninterpreted_owner_edits,
+            },
+            Err(_) => PageCandidate::Malformed,
+        };
+        let outcome = serde_json::to_string(&candidate)?;
+        let checksum = hex::encode(Sha256::digest(outcome.as_bytes()));
+        self.index.execute(
+            "INSERT INTO reconciliation_page_candidates(generation,path,fingerprint,outcome,checksum) VALUES (?1,?2,?3,?4,?5) ON CONFLICT(generation,path) DO UPDATE SET fingerprint=excluded.fingerprint,outcome=excluded.outcome,checksum=excluded.checksum",
+            params![generation, path, fingerprint, outcome, checksum],
+        )?;
+        Ok(candidate)
+    }
+
+    fn inspect_reconciliation_candidate(
+        &self,
+        path: &str,
+        diagnostics: &mut Vec<CollectionDiagnostic>,
+    ) {
+        if is_source_acquisition(path) && read_acquisition_record(&self.root.join(path)).is_err() {
+            diagnostics.push(CollectionDiagnostic { kind: "malformed_acquisition".into(), paths: vec![path.to_owned()], detail: "This acquisition record is unreadable; its original content is preserved for recovery.".into() });
+        }
+        if is_source_index(path) {
+            let source = self.root.join(path);
+            let usable = read_page(&source).ok().is_some_and(|page| {
+                self.source_dir(&page.info.source_id).ok().as_deref() == source.parent()
+                    && self.open_source(&page.info.source_id).is_ok()
+            });
+            if !usable {
+                diagnostics.push(CollectionDiagnostic { kind: "malformed_metadata".into(), paths: vec![path.to_owned()], detail: "Source metadata, identity, or acquisition records are unreadable or inconsistent; original files and retained assets remain preserved.".into() });
+            }
+        }
+    }
+
+    fn reconcile_snapshot(
+        &mut self,
+        files: BTreeMap<String, String>,
+        mut diagnostics: Vec<CollectionDiagnostic>,
+        mut candidates: BTreeMap<String, Vec<String>>,
+        directory_mtimes: &BTreeMap<PathBuf, std::time::SystemTime>,
+        unreadable_page_ids: &BTreeMap<String, Option<String>>,
+    ) -> Result<bool> {
         let ledger_path = self.root.join(".reconciliation/paths.md");
-        let previous: Ledger = if ledger_path.exists() {
+        let (previous, ledger_snapshot): (Ledger, Option<Vec<u8>>) = if ledger_path.exists() {
             let text = read_bounded_text(&ledger_path, MAX_PAGE_BYTES)?;
-            serde_yaml_ng::from_str(
+            let previous = serde_yaml_ng::from_str(
                 text.strip_prefix("---\n")
                     .and_then(|v| v.split_once("\n---\n"))
                     .ok_or_else(|| {
@@ -121,43 +388,13 @@ impl Application {
                         )
                     })?
                     .0,
-            )?
+            )?;
+            (previous, Some(text.into_bytes()))
         } else {
-            Ledger::default()
+            (Ledger::default(), None)
         };
-        let mut candidates = BTreeMap::<String, Vec<String>>::new();
-        let mut diagnostics = Vec::new();
-        for path in files.keys() {
-            let Ok(text) = read_bounded_text(&self.root.join(path), MAX_PAGE_BYTES) else {
-                return Ok(false);
-            };
-            if path.starts_with("sources/")
-                && path.ends_with("/index.md")
-                && read_page(&self.root.join(path)).is_err()
-            {
-                diagnostics.push(CollectionDiagnostic { kind: "malformed_metadata".into(), paths: vec![path.clone()], detail: "Source metadata is unreadable; the original file and retained assets remain preserved.".into() });
-            }
-            if !path.starts_with("pages/") {
-                continue;
-            }
-            match parse_knowledge_header(&text) {
-                Ok(header) => {
-                    if !header.uninterpreted_owner_edits.is_empty() {
-                        diagnostics.push(CollectionDiagnostic { kind: "retained_owner_save".into(), paths: header.uninterpreted_owner_edits.clone(), detail: "Exact owner saves retained with uncertainty. Supported manual corrections remain authoritative; unedited facts continue updating.".into() });
-                    }
-                    candidates
-                        .entry(header.page_id)
-                        .or_default()
-                        .push(path.clone());
-                }
-                Err(_) => diagnostics.push(CollectionDiagnostic {
-                    kind: "malformed_metadata".into(),
-                    paths: vec![path.clone()],
-                    detail:
-                        "No unambiguous page identity can be read. Original content is preserved."
-                            .into(),
-                }),
-            }
+        for paths in candidates.values_mut() {
+            paths.sort();
         }
         let mut ledger = Ledger {
             pages: previous.pages.clone(),
@@ -181,14 +418,23 @@ impl Application {
         let mut writes = Vec::new();
         let mut bases = HashMap::new();
         for (path, fingerprint) in &files {
-            if path.starts_with("sources/") && !path.ends_with("/index.md") {
-                continue;
-            }
             let Ok(text) = read_bounded_text(&self.root.join(path), MAX_PAGE_BYTES) else {
                 return Ok(false);
             };
             if hex::encode(Sha256::digest(text.as_bytes())) != *fingerprint {
                 return Ok(false);
+            }
+            if path.starts_with("sources/") && !is_source_index(path) {
+                continue;
+            }
+            // Never rewrite a damaged source record while reporting its gap.
+            if is_source_index(path)
+                && diagnostics.iter().any(|diagnostic| {
+                    diagnostic.kind == "malformed_metadata"
+                        && diagnostic.paths.iter().any(|item| item == path)
+                })
+            {
+                continue;
             }
             let is_ambiguous = candidates
                 .values()
@@ -217,7 +463,7 @@ impl Application {
                 rebase_href(origin, path, href)
             });
             let mut repaired = repair_links(path, &rebased, &aliases, &files, &mut diagnostics);
-            if path.starts_with("sources/") && path.ends_with("/index.md") {
+            if is_source_index(path) {
                 if let Ok(mut page) = read_page(&self.root.join(path)) {
                     let mut changed = false;
                     for summary in &mut page.info.knowledge_pages {
@@ -246,14 +492,55 @@ impl Application {
             }
         }
         let ledger_text = format!("---\n{}---\n\n# Page locations\n\nLast unambiguous paths, used to repair ordinary links after moves. Markdown pages remain authoritative.\n", serde_yaml_ng::to_string(&ledger)?);
-        let ledger_bytes = fs::read(&ledger_path).ok();
+        let ledger_bytes = ledger_snapshot.clone();
         if ledger_bytes.as_deref() != Some(ledger_text.as_bytes())
             && (!ledger.pages.is_empty() || ledger_bytes.is_some())
         {
             if let Some(bytes) = ledger_bytes {
                 bases.insert(ledger_path.clone(), bytes);
             }
-            writes.push((ledger_path, ledger_text.into_bytes()));
+            writes.push((ledger_path.clone(), ledger_text.into_bytes()));
+        }
+        #[cfg(test)]
+        if let Some(hook) = self.before_reconciliation_publication.take() {
+            hook();
+        }
+        for (path, fingerprint) in &files {
+            let Ok(text) = read_bounded_text(&self.root.join(path), MAX_PAGE_BYTES) else {
+                return Ok(false);
+            };
+            if hex::encode(Sha256::digest(text.as_bytes())) != *fingerprint {
+                return Ok(false);
+            }
+        }
+        for diagnostic in &diagnostics {
+            if diagnostic.kind == "unreadable_markdown"
+                && diagnostic
+                    .paths
+                    .iter()
+                    .any(|path| read_bounded_text(&self.root.join(path), MAX_PAGE_BYTES).is_ok())
+            {
+                return Ok(false);
+            }
+        }
+        for (path, expected) in unreadable_page_ids {
+            let current = read_knowledge_header(&self.root.join(path))
+                .ok()
+                .map(|header| header.page_id);
+            if &current != expected {
+                return Ok(false);
+            }
+        }
+        let ledger_unchanged = match (
+            read_bounded_text(&ledger_path, MAX_PAGE_BYTES),
+            ledger_snapshot.as_deref(),
+        ) {
+            (Ok(actual), Some(expected)) => actual.as_bytes() == expected,
+            (Err(GardenError::Io(error)), None) => error.kind() == std::io::ErrorKind::NotFound,
+            _ => false,
+        };
+        if !scan_directories_unchanged(directory_mtimes) || !ledger_unchanged {
+            return Ok(false);
         }
         commit_publication(
             &self.root,
@@ -506,4 +793,166 @@ fn replace_destination(
     let mut result = capture[0].to_owned();
     result.replace_range(offset..offset + raw.len(), &replacement);
     result
+}
+
+#[cfg(test)]
+mod publication_race_tests {
+    use super::*;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+
+    fn exercise_changed_read_dependency(add_page: bool) {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("collection");
+        let mut app = Application::open(&root).unwrap();
+        let pages = root.join("pages");
+        fs::create_dir_all(&pages).unwrap();
+        let original = pages.join("owner.md");
+        fs::write(&original, "original owner content").unwrap();
+        let target = if add_page {
+            pages.join("added.md")
+        } else {
+            original.clone()
+        };
+        let hook_called = Arc::new(AtomicBool::new(false));
+        let called = Arc::clone(&hook_called);
+        app.before_reconciliation_publication = Some(Box::new(move || {
+            fs::write(target, "new owner content").unwrap();
+            called.store(true, Ordering::SeqCst);
+        }));
+        let revision = app.collection_status().revision;
+        for _ in 0..10 {
+            let status = app.reconcile_collection(100).unwrap();
+            if hook_called.load(Ordering::SeqCst) {
+                assert!(
+                    !status.complete,
+                    "a changed read dependency must reject the snapshot"
+                );
+                assert_eq!(status.revision, revision);
+                assert!(status.diagnostics.is_empty());
+                break;
+            }
+        }
+        assert!(hook_called.load(Ordering::SeqCst));
+        for _ in 0..10 {
+            let status = app.reconcile_collection(100).unwrap();
+            if status.complete {
+                let expected = if add_page { 2 } else { 1 };
+                assert_eq!(
+                    status
+                        .diagnostics
+                        .iter()
+                        .filter(|item| item.kind == "malformed_metadata")
+                        .count(),
+                    expected
+                );
+                assert_eq!(
+                    fs::read_to_string(if add_page {
+                        pages.join("added.md")
+                    } else {
+                        original
+                    })
+                    .unwrap(),
+                    "new owner content"
+                );
+                return;
+            }
+        }
+        panic!("the stable snapshot should eventually reconcile");
+    }
+
+    #[test]
+    fn changed_unwritten_page_rejects_the_snapshot() {
+        exercise_changed_read_dependency(false);
+    }
+
+    #[test]
+    fn added_page_rejects_the_snapshot() {
+        exercise_changed_read_dependency(true);
+    }
+
+    #[test]
+    fn newly_readable_page_rejects_the_snapshot() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("collection");
+        let mut app = Application::open(&root).unwrap();
+        let page = root.join("pages/owner.md");
+        fs::create_dir_all(page.parent().unwrap()).unwrap();
+        fs::write(&page, [0xff]).unwrap();
+        let target = page.clone();
+        let hook_called = Arc::new(AtomicBool::new(false));
+        let called = Arc::clone(&hook_called);
+        app.before_reconciliation_publication = Some(Box::new(move || {
+            fs::write(target, "now readable").unwrap();
+            called.store(true, Ordering::SeqCst);
+        }));
+        for _ in 0..10 {
+            let status = app.reconcile_collection(100).unwrap();
+            if hook_called.load(Ordering::SeqCst) {
+                assert!(
+                    !status.complete,
+                    "a newly readable page must reject the snapshot"
+                );
+                for _ in 0..10 {
+                    let status = app.reconcile_collection(100).unwrap();
+                    if status.complete {
+                        assert!(status
+                            .diagnostics
+                            .iter()
+                            .any(|item| item.kind == "malformed_metadata"
+                                && item.paths.iter().any(|path| path == "pages/owner.md")));
+                        assert!(!status
+                            .diagnostics
+                            .iter()
+                            .any(|item| item.kind == "unreadable_markdown"));
+                        return;
+                    }
+                }
+                panic!("the readable page should be reconsidered");
+            }
+        }
+        panic!("the publication hook should run");
+    }
+
+    #[test]
+    fn oversized_ledger_edit_rejects_the_snapshot() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("collection");
+        let ledger = root.join(".reconciliation/paths.md");
+        fs::create_dir_all(ledger.parent().unwrap()).unwrap();
+        fs::write(&ledger, "---\npages: {}\n---\n\n# Locations\n").unwrap();
+        let mut app = Application::open(&root).unwrap();
+        let original_ledger = fs::read(&ledger).unwrap();
+        fs::create_dir_all(root.join("pages")).unwrap();
+        fs::write(root.join("pages/owner.md"), "owner content").unwrap();
+        let target = ledger.clone();
+        let hook_called = Arc::new(AtomicBool::new(false));
+        let called = Arc::clone(&hook_called);
+        app.before_reconciliation_publication = Some(Box::new(move || {
+            File::create(target)
+                .unwrap()
+                .set_len(MAX_PAGE_BYTES + 1)
+                .unwrap();
+            called.store(true, Ordering::SeqCst);
+        }));
+        for _ in 0..10 {
+            let status = app.reconcile_collection(100).unwrap();
+            if hook_called.load(Ordering::SeqCst) {
+                assert!(
+                    !status.complete,
+                    "the oversized ledger edit must reject the snapshot"
+                );
+                fs::write(&ledger, original_ledger).unwrap();
+                for _ in 0..10 {
+                    if app.reconcile_collection(100).unwrap().complete {
+                        return;
+                    }
+                }
+                panic!("a restored ledger should allow reconciliation");
+            }
+        }
+        panic!("the publication hook should run");
+    }
 }

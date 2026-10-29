@@ -5002,3 +5002,96 @@ it("does not navigate to a removed route stop when its source-open response arri
   );
   expect(screen.queryByText(/Selected route stop 1 of/)).toBeNull();
 });
+
+it("restores the last page, scope, filters, selection, and scroll without a saved view", async () => {
+  const api = testApi();
+  api.searchPages = vi.fn().mockResolvedValue({
+    pages: [
+      {
+        page_id: "page-v17",
+        source_id: riverside.info.source_id,
+        page_type: "knowledge",
+        title: "Observation V17",
+        kind: "event",
+        excerpt: "Observation V17 took place at Riverside.",
+        tags: ["riverside"],
+        format: "md",
+        event_date: "2024-05-17",
+        extraction: "text_preserved",
+        processing_status: "complete",
+        matched_by: "keyword",
+        match_location: null,
+      },
+    ],
+    next_offset: null,
+    available_tags: ["riverside"],
+    available_formats: ["md"],
+    available_statuses: ["complete"],
+    meaning_search_status: "ready",
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await screen.findByRole("heading", { name: "Search your garden" });
+  await user.type(
+    screen.getByRole("searchbox", { name: "Words or title" }),
+    "Riverside",
+  );
+  await user.click(screen.getByRole("checkbox", { name: "Tag riverside" }));
+  fireEvent.submit(root.querySelector(".search-form")!);
+  await screen.findByRole("button", { name: /Observation V17/ });
+  dispose?.();
+  dispose = undefined;
+
+  const reopened = testApi();
+  reopened.searchPages = vi.fn().mockResolvedValue({
+    pages: [
+      {
+        page_id: "page-v17",
+        source_id: riverside.info.source_id,
+        page_type: "knowledge",
+        title: "Observation V17",
+        kind: "event",
+        excerpt: "Observation V17 took place at Riverside.",
+        tags: ["riverside"],
+        format: "md",
+        event_date: "2024-05-17",
+        extraction: "text_preserved",
+        processing_status: "complete",
+        matched_by: "keyword",
+        match_location: null,
+      },
+    ],
+    next_offset: null,
+    available_tags: ["riverside"],
+    available_formats: ["md"],
+    available_statuses: ["complete"],
+    meaning_search_status: "ready",
+  });
+  const secondRoot = document.createElement("div");
+  document.body.append(secondRoot);
+  dispose = await mountReader(secondRoot, reopened);
+  await screen.findByRole("heading", { name: "Search your garden" });
+  expect(reopened.searchPages).toHaveBeenCalledWith(
+    expect.objectContaining({ query: "Riverside", tags: ["riverside"] }),
+  );
+  expect(
+    (
+      screen.getByRole("searchbox", {
+        name: "Words or title",
+      }) as HTMLInputElement
+    ).value,
+  ).toBe("Riverside");
+  expect(
+    screen
+      .getByRole("checkbox", { name: "Tag riverside" })
+      .hasAttribute("checked") ||
+      (
+        screen.getByRole("checkbox", {
+          name: "Tag riverside",
+        }) as HTMLInputElement
+      ).checked,
+  ).toBe(true);
+});

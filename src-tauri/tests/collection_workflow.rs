@@ -3978,6 +3978,7 @@ fn search_omits_superseded_source_text_and_locates_independent_support_after_reb
     app.import_source(&pending_path, AcquisitionMethod::Picker)
         .unwrap();
     drop(app);
+    fs::remove_dir_all(collection.join(".derived")).unwrap();
     let mut reopened = Application::open(&collection).unwrap();
     reopened.rebuild_index().unwrap();
     let after_rebuild = reopened
@@ -5454,9 +5455,96 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
         .markdown
         .contains("duration: 12 minutes"));
 
+    let search_definition: knowledge_garden::application::views::ViewDefinition =
+        serde_json::from_value(serde_json::json!({
+            "active":"search", "search":{"query":"11 minutes"}, "query":null, "collection":null,
+            "timeline":null, "paths":null, "comparison":[], "target":null
+        }))
+        .unwrap();
+    let trail_definition: knowledge_garden::application::views::ViewDefinition = serde_json::from_value(serde_json::json!({
+        "active":"trail", "trail":[{"stop_id":uuid::Uuid::new_v4().to_string(), "label":"Corrected observation", "target":{"source_id":null,"page_id":event.page_id,"title":"Observation V17"},"context":null}],
+        "search":null,"query":null,"collection":null,"timeline":null,"paths":null,"comparison":[],"target":null
+    })).unwrap();
+    let saved_search = app
+        .create_saved_view("Corrected observations", search_definition.clone())
+        .unwrap();
+    let saved_trail = app
+        .create_saved_view("Reviewed route", trail_definition.clone())
+        .unwrap();
+    let unfinished = workspace.path().join("unfinished.txt");
+    fs::write(
+        &unfinished,
+        "Unfinished input remains queued after rebuilding.",
+    )
+    .unwrap();
+    let unfinished = app
+        .import_source(&unfinished, AcquisitionMethod::Picker)
+        .unwrap();
+    let before_location = app
+        .search_pages(PageSearchRequest {
+            query: "16 visits".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .pages
+        .into_iter()
+        .find(|page| page.page_id == event.page_id)
+        .unwrap()
+        .match_location
+        .expect("the current fact has a source location");
+    let moved_page = collection.join("pages/owner-moved-observation.md");
+    fs::rename(&page_path, &moved_page).unwrap();
+    let original = fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap();
     drop(app);
     fs::remove_dir_all(collection.join(".derived")).unwrap();
     let mut reopened = Application::open(&collection).unwrap();
+    let reopened_search = reopened.open_saved_view(&saved_search.view_id).unwrap();
+    let reopened_trail = reopened.open_saved_view(&saved_trail.view_id).unwrap();
+    assert_eq!(
+        serde_json::to_value(&reopened_search.definition).unwrap(),
+        serde_json::to_value(&search_definition).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&reopened_trail.definition).unwrap(),
+        serde_json::to_value(&trail_definition).unwrap()
+    );
+    let route = reopened
+        .resolve_trail(reopened_trail.definition.trail)
+        .unwrap();
+    assert_eq!(route.len(), 1);
+    assert_eq!(route[0].status, "available");
+    assert_eq!(
+        route[0].stop.target.page_id.as_deref(),
+        Some(event.page_id.as_str())
+    );
+    assert_eq!(
+        reopened
+            .open_source(&unfinished.info.source_id)
+            .unwrap()
+            .info
+            .semantic_state,
+        "pending"
+    );
+    assert_eq!(
+        fs::read(reopened.original_path(&imported.info.source_id).unwrap()).unwrap(),
+        original
+    );
+    let after_location = reopened
+        .search_pages(PageSearchRequest {
+            query: "16 visits".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .pages
+        .into_iter()
+        .find(|page| page.page_id == event.page_id)
+        .unwrap()
+        .match_location
+        .expect("a moved page retains its source evidence location");
+    assert_eq!(
+        serde_json::to_value(after_location).unwrap(),
+        serde_json::to_value(before_location).unwrap()
+    );
     let after_rebuild = reopened.open_knowledge_page(&event.page_id).unwrap();
     assert!(after_rebuild
         .markdown
@@ -5467,12 +5555,7 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
     assert!(after_rebuild
         .markdown
         .contains("Owner note: reviewed and corrected after field playback."));
-    let durable_page = fs::read_to_string(
-        collection
-            .join("pages")
-            .join(format!("{}.md", event.page_id)),
-    )
-    .unwrap();
+    let durable_page = fs::read_to_string(&moved_page).unwrap();
     assert!(durable_page.contains("review: field-playback"));
     assert!(durable_page.contains("manual_correction:"));
     assert!(durable_page.contains("value: 11 minutes"));
@@ -5485,6 +5568,49 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
         .pages
         .iter()
         .any(|page| page.page_id == event.page_id));
+
+    // A new replacement after losing the cache must still respect the owner's
+    // correction while refreshing the fact the owner did not edit.
+    let fourth_text = "Complete report, revision 4 dated May 22, 2024. This report completely replaces revision 3 of this same observation record.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 17. Duration: 13 minutes.\n";
+    fs::write(&source, fourth_text).unwrap();
+    reopened
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    let jobs = reopened.claim_due_semantic_jobs_at(10, u128::MAX).unwrap();
+    let mut saw_update = false;
+    for job in jobs {
+        let result = if job.source_id == imported.info.source_id {
+            saw_update = true;
+            Ok(replacement_recording_with_duration(
+                fourth_text,
+                17,
+                true,
+                "13 minutes",
+            ))
+        } else {
+            Err(ProviderError::unavailable(
+                "The network is unavailable.".into(),
+                knowledge_garden::semantic::ProviderAvailability::Network,
+            ))
+        };
+        reopened.finish_semantic_job(job, result).unwrap();
+    }
+    assert!(
+        saw_update,
+        "the post-rebuild replacement must be rediscovered"
+    );
+    assert_eq!(
+        reopened
+            .open_source(&unfinished.info.source_id)
+            .unwrap()
+            .info
+            .semantic_state,
+        "pending"
+    );
+    let refreshed = reopened.open_knowledge_page(&event.page_id).unwrap();
+    assert!(refreshed.markdown.contains("- **visit count:** 17 visits"));
+    assert!(refreshed.markdown.contains("- **duration:** 11 minutes"));
+    assert!(!refreshed.markdown.contains("- **duration:** 13 minutes"));
 }
 
 #[test]
@@ -5960,6 +6086,132 @@ fn external_rename_repairs_ordinary_links_and_display_names_without_reimport() {
 }
 
 #[test]
+fn unreadable_page_body_does_not_block_healthy_rebuild() {
+    use std::io::Write;
+    let workspace = tempdir().unwrap();
+    let collection = workspace.path().join("collection");
+    let source = workspace.path().join("notes.txt");
+    fs::write(
+        &source,
+        "Office source document states a fixed observation.",
+    )
+    .unwrap();
+    let mut app =
+        Application::open_with_semantic_provider(&collection, Arc::new(WholeInputProvider))
+            .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let page = app
+        .open_source(&imported.info.source_id)
+        .unwrap()
+        .knowledge_pages[0]
+        .clone();
+    let path = collection.join(&page.path);
+    fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap()
+        .write_all(&[0xff])
+        .unwrap();
+    let original = fs::read(&path).unwrap();
+    let mut status = app.reconcile_collection(100).unwrap();
+    while !status.complete {
+        status = app.reconcile_collection(100).unwrap();
+    }
+    assert!(status
+        .diagnostics
+        .iter()
+        .any(|d| d.kind == "unreadable_markdown" && d.paths == [page.path.as_str()]));
+    assert_eq!(fs::read(path).unwrap(), original);
+    assert!(app
+        .search_pages(PageSearchRequest {
+            query: "Office source document".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .pages
+        .iter()
+        .any(|result| result.source_id == imported.info.source_id));
+}
+
+#[test]
+fn unreadable_page_bodies_do_not_hide_duplicate_identities() {
+    use std::io::Write;
+    for damage in 0..3 {
+        let workspace = tempdir().unwrap();
+        let collection = workspace.path().join("collection");
+        let source = workspace.path().join("notes.txt");
+        fs::write(
+            &source,
+            "Office source document states a fixed observation.",
+        )
+        .unwrap();
+        let mut app =
+            Application::open_with_semantic_provider(&collection, Arc::new(WholeInputProvider))
+                .unwrap();
+        let imported = app
+            .import_source(&source, AcquisitionMethod::Picker)
+            .unwrap();
+        app.resume_due_semantic_jobs().unwrap();
+        let page = app
+            .open_source(&imported.info.source_id)
+            .unwrap()
+            .knowledge_pages[0]
+            .clone();
+        let original = fs::read(collection.join(&page.path)).unwrap();
+        fs::rename(
+            collection.join(&page.path),
+            collection.join("pages/First.md"),
+        )
+        .unwrap();
+        let duplicate = collection.join("pages/Second.md");
+        fs::write(&duplicate, &original).unwrap();
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&duplicate)
+            .unwrap();
+        if damage == 0 {
+            file.set_len(
+                (knowledge_garden::application::MAX_TEXT_BYTES * 3 + 64 * 1024 + 1) as u64,
+            )
+            .unwrap();
+        } else if damage == 1 {
+            file.set_len(256 * 1024).unwrap();
+            file.write_all(&[0xff]).unwrap();
+        } else {
+            file.write_all(&[0xff]).unwrap();
+        }
+        drop(file);
+        let mut status = app.reconcile_collection(100).unwrap();
+        while !status.complete {
+            status = app.reconcile_collection(100).unwrap();
+        }
+        assert!(
+            status
+                .diagnostics
+                .iter()
+                .any(|d| d.kind == "duplicate_identity" && d.paths.len() == 2),
+            "a damaged body must not hide a duplicate page identity"
+        );
+        assert!(status
+            .diagnostics
+            .iter()
+            .any(|d| d.kind == "unreadable_markdown" && d.paths == ["pages/Second.md"]));
+        assert!(app
+            .open_knowledge_page(&page.page_id)
+            .unwrap_err()
+            .to_string()
+            .contains("ambiguous"));
+        assert_eq!(
+            fs::read(collection.join("pages/First.md")).unwrap(),
+            original
+        );
+    }
+}
+
+#[test]
 fn duplicate_and_malformed_pages_are_inspectable_and_never_recreated_at_canonical_path() {
     let workspace = tempdir().unwrap();
     let collection = workspace.path().join("collection");
@@ -6150,6 +6402,8 @@ fn replaced_page_directory_and_interrupted_reconciliation_recover_links() {
     }
     assert!(interrupted);
     drop(app);
+    // Lose the disposable index while a durable publication receipt is pending.
+    fs::remove_dir_all(collection.join(".derived")).unwrap();
     let app = Application::open(&collection).unwrap();
     assert_eq!(
         app.open_knowledge_page(&page.page_id).unwrap().page_id,
