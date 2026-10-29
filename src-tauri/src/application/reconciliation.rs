@@ -24,6 +24,7 @@ pub(super) struct Scan {
     files: BTreeMap<String, String>,
     source_directories: BTreeSet<String>,
     unreadable: Vec<CollectionDiagnostic>,
+    unreadable_page_ids: BTreeMap<String, Option<String>>,
     candidate_cursor: Option<String>,
     candidate_digest: Option<String>,
     candidates: BTreeMap<String, Vec<String>>,
@@ -154,8 +155,25 @@ impl Application {
                     .to_string_lossy()
                     .into_owned();
                 match read_bounded_text(&path, MAX_PAGE_BYTES) {
-                    Ok(text) => { scan.files.insert(relative, hex::encode(Sha256::digest(text.as_bytes()))); }
-                    Err(_) => scan.unreadable.push(CollectionDiagnostic { kind: "unreadable_markdown".into(), paths: vec![relative], detail: "Markdown could not be read within the supported size or encoding bounds; its original contents remain preserved.".into() }),
+                    Ok(text) => {
+                        scan.files
+                            .insert(relative, hex::encode(Sha256::digest(text.as_bytes())));
+                    }
+                    Err(_) => {
+                        if relative.starts_with("pages/") {
+                            let page_id = read_knowledge_header(&path)
+                                .ok()
+                                .map(|header| header.page_id);
+                            if let Some(page_id) = &page_id {
+                                scan.candidates
+                                    .entry(page_id.clone())
+                                    .or_default()
+                                    .push(relative.clone());
+                            }
+                            scan.unreadable_page_ids.insert(relative.clone(), page_id);
+                        }
+                        scan.unreadable.push(CollectionDiagnostic { kind: "unreadable_markdown".into(), paths: vec![relative], detail: "Markdown could not be read within the supported size or encoding bounds; its original contents remain preserved.".into() });
+                    }
                 }
             }
         }
@@ -181,6 +199,7 @@ impl Application {
                 &scan.files,
                 &scan.source_directories,
                 &scan.unreadable,
+                &scan.unreadable_page_ids,
             ))?));
             if self.collection_digest.as_ref() == Some(&digest) {
                 self.collection_reconcile_pending = false;
@@ -235,6 +254,7 @@ impl Application {
                     scan.unreadable,
                     scan.candidates,
                     &scan.directory_mtimes,
+                    &scan.unreadable_page_ids,
                 )? {
                     return Ok(self.reconciliation_status(false));
                 }
@@ -351,8 +371,9 @@ impl Application {
         &mut self,
         files: BTreeMap<String, String>,
         mut diagnostics: Vec<CollectionDiagnostic>,
-        candidates: BTreeMap<String, Vec<String>>,
+        mut candidates: BTreeMap<String, Vec<String>>,
         directory_mtimes: &BTreeMap<PathBuf, std::time::SystemTime>,
+        unreadable_page_ids: &BTreeMap<String, Option<String>>,
     ) -> Result<bool> {
         let ledger_path = self.root.join(".reconciliation/paths.md");
         let (previous, ledger_snapshot): (Ledger, Option<Vec<u8>>) = if ledger_path.exists() {
@@ -372,6 +393,9 @@ impl Application {
         } else {
             (Ledger::default(), None)
         };
+        for paths in candidates.values_mut() {
+            paths.sort();
+        }
         let mut ledger = Ledger {
             pages: previous.pages.clone(),
         };
@@ -496,6 +520,14 @@ impl Application {
                     .iter()
                     .any(|path| read_bounded_text(&self.root.join(path), MAX_PAGE_BYTES).is_ok())
             {
+                return Ok(false);
+            }
+        }
+        for (path, expected) in unreadable_page_ids {
+            let current = read_knowledge_header(&self.root.join(path))
+                .ok()
+                .map(|header| header.page_id);
+            if &current != expected {
                 return Ok(false);
             }
         }

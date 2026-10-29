@@ -5746,7 +5746,10 @@ impl Application {
         // it, avoiding a complete label-file scan for every retained page.
         let labels = self.knowledge_page_labels()?;
         for path in paths {
-            let expected = fs::read(&path)?;
+            let Ok(text) = read_bounded_text(&path, MAX_PAGE_BYTES) else {
+                continue;
+            };
+            let expected = text.into_bytes();
             let mut header = read_knowledge_header(&path)?;
             ensure_legacy_supports(&mut header);
             if self.capture_manual_fact_corrections_with_labels(&mut header, &path, &labels)? {
@@ -8652,11 +8655,18 @@ fn parse_knowledge_header(markdown: &str) -> Result<KnowledgePageHeader> {
 }
 
 fn read_knowledge_header(path: &Path) -> Result<KnowledgePageHeader> {
-    let mut markdown = String::new();
+    let mut markdown = Vec::new();
     File::open(path)?
         .take(256 * 1024)
-        .read_to_string(&mut markdown)?;
-    parse_knowledge_header(&markdown)
+        .read_to_end(&mut markdown)?;
+    let end = markdown
+        .windows(5)
+        .position(|bytes| bytes == b"\n---\n")
+        .ok_or_else(|| GardenError::Invalid("Knowledge page metadata is unreadable.".into()))?
+        + 5;
+    let header = std::str::from_utf8(&markdown[..end])
+        .map_err(|_| GardenError::Invalid("Knowledge page metadata is unreadable.".into()))?;
+    parse_knowledge_header(header)
 }
 
 fn ensure_legacy_supports(header: &mut KnowledgePageHeader) {

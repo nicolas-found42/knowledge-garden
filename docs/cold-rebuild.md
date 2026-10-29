@@ -21,6 +21,8 @@ work remains schedulable. Knowledge whose supporting source is unreadable remain
 available as retained Markdown with source-unavailable status. Path exploration
 reports missing support instead of fabricating evidence. Moved page identities are
 resolved to their current Markdown path before looking up a search evidence span.
+An unreadable page body does not hide a readable page identity. Duplicate
+identities remain ambiguous, and owner-edit capture preserves unreadable bodies.
 
 The destructive-to-cache fixtures cover retained source bytes, pending work, moved
 pages, external manual corrections, source replacement, independent support,
