@@ -281,7 +281,13 @@ fn embedded_coverage(archive: &mut ZipArchive<std::fs::File>) -> Option<Coverage
             Ok(part) => part,
             Err(_) => continue,
         };
-        let name = part.name().to_owned();
+        let name = match part.name() {
+            Ok(name) => name.into_owned(),
+            Err(_) => {
+                gaps.push("A package part has an unreadable name; its relationship metadata was not inventoried.".into());
+                continue;
+            }
+        };
         if !name.ends_with(".rels") {
             continue;
         }
