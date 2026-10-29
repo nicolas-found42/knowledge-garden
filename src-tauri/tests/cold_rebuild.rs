@@ -1,6 +1,96 @@
 use knowledge_garden::application::{AcquisitionMethod, Application, PageSearchRequest};
 use std::fs;
 
+#[cfg(unix)]
+#[test]
+fn inaccessible_directory_retries_without_omitting_its_pages() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("collection");
+    let mut app = Application::open(&root).unwrap();
+    let blocked = root.join("pages/blocked");
+    fs::create_dir_all(&blocked).unwrap();
+    fs::write(blocked.join("owner.md"), "owner content").unwrap();
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0)).unwrap();
+    if fs::read_dir(&blocked).is_ok() {
+        fs::set_permissions(&blocked, fs::Permissions::from_mode(0o700)).unwrap();
+        return;
+    }
+    let failed = app.reconcile_collection(100).is_err();
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(
+        failed,
+        "an inaccessible subtree must not be silently omitted"
+    );
+    for _ in 0..10 {
+        let status = app.reconcile_collection(100).unwrap();
+        if status.complete {
+            assert!(status.diagnostics.iter().any(|diagnostic| diagnostic
+                .paths
+                .iter()
+                .any(|path| path == "pages/blocked/owner.md")));
+            return;
+        }
+    }
+    panic!("the accessible subtree should be reconciled after retry");
+}
+
+#[test]
+fn reconciliation_restarts_when_a_page_is_added_during_candidate_inspection() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("collection");
+    let mut app = Application::open(&root).unwrap();
+    let pages = root.join("pages");
+    fs::create_dir_all(&pages).unwrap();
+    for index in 0..24 {
+        fs::write(pages.join(format!("owner-{index}.md")), "owner content").unwrap();
+    }
+    for _ in 0..32 {
+        assert!(!app.reconcile_collection(1).unwrap().complete);
+    }
+    fs::write(pages.join("added.md"), "new owner content").unwrap();
+    for _ in 0..200 {
+        let status = app.reconcile_collection(1).unwrap();
+        if status.complete {
+            assert!(status
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.paths.iter().any(|path| path == "pages/added.md")));
+            return;
+        }
+    }
+    panic!("a stable collection should eventually reconcile");
+}
+
+#[test]
+fn reconciliation_budgets_candidate_inspection_before_publishing() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("collection");
+    let mut app = Application::open(&root).unwrap();
+    let pages = root.join("pages");
+    fs::create_dir_all(&pages).unwrap();
+    for index in 0..24 {
+        fs::write(pages.join(format!("owner-{index}.md")), "owner content").unwrap();
+    }
+    let original_revision = app.collection_status().revision;
+    let mut calls = 0;
+    loop {
+        calls += 1;
+        let status = app.reconcile_collection(1).unwrap();
+        if status.complete {
+            assert!(
+                calls >= 48,
+                "candidate inspection must share the work budget"
+            );
+            assert!(status.revision > original_revision);
+            break;
+        }
+        assert_eq!(status.revision, original_revision);
+        assert!(status.diagnostics.is_empty());
+        assert!(calls < 200);
+    }
+}
+
 #[test]
 fn changed_files_keep_reconciliation_status_incomplete_until_retry_succeeds() {
     let temp = tempfile::tempdir().unwrap();

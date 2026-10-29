@@ -1,6 +1,7 @@
 //! Reconcile ordinary Markdown by durable identity; no watcher event is authoritative.
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Bound::{Excluded, Unbounded};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CollectionDiagnostic {
@@ -19,9 +20,13 @@ pub struct ReconciliationStatus {
 #[derive(Default)]
 pub(super) struct Scan {
     directories: Vec<fs::ReadDir>,
+    directory_mtimes: BTreeMap<PathBuf, std::time::SystemTime>,
     files: BTreeMap<String, String>,
     source_directories: BTreeSet<String>,
     unreadable: Vec<CollectionDiagnostic>,
+    candidate_cursor: Option<String>,
+    candidate_digest: Option<String>,
+    candidates: BTreeMap<String, Vec<String>>,
 }
 
 fn is_source_index(path: &str) -> bool {
@@ -46,6 +51,14 @@ struct Ledger {
     pages: BTreeMap<String, String>,
 }
 
+fn scan_directories_unchanged(scan: &Scan) -> bool {
+    scan.directory_mtimes.iter().all(|(path, expected)| {
+        fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .is_ok_and(|modified| modified == *expected)
+    })
+}
+
 impl Application {
     /// Visit at most `budget` directory entries. Complete generations repair links
     /// and refresh derived navigation; incomplete scans never infer deletions.
@@ -54,9 +67,16 @@ impl Application {
         recover_publications(&self.root)?;
         if self.collection_scan.is_none() {
             let mut scan = Scan::default();
+            scan.directory_mtimes
+                .insert(self.root.clone(), fs::metadata(&self.root)?.modified()?);
             for directory in ["pages", "sources"] {
-                match fs::read_dir(self.root.join(directory)) {
-                    Ok(entries) => scan.directories.push(entries),
+                let path = self.root.join(directory);
+                let modified = fs::metadata(&path).and_then(|metadata| metadata.modified());
+                match fs::read_dir(&path) {
+                    Ok(entries) => {
+                        scan.directory_mtimes.insert(path, modified?);
+                        scan.directories.push(entries);
+                    }
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                     Err(error) => return Err(error.into()),
                 }
@@ -80,7 +100,13 @@ impl Application {
                     return Err(error.into());
                 }
             };
-            let kind = entry.file_type()?;
+            let kind = match entry.file_type() {
+                Ok(kind) => kind,
+                Err(error) => {
+                    self.collection_scan = None;
+                    return Err(error.into());
+                }
+            };
             if kind.is_dir() {
                 if entry.path().parent() == Some(self.root.join("sources").as_path()) {
                     scan.source_directories.insert(
@@ -92,8 +118,21 @@ impl Application {
                             .into_owned(),
                     );
                 }
-                if let Ok(entries) = fs::read_dir(entry.path()) {
-                    scan.directories.push(entries);
+                let entries = entry
+                    .metadata()
+                    .and_then(|metadata| metadata.modified())
+                    .and_then(|modified| {
+                        fs::read_dir(entry.path()).map(|entries| (modified, entries))
+                    });
+                match entries {
+                    Ok((modified, entries)) => {
+                        scan.directory_mtimes.insert(entry.path(), modified);
+                        scan.directories.push(entries);
+                    }
+                    Err(error) => {
+                        self.collection_scan = None;
+                        return Err(error.into());
+                    }
                 }
             } else if kind.is_file() && entry.path().extension().is_some_and(|ext| ext == "md") {
                 let path = entry.path();
@@ -112,30 +151,72 @@ impl Application {
             return Ok(self.reconciliation_status(false));
         }
         let mut scan = self.collection_scan.take().unwrap();
-        for directory in &scan.source_directories {
-            let relative = format!("{directory}/index.md");
-            let path = self.root.join(&relative);
-            if !fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_file()) {
-                scan.unreadable.push(CollectionDiagnostic { kind: "missing_metadata".into(), paths: vec![relative], detail: "Source metadata is missing or is not an ordinary file; retained assets are preserved for recovery.".into() });
-            }
-        }
-        scan.unreadable
-            .sort_by(|left, right| left.paths.cmp(&right.paths));
-        let digest = hex::encode(Sha256::digest(serde_json::to_vec(&(
-            &scan.files,
-            &scan.source_directories,
-            &scan.unreadable,
-        ))?));
-        if self.collection_digest.as_ref() != Some(&digest) {
-            if !self.reconcile_snapshot(scan.files, scan.unreadable)? {
+        if scan.candidate_digest.is_none() {
+            if !scan_directories_unchanged(&scan) {
                 return Ok(self.reconciliation_status(false));
             }
-            self.rebuild_index()?;
-            self.collection_digest = Some(digest);
-            self.collection_revision += 1;
+            for directory in &scan.source_directories {
+                let relative = format!("{directory}/index.md");
+                let path = self.root.join(&relative);
+                if !fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_file())
+                {
+                    scan.unreadable.push(CollectionDiagnostic { kind: "missing_metadata".into(), paths: vec![relative], detail: "Source metadata is missing or is not an ordinary file; retained assets are preserved for recovery.".into() });
+                }
+            }
+            scan.unreadable
+                .sort_by(|left, right| left.paths.cmp(&right.paths));
+            let digest = hex::encode(Sha256::digest(serde_json::to_vec(&(
+                &scan.files,
+                &scan.source_directories,
+                &scan.unreadable,
+            ))?));
+            if self.collection_digest.as_ref() == Some(&digest) {
+                self.collection_reconcile_pending = false;
+                return Ok(self.reconciliation_status(true));
+            }
+            scan.candidate_digest = Some(digest);
+            self.collection_scan = Some(scan);
+            return Ok(self.reconciliation_status(false));
         }
-        self.collection_reconcile_pending = false;
-        Ok(self.reconciliation_status(true))
+        for _ in 0..budget.clamp(1, 1000) {
+            let next = match &scan.candidate_cursor {
+                Some(cursor) => scan
+                    .files
+                    .range::<str, _>((Excluded(cursor.as_str()), Unbounded))
+                    .next(),
+                None => scan.files.iter().next(),
+            };
+            let Some((path, fingerprint)) = next else {
+                if !scan_directories_unchanged(&scan) {
+                    return Ok(self.reconciliation_status(false));
+                }
+                let digest = scan.candidate_digest.take().unwrap();
+                if !self.reconcile_snapshot(scan.files, scan.unreadable, scan.candidates)? {
+                    return Ok(self.reconciliation_status(false));
+                }
+                self.rebuild_index()?;
+                self.collection_digest = Some(digest);
+                self.collection_revision += 1;
+                self.collection_reconcile_pending = false;
+                return Ok(self.reconciliation_status(true));
+            };
+            let path = path.clone();
+            let Ok(text) = read_bounded_text(&self.root.join(&path), MAX_PAGE_BYTES) else {
+                return Ok(self.reconciliation_status(false));
+            };
+            if hex::encode(Sha256::digest(text.as_bytes())) != *fingerprint {
+                return Ok(self.reconciliation_status(false));
+            }
+            self.inspect_reconciliation_candidate(
+                &path,
+                &text,
+                &mut scan.unreadable,
+                &mut scan.candidates,
+            );
+            scan.candidate_cursor = Some(path);
+        }
+        self.collection_scan = Some(scan);
+        Ok(self.reconciliation_status(false))
     }
 
     pub fn collection_status(&self) -> ReconciliationStatus {
@@ -150,10 +231,53 @@ impl Application {
         }
     }
 
+    fn inspect_reconciliation_candidate(
+        &self,
+        path: &str,
+        text: &str,
+        diagnostics: &mut Vec<CollectionDiagnostic>,
+        candidates: &mut BTreeMap<String, Vec<String>>,
+    ) {
+        if is_source_acquisition(path) && read_acquisition_record(&self.root.join(path)).is_err() {
+            diagnostics.push(CollectionDiagnostic { kind: "malformed_acquisition".into(), paths: vec![path.to_owned()], detail: "This acquisition record is unreadable; its original content is preserved for recovery.".into() });
+        }
+        if is_source_index(path) {
+            let source = self.root.join(path);
+            let usable = read_page(&source).ok().is_some_and(|page| {
+                self.source_dir(&page.info.source_id).ok().as_deref() == source.parent()
+                    && self.open_source(&page.info.source_id).is_ok()
+            });
+            if !usable {
+                diagnostics.push(CollectionDiagnostic { kind: "malformed_metadata".into(), paths: vec![path.to_owned()], detail: "Source metadata, identity, or acquisition records are unreadable or inconsistent; original files and retained assets remain preserved.".into() });
+            }
+        }
+        if !path.starts_with("pages/") {
+            return;
+        }
+        match parse_knowledge_header(text) {
+            Ok(header) => {
+                if !header.uninterpreted_owner_edits.is_empty() {
+                    diagnostics.push(CollectionDiagnostic { kind: "retained_owner_save".into(), paths: header.uninterpreted_owner_edits.clone(), detail: "Exact owner saves retained with uncertainty. Supported manual corrections remain authoritative; unedited facts continue updating.".into() });
+                }
+                candidates
+                    .entry(header.page_id)
+                    .or_default()
+                    .push(path.to_owned());
+            }
+            Err(_) => diagnostics.push(CollectionDiagnostic {
+                kind: "malformed_metadata".into(),
+                paths: vec![path.to_owned()],
+                detail: "No unambiguous page identity can be read. Original content is preserved."
+                    .into(),
+            }),
+        }
+    }
+
     fn reconcile_snapshot(
         &mut self,
         files: BTreeMap<String, String>,
         mut diagnostics: Vec<CollectionDiagnostic>,
+        candidates: BTreeMap<String, Vec<String>>,
     ) -> Result<bool> {
         let ledger_path = self.root.join(".reconciliation/paths.md");
         let previous: Ledger = if ledger_path.exists() {
@@ -172,48 +296,6 @@ impl Application {
         } else {
             Ledger::default()
         };
-        let mut candidates = BTreeMap::<String, Vec<String>>::new();
-        for path in files.keys() {
-            let Ok(text) = read_bounded_text(&self.root.join(path), MAX_PAGE_BYTES) else {
-                return Ok(false);
-            };
-            if is_source_acquisition(path)
-                && read_acquisition_record(&self.root.join(path)).is_err()
-            {
-                diagnostics.push(CollectionDiagnostic { kind: "malformed_acquisition".into(), paths: vec![path.clone()], detail: "This acquisition record is unreadable; its original content is preserved for recovery.".into() });
-            }
-            if is_source_index(path) {
-                let source = self.root.join(path);
-                let usable = read_page(&source).ok().is_some_and(|page| {
-                    self.source_dir(&page.info.source_id).ok().as_deref() == source.parent()
-                        && self.open_source(&page.info.source_id).is_ok()
-                });
-                if !usable {
-                    diagnostics.push(CollectionDiagnostic { kind: "malformed_metadata".into(), paths: vec![path.clone()], detail: "Source metadata, identity, or acquisition records are unreadable or inconsistent; original files and retained assets remain preserved.".into() });
-                }
-            }
-            if !path.starts_with("pages/") {
-                continue;
-            }
-            match parse_knowledge_header(&text) {
-                Ok(header) => {
-                    if !header.uninterpreted_owner_edits.is_empty() {
-                        diagnostics.push(CollectionDiagnostic { kind: "retained_owner_save".into(), paths: header.uninterpreted_owner_edits.clone(), detail: "Exact owner saves retained with uncertainty. Supported manual corrections remain authoritative; unedited facts continue updating.".into() });
-                    }
-                    candidates
-                        .entry(header.page_id)
-                        .or_default()
-                        .push(path.clone());
-                }
-                Err(_) => diagnostics.push(CollectionDiagnostic {
-                    kind: "malformed_metadata".into(),
-                    paths: vec![path.clone()],
-                    detail:
-                        "No unambiguous page identity can be read. Original content is preserved."
-                            .into(),
-                }),
-            }
-        }
         let mut ledger = Ledger {
             pages: previous.pages.clone(),
         };
@@ -236,14 +318,14 @@ impl Application {
         let mut writes = Vec::new();
         let mut bases = HashMap::new();
         for (path, fingerprint) in &files {
-            if path.starts_with("sources/") && !is_source_index(path) {
-                continue;
-            }
             let Ok(text) = read_bounded_text(&self.root.join(path), MAX_PAGE_BYTES) else {
                 return Ok(false);
             };
             if hex::encode(Sha256::digest(text.as_bytes())) != *fingerprint {
                 return Ok(false);
+            }
+            if path.starts_with("sources/") && !is_source_index(path) {
+                continue;
             }
             // Never rewrite a damaged source record while reporting its gap.
             if is_source_index(path)

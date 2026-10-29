@@ -28,8 +28,11 @@ saved criteria and trails. They compare search and evidence outcomes after a col
 restart and verify malformed and missing metadata remain intact and visible as
 recovery gaps.
 
-Reconciliation scans directory entries with an explicit per-call budget and the
-SQLite index update is transactional. A temporary file-backed SQLite lookup resolves
+Reconciliation scans directory entries and inspects candidate files with an
+explicit per-call budget. It restarts the scan if its validation detects a file
+or directory change. Candidate state is held in memory, and the final
+snapshot and index passes are not bounded. The SQLite index update is transactional.
+A temporary file-backed SQLite lookup resolves
 unique page paths once per rebuild instead of rescanning every page for each source.
 Distinct relationship-support keys are also sorted through a temporary SQLite
 table instead of collecting the entire set in Rust memory. Obsolete meaning-vector
