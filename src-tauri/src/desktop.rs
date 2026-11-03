@@ -45,12 +45,23 @@ async fn with_engine<T: Send + 'static>(
     operation: impl FnOnce(&mut Application) -> crate::application::Result<T> + Send + 'static,
 ) -> Result<T, String> {
     let control = Arc::clone(&engine.control);
+    if control.startup_pending() {
+        return Err("The library is recovering. Please wait for recovery to finish.".into());
+    }
     let engine = Arc::clone(&engine.app);
     tauri::async_runtime::spawn_blocking(move || {
         let _work = control.enter();
         let mut app = engine
             .lock()
             .map_err(|_| "The collection worker stopped unexpectedly.".to_owned())?;
+        app.require_integrity_recovered()
+            .map_err(|error| error.to_string())?;
+        app.recover_integrity_exclusions()
+            .map_err(|error| error.to_string())?;
+        app.recover_source_removals()
+            .map_err(|error| error.to_string())?;
+        app.recover_registration_removals()
+            .map_err(|error| error.to_string())?;
         operation(&mut app).map_err(|error| error.to_string())
     })
     .await
@@ -60,6 +71,49 @@ async fn with_engine<T: Send + 'static>(
 #[tauri::command]
 fn background_status(engine: State<'_, Engine>) -> crate::background::BackgroundStatus {
     engine.control.status()
+}
+
+#[derive(serde::Serialize)]
+struct LocalModelCheck {
+    model: String,
+    observed_revision: String,
+}
+
+#[tauri::command]
+async fn check_local_visual_model() -> Result<LocalModelCheck, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        // A one-pixel public test image; no collection content leaves the application.
+        let image = STANDARD
+            .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aN8AAAAASUVORK5CYII=")
+            .map_err(|_| "The built-in model check image is invalid.".to_owned())?;
+        crate::visual_inference::ManagedVisualModel::system()
+            .interpret(&image)
+            .map(|result| LocalModelCheck {
+                model: result.model,
+                observed_revision: result.observed_revision,
+            })
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn check_jev_connection() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let provider = JevSemanticProvider::from_environment_and_keychain();
+        let candidates = [crate::semantic::NavigationCandidate {
+            label: "Test".into(),
+            excerpt: "A tree grows in a garden.".into(),
+        }];
+        provider
+            .judge_navigation("Find a tree", &candidates)
+            .map(|result| result.model)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 #[tauri::command]
 async fn open_collection_file(engine: State<'_, Engine>, path: String) -> Result<(), String> {
@@ -84,7 +138,7 @@ async fn open_comparison_original(
     request: crate::application::comparison::ComparisonRequest,
 ) -> Result<(), String> {
     with_engine(&engine, move |app| {
-        let original = app.comparison_original_path(request)?;
+        let original = app.verified_comparison_original_path(request)?;
         open_retained_original(&original)
     })
     .await
@@ -148,33 +202,12 @@ async fn list_saved_views(
     with_engine(&engine, move |app| app.list_saved_views(&query, offset)).await
 }
 #[tauri::command]
-async fn create_saved_view(
-    engine: State<'_, Engine>,
-    name: String,
-    definition: crate::application::views::ViewDefinition,
-) -> Result<crate::application::views::SavedView, String> {
-    with_engine(&engine, move |app| app.create_saved_view(&name, definition)).await
-}
-#[tauri::command]
 async fn open_saved_view(
     engine: State<'_, Engine>,
     view_id: String,
 ) -> Result<crate::application::views::SavedView, String> {
     with_engine(&engine, move |app| app.open_saved_view(&view_id)).await
 }
-#[tauri::command]
-async fn rename_saved_view(
-    engine: State<'_, Engine>,
-    view_id: String,
-    name: String,
-) -> Result<crate::application::views::SavedView, String> {
-    with_engine(&engine, move |app| app.rename_saved_view(&view_id, &name)).await
-}
-#[tauri::command]
-async fn remove_saved_view(engine: State<'_, Engine>, view_id: String) -> Result<(), String> {
-    with_engine(&engine, move |app| app.remove_saved_view(&view_id)).await
-}
-
 #[tauri::command]
 async fn collection_groups(
     engine: State<'_, Engine>,
@@ -209,7 +242,18 @@ async fn timeline(
 async fn collection_status(
     engine: State<'_, Engine>,
 ) -> Result<crate::application::reconciliation::ReconciliationStatus, String> {
-    with_engine(&engine, |app| Ok(app.collection_status())).await
+    if engine.control.startup_pending() {
+        return Err("The library is recovering. Please wait for recovery to finish.".into());
+    }
+    let app = Arc::clone(&engine.app);
+    tauri::async_runtime::spawn_blocking(move || {
+        let app = app
+            .lock()
+            .map_err(|_| "The collection worker stopped unexpectedly.".to_owned())?;
+        Ok(app.collection_status())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -228,6 +272,26 @@ async fn import_source(
     method: AcquisitionMethod,
 ) -> Result<SourcePage, String> {
     with_engine(&engine, move |app| app.import_source(path, method)).await
+}
+
+#[tauri::command]
+async fn remove_source(engine: State<'_, Engine>, source_id: String) -> Result<(), String> {
+    with_engine(&engine, move |app| app.remove_source(&source_id)).await
+}
+
+#[tauri::command]
+async fn list_removed_sources(
+    engine: State<'_, Engine>,
+) -> Result<Vec<crate::application::watched::RemovedSource>, String> {
+    with_engine(&engine, |app| app.list_removed_sources()).await
+}
+
+#[tauri::command]
+async fn restore_removed_source(
+    engine: State<'_, Engine>,
+    recovery_id: String,
+) -> Result<SourcePage, String> {
+    with_engine(&engine, move |app| app.restore_removed_source(&recovery_id)).await
 }
 
 #[tauri::command]
@@ -251,6 +315,35 @@ async fn list_watched_directories(
     engine: State<'_, Engine>,
 ) -> Result<Vec<crate::application::watched::WatchedDirectory>, String> {
     with_engine(&engine, |app| app.list_watched_directories()).await
+}
+
+#[tauri::command]
+async fn unregister_watched_directory(
+    engine: State<'_, Engine>,
+    watch_id: String,
+) -> Result<(), String> {
+    with_engine(&engine, move |app| {
+        app.unregister_watched_directory(&watch_id)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn list_repositories(
+    engine: State<'_, Engine>,
+) -> Result<Vec<crate::application::repositories::RepositoryRegistration>, String> {
+    with_engine(&engine, |app| app.list_repositories()).await
+}
+
+#[tauri::command]
+async fn unregister_repository(
+    engine: State<'_, Engine>,
+    repository_id: String,
+) -> Result<(), String> {
+    with_engine(&engine, move |app| {
+        app.unregister_repository(&repository_id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -335,8 +428,22 @@ async fn explore_path_details(
 #[tauri::command]
 async fn open_original(engine: State<'_, Engine>, source_id: String) -> Result<(), String> {
     with_engine(&engine, move |app| {
-        let original = app.original_path(&source_id)?;
+        let original = app.verified_original_open_path(&source_id)?;
         open_retained_original(&original)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn preview_container_part(
+    engine: State<'_, Engine>,
+    source_id: String,
+    version: String,
+    asset: String,
+    locator: String,
+) -> Result<String, String> {
+    with_engine(&engine, move |app| {
+        app.preview_container_part(&source_id, &version, &asset, &locator)
     })
     .await
 }
@@ -368,7 +475,8 @@ async fn open_original_version(
     asset: String,
 ) -> Result<(), String> {
     with_engine(&engine, move |app| {
-        let original = app.original_version_path(&source_id, &source_version_id, &asset)?;
+        let original =
+            app.verified_original_version_open_path(&source_id, &source_version_id, &asset)?;
         open_retained_original(&original)
     })
     .await
@@ -381,7 +489,7 @@ async fn open_original_asset(
     asset: String,
 ) -> Result<(), String> {
     with_engine(&engine, move |app| {
-        let original = app.original_asset_path(&source_id, &asset)?;
+        let original = app.verified_original_asset_open_path(&source_id, &asset)?;
         open_retained_original(&original)
     })
     .await
@@ -422,7 +530,7 @@ pub fn run() {
                 app.path().resource_dir()?.join("audio"),
             ));
             let engine = Arc::new(Mutex::new(
-                Application::open_with_all_providers_and_meaning_assets(
+                Application::open_pending_with_all_providers_and_meaning_assets(
                     &root,
                     Arc::clone(&semantic_provider),
                     Arc::new(LocalExtractor),
@@ -432,6 +540,7 @@ pub fn run() {
             ));
             let background = std::env::args().any(|argument| argument == "--background");
             let control = crate::background::BackgroundControl::new(!background);
+            control.set_startup_pending(true);
             app.manage(Engine {
                 shutdown_root: root.canonicalize()?,
                 shutdown_recorded: AtomicBool::new(false),
@@ -467,6 +576,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             background_status,
+            check_local_visual_model,
+            check_jev_connection,
             open_collection_file,
             collection_status,
             inspect_gaps,
@@ -477,18 +588,21 @@ pub fn run() {
             trail_selected_passage,
             suggest_trail_stops,
             list_saved_views,
-            create_saved_view,
             open_saved_view,
-            rename_saved_view,
-            remove_saved_view,
             comparison_side,
             open_comparison_original,
             collection_members,
             resolve_page_link,
             import_source,
+            remove_source,
+            list_removed_sources,
+            restore_removed_source,
             import_repository,
             watch_directory,
             list_watched_directories,
+            unregister_watched_directory,
+            list_repositories,
+            unregister_repository,
             import_url,
             list_url_acquisitions,
             open_source,
@@ -503,6 +617,7 @@ pub fn run() {
             explore_path_details,
             open_original,
             preview_original,
+            preview_container_part,
             preview_video_frame,
             open_original_version,
             open_original_asset

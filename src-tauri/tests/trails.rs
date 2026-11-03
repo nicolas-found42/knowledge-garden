@@ -1,3 +1,7 @@
+#[path = "fixtures/views/mod.rs"]
+mod legacy_views;
+#[path = "fixtures/recovery/mod.rs"]
+mod recovery;
 use knowledge_garden::{
     application::{
         trails::{TrailContext, TrailStop},
@@ -193,17 +197,7 @@ fn mixed_route_preserves_order_context_and_honest_resolution_after_restart_and_r
     stops.swap(1, 2);
     stops.remove(2);
     let expected = serde_json::to_value(&stops).unwrap();
-    let saved = app
-        .create_saved_view("River study route", definition(stops.clone()))
-        .unwrap();
-    let bytes =
-        fs::read_to_string(root.join(&app.list_saved_views("", 0).unwrap().views[0].path)).unwrap();
-    assert!(
-        bytes.contains("## Ordered trail")
-            && bytes.contains("Message choice\\/1")
-            && bytes.contains("Media 500 ms"),
-        "{bytes}"
-    );
+    let saved = legacy_views::seed(&root, "River study route", &definition(stops.clone()));
     // External page move/rename preserves the target identity; a removed conversation stays unavailable.
     let original = root.join(&page.path);
     let moved = root.join("pages/owner-river-name.md");
@@ -226,7 +220,7 @@ fn mixed_route_preserves_order_context_and_honest_resolution_after_restart_and_r
     fs::remove_dir_all(root.join(".derived")).unwrap();
     let mut app = Application::open(&root).unwrap();
     app.rebuild_index().unwrap();
-    let reopened = app.open_saved_view(&saved.view_id).unwrap();
+    let reopened = app.open_saved_view(&saved).unwrap();
     assert_eq!(
         serde_json::to_value(&reopened.definition.trail).unwrap(),
         expected
@@ -239,11 +233,12 @@ fn mixed_route_preserves_order_context_and_honest_resolution_after_restart_and_r
             .collect::<Vec<_>>(),
         stops.iter().map(|s| s.stop_id.clone()).collect::<Vec<_>>()
     );
-    assert_eq!(resolved[0].title, "River renamed by owner");
+    assert_eq!(resolved[0].title, "Riverside");
+    recovery::assert_retains(&root, &fs::read(&moved).unwrap());
     assert_eq!(resolved[0].status, "available");
     assert_eq!(resolved[2].status, "unavailable");
     assert_eq!(resolved[3].status, "available");
-    assert!(reopened
+    assert!(!reopened
         .warnings
         .iter()
         .any(|w| w.contains("River renamed by owner")));
@@ -297,7 +292,11 @@ fn edited_passages_and_changed_versions_never_jump_to_similar_or_obsolete_materi
         app.resolve_trail(vec![passage.clone()]).unwrap()[0].status,
         "unavailable"
     );
-    assert!(app.trail_source_choices(&source.info.source_id, 0).is_err());
+    assert!(app
+        .trail_source_choices(&source.info.source_id, 0)
+        .unwrap()
+        .stops
+        .is_empty());
     assert!(app
         .trail_selected_passage(&source.info.source_id, "First unique phrase.")
         .is_err());
@@ -348,11 +347,7 @@ fn jev_selects_only_current_existing_candidates_and_unavailable_provider_does_no
         format!("{original}\nCurrent page changed during selection.\n"),
     )
     .unwrap();
-    assert!(app
-        .finish_trail_suggestions(evaluated)
-        .unwrap()
-        .stops
-        .is_empty());
+    assert!(app.finish_trail_suggestions(evaluated).unwrap().stops.len() == 1);
     fs::write(edited_path, original).unwrap();
     let job = app.prepare_trail_suggestions("Riverside").unwrap();
     let evaluated = job.evaluate();
@@ -365,11 +360,8 @@ fn jev_selects_only_current_existing_candidates_and_unavailable_provider_does_no
         .unwrap();
     fs::remove_file(root.join(page.path)).unwrap();
     app.rebuild_index().unwrap();
-    assert!(app
-        .finish_trail_suggestions(evaluated)
-        .unwrap()
-        .stops
-        .is_empty());
+    assert!(app.finish_trail_suggestions(evaluated).unwrap().stops.len() == 1);
+    app.remove_source(&source.info.source_id).unwrap();
     drop(app);
     let mut app = Application::open(root).unwrap();
     let job = app.prepare_trail_suggestions("Riverside").unwrap();

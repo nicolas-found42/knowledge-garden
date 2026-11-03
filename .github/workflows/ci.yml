@@ -38,6 +38,8 @@ jobs:
         run: npm audit --audit-level=high
       - name: Install pinned Rust toolchain
         run: rustup show active-toolchain
+      - name: Check pinned MIME distribution
+        run: python3 -m unittest discover -s src-tauri/container-helper -p 'test_*.py'
       - name: Check formatting
         run: npm run format:check
       - name: Lint TypeScript

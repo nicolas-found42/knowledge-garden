@@ -78,11 +78,23 @@ impl MeaningSearch {
         verify_sha(&model_path, MODEL_SHA256)?;
         verify_sha(&tokenizer_path, TOKENIZER_SHA256)?;
         verify_sha(&runtime_path, RUNTIME_SHA256)?;
+        // ORT 1.30 latches this opt-out before creating its POSIX telemetry SDK.
+        // Require it before dlopen: disabling events after CreateEnv is too late.
+        // https://github.com/microsoft/onnxruntime/blob/v1.30.0/onnxruntime/core/platform/telemetry_environment.h
+        if !std::env::var("ORT_DISABLE_TELEMETRY").is_ok_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on" | "y"
+            )
+        }) {
+            return Err("Local meaning search is unavailable because the native runtime was not initialized with telemetry disabled.".into());
+        }
         let runtime = runtime_path.clone();
         let environment = ORT_INIT
             .get_or_init(|| {
                 ort::init_from(runtime)
                     .map_err(|error| format!("Could not load local ONNX Runtime: {error}"))?
+                    .with_telemetry(false)
                     .build()
                     .map_err(|error| format!("Could not initialize local ONNX Runtime: {error}"))
             })

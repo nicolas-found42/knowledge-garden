@@ -46,6 +46,33 @@ fn is_source_acquisition(path: &str) -> bool {
         && parent.parent().and_then(Path::parent) == Some(Path::new("sources"))
 }
 
+// Read untrusted bytes only to describe a diagnostic; they never become
+// source authority or enter the derived index through this check.
+fn raw_source_record_valid(root: &Path, relative: &str, acquisition: bool) -> Option<bool> {
+    let limit = if acquisition {
+        64 * 1024
+    } else {
+        MAX_PAGE_BYTES
+    };
+    let bytes = migration_backup::read_bounded_nofollow(root, Path::new(relative), limit).ok()?;
+    let text = match std::str::from_utf8(&bytes) {
+        Ok(text) => text,
+        Err(_) => return Some(false),
+    };
+    let Some(header) = text
+        .strip_prefix("---\n")
+        .and_then(|text| text.split_once("\n---\n"))
+        .map(|(header, _)| header)
+    else {
+        return Some(false);
+    };
+    if acquisition {
+        Some(serde_yaml_ng::from_str::<Acquisition>(header).is_ok())
+    } else {
+        Some(serde_yaml_ng::from_str::<SourceInfo>(header).is_ok())
+    }
+}
+
 #[derive(Default, Serialize, Deserialize)]
 struct Ledger {
     #[serde(default)]
@@ -76,7 +103,17 @@ impl Application {
     /// Visit at most `budget` directory entries. Complete generations repair links
     /// and refresh derived navigation; incomplete scans never infer deletions.
     pub fn reconcile_collection(&mut self, budget: usize) -> Result<ReconciliationStatus> {
+        if !self
+            .startup_recovering
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            self.resume_pending_startup()?;
+            self.recover_integrity_exclusions()?;
+        }
         self.collection_reconcile_pending = true;
+        if trusted_pages::recover_abandoned_original_copies(&self.root, budget)? {
+            return Ok(self.reconciliation_status(false));
+        }
         recover_publications(&self.root)?;
         if self.collection_scan.is_none() {
             let mut scan = Scan::default();
@@ -156,6 +193,29 @@ impl Application {
                     .into_owned();
                 match read_bounded_text(&path, MAX_PAGE_BYTES) {
                     Ok(text) => {
+                        if (relative.starts_with("pages/")
+                            || is_source_index(&relative)
+                            || is_source_acquisition(&relative))
+                            && trusted_pages::active(&self.root)?
+                        {
+                            let visible = migration_backup::read_bounded_nofollow(
+                                &self.root,
+                                Path::new(&relative),
+                                MAX_PAGE_BYTES,
+                            );
+                            if visible
+                                .as_ref()
+                                .map_or(true, |bytes| bytes.as_slice() != text.as_bytes())
+                            {
+                                scan.unreadable.push(CollectionDiagnostic { kind: "external_edit_retained".into(), paths: vec![relative.clone()], detail: "An external edit was retained for recovery; the previously verified source record remains authoritative.".into() });
+                                if visible
+                                    .as_ref()
+                                    .map_or(true, |bytes| std::str::from_utf8(bytes).is_err())
+                                {
+                                    scan.unreadable.push(CollectionDiagnostic { kind: "unreadable_visible_markdown".into(), paths: vec![relative.clone()], detail: "Visible Markdown exceeds the supported size or encoding bounds. Its bytes remain retained; verified knowledge stays available.".into() });
+                                }
+                            }
+                        }
                         scan.files
                             .insert(relative, hex::encode(Sha256::digest(text.as_bytes())));
                     }
@@ -172,7 +232,26 @@ impl Application {
                             }
                             scan.unreadable_page_ids.insert(relative.clone(), page_id);
                         }
-                        scan.unreadable.push(CollectionDiagnostic { kind: "unreadable_markdown".into(), paths: vec![relative], detail: "Markdown could not be read within the supported size or encoding bounds; its original contents remain preserved.".into() });
+                        let (kind, detail) = if is_source_acquisition(&relative) {
+                            match raw_source_record_valid(&self.root, &relative, true) {
+                                Some(false) => ("malformed_acquisition", "This acquisition record is malformed; its original content remains preserved for recovery."),
+                                Some(true) => ("untrusted_acquisition", "This acquisition record is not verified and remains preserved without becoming authoritative."),
+                                None => ("unreadable_markdown", "This acquisition record could not be read safely; its original content remains preserved."),
+                            }
+                        } else if is_source_index(&relative) {
+                            match raw_source_record_valid(&self.root, &relative, false) {
+                                Some(false) => ("malformed_metadata", "Source metadata is malformed; original files and retained assets remain preserved."),
+                                Some(true) => ("untrusted_source_metadata", "This source record is not verified and remains preserved without becoming authoritative."),
+                                None => ("unreadable_markdown", "Source metadata could not be read safely; its original content remains preserved."),
+                            }
+                        } else {
+                            ("unreadable_markdown", "Markdown could not be read within the supported size or encoding bounds; its original contents remain preserved.")
+                        };
+                        scan.unreadable.push(CollectionDiagnostic {
+                            kind: kind.into(),
+                            paths: vec![relative],
+                            detail: detail.into(),
+                        });
                     }
                 }
             }
@@ -305,10 +384,80 @@ impl Application {
     }
 
     fn reconciliation_status(&self, complete: bool) -> ReconciliationStatus {
+        let mut diagnostics = self.collection_diagnostics.clone();
+        let recovering = self
+            .startup_recovering
+            .load(std::sync::atomic::Ordering::Acquire);
+        if self.startup_recovery_pending && !recovering {
+            diagnostics.push(CollectionDiagnostic {
+                kind: "startup_recovery_pending".into(),
+                paths: Vec::new(),
+                detail: "Preparing and verifying a recovery backup before opening the collection. Your existing files remain preserved.".into(),
+            });
+            return ReconciliationStatus {
+                complete: false,
+                revision: self.collection_revision,
+                diagnostics,
+            };
+        }
+        let abandoned = self.root.join(".recovery/abandoned-verified-originals");
+        if validate_real_collection_ancestors(&self.root, &abandoned.join("entry")).is_ok()
+            && fs::symlink_metadata(&abandoned).is_ok_and(|metadata| metadata.file_type().is_dir())
+        {
+            let paths = fs::read_dir(&abandoned)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .take(8)
+                .filter_map(|entry| {
+                    let name = entry.file_name();
+                    let id = name.to_str()?;
+                    Uuid::parse_str(id).ok()?;
+                    if !entry.file_type().ok()?.is_dir() {
+                        return None;
+                    }
+                    let note = entry.path().join("recovery.md");
+                    if fs::symlink_metadata(note)
+                        .is_ok_and(|metadata| metadata.file_type().is_file())
+                    {
+                        Some(format!(
+                            ".recovery/abandoned-verified-originals/{id}/recovery.md"
+                        ))
+                    } else {
+                        Some(format!(".recovery/abandoned-verified-originals/{id}"))
+                    }
+                })
+                .collect::<Vec<_>>();
+            if !paths.is_empty() {
+                diagnostics.push(CollectionDiagnostic {
+                    kind: "abandoned_original_copies".into(), paths,
+                    detail: "Interrupted original-copy recovery folders were retained. Some may be incomplete; inspect them and any remaining staged copies. They are not active evidence.".into(),
+                });
+            }
+        }
+        let integrity_pending =
+            !recovering && self.has_pending_integrity_exclusions().unwrap_or(true);
+        if integrity_pending {
+            diagnostics.push(CollectionDiagnostic {
+                kind: "integrity_recovery_pending".into(),
+                paths: vec![".recovery/integrity-exclusions".into()],
+                detail: "A retained original changed. Its changed bytes are preserved while unsupported evidence is removed; retry search or reopen the collection to finish recovery.".into(),
+            });
+        }
+        match migration_backup::diagnostics(&self.root) {
+            Ok(items) => diagnostics.extend(items),
+            Err(_) => diagnostics.push(CollectionDiagnostic {
+                kind: "migration_recovery_unreadable".into(),
+                paths: Vec::new(),
+                detail:
+                    "Migration recovery details could not be read; retained data was not deleted."
+                        .into(),
+            }),
+        }
         ReconciliationStatus {
-            complete,
+            complete: complete && !integrity_pending,
             revision: self.collection_revision,
-            diagnostics: self.collection_diagnostics.clone(),
+            diagnostics,
         }
     }
 
@@ -555,9 +704,34 @@ impl Application {
     pub fn collection_file_path(&self, relative: &str) -> Result<PathBuf> {
         let path = Path::new(relative);
         validate_relative_collection_path(path)?;
-        if !["pages", "sources", "owner-edits"]
-            .iter()
-            .any(|prefix| path.starts_with(prefix))
+        let components = path
+            .components()
+            .map(|component| component.as_os_str())
+            .collect::<Vec<_>>();
+        let recovery_snapshot = components.len() >= 6
+            && components[0] == ".recovery"
+            && components[1] == "migration"
+            && components[2]
+                .to_str()
+                .and_then(|name| name.strip_prefix("backup-"))
+                .is_some_and(|id| Uuid::parse_str(id).is_ok())
+            && components[3] == "files"
+            && (components[4] == "pages" || components[4] == "owner-edits");
+        let abandoned_note = components.len() == 4
+            && components[0] == ".recovery"
+            && components[1] == "abandoned-verified-originals"
+            && components[2]
+                .to_str()
+                .is_some_and(|id| Uuid::parse_str(id).is_ok())
+            && components[3] == "recovery.md";
+        if !recovery_snapshot && !abandoned_note {
+            self.require_integrity_recovered()?;
+        }
+        if (!recovery_snapshot
+            && !abandoned_note
+            && !["pages", "sources", "owner-edits"]
+                .iter()
+                .any(|prefix| path.starts_with(prefix)))
             || path.extension().is_none_or(|ext| ext != "md")
         {
             return Err(GardenError::Invalid(
@@ -575,6 +749,7 @@ impl Application {
 
     /// Resolve a relative ordinary Markdown link at the reader boundary.
     pub fn resolve_page_link(&self, page_id: &str, href: &str) -> Result<String> {
+        self.require_integrity_recovered()?;
         let source_path = self
             .index
             .query_row(
@@ -807,10 +982,17 @@ mod publication_race_tests {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("collection");
         let mut app = Application::open(&root).unwrap();
+        let root = app.root.clone();
         let pages = root.join("pages");
         fs::create_dir_all(&pages).unwrap();
         let original = pages.join("owner.md");
-        fs::write(&original, "original owner content").unwrap();
+        commit_publication(
+            &root,
+            vec![(original.clone(), b"original owner content".to_vec())],
+            &HashMap::new(),
+            None,
+        )
+        .unwrap();
         let target = if add_page {
             pages.join("added.md")
         } else {
@@ -818,8 +1000,15 @@ mod publication_race_tests {
         };
         let hook_called = Arc::new(AtomicBool::new(false));
         let called = Arc::clone(&hook_called);
+        let publication_root = root.clone();
         app.before_reconciliation_publication = Some(Box::new(move || {
-            fs::write(target, "new owner content").unwrap();
+            commit_publication(
+                &publication_root,
+                vec![(target, b"new owner content".to_vec())],
+                &HashMap::new(),
+                None,
+            )
+            .unwrap();
             called.store(true, Ordering::SeqCst);
         }));
         let revision = app.collection_status().revision;
@@ -878,14 +1067,28 @@ mod publication_race_tests {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("collection");
         let mut app = Application::open(&root).unwrap();
+        let root = app.root.clone();
         let page = root.join("pages/owner.md");
         fs::create_dir_all(page.parent().unwrap()).unwrap();
-        fs::write(&page, [0xff]).unwrap();
+        commit_publication(
+            &root,
+            vec![(page.clone(), vec![0xff])],
+            &HashMap::new(),
+            None,
+        )
+        .unwrap();
         let target = page.clone();
         let hook_called = Arc::new(AtomicBool::new(false));
         let called = Arc::clone(&hook_called);
+        let publication_root = root.clone();
         app.before_reconciliation_publication = Some(Box::new(move || {
-            fs::write(target, "now readable").unwrap();
+            commit_publication(
+                &publication_root,
+                vec![(target, b"now readable".to_vec())],
+                &HashMap::new(),
+                None,
+            )
+            .unwrap();
             called.store(true, Ordering::SeqCst);
         }));
         for _ in 0..10 {

@@ -32,10 +32,10 @@ A passage recognized from a recording and associated with an approximate interva
 A distinct occurrence described by a source, including an observation or reasoning event. Its date is separate from the date on which the collection received or processed the source.
 
 **Manual correction**:
-An owner's external edit that changes a fact and remains authoritative over later automatic updates to that fact. Other unedited facts continue to refresh from their sources.
+Legacy authored material that was previously allowed to override a fact. It must be preserved during migration as recoverable source evidence; future external edits do not have authority over generated knowledge.
 
 **Saved view**:
-A named search, set of filters, relationship scope, or navigation arrangement that the owner explicitly preserves. Its criteria apply to the current collection when reopened.
+A legacy named search, set of filters, relationship scope, or navigation arrangement. Existing views remain readable; users do not create or edit persistent views.
 
 **Trail**:
-An ordered route through existing material whose stops can be added, removed, or reordered. A trail persists only when the owner explicitly saves it.
+An ordered route through existing material. The owner may arrange a temporary trail for navigation; new persistent trails are not authored or reordered.

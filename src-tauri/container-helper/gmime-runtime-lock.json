@@ -1,0 +1,19 @@
+{
+  "gmime_version": "3.2.15",
+  "architecture": "arm64",
+  "dylibs": {
+    "libintl.8.dylib": "be8f2b23ec17bd294c7bd4fceaa00526c135b6110a55598b82b3aceeb533a601",
+    "libgio-2.0.0.dylib": "642574830e7be8035841a79249a77ef8b4a58a79c9292150bfab843860cab531",
+    "libglib-2.0.0.dylib": "e26ce5eb044e7420d616faf29cd2b4956b2a692cd0540aef92c35311b4fe0959",
+    "libgmodule-2.0.0.dylib": "fc03e5c25eabc8b9de341d7a4a80c178b50a949cd2ec7f32692ce93b3ecb2a8a",
+    "libgobject-2.0.0.dylib": "d94e3a4adc23a05f4f1a08db1a373a5aa4d1d65650c6ad4d7f6dce4db37906ed",
+    "libgthread-2.0.0.dylib": "9bf5425a252a433b99be262da0582ef8da2dd2f1fd909b114d468ad8c8b8658e",
+    "libgmime-3.0.0.dylib": "8253877d6aa03287428062c5c83c71a5341d8532e01bbc6b2741cd63b0665343",
+    "libgpgme.45.dylib": "80e9068f431effd0d0c7e45e8679b8eb632eeee389a363a8ae2662f77e0a6008",
+    "libassuan.9.dylib": "f467f20397b3f6747543227b9ad64518d2626f1e286fe03cac73c160cd0966ed",
+    "libgpg-error.0.dylib": "9f10c8e3d7770040fe40d64948f04946b98ad827582ad8ed5ee1c9735f5d2f7e",
+    "libidn2.0.dylib": "29921687264f6ffca470566b918ea952d7bf1ac60e2e625517c41098dc6b24cc",
+    "libunistring.5.dylib": "ea752c18f009ad7d5ccecc3cebec829b05083e2d3e9d60032077e55cbe80d210",
+    "libpcre2-8.0.dylib": "c3adcd954967b7e92812831fe12c614a9ca2d12221e897a87ee379df2ac004fd"
+  }
+}

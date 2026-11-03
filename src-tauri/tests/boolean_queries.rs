@@ -1,3 +1,5 @@
+#[path = "fixtures/recovery/mod.rs"]
+mod recovery;
 use knowledge_garden::application::boolean::{BooleanQueryRequest, BooleanQueryResponse};
 use knowledge_garden::application::{AcquisitionMethod, Application};
 use serde_json::{json, Value};
@@ -196,9 +198,13 @@ fn mixed_boolean_hops_scopes_and_known_set_negation_have_exact_authored_results(
         .to_string()
         .contains("stale"));
 
-    // A missing Markdown endpoint is a disclosed gap, never an invented route.
+    // A withdrawn maintained endpoint is a disclosed gap, never an invented route.
+    // Visible deletion alone leaves its verified baseline intact.
     let riverside = pages.iter().find(|p| p.title == "Riverside").unwrap();
-    std::fs::remove_file(workspace.path().join("collection").join(&riverside.path)).unwrap();
+    recovery::remove_generated_fixture(
+        &workspace.path().join("collection"),
+        &workspace.path().join("collection").join(&riverside.path),
+    );
     app.rebuild_index().unwrap();
     let mut missing_endpoint = request(path);
     missing_endpoint.work_budget = 50;

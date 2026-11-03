@@ -1,3 +1,5 @@
+#[path = "fixtures/recovery/mod.rs"]
+mod recovery;
 use knowledge_garden::{
     application::{AcquisitionMethod, Application, PageSearchRequest},
     extraction::LocalExtractor,
@@ -1021,8 +1023,8 @@ fn replacement_recording_resets_transcript_and_transcribes_the_pending_original_
     assert!(published.body.contains("new recording words"));
     assert!(!published.body.contains("old recording words"));
     assert!(published.body.contains(&format!(
-        "?audio_seek={}&at_ms=0&version={replacement_version_id}&asset=original.wav",
-        first.info.source_id
+        "?audio_seek={}&at_ms=0&version={replacement_version_id}&asset={}",
+        first.info.source_id, published.info.asset
     )));
     assert_eq!(
         fs::read(app.original_path(&replacement.info.source_id).unwrap()).unwrap(),
@@ -2471,7 +2473,7 @@ fn native_undecodable_recording_keeps_exact_original_and_explicit_failed_coverag
 }
 
 #[test]
-fn semantic_audio_publication_preserves_owner_notes_added_after_transcription() {
+fn semantic_audio_publication_recovers_external_notes_without_overriding_source() {
     let workspace = tempdir().unwrap();
     let source = workspace.path().join("visit.wav");
     fs::write(&source, b"old waveform").unwrap();
@@ -2498,18 +2500,15 @@ fn semantic_audio_publication_preserves_owner_notes_added_after_transcription() 
         + "\n\n## Owner notes\n\n"
         + owner_note
         + "\n";
-    fs::write(&page_path, owner_markdown).unwrap();
+    fs::write(&page_path, &owner_markdown).unwrap();
     let draft = VersionedAudioProvider.form_knowledge(&job.source_text);
     app.finish_semantic_job(job, draft).unwrap();
     drop(app);
     let reopened = Application::open(&collection).unwrap();
     let page = reopened.open_source(&first.info.source_id).unwrap();
-    assert!(
-        page.body.contains(owner_note),
-        "owner note was lost: {}",
-        page.body
-    );
-    assert!(page.body.contains("# Owner's recording title\n"));
+    assert!(!page.body.contains(owner_note));
+    assert!(!page.body.contains("# Owner's recording title\n"));
+    recovery::assert_retains(&collection, owner_markdown.as_bytes());
     assert!(page.body.contains("old recording words"));
     assert!(page.body.contains(&page.info.knowledge_pages[0].path));
     assert!(page.body.contains(&format!(

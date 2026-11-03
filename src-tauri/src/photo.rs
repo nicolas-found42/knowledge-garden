@@ -71,7 +71,7 @@ pub fn extract(path: &Path, title: &str) -> Result<OfficeProjection, String> {
     }
     let partial = !photo.gaps.is_empty();
     let semantic_text = lines.join("\n");
-    let mut markdown = format!("# {}\n\n[Open original](ORIGINAL_ASSET)\n\n## Image evidence\n\n{}\n\nOCR uses a decoded preview bounded to 2048 pixels. Region coordinates refer to the upright image with a bottom-left origin. Open the on-demand preview or retained original and use the region locator; otherwise the whole image is the disclosed fallback. Named identities remain unknown. No general-purpose provider image capability has been validated; unsupported interpretation remains a visible capability gap.\n", line(title), semantic_text);
+    let mut markdown = format!("# {}\n\n[Open original](ORIGINAL_ASSET)\n\n## Image evidence\n\n{}\n\nOCR uses a decoded preview bounded to 2048 pixels. Region coordinates refer to the upright image with a bottom-left origin. Open the on-demand preview or retained original and use the region locator; otherwise the whole image is the disclosed fallback. Named identities remain unknown. Visual model interpretations are unverified and may hallucinate; compare them with the original.\n", line(title), semantic_text);
     for gap in &photo.gaps {
         markdown.push_str(&format!("\n- Extraction gap: {}\n", line(gap)));
     }
@@ -352,4 +352,16 @@ fn run_helper(_: &Path, _: bool) -> Result<Vec<u8>, String> {
         "Native photo extraction is available on macOS; the retained original remains inspectable."
             .into(),
     )
+}
+
+/// Append one separately qualified local interpretation to the native projection.
+pub(crate) fn append_qwen(
+    projection: &mut OfficeProjection,
+    observation: &crate::visual_inference::VisualInterpretation,
+) {
+    let statement = format!("[PHOTO whole image; channel=generated_interpretation] Qwen interpretation: {} (unverified model interpretation; may hallucinate; model {}; observed revision {}; whole-image preview)", line(&observation.description), observation.model, observation.observed_revision);
+    projection.semantic_text.push('\n');
+    projection.semantic_text.push_str(&statement);
+    projection.markdown.push_str(&format!("\n{}\n", statement));
+    projection.line_count += 1;
 }

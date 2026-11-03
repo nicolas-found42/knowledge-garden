@@ -183,7 +183,7 @@ fn qualified_current_reports_invalidate_replacements_and_missing_originals_witho
     assert!(missing.asset.is_none());
 }
 #[test]
-fn owner_knowledge_changes_invalidate_passages_even_when_original_bytes_do_not_change() {
+fn external_knowledge_edit_does_not_change_comparison_and_is_retained() {
     let temp = tempfile::tempdir().unwrap();
     let input = temp.path().join("report.txt");
     fs::write(
@@ -208,12 +208,18 @@ fn owner_knowledge_changes_invalidate_passages_even_when_original_bytes_do_not_c
         .join(&page.knowledge_pages[0].path);
     let mut content = fs::read_to_string(&knowledge).unwrap();
     content.push_str("\nOwner qualification: the count requires a new interpretation.\n");
-    fs::write(knowledge, content).unwrap();
-    let stale = app
+    fs::write(knowledge, &content).unwrap();
+    let current = app
         .comparison_side(request(&source.info.source_id, original.signature))
         .unwrap();
-    assert_eq!(stale.status, ComparisonStatus::Stale);
-    assert!(stale.passage.is_none());
+    assert_eq!(current.status, ComparisonStatus::Fresh);
+    assert!(current.passage.is_some());
+    use sha2::{Digest, Sha256};
+    let retained = temp
+        .path()
+        .join("collection/.recovery/external-edits")
+        .join(hex::encode(Sha256::digest(content.as_bytes())));
+    assert_eq!(fs::read_to_string(retained).unwrap(), content);
 }
 #[test]
 fn unavailable_passages_are_not_fabricated_and_utf8_excerpts_are_bounded() {

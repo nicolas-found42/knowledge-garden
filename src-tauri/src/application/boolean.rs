@@ -207,6 +207,7 @@ impl Application {
         Ok(self.index.query_row("SELECT page_id,source_id,page_type,title,kind,event_date,format,processing_status FROM query_page_metadata WHERE page_id=?1",[id],page_row).optional()?)
     }
     pub fn cancel_query(&mut self, continuation: &str) -> Result<()> {
+        self.require_integrity_recovered()?;
         let id = parse_opaque_path_token(continuation, CURSOR)?;
         self.index.execute(
             "UPDATE boolean_queries SET canceled=1 WHERE query_id=?1",
@@ -215,6 +216,7 @@ impl Application {
         Ok(())
     }
     pub fn query_pages(&mut self, request: BooleanQueryRequest) -> Result<BooleanQueryResponse> {
+        self.require_integrity_recovered()?;
         if !(1..=MAX_PATH_WORK_BUDGET).contains(&request.work_budget)
             || !(1..=PAGE_SIZE).contains(&request.page_size)
         {

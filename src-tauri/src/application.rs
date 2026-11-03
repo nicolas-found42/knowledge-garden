@@ -4,11 +4,17 @@ pub mod collection;
 pub mod comparison;
 pub mod gaps;
 mod index_stage;
+mod long_text;
+pub(crate) mod migration_backup;
 mod publication;
 pub mod reconciliation;
+pub mod repositories;
 mod source_version_stage;
 pub mod trails;
+mod trusted_pages;
 pub mod views;
+mod visual;
+pub use visual::VisualClaim;
 pub mod watched;
 use crate::extraction::{LocalExtractor, SourceExtractor};
 use crate::meaning::{MeaningFilters, MeaningSearch};
@@ -23,9 +29,11 @@ use crate::semantic::{
     SourceUpdateRole,
 };
 use fs2::FileExt;
+use long_text::{MAX_RECONCILIATION_BYTES, PROVIDER_CHUNK_BYTES};
 use publication::{
-    commit_publication, commit_publication_with_removals, recover_publications,
-    validate_real_collection_ancestors,
+    commit_publication, commit_publication_with_originals, commit_publication_with_removals,
+    recover_publications, retain_version_original, validate_real_collection_ancestors,
+    OriginalPublication,
 };
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -40,6 +48,9 @@ use std::{
 };
 use thiserror::Error;
 use uuid::Uuid;
+
+#[cfg(test)]
+thread_local! { static VERIFIED_SNAPSHOT_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
 
 const MAX_URL_ATTEMPTS: u32 = 8;
 const CONTROLLED_EXIT_RECEIPT: &str = "knowledge-garden-controlled-exit-v1\n";
@@ -83,6 +94,8 @@ pub enum GardenError {
     Publication(#[from] serde_json::Error),
     #[error("{0}")]
     Invalid(String),
+    #[error("Recovery copy is unavailable: {0}")]
+    Recovery(String),
 }
 
 pub type Result<T> = std::result::Result<T, GardenError>;
@@ -130,6 +143,7 @@ pub enum ExtractionState {
     StructuredText,
     PartialText,
     InvalidContainer,
+    Encrypted,
     Unsupported,
     InvalidUtf8,
     TooLarge,
@@ -139,6 +153,8 @@ pub enum ExtractionState {
 pub struct Acquisition {
     pub path: String,
     pub method: AcquisitionMethod,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registration_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path_encoding: Option<AcquisitionPathEncoding>,
     /// Milliseconds since the Unix epoch, stored as a string to avoid JS precision loss.
@@ -170,9 +186,20 @@ pub struct UrlAcquisitionStatus {
     pub previous_source_available: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AcquisitionOwner {
+    pub origin: PathBuf,
+    pub method: AcquisitionMethod,
+    pub registration_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceVersion {
     pub source_version_id: String,
+    #[serde(default)]
+    pub acquisition_owners: Vec<AcquisitionOwner>,
+    #[serde(default)]
+    pub withdrawn: bool,
     pub sha256: String,
     pub bytes: u64,
     pub original_name: String,
@@ -219,6 +246,20 @@ pub struct SourceVersion {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VisualJob {
+    pub source_version_id: String,
+    #[serde(default)]
+    pub generation: String,
+    /// None means the photo; otherwise this is a sampled video frame request time.
+    pub frame_ms: Option<u64>,
+    pub attempts: u32,
+    pub retry_at_ms: u64,
+    pub state: String,
+    pub detail: String,
+    pub result: Option<crate::visual_inference::VisualInterpretation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceInfo {
     #[serde(flatten)]
     pub owner_metadata: std::collections::BTreeMap<String, serde_yaml_ng::Value>,
@@ -258,6 +299,8 @@ pub struct SourceInfo {
     pub semantic_error: Option<String>,
     #[serde(default)]
     pub semantic_attempts: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_claim: Option<String>,
     #[serde(default)]
     pub semantic_retry_at: Option<String>,
     #[serde(default)]
@@ -271,6 +314,8 @@ pub struct SourceInfo {
     /// In-progress recording replacement; the published audio transcript remains separate.
     #[serde(default)]
     pub pending_audio_processing: Option<AudioProcessingInfo>,
+    #[serde(default)]
+    pub visual_jobs: Vec<VisualJob>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -533,15 +578,58 @@ pub struct SearchMatchLocation {
     pub source_location: Option<String>,
 }
 
+/// A verified private file kept alive for one exact source version.
+pub(crate) struct VerifiedVersionSnapshot {
+    file: tempfile::NamedTempFile,
+    source_id: String,
+    version_id: String,
+    asset: String,
+    digest: String,
+    format: String,
+}
+
+impl VerifiedVersionSnapshot {
+    pub(crate) fn path(&self) -> &Path {
+        self.file.path()
+    }
+}
+
+struct IntegrityRecoveryGuard(Arc<std::sync::atomic::AtomicBool>);
+impl Drop for IntegrityRecoveryGuard {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
 pub struct Application {
     root: PathBuf,
+    integrity_recovering: Arc<std::sync::atomic::AtomicBool>,
+    startup_recovering: Arc<std::sync::atomic::AtomicBool>,
+    startup_recovery_pending: bool,
+    startup_storage_prepared: bool,
+    startup_cutover_prepared: bool,
+    startup_external_prepared: bool,
+    startup_ready_for_finish: bool,
+    startup_reconciled: bool,
+    startup_urls_recovered: bool,
+    startup_url_directory: Option<fs::ReadDir>,
+    startup_url_identity: Option<(u64, u64, i64, i64)>,
+    startup_url_index: Option<(tempfile::TempDir, Connection)>,
+    startup_url_after: String,
+    startup_url_discovered: bool,
+    startup_jobs: Option<fs::ReadDir>,
+    startup_jobs_identity: Option<(u64, u64, i64, i64)>,
+    startup_meaning_assets: Option<PathBuf>,
     index: Connection,
     semantic_provider: Arc<dyn SemanticProvider>,
     extractor: Arc<dyn SourceExtractor>,
     audio_processor: Arc<dyn AudioProcessor>,
     staged_publication: Vec<(PathBuf, Vec<u8>)>,
+    staged_originals: Vec<OriginalPublication>,
     publication_bases: std::cell::RefCell<Option<HashMap<PathBuf, Vec<u8>>>>,
+    migration_import: bool,
     fail_after_publication_files: Option<usize>,
+    source_recovery_failpoint: Option<String>,
     meaning_search: Option<MeaningSearch>,
     meaning_search_status: String,
     watch_readers: HashMap<String, fs::ReadDir>,
@@ -581,244 +669,8 @@ fn semantic_pending() -> String {
     "pending".into()
 }
 
-impl Application {
-    fn ensure_running(&self) -> Result<()> {
-        if crate::processes::stopping() {
-            return Err(GardenError::Invalid(
-                "Processing paused for application Quit; retained work remains resumable.".into(),
-            ));
-        }
-        Ok(())
-    }
-    fn extract_while_running(
-        &self,
-        path: &Path,
-        format: &str,
-        title: &str,
-    ) -> Result<std::result::Result<crate::office::OfficeProjection, String>> {
-        let result = self.extractor.extract(path, format, title);
-        self.ensure_running()?;
-        Ok(result)
-    }
-    /// Persist an explicit-stop receipt without waiting for a long extraction lock.
-    /// The next exclusive collection opener consumes it only after recovery succeeds.
-    pub fn record_controlled_shutdown(root: &Path) -> Result<()> {
-        if !root.is_dir() {
-            return Err(GardenError::Invalid(
-                "The collection is unavailable; controlled shutdown could not be recorded.".into(),
-            ));
-        }
-        let path = root.join(".runtime/controlled-exit");
-        validate_real_collection_ancestors(root, &path)?;
-        fs::create_dir_all(path.parent().unwrap())?;
-        let mut temporary = tempfile::NamedTempFile::new_in(path.parent().unwrap())?;
-        temporary.write_all(CONTROLLED_EXIT_RECEIPT.as_bytes())?;
-        temporary.as_file().sync_all()?;
-        temporary
-            .persist(&path)
-            .map_err(|e| GardenError::Io(e.error))?;
-        sync_directory(path.parent().unwrap())?;
-        Ok(())
-    }
-    pub fn timeline(
-        &self,
-        request: crate::timeline::TimelineRequest,
-    ) -> Result<crate::timeline::TimelineResults> {
-        use crate::timeline::{DateMeaning, DateOrder, TimelineEntry, TimelineResults};
-        if request.query.len() > 1024 || request.tags.len() > 32 {
-            return Err(GardenError::Invalid(
-                "Timeline filters are too large.".into(),
-            ));
-        }
-        let meaning = match request.date_meaning {
-            DateMeaning::SourceEvent => "source_event",
-            DateMeaning::ReasoningEvent => "reasoning_event",
-            DateMeaning::CollectionActivity => "collection_activity",
-        };
-        let tags = request
-            .tags
-            .iter()
-            .map(|tag| normalize_tag(tag))
-            .collect::<Result<Vec<_>>>()?;
-        let order = match request.order {
-            DateOrder::Ascending => "ASC",
-            DateOrder::Descending => "DESC",
-        };
-        let offset = i64::try_from(request.offset)
-            .map_err(|_| GardenError::Invalid("Timeline offset is too large.".into()))?;
-        let mut filters = vec!["t.date_meaning = ?".to_string(), "(? = '' OR instr(lower(json_extract(t.entry,'$.title') || ' ' || json_extract(t.entry,'$.date_label') || ' ' || coalesce(json_extract(t.entry,'$.qualifier'),'')), lower(?)) > 0 OR EXISTS (SELECT 1 FROM page_search p WHERE p.page_id=json_extract(t.entry,'$.page_id') AND instr(lower(p.content),lower(?))>0))".to_string()];
-        let mut values: Vec<rusqlite::types::Value> = vec![
-            meaning.to_string().into(),
-            request.query.trim().to_string().into(),
-            request.query.trim().to_string().into(),
-            request.query.trim().to_string().into(),
-        ];
-        for tag in tags {
-            filters.push("EXISTS (SELECT 1 FROM page_tags pt WHERE (pt.page_id=json_extract(t.entry,'$.page_id') OR (t.date_meaning='collection_activity' AND pt.source_id=json_extract(t.entry,'$.source_id'))) AND pt.normalized=?)".into());
-            values.push(tag.into());
-        }
-        values.push(((PAGE_SIZE + 1) as i64).into());
-        values.push(offset.into());
-        let mut statement = self.index.prepare(&format!("SELECT t.entry FROM timeline_entries t WHERE {} ORDER BY t.date_start IS NULL, t.date_start {order}, t.date_end {order}, t.entry_id ASC LIMIT ? OFFSET ?",filters.join(" AND ")))?;
-        let rows = statement.query_map(rusqlite::params_from_iter(values), |row| {
-            row.get::<_, String>(0)
-        })?;
-        let mut entries = rows
-            .map(|row| Ok(serde_json::from_str::<TimelineEntry>(&row?)?))
-            .collect::<Result<Vec<_>>>()?;
-        let next_offset =
-            (entries.len() > PAGE_SIZE).then_some(request.offset.saturating_add(PAGE_SIZE));
-        entries.truncate(PAGE_SIZE);
-        Ok(TimelineResults {
-            entries,
-            next_offset,
-        })
-    }
-    /// Injects a one-shot failure after the specified number of destination
-    /// files have been atomically replaced. Intended for public-application
-    /// recovery verification.
-    pub fn set_publication_failpoint_for_test(&mut self, after_files: usize) {
-        self.fail_after_publication_files = Some(after_files);
-    }
-
-    pub fn open(root: impl AsRef<Path>) -> Result<Self> {
-        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
-        Self::open_with_all_providers_and_meaning_assets(
-            root,
-            Arc::new(UnavailableProvider),
-            Arc::new(LocalExtractor),
-            Arc::new(NativeAudioProcessor),
-            meaning_assets,
-        )
-    }
-
-    pub fn open_with_meaning_assets(
-        root: impl AsRef<Path>,
-        meaning_assets: Option<impl AsRef<Path>>,
-    ) -> Result<Self> {
-        Self::open_with_all_providers_and_meaning_assets(
-            root,
-            Arc::new(UnavailableProvider),
-            Arc::new(LocalExtractor),
-            Arc::new(NativeAudioProcessor),
-            meaning_assets,
-        )
-    }
-
-    pub fn open_with_semantic_provider(
-        root: impl AsRef<Path>,
-        semantic_provider: Arc<dyn SemanticProvider>,
-    ) -> Result<Self> {
-        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
-        Self::open_with_all_providers_and_meaning_assets(
-            root,
-            semantic_provider,
-            Arc::new(LocalExtractor),
-            Arc::new(NativeAudioProcessor),
-            meaning_assets,
-        )
-    }
-
-    pub fn open_with_semantic_provider_and_meaning_assets(
-        root: impl AsRef<Path>,
-        semantic_provider: Arc<dyn SemanticProvider>,
-        meaning_assets: Option<impl AsRef<Path>>,
-    ) -> Result<Self> {
-        Self::open_with_all_providers_and_meaning_assets(
-            root,
-            semantic_provider,
-            Arc::new(LocalExtractor),
-            Arc::new(NativeAudioProcessor),
-            meaning_assets,
-        )
-    }
-
-    pub fn open_with_providers(
-        root: impl AsRef<Path>,
-        semantic_provider: Arc<dyn SemanticProvider>,
-        extractor: Arc<dyn SourceExtractor>,
-    ) -> Result<Self> {
-        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
-        Self::open_with_all_providers_and_meaning_assets(
-            root,
-            semantic_provider,
-            extractor,
-            Arc::new(NativeAudioProcessor),
-            meaning_assets,
-        )
-    }
-
-    pub fn open_with_providers_and_meaning_assets(
-        root: impl AsRef<Path>,
-        semantic_provider: Arc<dyn SemanticProvider>,
-        extractor: Arc<dyn SourceExtractor>,
-        meaning_assets: Option<impl AsRef<Path>>,
-    ) -> Result<Self> {
-        Self::open_with_all_providers_and_meaning_assets(
-            root,
-            semantic_provider,
-            extractor,
-            Arc::new(NativeAudioProcessor),
-            meaning_assets,
-        )
-    }
-
-    pub fn open_with_all_providers(
-        root: impl AsRef<Path>,
-        semantic_provider: Arc<dyn SemanticProvider>,
-        extractor: Arc<dyn SourceExtractor>,
-        audio_processor: Arc<dyn AudioProcessor>,
-    ) -> Result<Self> {
-        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
-        Self::open_inner(
-            root,
-            semantic_provider,
-            extractor,
-            audio_processor,
-            meaning_assets,
-        )
-    }
-
-    pub fn open_with_all_providers_and_meaning_assets(
-        root: impl AsRef<Path>,
-        semantic_provider: Arc<dyn SemanticProvider>,
-        extractor: Arc<dyn SourceExtractor>,
-        audio_processor: Arc<dyn AudioProcessor>,
-        meaning_assets: Option<impl AsRef<Path>>,
-    ) -> Result<Self> {
-        Self::open_inner(
-            root,
-            semantic_provider,
-            extractor,
-            audio_processor,
-            meaning_assets.map(|path| path.as_ref().to_path_buf()),
-        )
-    }
-
-    fn open_inner(
-        root: impl AsRef<Path>,
-        semantic_provider: Arc<dyn SemanticProvider>,
-        extractor: Arc<dyn SourceExtractor>,
-        audio_processor: Arc<dyn AudioProcessor>,
-        meaning_assets: Option<PathBuf>,
-    ) -> Result<Self> {
-        fs::create_dir_all(root.as_ref())?;
-        let root = fs::canonicalize(root)?;
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(root.join(".collection.lock"))?;
-        lock.try_lock_exclusive().map_err(|_| {
-            GardenError::Invalid("This collection is already open in another process.".into())
-        })?;
-        fs::create_dir_all(root.join("sources"))?;
-        fs::create_dir_all(root.join(".staging"))?;
-        recover_publications(&root)?;
-        fs::create_dir_all(root.join(".derived"))?;
-        let index = Connection::open(root.join(".derived/lookup.sqlite"))?;
-        index.execute_batch(
+fn initialize_collection_index(index: &Connection) -> Result<()> {
+    index.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA foreign_keys=ON;
              CREATE TABLE IF NOT EXISTS sources (
@@ -948,20 +800,324 @@ impl Application {
                  tokenize = 'unicode61 remove_diacritics 2'
              );",
         )?;
-        index.execute_batch(boolean::SCHEMA)?;
-        let meaning_index_path = root.join(".derived").join("meaning.usearch");
-        let (meaning_search, meaning_search_status) = match meaning_assets {
-            Some(path) => match MeaningSearch::open(path, &meaning_index_path) {
-                Ok(engine) => (Some(engine), "ready".to_owned()),
-                Err(error) => (None, format!("missing_assets: {error}")),
-            },
-            None => (
-                None,
-                "missing_assets: the app bundle did not provide meaning-search assets".to_owned(),
-            ),
+    index.execute_batch(boolean::SCHEMA)?;
+    Ok(())
+}
+
+impl Application {
+    /// Restore a verified migration backup into a new directory. Existing
+    /// collections are never overwritten, including when verification fails.
+    pub fn restore_verified_backup(
+        saved: impl AsRef<Path>,
+        destination: impl AsRef<Path>,
+    ) -> Result<()> {
+        migration_backup::restore_to_new_directory(saved.as_ref(), destination.as_ref())
+    }
+
+    fn ensure_running(&self) -> Result<()> {
+        if crate::processes::stopping() {
+            return Err(GardenError::Invalid(
+                "Processing paused for application Quit; retained work remains resumable.".into(),
+            ));
+        }
+        Ok(())
+    }
+    fn extract_while_running(
+        &self,
+        path: &Path,
+        format: &str,
+        title: &str,
+    ) -> Result<std::result::Result<crate::office::OfficeProjection, String>> {
+        let result = self
+            .extractor
+            .extract(path, format, title)
+            .map(|mut projection| {
+                if projection.semantic_text.trim().is_empty() {
+                    projection.partial = true;
+                    projection
+                        .detail
+                        .push_str(" No extractable text was found; the original is retained.");
+                    for part in &mut projection.coverage {
+                        if part.status == CoverageStatus::Complete {
+                            part.status = CoverageStatus::Partial;
+                            part.detail.push_str(" No extractable text was found.");
+                        }
+                    }
+                }
+                projection
+            });
+        self.ensure_running()?;
+        Ok(result)
+    }
+    /// Persist an explicit-stop receipt without waiting for a long extraction lock.
+    /// The next exclusive collection opener consumes it only after recovery succeeds.
+    pub fn record_controlled_shutdown(root: &Path) -> Result<()> {
+        if !root.is_dir() {
+            return Err(GardenError::Invalid(
+                "The collection is unavailable; controlled shutdown could not be recorded.".into(),
+            ));
+        }
+        let path = root.join(".runtime/controlled-exit");
+        validate_real_collection_ancestors(root, &path)?;
+        fs::create_dir_all(path.parent().unwrap())?;
+        let mut temporary = tempfile::NamedTempFile::new_in(path.parent().unwrap())?;
+        temporary.write_all(CONTROLLED_EXIT_RECEIPT.as_bytes())?;
+        temporary.as_file().sync_all()?;
+        temporary
+            .persist(&path)
+            .map_err(|e| GardenError::Io(e.error))?;
+        sync_directory(path.parent().unwrap())?;
+        Ok(())
+    }
+    pub fn timeline(
+        &self,
+        request: crate::timeline::TimelineRequest,
+    ) -> Result<crate::timeline::TimelineResults> {
+        self.require_integrity_recovered()?;
+        use crate::timeline::{DateMeaning, DateOrder, TimelineEntry, TimelineResults};
+        if request.query.len() > 1024 || request.tags.len() > 32 {
+            return Err(GardenError::Invalid(
+                "Timeline filters are too large.".into(),
+            ));
+        }
+        let meaning = match request.date_meaning {
+            DateMeaning::SourceEvent => "source_event",
+            DateMeaning::ReasoningEvent => "reasoning_event",
+            DateMeaning::CollectionActivity => "collection_activity",
         };
+        let tags = request
+            .tags
+            .iter()
+            .map(|tag| normalize_tag(tag))
+            .collect::<Result<Vec<_>>>()?;
+        let order = match request.order {
+            DateOrder::Ascending => "ASC",
+            DateOrder::Descending => "DESC",
+        };
+        let offset = i64::try_from(request.offset)
+            .map_err(|_| GardenError::Invalid("Timeline offset is too large.".into()))?;
+        let mut filters = vec!["t.date_meaning = ?".to_string(), "(? = '' OR instr(lower(json_extract(t.entry,'$.title') || ' ' || json_extract(t.entry,'$.date_label') || ' ' || coalesce(json_extract(t.entry,'$.qualifier'),'')), lower(?)) > 0 OR EXISTS (SELECT 1 FROM page_search p WHERE p.page_id=json_extract(t.entry,'$.page_id') AND instr(lower(p.content),lower(?))>0))".to_string()];
+        let mut values: Vec<rusqlite::types::Value> = vec![
+            meaning.to_string().into(),
+            request.query.trim().to_string().into(),
+            request.query.trim().to_string().into(),
+            request.query.trim().to_string().into(),
+        ];
+        for tag in tags {
+            filters.push("EXISTS (SELECT 1 FROM page_tags pt WHERE (pt.page_id=json_extract(t.entry,'$.page_id') OR (t.date_meaning='collection_activity' AND pt.source_id=json_extract(t.entry,'$.source_id'))) AND pt.normalized=?)".into());
+            values.push(tag.into());
+        }
+        values.push(((PAGE_SIZE + 1) as i64).into());
+        values.push(offset.into());
+        let mut statement = self.index.prepare(&format!("SELECT t.entry FROM timeline_entries t WHERE {} ORDER BY t.date_start IS NULL, t.date_start {order}, t.date_end {order}, t.entry_id ASC LIMIT ? OFFSET ?",filters.join(" AND ")))?;
+        let rows = statement.query_map(rusqlite::params_from_iter(values), |row| {
+            row.get::<_, String>(0)
+        })?;
+        let mut entries = rows
+            .map(|row| Ok(serde_json::from_str::<TimelineEntry>(&row?)?))
+            .collect::<Result<Vec<_>>>()?;
+        let next_offset =
+            (entries.len() > PAGE_SIZE).then_some(request.offset.saturating_add(PAGE_SIZE));
+        entries.truncate(PAGE_SIZE);
+        Ok(TimelineResults {
+            entries,
+            next_offset,
+        })
+    }
+    /// Injects a one-shot failure after the specified number of destination
+    /// files have been atomically replaced. Intended for public-application
+    /// recovery verification.
+    pub fn set_publication_failpoint_for_test(&mut self, after_files: usize) {
+        self.fail_after_publication_files = Some(after_files);
+    }
+
+    pub fn set_source_recovery_failpoint_for_test(&mut self, point: &str) {
+        self.source_recovery_failpoint = Some(point.to_owned());
+    }
+
+    fn source_recovery_checkpoint(&mut self, point: &str) -> Result<()> {
+        if self.source_recovery_failpoint.as_deref() == Some(point) {
+            self.source_recovery_failpoint = None;
+            return Err(GardenError::Invalid(format!(
+                "Injected source recovery interruption at {point}."
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn open(root: impl AsRef<Path>) -> Result<Self> {
+        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
+        Self::open_with_all_providers_and_meaning_assets(
+            root,
+            Arc::new(UnavailableProvider),
+            Arc::new(LocalExtractor),
+            Arc::new(NativeAudioProcessor),
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_meaning_assets(
+        root: impl AsRef<Path>,
+        meaning_assets: Option<impl AsRef<Path>>,
+    ) -> Result<Self> {
+        Self::open_with_all_providers_and_meaning_assets(
+            root,
+            Arc::new(UnavailableProvider),
+            Arc::new(LocalExtractor),
+            Arc::new(NativeAudioProcessor),
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_semantic_provider(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+    ) -> Result<Self> {
+        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
+        Self::open_with_all_providers_and_meaning_assets(
+            root,
+            semantic_provider,
+            Arc::new(LocalExtractor),
+            Arc::new(NativeAudioProcessor),
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_semantic_provider_and_meaning_assets(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        meaning_assets: Option<impl AsRef<Path>>,
+    ) -> Result<Self> {
+        Self::open_with_all_providers_and_meaning_assets(
+            root,
+            semantic_provider,
+            Arc::new(LocalExtractor),
+            Arc::new(NativeAudioProcessor),
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_providers(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
+    ) -> Result<Self> {
+        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
+        Self::open_with_all_providers_and_meaning_assets(
+            root,
+            semantic_provider,
+            extractor,
+            Arc::new(NativeAudioProcessor),
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_providers_and_meaning_assets(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
+        meaning_assets: Option<impl AsRef<Path>>,
+    ) -> Result<Self> {
+        Self::open_with_all_providers_and_meaning_assets(
+            root,
+            semantic_provider,
+            extractor,
+            Arc::new(NativeAudioProcessor),
+            meaning_assets,
+        )
+    }
+
+    pub fn open_with_all_providers(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
+        audio_processor: Arc<dyn AudioProcessor>,
+    ) -> Result<Self> {
+        let meaning_assets = std::env::var_os("KNOWLEDGE_GARDEN_MEANING_ASSETS").map(PathBuf::from);
+        Self::open_inner(
+            root,
+            semantic_provider,
+            extractor,
+            audio_processor,
+            meaning_assets,
+            false,
+        )
+    }
+
+    pub fn open_with_all_providers_and_meaning_assets(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
+        audio_processor: Arc<dyn AudioProcessor>,
+        meaning_assets: Option<impl AsRef<Path>>,
+    ) -> Result<Self> {
+        Self::open_inner(
+            root,
+            semantic_provider,
+            extractor,
+            audio_processor,
+            meaning_assets.map(|path| path.as_ref().to_path_buf()),
+            false,
+        )
+    }
+
+    pub fn open_pending_with_all_providers_and_meaning_assets(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
+        audio_processor: Arc<dyn AudioProcessor>,
+        meaning_assets: Option<impl AsRef<Path>>,
+    ) -> Result<Self> {
+        Self::open_inner(
+            root,
+            semantic_provider,
+            extractor,
+            audio_processor,
+            meaning_assets.map(|path| path.as_ref().to_path_buf()),
+            true,
+        )
+    }
+
+    fn open_inner(
+        root: impl AsRef<Path>,
+        semantic_provider: Arc<dyn SemanticProvider>,
+        extractor: Arc<dyn SourceExtractor>,
+        audio_processor: Arc<dyn AudioProcessor>,
+        meaning_assets: Option<PathBuf>,
+        pending: bool,
+    ) -> Result<Self> {
+        fs::create_dir_all(root.as_ref())?;
+        let root = fs::canonicalize(root)?;
+        let lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(root.join(".collection.lock"))?;
+        lock.try_lock_exclusive().map_err(|_| {
+            GardenError::Invalid("This collection is already open in another process.".into())
+        })?;
+        let index = Connection::open_in_memory()?;
+        initialize_collection_index(&index)?;
         let mut app = Self {
             root,
+            integrity_recovering: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            startup_recovering: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            startup_recovery_pending: true,
+            startup_storage_prepared: false,
+            startup_cutover_prepared: false,
+            startup_external_prepared: false,
+            startup_ready_for_finish: false,
+            startup_reconciled: false,
+            startup_urls_recovered: false,
+            startup_url_directory: None,
+            startup_url_identity: None,
+            startup_url_index: None,
+            startup_url_after: String::new(),
+            startup_url_discovered: false,
+            startup_jobs: None,
+            startup_jobs_identity: None,
+            startup_meaning_assets: meaning_assets,
             index,
             semantic_provider,
             extractor,
@@ -986,30 +1142,264 @@ impl Application {
             collection_revision: 0,
             collection_diagnostics: Vec::new(),
             staged_publication: Vec::new(),
+            staged_originals: Vec::new(),
             publication_bases: Default::default(),
+            migration_import: false,
             fail_after_publication_files: None,
-            meaning_search,
-            meaning_search_status,
+            source_recovery_failpoint: None,
+            meaning_search: None,
+            meaning_search_status: "Startup recovery is pending.".into(),
             watch_readers: HashMap::new(),
             watch_cursor: 0,
             _lock: CollectionLock(lock),
         };
-        while !app.reconcile_collection(1000)?.complete {}
-        let receipt = app.root.join(".runtime/controlled-exit");
-        let orderly = validate_real_collection_ancestors(&app.root, &receipt).is_ok()
-            && fs::symlink_metadata(&receipt).is_ok_and(|m| m.file_type().is_file())
-            && read_bounded_text(&receipt, 128).is_ok_and(|value| value == CONTROLLED_EXIT_RECEIPT);
-        app.recover_interrupted_url_acquisitions(orderly)?;
-        app.recover_interrupted_jobs(orderly)?;
-        if orderly {
-            match fs::remove_file(&receipt) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e.into()),
-            };
-            sync_directory(receipt.parent().unwrap())?;
+        if !pending {
+            if let Err(error) = app.resume_pending_startup() {
+                if matches!(error, GardenError::Recovery(_))
+                    || app.has_pending_integrity_exclusions().unwrap_or(true)
+                {
+                    app.defer_integrity_recovery(&error);
+                    return Ok(app);
+                }
+                return Err(error);
+            }
         }
         Ok(app)
+    }
+
+    fn initialize_startup_storage(&mut self) -> Result<()> {
+        fs::create_dir_all(self.root.join(".derived"))?;
+        let index = Connection::open(self.root.join(".derived/lookup.sqlite"))?;
+        initialize_collection_index(&index)?;
+        self.index = index;
+        let path = self.root.join(".derived/meaning.usearch");
+        (self.meaning_search, self.meaning_search_status) = match self.startup_meaning_assets.take()
+        {
+            Some(assets) => match MeaningSearch::open(assets, &path) {
+                Ok(engine) => (Some(engine), "ready".to_owned()),
+                Err(error) => (None, format!("missing_assets: {error}")),
+            },
+            None => (
+                None,
+                "missing_assets: the app bundle did not provide meaning-search assets".to_owned(),
+            ),
+        };
+        self.startup_storage_prepared = true;
+        Ok(())
+    }
+    pub(crate) fn accept_verified_startup(
+        &mut self,
+        proof: &migration_backup::final_verify::Proof,
+    ) -> Result<()> {
+        let post = proof
+            .post()
+            .ok_or_else(|| GardenError::Recovery("Migration verification is incomplete.".into()))?;
+        let state_path = self.root.join(".recovery/migration/state.json");
+        validate_real_collection_ancestors(&self.root, &state_path)?;
+        let state: serde_json::Value =
+            serde_json::from_slice(&migration_backup::read_bounded_nofollow(
+                &self.root,
+                Path::new(".recovery/migration/state.json"),
+                4096,
+            )?)?;
+        if state.get("phase").and_then(|value| value.as_str()) != Some("authority_retired")
+            || state.get("backup").and_then(|value| value.as_str()) != Some(post)
+        {
+            return Err(GardenError::Recovery(
+                "Migration state changed after verification.".into(),
+            ));
+        }
+        let pre_path = self.root.join(".recovery/migration/pre-recovery.json");
+        validate_real_collection_ancestors(&self.root, &pre_path)?;
+        let pre: String = serde_json::from_slice(&migration_backup::read_bounded_nofollow(
+            &self.root,
+            Path::new(".recovery/migration/pre-recovery.json"),
+            4096,
+        )?)?;
+        if pre != proof.pre() {
+            return Err(GardenError::Recovery(
+                "Pre-recovery identity changed after verification.".into(),
+            ));
+        }
+        self.initialize_startup_storage()?;
+        self.startup_cutover_prepared = true;
+        self.startup_external_prepared = true;
+        Ok(())
+    }
+    pub(crate) fn startup_ready_for_finish(&self) -> bool {
+        self.startup_ready_for_finish
+    }
+    pub(crate) fn finish_verified_startup(
+        &mut self,
+        proof: &migration_backup::final_verify::Proof,
+    ) -> Result<()> {
+        if !self.startup_external_prepared || !self.startup_ready_for_finish {
+            return Err(GardenError::Recovery(
+                "Startup is not ready for final verification.".into(),
+            ));
+        }
+        migration_backup::finish_pre_recovery_verified(&self.root, proof)?;
+        self.startup_recovery_pending = false;
+        self.startup_ready_for_finish = false;
+        self.collection_diagnostics
+            .retain(|item| item.kind != "integrity_recovery_blocked");
+        Ok(())
+    }
+
+    pub(crate) fn startup_collection_root(&self) -> PathBuf {
+        self.root.clone()
+    }
+
+    pub(crate) fn resume_pending_startup(&mut self) -> Result<()> {
+        while !self.resume_pending_startup_step()? {
+            if self.startup_ready_for_finish {
+                return Err(GardenError::Recovery(
+                    "Startup requires final background verification.".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn resume_pending_startup_step(&mut self) -> Result<bool> {
+        if self.startup_ready_for_finish {
+            return Ok(false);
+        }
+        if !self.startup_recovery_pending
+            || self
+                .startup_recovering
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Ok(true);
+        }
+        if self
+            .startup_recovering
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
+            return Err(GardenError::Invalid(
+                "Startup recovery is already in progress.".into(),
+            ));
+        }
+        let _guard = IntegrityRecoveryGuard(Arc::clone(&self.startup_recovering));
+        let outcome = (|| -> Result<bool> {
+            if !self.startup_storage_prepared {
+                migration_backup::prepare_pre_recovery(&self.root)?;
+                fs::create_dir_all(self.root.join("sources"))?;
+                fs::create_dir_all(self.root.join(".staging"))?;
+                recover_publications(&self.root)?;
+                migration_backup::prepare(&self.root)?;
+                self.initialize_startup_storage()?;
+            }
+            if !self.startup_cutover_prepared {
+                self.validate_integrity_intent_snapshot()?;
+                migration_backup::import_pending_authored_sources(self)?;
+                migration_backup::retire_manual_authority(self)?;
+                trusted_pages::recover_abandoned_original_copies(&self.root, 16)?;
+                self.recover_integrity_exclusions()?;
+                self.startup_cutover_prepared = true;
+            }
+            if !self.startup_reconciled {
+                self.recover_source_removals()?;
+                self.recover_unregistering_watches()?;
+                self.recover_unregistering_repositories()?;
+                if !self.reconcile_collection(256)?.complete {
+                    return Ok(false);
+                }
+                self.startup_reconciled = true;
+            }
+            let receipt = self.root.join(".runtime/controlled-exit");
+            let orderly = validate_real_collection_ancestors(&self.root, &receipt).is_ok()
+                && fs::symlink_metadata(&receipt).is_ok_and(|m| m.file_type().is_file())
+                && read_bounded_text(&receipt, 128)
+                    .is_ok_and(|value| value == CONTROLLED_EXIT_RECEIPT);
+            if !self.startup_urls_recovered {
+                if self.startup_external_prepared {
+                    match self.recover_interrupted_url_step(orderly) {
+                        Ok(false) => return Ok(false),
+                        Ok(true) => (),
+                        Err(error) => {
+                            self.startup_url_directory = None;
+                            self.startup_url_identity = None;
+                            self.startup_url_index = None;
+                            self.startup_url_after.clear();
+                            self.startup_url_discovered = false;
+                            return Err(error);
+                        }
+                    }
+                } else {
+                    self.recover_interrupted_url_acquisitions(orderly)?;
+                }
+                self.startup_urls_recovered = true;
+            }
+            if self.startup_external_prepared {
+                use std::os::unix::fs::MetadataExt;
+                let path = self.root.join("sources");
+                let metadata = fs::symlink_metadata(&path)?;
+                if !metadata.file_type().is_dir() {
+                    return Err(GardenError::Recovery(
+                        "Source recovery directory is not a real directory.".into(),
+                    ));
+                }
+                let identity = (
+                    metadata.dev(),
+                    metadata.ino(),
+                    metadata.mtime(),
+                    metadata.mtime_nsec(),
+                );
+                if let Some(expected) = self.startup_jobs_identity {
+                    if expected != identity {
+                        return Err(GardenError::Recovery(
+                            "Source directory changed during job recovery.".into(),
+                        ));
+                    }
+                } else {
+                    self.startup_jobs_identity = Some(identity);
+                    self.startup_jobs = Some(fs::read_dir(&path)?);
+                }
+                if let Some(entry) = self.startup_jobs.as_mut().unwrap().next() {
+                    let result = entry
+                        .map_err(GardenError::from)
+                        .and_then(|entry| self.recover_interrupted_job_entry(&entry, orderly));
+                    if let Err(error) = result {
+                        self.startup_jobs = None;
+                        self.startup_jobs_identity = None;
+                        return Err(error);
+                    }
+                    return Ok(false);
+                }
+                self.startup_jobs = None;
+            } else {
+                self.recover_interrupted_jobs(orderly)?;
+            }
+            if orderly {
+                match fs::remove_file(&receipt) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e.into()),
+                };
+                sync_directory(receipt.parent().unwrap())?;
+            }
+            if self.startup_external_prepared {
+                self.startup_ready_for_finish = true;
+                return Ok(false);
+            }
+            migration_backup::finish_pre_recovery(&self.root)?;
+            Ok(true)
+        })();
+        let complete = match outcome {
+            Ok(complete) => complete,
+            Err(error) => {
+                self.defer_integrity_recovery(&error);
+                return Err(error);
+            }
+        };
+        if !complete {
+            return Ok(false);
+        }
+        self.startup_recovery_pending = false;
+        self.collection_diagnostics
+            .retain(|item| item.kind != "integrity_recovery_blocked");
+        Ok(true)
     }
 
     pub fn import_source(
@@ -1017,7 +1407,18 @@ impl Application {
         path: impl AsRef<Path>,
         method: AcquisitionMethod,
     ) -> Result<SourcePage> {
-        self.import_source_with_acquisition(path, method, None, None)
+        self.require_integrity_recovered()?;
+        self.recover_source_removals()?;
+        let path = path.as_ref();
+        let readd = self.origin_is_suppressed(path);
+        let page = self.import_source_with_acquisition(path, method, None, None)?;
+        if method != AcquisitionMethod::Watch {
+            if readd {
+                self.set_source_generation(&page.info.source_id, &Uuid::new_v4().to_string())?;
+            }
+            self.clear_origin_suppression(path)?;
+        }
+        Ok(page)
     }
 
     /// Imports files from an owner-supplied directory through the ordinary source pipeline.
@@ -1026,6 +1427,9 @@ impl Application {
         &mut self,
         supplied_path: impl AsRef<Path>,
     ) -> Result<RepositoryImportResult> {
+        self.require_integrity_recovered()?;
+        self.recover_source_removals()?;
+        self.recover_registration_removals()?;
         let root = fs::canonicalize(supplied_path)?;
         if !root.is_dir() {
             return Err(GardenError::Invalid("Choose a repository folder.".into()));
@@ -1034,6 +1438,7 @@ impl Application {
             "repository-{}",
             hex::encode(Sha256::digest(root.as_os_str().as_encoded_bytes()))
         );
+        self.register_repository(&repository_id, &root)?;
         let mut paths = Vec::new();
         let mut exclusions = Vec::new();
         fn collect(
@@ -1130,6 +1535,7 @@ impl Application {
                 None,
                 None,
                 Some(format!("repository-file:{repository_id}:{relative_path}")),
+                Some(repository_id.clone()),
             )?;
             page.info.repository = Some(RepositorySourceContext {
                 repository_id: repository_id.clone(),
@@ -1152,6 +1558,7 @@ impl Application {
     }
 
     pub fn import_url(&mut self, input: &str) -> Result<SourcePage> {
+        self.require_integrity_recovered()?;
         let url = reqwest::Url::parse(input)
             .map_err(|_| GardenError::Invalid("Enter a valid HTTP or HTTPS URL.".into()))?
             .to_string();
@@ -1306,6 +1713,7 @@ impl Application {
         let acquisition = Acquisition {
             path: requested.clone(),
             method: AcquisitionMethod::Url,
+            registration_id: None,
             path_encoding: None,
             received_at: received_at.to_string(),
             requested_url: Some(requested),
@@ -1358,6 +1766,7 @@ impl Application {
     }
 
     pub fn list_url_acquisitions(&self) -> Result<Vec<UrlAcquisitionStatus>> {
+        self.require_integrity_recovered()?;
         let dir = self.root.join("url-acquisitions");
         if !dir.exists() {
             return Ok(Vec::new());
@@ -1377,36 +1786,141 @@ impl Application {
     }
 
     fn recover_interrupted_url_acquisitions(&self, orderly: bool) -> Result<()> {
-        for mut status in self.list_url_acquisitions()? {
-            if status.state == "processing" {
-                if orderly {
-                    status.attempts = status.attempts.saturating_sub(1);
-                    status.state = "pending".into();
-                    status.retry_at = Some(0);
-                    status.last_error =
-                        "Retrieval paused on Quit; automatic retry is queued.".into();
-                } else if status.attempts >= MAX_URL_ATTEMPTS {
-                    status.state = "failed".into();
-                    status.retry_at = None;
-                    status.last_error = "The application restarted during the final permitted retrieval attempt; the retry budget is exhausted.".into();
-                } else {
-                    status.state = "pending".into();
-                    status.retry_at = Some(0);
-                    status.last_error =
-                        "The application restarted during retrieval; retry is queued.".into();
+        for status in self.list_url_acquisitions()? {
+            self.recover_interrupted_url_entry(status, orderly)?;
+        }
+        Ok(())
+    }
+
+    fn recover_interrupted_url_step(&mut self, orderly: bool) -> Result<bool> {
+        use std::os::unix::fs::MetadataExt;
+        let directory = self.root.join("url-acquisitions");
+        if self.startup_url_index.is_none() {
+            let metadata = match fs::symlink_metadata(&directory) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(true),
+                Err(error) => return Err(error.into()),
+                Ok(metadata) if metadata.file_type().is_dir() => metadata,
+                Ok(_) => {
+                    return Err(GardenError::Recovery(
+                        "URL recovery directory is not a real directory.".into(),
+                    ))
                 }
-                self.write_url_status(&status)?;
+            };
+            let work = tempfile::tempdir()?;
+            let index = Connection::open(work.path().join("urls.sqlite"))?;
+            index.execute_batch("CREATE TABLE entries (name TEXT PRIMARY KEY)")?;
+            self.startup_url_identity = Some((
+                metadata.dev(),
+                metadata.ino(),
+                metadata.mtime(),
+                metadata.mtime_nsec(),
+            ));
+            self.startup_url_directory = Some(fs::read_dir(&directory)?);
+            self.startup_url_index = Some((work, index));
+        }
+        if !self.startup_url_discovered {
+            let metadata = fs::symlink_metadata(&directory)?;
+            let identity = (
+                metadata.dev(),
+                metadata.ino(),
+                metadata.mtime(),
+                metadata.mtime_nsec(),
+            );
+            if !metadata.file_type().is_dir() || Some(identity) != self.startup_url_identity {
+                return Err(GardenError::Recovery(
+                    "URL recovery directory changed during discovery.".into(),
+                ));
             }
+            if let Some(entry) = self.startup_url_directory.as_mut().unwrap().next() {
+                let entry = entry?;
+                if entry.path().extension().is_some_and(|ext| ext == "json") {
+                    let name = entry.file_name().into_string().map_err(|_| {
+                        GardenError::Recovery("URL recovery entry has an invalid name.".into())
+                    })?;
+                    self.startup_url_index
+                        .as_ref()
+                        .unwrap()
+                        .1
+                        .execute("INSERT INTO entries(name) VALUES (?1)", [&name])?;
+                }
+                return Ok(false);
+            }
+            self.startup_url_directory = None;
+            self.startup_url_discovered = true;
+            return Ok(false);
+        }
+        let name: Option<String> = self
+            .startup_url_index
+            .as_ref()
+            .unwrap()
+            .1
+            .query_row(
+                "SELECT name FROM entries WHERE name > ?1 ORDER BY name LIMIT 1",
+                [&self.startup_url_after],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(name) = name else {
+            self.startup_url_index = None;
+            return Ok(true);
+        };
+        let path = directory.join(&name);
+        let metadata = fs::symlink_metadata(&path)?;
+        if !metadata.file_type().is_file() || metadata.len() > MAX_PAGE_BYTES {
+            return Err(GardenError::Recovery(
+                "URL recovery entry is not a bounded regular file.".into(),
+            ));
+        }
+        let status: UrlAcquisitionStatus =
+            serde_json::from_slice(&migration_backup::read_bounded_nofollow(
+                &self.root,
+                &PathBuf::from("url-acquisitions").join(&name),
+                MAX_PAGE_BYTES,
+            )?)?;
+        if self.url_status_path(&status.url) != path {
+            return Err(GardenError::Recovery(
+                "URL recovery identity does not match its filename.".into(),
+            ));
+        }
+        self.recover_interrupted_url_entry(status, orderly)?;
+        self.startup_url_after = name;
+        Ok(false)
+    }
+
+    fn recover_interrupted_url_entry(
+        &self,
+        mut status: UrlAcquisitionStatus,
+        orderly: bool,
+    ) -> Result<()> {
+        if status.state == "processing" {
+            if orderly {
+                status.attempts = status.attempts.saturating_sub(1);
+                status.state = "pending".into();
+                status.retry_at = Some(0);
+                status.last_error = "Retrieval paused on Quit; automatic retry is queued.".into();
+            } else if status.attempts >= MAX_URL_ATTEMPTS {
+                status.state = "failed".into();
+                status.retry_at = None;
+                status.last_error = "The application restarted during the final permitted retrieval attempt; the retry budget is exhausted.".into();
+            } else {
+                status.state = "pending".into();
+                status.retry_at = Some(0);
+                status.last_error =
+                    "The application restarted during retrieval; retry is queued.".into();
+            }
+            self.write_url_status(&status)?;
         }
         Ok(())
     }
 
     pub fn resume_due_url_acquisitions(&mut self) -> Result<()> {
+        self.require_integrity_recovered()?;
         let now = now_millis()?.min(u128::from(u64::MAX)) as u64;
         self.resume_due_url_acquisitions_at(now)
     }
 
     pub fn resume_due_url_acquisitions_at(&mut self, now: u64) -> Result<()> {
+        self.require_integrity_recovered()?;
         let due = self
             .list_url_acquisitions()?
             .into_iter()
@@ -1426,7 +1940,14 @@ impl Application {
         acquisition_override: Option<Acquisition>,
         format_override: Option<String>,
     ) -> Result<SourcePage> {
-        self.import_source_with_identity(path, method, acquisition_override, format_override, None)
+        self.import_source_with_identity(
+            path,
+            method,
+            acquisition_override,
+            format_override,
+            None,
+            None,
+        )
     }
 
     fn import_source_with_identity(
@@ -1436,6 +1957,7 @@ impl Application {
         acquisition_override: Option<Acquisition>,
         format_override: Option<String>,
         source_identity_scope: Option<String>,
+        registration_id: Option<String>,
     ) -> Result<SourcePage> {
         self.recover_pending_publications()?;
         let supplied_path = if path.as_ref().is_absolute() {
@@ -1500,6 +2022,7 @@ impl Application {
                 supplied_path.to_string_lossy().into_owned()
             },
             method,
+            registration_id,
             path_encoding: (method == AcquisitionMethod::Repository)
                 .then_some(AcquisitionPathEncoding::PercentEncoded),
             received_at,
@@ -1514,7 +2037,13 @@ impl Application {
         identity.update([0]);
         identity.update(digest.as_bytes());
         let content_source_id = format!("source-{}", hex::encode(identity.finalize()));
-        let existing_origin = self.source_for_origin(acquisition_origin(&acquisition)?)?;
+        let source_origin = acquisition_origin(&acquisition)?;
+        let source_owner = AcquisitionOwner {
+            origin: source_origin.clone(),
+            method: acquisition.method,
+            registration_id: acquisition.registration_id.clone(),
+        };
+        let existing_origin = self.source_for_origin(source_origin.clone())?;
         let source_id = if method == AcquisitionMethod::Url {
             existing_origin.unwrap_or_else(|| {
                 let identity = format!("url-origin:{path_key}");
@@ -1543,6 +2072,7 @@ impl Application {
             let acquisition_exists = existing.info.acquisitions.iter().any(|old| {
                 old.path == acquisition.path
                     && old.method == acquisition.method
+                    && old.registration_id == acquisition.registration_id
                     && old.path_encoding == acquisition.path_encoding
                     && old.requested_url == acquisition.requested_url
                     && old.final_url == acquisition.final_url
@@ -1553,6 +2083,45 @@ impl Application {
                 .iter()
                 .any(|version| version.source_version_id == digest)
             {
+                let mut ownership_changed = false;
+                for version in &mut existing.info.versions_seen {
+                    if version.source_version_id == digest {
+                        if !version.acquisition_owners.contains(&source_owner) {
+                            version.acquisition_owners.push(source_owner.clone());
+                            version.withdrawn = false;
+                            ownership_changed = true;
+                        }
+                    } else {
+                        let previous = version.acquisition_owners.len();
+                        version
+                            .acquisition_owners
+                            .retain(|owner| owner != &source_owner);
+                        ownership_changed |= previous != version.acquisition_owners.len();
+                    }
+                }
+                if ownership_changed {
+                    let has_owner = |id: &str| {
+                        existing.info.versions_seen.iter().any(|version| {
+                            version.source_version_id == id
+                                && !version.acquisition_owners.is_empty()
+                        })
+                    };
+                    let unsupported_current = existing
+                        .info
+                        .current_version_id
+                        .as_deref()
+                        .is_some_and(|id| !has_owner(id));
+                    let unsupported_pending = existing
+                        .info
+                        .pending_version_id
+                        .as_deref()
+                        .is_some_and(|id| !has_owner(id));
+                    if unsupported_current || unsupported_pending {
+                        self.reconcile_reacquired_version(&source_id, &source_owner, &digest)?;
+                    } else {
+                        self.write_source_page(&mut existing)?;
+                    }
+                }
                 if !acquisition_exists {
                     write_acquisition(&destination, &acquisition)?;
                 }
@@ -1567,7 +2136,13 @@ impl Application {
                 &format,
                 &acquisition.received_at,
                 "pending",
+                Some(&source_owner),
             );
+            for previous in &mut existing.info.versions_seen {
+                previous
+                    .acquisition_owners
+                    .retain(|owner| owner != &source_owner);
+            }
             let previous_original = destination.join(&existing.info.asset);
             if let Some(previous) = existing
                 .info
@@ -1627,6 +2202,14 @@ impl Application {
                     &text_bytes,
                     acquisition.final_url.as_deref().unwrap_or(""),
                 ) {
+                    Ok(web) if web.semantic_text.trim().is_empty() => (
+                        ExtractionState::PartialText,
+                        format!(
+                            "{} No extractable text was found; the original is retained.",
+                            web.detail
+                        ),
+                        None,
+                    ),
                     Ok(web) if count > MAX_TEXT_BYTES as u64 => {
                         (ExtractionState::PartialText, web.detail, None)
                     }
@@ -1667,12 +2250,7 @@ impl Application {
                     }
                 }
             } else {
-                let (extraction, detail, _) = classify_source(
-                    &format,
-                    count,
-                    text_bytes,
-                    method == AcquisitionMethod::Repository,
-                );
+                let (extraction, detail, _) = classify_source(&format, count, text_bytes);
                 (extraction, detail.to_owned(), None)
             };
             if !matches!(
@@ -1765,7 +2343,18 @@ impl Application {
             } else if let Some(Err(_)) = &web_result {
                 (ExtractionState::InvalidUtf8, "The downloaded HTML is not valid UTF-8. The exact original is retained without lossy extraction.".into(), String::new(), None, None)
             } else if let Some(web) = web_projection {
-                if count > MAX_TEXT_BYTES as u64 {
+                if web.semantic_text.trim().is_empty() {
+                    (
+                        ExtractionState::PartialText,
+                        format!(
+                            "{} No extractable text was found; the original is retained.",
+                            web.detail
+                        ),
+                        String::new(),
+                        None,
+                        None,
+                    )
+                } else if count > MAX_TEXT_BYTES as u64 {
                     (
                         ExtractionState::PartialText,
                         format!(
@@ -1791,6 +2380,7 @@ impl Application {
             {
                 match String::from_utf8(text_bytes.clone()) {
                 Err(_) => (ExtractionState::InvalidUtf8, "The source is not valid UTF-8. The original is retained without lossy decoding.".into(), String::new(), None, None),
+                Ok(text) if text.trim_start_matches('\u{feff}').trim().is_empty() => (ExtractionState::Unsupported, "The response contains no extractable text. The original is retained.".into(), String::new(), None, None),
                 Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 response text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
             }
             } else if crate::extraction::is_structured_source(&staging.path().join(&asset), &format)
@@ -1827,18 +2417,21 @@ impl Application {
                         &format,
                         &acquisition.received_at,
                         "pending",
+                        Some(&source_owner),
                     )],
                     update_status: Some("pending".into()),
                     ordering_uncertain: false,
                     semantic_state: "pending".into(),
                     semantic_error: None,
                     semantic_attempts: 0,
+                    semantic_claim: None,
                     semantic_retry_at: None,
                     provider_availability: None,
                     knowledge_pages: Vec::new(),
                     semantic_decisions: Vec::new(),
                     audio_processing: None,
                     pending_audio_processing: None,
+                    visual_jobs: Vec::new(),
                 };
                 let body = source_body(&pending, "", None);
                 let markdown = serialize_page(&pending, &body)?;
@@ -1846,20 +2439,37 @@ impl Application {
                 page_file.write_all(markdown.as_bytes())?;
                 page_file.sync_all()?;
                 sync_directory(staging.path())?;
+                if trusted_pages::active(&self.root)? {
+                    trusted_pages::write_bundle_seed(staging.path(), markdown.as_bytes())?;
+                }
                 fs::rename(staging.path(), &destination)?;
                 sync_directory(&self.root.join("sources"))?;
                 self.index_acquisition(&acquisition, &source_id)?;
                 self.index_version(&source_id, &digest, &format)?;
                 self.index_page(&pending)?;
                 initial_structured_published = true;
-                match self.extract_while_running(
-                    &destination.join(&asset),
+                let retained = destination.join(&asset);
+                let verified_snapshot =
+                    match self.verified_asset_snapshot(&retained, &digest, &format) {
+                        Ok(snapshot) => snapshot,
+                        Err(error) => {
+                            self.record_original_integrity_failure(&source_id, &digest, &error)?;
+                            return Err(error);
+                        }
+                    };
+                let extraction_result = self.extract_while_running(
+                    verified_snapshot.path(),
                     &format,
                     path.file_stem()
                         .unwrap_or_default()
                         .to_string_lossy()
                         .as_ref(),
-                )? {
+                )?;
+                if let Err(error) = self.verified_asset_snapshot(&retained, &digest, &format) {
+                    self.record_original_integrity_failure(&source_id, &digest, &error)?;
+                    return Err(error);
+                }
+                match extraction_result {
                     Ok(projection) => {
                         let extraction = if projection.partial {
                             ExtractionState::PartialText
@@ -1881,13 +2491,22 @@ impl Application {
                             CoverageScope::ConversationMessages
                         } else if format == "pdf" {
                             CoverageScope::PdfPages
+                        } else if format == "xlsx" {
+                            CoverageScope::SpreadsheetCells
                         } else if format == "docx" {
                             CoverageScope::MainDocument
                         } else {
                             CoverageScope::SlideText
                         };
                         (
-                            ExtractionState::InvalidContainer,
+                            if format == "xlsx"
+                                && crate::office::detect_xlsx_container(&destination.join(&asset))
+                                    == crate::office::OfficeContainer::Encrypted
+                            {
+                                ExtractionState::Encrypted
+                            } else {
+                                ExtractionState::InvalidContainer
+                            },
                             format!("Source container could not be read. {detail}"),
                             String::new(),
                             None,
@@ -1907,7 +2526,7 @@ impl Application {
                         )
                     }
                 }
-            } else if !is_text_format(&format, method == AcquisitionMethod::Repository) {
+            } else if !is_text_format(&format) {
                 (
                     ExtractionState::Unsupported,
                     "This format is not supported by the text importer. The original is retained."
@@ -1918,9 +2537,8 @@ impl Application {
                 )
             } else if count > MAX_TEXT_BYTES as u64 {
                 (
-                    ExtractionState::TooLarge,
-                    "Text exceeds the 2 MiB preview limit. The complete original is retained."
-                        .into(),
+                    if count <= MAX_RECONCILIATION_BYTES { ExtractionState::PartialText } else { ExtractionState::TooLarge },
+                    if count <= MAX_RECONCILIATION_BYTES { "The complete original is retained. Resumable UTF-8 semantic processing is queued; the readable preview is limited to 2 MiB." } else { "Text exceeds the 32 MiB reconciliation limit. The complete original is retained; semantic coverage is incomplete." }.into(),
                     String::new(),
                     None,
                     None,
@@ -1930,6 +2548,7 @@ impl Application {
                 Err(_) => (ExtractionState::InvalidUtf8, "The source is not valid UTF-8. The original is retained without lossy decoding.".into(), String::new(), None, None),
                 Ok(text) if text.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t')) =>
                     (ExtractionState::Unsupported, "The source contains binary control characters. The original is retained.".into(), String::new(), None, None),
+                Ok(text) if text.trim_start_matches('\u{feff}').trim().is_empty() => (ExtractionState::Unsupported, "The source contains no extractable text. The original is retained.".into(), String::new(), None, None),
                 Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 source text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
             }
             };
@@ -1995,6 +2614,7 @@ impl Application {
                 } else {
                     "unavailable"
                 },
+                Some(&source_owner),
             )],
             update_status: matches!(
                 extraction,
@@ -2016,6 +2636,7 @@ impl Application {
             },
             semantic_error: None,
             semantic_attempts: 0,
+            semantic_claim: None,
             semantic_retry_at: None,
             provider_availability: None,
             knowledge_pages: Vec::new(),
@@ -2023,6 +2644,7 @@ impl Application {
             audio_processing: inspected_audio
                 .map(|audio| audio_processing_info(audio, &digest, inspected_media)),
             pending_audio_processing: None,
+            visual_jobs: Vec::new(),
         };
         let mut body = web_projection
             .as_ref()
@@ -2048,6 +2670,9 @@ impl Application {
             page_file.write_all(markdown.as_bytes())?;
             page_file.sync_all()?;
             sync_directory(staging.path())?;
+            if trusted_pages::active(&self.root)? {
+                trusted_pages::write_bundle_seed(staging.path(), markdown.as_bytes())?;
+            }
             fs::rename(staging.path(), &destination)?;
             sync_directory(&self.root.join("sources"))?;
         }
@@ -2075,6 +2700,7 @@ impl Application {
     }
 
     pub fn open_source(&self, source_id: &str) -> Result<SourcePage> {
+        self.require_integrity_recovered()?;
         recover_publications(&self.root)?;
         let mut page = read_page(&self.page_path(source_id)?)?;
         if page.info.source_id != source_id {
@@ -2091,6 +2717,7 @@ impl Application {
                 if !page.info.acquisitions.iter().any(|old| {
                     old.path == acquisition.path
                         && old.method == acquisition.method
+                        && old.registration_id == acquisition.registration_id
                         && old.path_encoding == acquisition.path_encoding
                         && old.requested_url == acquisition.requested_url
                         && old.final_url == acquisition.final_url
@@ -2107,6 +2734,7 @@ impl Application {
     }
 
     pub fn retained_source_exists(&self, source_id: &str) -> Result<bool> {
+        self.require_integrity_recovered()?;
         match fs::metadata(self.page_path(source_id)?) {
             Ok(metadata) => Ok(metadata.is_file()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
@@ -2115,6 +2743,7 @@ impl Application {
     }
 
     pub fn open_knowledge_page(&self, page_id: &str) -> Result<KnowledgePage> {
+        self.require_integrity_recovered()?;
         recover_publications(&self.root)?;
         if !page_id.starts_with("page-")
             || !page_id
@@ -2130,6 +2759,9 @@ impl Application {
     }
 
     fn all_knowledge_candidates(&self) -> Result<Vec<PathBuf>> {
+        if trusted_pages::active(&self.root)? {
+            return trusted_pages::knowledge_paths(&self.root);
+        }
         let mut directories = vec![self.root.join("pages")];
         let mut paths = Vec::new();
         while let Some(directory) = directories.pop() {
@@ -2190,6 +2822,7 @@ impl Application {
 
     /// Cheap freshness check; reads one index row rather than restarting traversal.
     pub fn path_graph_revision(&self) -> Result<String> {
+        self.require_integrity_recovered()?;
         Ok(self.index.query_row(
             "SELECT revision FROM relationship_graph_meta WHERE singleton=1",
             [],
@@ -2198,6 +2831,7 @@ impl Application {
     }
 
     pub fn explore_paths(&mut self, request: PathExploreRequest) -> Result<PathExploreResponse> {
+        self.recover_integrity_exclusions()?;
         if request.max_hops == 0 {
             return Err(GardenError::Invalid(
                 "Choose a path depth of at least one relationship.".into(),
@@ -2521,6 +3155,7 @@ impl Application {
         &mut self,
         request: PathDetailsRequest,
     ) -> Result<PathDetailsResponse> {
+        self.recover_integrity_exclusions()?;
         if !(1..=MAX_PATH_WORK_BUDGET).contains(&request.work_budget) {
             return Err(GardenError::Invalid(format!(
                 "Path detail work budget must be between 1 and {MAX_PATH_WORK_BUDGET}."
@@ -2704,6 +3339,7 @@ impl Application {
     /// Claim persisted work under the collection lock. Provider I/O happens after this returns,
     /// so the desktop can keep import and navigation responsive during a slow service call.
     pub fn claim_due_semantic_jobs(&mut self, max_jobs: usize) -> Result<Vec<SemanticJob>> {
+        self.require_integrity_recovered()?;
         let now = now_millis()?;
         self.claim_due_semantic_jobs_at(max_jobs, now)
     }
@@ -2715,7 +3351,10 @@ impl Application {
         max_jobs: usize,
         now: u128,
     ) -> Result<Vec<SemanticJob>> {
+        self.require_integrity_recovered()?;
         self.recover_pending_publications()?;
+        self.recover_source_removals()?;
+        self.discover_visual_jobs()?;
         let mut due = Vec::new();
         for entry in fs::read_dir(self.root.join("sources"))? {
             if due.len() >= max_jobs {
@@ -2797,6 +3436,10 @@ impl Application {
             if (page.info.semantic_state == "pending"
                 || (has_pending_version && page.info.update_status.as_deref() == Some("pending")))
                 && audio_ready
+                && !page.info.visual_jobs.iter().any(|job| {
+                    Some(job.source_version_id.as_str()) == pending_version_id
+                        && (job.state == "pending" || job.state == "processing")
+                })
                 && retry_at <= now
             {
                 due.push(page.info.source_id);
@@ -2854,6 +3497,7 @@ impl Application {
             } else {
                 page.info.acquisitions.clone()
             };
+            let mut text_chunk = None;
             let text = if is_timed_media_format(&version.format) {
                 let Some(audio) = candidate_audio_processing(&page.info, &source_version_id) else {
                     continue;
@@ -2869,7 +3513,17 @@ impl Application {
                     .iter()
                     .any(|acquisition| acquisition.method == AcquisitionMethod::Url)
             {
-                let bytes = fs::read(&candidate_path)?;
+                let bytes = match self.verified_original_bytes(&candidate_path, &version.sha256) {
+                    Ok(bytes) => bytes,
+                    Err(error) => {
+                        self.record_original_integrity_failure(
+                            &source_id,
+                            &source_version_id,
+                            &error,
+                        )?;
+                        return Err(error);
+                    }
+                };
                 if !initial && bytes.len() > MAX_TEXT_BYTES {
                     self.record_extraction_recovery(
                         &mut page,
@@ -2899,8 +3553,23 @@ impl Application {
                     .map_err(GardenError::Invalid)?
                     .semantic_text
             } else if structured_candidate {
-                let projection = match self.extract_while_running(
+                let verified_snapshot = match self.verified_asset_snapshot(
                     &candidate_path,
+                    &version.sha256,
+                    &version.format,
+                ) {
+                    Ok(snapshot) => snapshot,
+                    Err(error) => {
+                        self.record_original_integrity_failure(
+                            &source_id,
+                            &source_version_id,
+                            &error,
+                        )?;
+                        return Err(error);
+                    }
+                };
+                let mut projection = match self.extract_while_running(
+                    verified_snapshot.path(),
                     &version.format,
                     &page.info.title,
                 )? {
@@ -2920,12 +3589,21 @@ impl Application {
                             CoverageScope::ConversationMessages
                         } else if version.format == "pdf" {
                             CoverageScope::PdfPages
+                        } else if version.format == "xlsx" {
+                            CoverageScope::SpreadsheetCells
                         } else if version.format == "docx" {
                             CoverageScope::MainDocument
                         } else {
                             CoverageScope::SlideText
                         };
-                        page.info.extraction = ExtractionState::InvalidContainer;
+                        page.info.extraction = if version.format == "xlsx"
+                            && crate::office::detect_xlsx_container(&candidate_path)
+                                == crate::office::OfficeContainer::Encrypted
+                        {
+                            ExtractionState::Encrypted
+                        } else {
+                            ExtractionState::InvalidContainer
+                        };
                         page.info.extraction_detail =
                             format!("Source container could not be read. {detail}");
                         page.info.extraction_version_id = Some(source_version_id.clone());
@@ -2963,8 +3641,45 @@ impl Application {
                     }
                     Err(detail) => return Err(GardenError::Invalid(detail)),
                 };
+                if let Err(error) =
+                    self.verified_asset_snapshot(&candidate_path, &version.sha256, &version.format)
+                {
+                    self.record_original_integrity_failure(&source_id, &source_version_id, &error)?;
+                    return Err(error);
+                }
+                if crate::photo::is_photo(&version.format) {
+                    if let Some(result) = page
+                        .info
+                        .visual_jobs
+                        .iter()
+                        .find(|job| {
+                            job.source_version_id == source_version_id
+                                && job.frame_ms.is_none()
+                                && job.state == "complete"
+                        })
+                        .and_then(|job| job.result.as_ref())
+                    {
+                        crate::photo::append_qwen(&mut projection, result);
+                    } else if page.info.visual_jobs.iter().any(|job| {
+                        job.source_version_id == source_version_id
+                            && job.frame_ms.is_none()
+                            && job.state == "failed"
+                    }) {
+                        projection.partial = true;
+                        projection.detail = "Local Qwen visual interpretation failed after bounded retries; native channels and the original remain available.".into();
+                        for part in projection
+                            .coverage
+                            .iter_mut()
+                            .filter(|part| part.scope == CoverageScope::ImageInterpretation)
+                        {
+                            part.status = CoverageStatus::Partial;
+                            part.detail = projection.detail.clone();
+                        }
+                    }
+                }
                 if !initial
                     && (projection.partial
+                        || projection.semantic_text.trim().is_empty()
                         || projection
                             .coverage
                             .iter()
@@ -3004,13 +3719,42 @@ impl Application {
                     };
                 }
                 projection.semantic_text
+            } else if version.bytes > PROVIDER_CHUNK_BYTES as u64 && is_text_format(&version.format)
+            {
+                match self.claim_text_chunk(&page, &version, &candidate_path) {
+                    Ok((text, range)) => {
+                        text_chunk = Some(range);
+                        text
+                    }
+                    Err(error) => {
+                        if matches!(error, GardenError::Recovery(_)) {
+                            return Err(error);
+                        }
+                        self.record_semantic_failure(&mut page, error.to_string(), false, true)?;
+                        self.write_source_page(&mut page)?;
+                        self.index_page(&page.info)?;
+                        continue;
+                    }
+                }
             } else {
-                let bytes = fs::read(candidate_path)?;
+                let bytes = match self.verified_original_bytes(&candidate_path, &version.sha256) {
+                    Ok(bytes) => bytes,
+                    Err(error) => {
+                        self.record_original_integrity_failure(
+                            &source_id,
+                            &source_version_id,
+                            &error,
+                        )?;
+                        return Err(error);
+                    }
+                };
                 String::from_utf8(bytes).map_err(|_| {
                     GardenError::Invalid("The retained text source is no longer UTF-8.".into())
                 })?
             };
-            let prior_source_text = if initial {
+            let prior_source_text = if text_chunk.is_some() {
+                None
+            } else if initial {
                 if text.starts_with("[PHOTO ") {
                     None
                 } else {
@@ -3024,7 +3768,7 @@ impl Application {
                     .iter()
                     .find(|version| version.source_version_id == current_id)
                     .and_then(|version| {
-                        let root_path = self.source_dir(&source_id).ok()?.join(&version.asset);
+                        let root_path = self.source_dir(&source_id).ok()?.join(&page.info.asset);
                         let version_path = self.version_original_path(&source_id, version).ok()?;
                         let path = if root_path.is_file() {
                             root_path
@@ -3032,12 +3776,19 @@ impl Application {
                             version_path
                         };
                         if crate::extraction::is_structured_source(&path, &version.format) {
+                            let snapshot = self
+                                .verified_asset_snapshot(&path, &version.sha256, &version.format)
+                                .ok()?;
                             self.extractor
-                                .extract(&path, &version.format, &page.info.title)
+                                .extract(snapshot.path(), &version.format, &page.info.title)
                                 .ok()
                                 .map(|projection| projection.semantic_text)
+                        } else if version.bytes > PROVIDER_CHUNK_BYTES as u64 {
+                            // Prior context is a bounded provider input, not another
+                            // whole-source reconciliation buffer (including legacy sources).
+                            None
                         } else {
-                            fs::read(path)
+                            self.verified_original_bytes(&path, &version.sha256)
                                 .ok()
                                 .and_then(|bytes| String::from_utf8(bytes).ok())
                         }
@@ -3056,6 +3807,9 @@ impl Application {
             page.info.semantic_error = None;
             page.info.semantic_retry_at = None;
             let attempt = page.info.semantic_attempts;
+            let generation = self.source_generation(&source_id)?;
+            let claim = Uuid::new_v4().to_string();
+            page.info.semantic_claim = Some(claim.clone());
             if let Some(version) = page
                 .info
                 .versions_seen
@@ -3070,8 +3824,12 @@ impl Application {
                 source_id,
                 source_version_id,
                 attempt,
+                claim,
+                generation,
                 source_text: text,
-                prior_source_text,
+                prior_source_text: prior_source_text
+                    .filter(|text| text.len() <= PROVIDER_CHUNK_BYTES),
+                text_chunk,
             });
         }
         Ok(jobs)
@@ -3508,11 +4266,13 @@ impl Application {
                 let path = if source.info.current_version_id.as_deref()
                     == Some(version.source_version_id.as_str())
                 {
-                    self.source_dir(&support.source_id)?.join(&version.asset)
+                    self.source_dir(&support.source_id)?
+                        .join(&source.info.asset)
                 } else {
                     self.version_original_path(&support.source_id, version)?
                 };
-                let Ok(text) = fs::read_to_string(path) else {
+                let bytes = self.verified_original_bytes(&path, &version.sha256)?;
+                let Ok(text) = String::from_utf8(bytes) else {
                     continue;
                 };
                 if let Some(date) = event_date_for_label(&text, label) {
@@ -3528,6 +4288,7 @@ impl Application {
         job: SemanticJob,
         result: std::result::Result<KnowledgeDraft, ProviderError>,
     ) -> Result<()> {
+        self.require_integrity_recovered()?;
         let outcome = self.finish_semantic_job_inner(job, result);
         self.publication_bases.borrow_mut().take();
         outcome
@@ -3535,11 +4296,18 @@ impl Application {
 
     fn finish_semantic_job_inner(
         &mut self,
-        job: SemanticJob,
-        result: std::result::Result<KnowledgeDraft, ProviderError>,
+        mut job: SemanticJob,
+        mut result: std::result::Result<KnowledgeDraft, ProviderError>,
     ) -> Result<()> {
         recover_publications(&self.root)?;
+        self.recover_source_removals()?;
+        if self.source_generation(&job.source_id)? != job.generation {
+            return Err(GardenError::Invalid(
+                "The source generation changed while semantic work was running.".into(),
+            ));
+        }
         self.staged_publication.clear();
+        self.staged_originals.clear();
         *self.publication_bases.borrow_mut() = Some(HashMap::new());
         let source_path = self.page_path(&job.source_id)?;
         let mut page = read_page(&source_path)?;
@@ -3553,10 +4321,29 @@ impl Application {
         if !active
             || page.info.pending_version_id.as_deref() != Some(&job.source_version_id)
             || page.info.semantic_attempts != job.attempt
+            || page.info.semantic_claim.as_deref() != Some(&job.claim)
         {
             return Err(GardenError::Invalid(
                 "The semantic job is no longer the active source attempt.".into(),
             ));
+        }
+        if job.text_chunk.is_some() {
+            result = match result {
+                Ok(draft) => match self.stage_text_chunk(&mut page, &mut job, draft) {
+                    Ok(Some(complete)) => Ok(complete),
+                    Ok(None) => return Ok(()),
+                    Err(error) => {
+                        if matches!(error, GardenError::Recovery(_)) {
+                            return Err(error);
+                        }
+                        self.record_semantic_failure(&mut page, error.to_string(), true, true)?;
+                        self.write_source_page(&mut page)?;
+                        self.index_page(&page.info)?;
+                        return Ok(());
+                    }
+                },
+                Err(error) => Err(error),
+            };
         }
         let web_projection = page.info.format == "html"
             && page
@@ -3622,6 +4409,15 @@ impl Application {
                         true,
                         true,
                     )?;
+                } else if candidate_audio.is_some_and(|audio| audio.is_video())
+                    && crate::video_provenance::validate(&job.source_text, &draft).is_err()
+                {
+                    self.record_semantic_failure(
+                        &mut page,
+                        "Video claims require support from one retained frame or transcript item, and relationships require an explicit statement in that item; semantic coverage remains incomplete.".into(),
+                        true,
+                        true,
+                    )?;
                 } else if version_audio && draft_claims_audio_speaker_identity(&draft) {
                     self.record_semantic_failure(
                         &mut page,
@@ -3633,7 +4429,8 @@ impl Application {
                     if version_audio {
                         qualify_audio_evidence(&mut draft, &job.source_text);
                     }
-                    let is_office = matches!(page.info.format.as_str(), "docx" | "pptx" | "pdf");
+                    let is_office =
+                        matches!(page.info.format.as_str(), "docx" | "pptx" | "xlsx" | "pdf");
                     let office_facts = draft
                         .facts
                         .iter()
@@ -3792,6 +4589,7 @@ impl Application {
                                 // Leave the processing lease for controlled-exit recovery.
                                 self.ensure_running()?;
                                 self.staged_publication.clear();
+                                self.staged_originals.clear();
                                 page = prior_page;
                                 self.record_semantic_failure(
                                     &mut page,
@@ -3808,7 +4606,7 @@ impl Application {
                 self.record_provider_failure(&mut page, error)?;
             }
         }
-        if self.staged_publication.is_empty() {
+        if self.staged_publication.is_empty() && self.staged_originals.is_empty() {
             self.write_source_page(&mut page)?;
         } else {
             let markdown = serialize_page(&page.info, &page.body)?;
@@ -3836,7 +4634,8 @@ impl Application {
                 .borrow_mut()
                 .take()
                 .unwrap_or_default();
-            commit_publication(&self.root, files, &bases, fail_after)?;
+            let originals = std::mem::take(&mut self.staged_originals);
+            commit_publication_with_originals(&self.root, files, originals, &bases, fail_after)?;
             for source_id in changed_source_ids {
                 let indexed = read_page(&self.page_path(&source_id)?)?;
                 self.index_page(&indexed.info)?;
@@ -3980,17 +4779,22 @@ impl Application {
     }
 
     pub fn resume_due_semantic_jobs(&mut self) -> Result<()> {
+        self.require_integrity_recovered()?;
         self.resume_due_semantic_jobs_at(now_millis()?)
     }
 
     /// Resume work at an explicit scheduler time for deterministic retry tests.
     /// Production callers should use resume_due_semantic_jobs.
     pub fn resume_due_semantic_jobs_at(&mut self, now: u128) -> Result<()> {
+        self.require_integrity_recovered()?;
         let jobs = self.claim_due_semantic_jobs_at(4, now)?;
         for job in jobs {
-            let result = self
-                .semantic_provider
-                .form_knowledge_with_prior(&job.source_text, job.prior_source_text.as_deref());
+            let result = if job.needs_provider() {
+                self.semantic_provider
+                    .form_knowledge_with_prior(&job.source_text, job.prior_source_text.as_deref())
+            } else {
+                Ok(KnowledgeDraft::default())
+            };
             self.finish_semantic_job(job, result)?;
         }
         Ok(())
@@ -4078,67 +4882,72 @@ impl Application {
             gaps: vision.gaps,
             ocr_revision: vision.ocr_revision,
             classification_revision: vision.classification_revision,
+            qwen_interpretation: None,
         })
     }
 
     fn recover_interrupted_jobs(&mut self, orderly: bool) -> Result<()> {
         for entry in fs::read_dir(self.root.join("sources"))? {
-            let entry = entry?;
-            if !entry.file_type()?.is_dir() {
-                continue;
-            }
-            let Some(mut page) = self.readable_source_entry(&entry) else {
-                continue;
-            };
-            let Some(pending) = page.info.pending_version_id.clone() else {
-                continue;
-            };
-            let mut changed = false;
-            if orderly
-                && (page.info.semantic_state == "processing"
-                    || page.info.update_status.as_deref() == Some("processing"))
+            self.recover_interrupted_job_entry(&entry?, orderly)?;
+        }
+        Ok(())
+    }
+
+    fn recover_interrupted_job_entry(&mut self, entry: &fs::DirEntry, orderly: bool) -> Result<()> {
+        if !entry.file_type()?.is_dir() {
+            return Ok(());
+        }
+        let Some(mut page) = self.readable_source_entry(entry) else {
+            return Ok(());
+        };
+        let Some(pending) = page.info.pending_version_id.clone() else {
+            return Ok(());
+        };
+        let mut changed = false;
+        if orderly
+            && (page.info.semantic_state == "processing"
+                || page.info.update_status.as_deref() == Some("processing"))
+        {
+            if let Some(version) = page
+                .info
+                .versions_seen
+                .iter_mut()
+                .find(|v| v.source_version_id == pending && v.state == "processing")
             {
-                if let Some(version) = page
-                    .info
-                    .versions_seen
-                    .iter_mut()
-                    .find(|v| v.source_version_id == pending && v.state == "processing")
-                {
-                    version.state = "pending".into();
-                    if page.info.current_version_id.is_none() {
-                        page.info.semantic_state = "pending".into();
-                    } else {
-                        page.info.update_status = Some("pending".into());
-                    }
-                    page.info.semantic_error = None;
-                    page.info.semantic_retry_at = None;
-                    changed = true;
+                version.state = "pending".into();
+                if page.info.current_version_id.is_none() {
+                    page.info.semantic_state = "pending".into();
+                } else {
+                    page.info.update_status = Some("pending".into());
                 }
+                page.info.semantic_error = None;
+                page.info.semantic_retry_at = None;
+                changed = true;
             }
-            if let Some(audio) = candidate_audio_processing_mut(&mut page.info, &pending) {
-                if audio.state == "processing" {
-                    audio.retry_at_ms = None;
-                    if orderly {
+        }
+        if let Some(audio) = candidate_audio_processing_mut(&mut page.info, &pending) {
+            if audio.state == "processing" {
+                audio.retry_at_ms = None;
+                if orderly {
+                    audio.state = "pending".into();
+                    audio.detail="A bounded media window was paused on Quit. Its stable time range remains queued without consuming the crash-recovery budget.".into();
+                } else {
+                    audio.processing_interruptions =
+                        audio.processing_interruptions.saturating_add(1);
+                    if audio.processing_interruptions >= MAX_AUDIO_INTERRUPTION_ATTEMPTS {
+                        audio.state = "failed".into();
+                        audio.detail="Audio transcription stopped after three interrupted segment attempts for this source version. The exact retained original and any previously published transcript remain available; a new source version has an independent recovery budget.".into();
+                    } else {
                         audio.state = "pending".into();
-                        audio.detail="A bounded media window was paused on Quit. Its stable time range remains queued without consuming the crash-recovery budget.".into();
-                    } else {
-                        audio.processing_interruptions =
-                            audio.processing_interruptions.saturating_add(1);
-                        if audio.processing_interruptions >= MAX_AUDIO_INTERRUPTION_ATTEMPTS {
-                            audio.state = "failed".into();
-                            audio.detail="Audio transcription stopped after three interrupted segment attempts for this source version. The exact retained original and any previously published transcript remain available; a new source version has an independent recovery budget.".into();
-                        } else {
-                            audio.state = "pending".into();
-                            audio.detail=format!("A bounded audio segment was interrupted ({}/{}). The same time range remains queued within this source version's interruption budget; the retained original remains available.",audio.processing_interruptions,MAX_AUDIO_INTERRUPTION_ATTEMPTS);
-                        }
+                        audio.detail=format!("A bounded audio segment was interrupted ({}/{}). The same time range remains queued within this source version's interruption budget; the retained original remains available.",audio.processing_interruptions,MAX_AUDIO_INTERRUPTION_ATTEMPTS);
                     }
-                    changed = true;
                 }
+                changed = true;
             }
-            if changed {
-                self.write_source_page(&mut page)?;
-                self.index_page(&page.info)?;
-            }
+        }
+        if changed {
+            self.write_source_page(&mut page)?;
+            self.index_page(&page.info)?;
         }
         Ok(())
     }
@@ -4147,6 +4956,8 @@ impl Application {
     /// deliberately performed after persisting `processing`; opening the collection
     /// converts an interrupted window back to pending and retries its stable range.
     pub fn resume_due_audio_jobs(&mut self) -> Result<()> {
+        self.require_integrity_recovered()?;
+        self.recover_source_removals()?;
         self.recover_pending_publications()?;
         let now = now_millis()? as u64;
         let mut candidate = None;
@@ -4211,11 +5022,12 @@ impl Application {
             .versions_seen
             .iter()
             .find(|version| version.source_version_id == version_id)
+            .cloned()
             .ok_or_else(|| {
                 GardenError::Invalid("Pending audio source version is missing.".into())
             })?;
         let root_asset = self.source_dir(&source_id)?.join(&version.asset);
-        let version_asset = self.version_original_path(&source_id, version)?;
+        let version_asset = self.version_original_path(&source_id, &version)?;
         let path = if current_page.info.current_version_id.as_deref() == Some(version_id.as_str())
             || current_page.info.current_version_id.is_none()
         {
@@ -4227,6 +5039,16 @@ impl Application {
         } else {
             version_asset
         };
+        let verified_snapshot =
+            match self.verified_asset_snapshot(&path, &version.sha256, &version.format) {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    self.record_original_integrity_failure(&source_id, &version_id, &error)?;
+                    return Err(error);
+                }
+            };
+        let original_path = path;
+        let path = verified_snapshot.path().to_path_buf();
         let video = snapshot.is_video();
         let audio_usable = snapshot
             .tracks
@@ -4271,6 +5093,12 @@ impl Application {
         };
         if crate::processes::stopping() {
             return Err(GardenError::Invalid("Media processing paused for application Quit; its durable window remains resumable.".into()));
+        }
+        if let Err(error) =
+            self.verified_asset_snapshot(&original_path, &version.sha256, &version.format)
+        {
+            self.record_original_integrity_failure(&source_id, &version_id, &error)?;
+            return Err(error);
         }
         match outcome {
             Ok(batch)
@@ -4457,13 +5285,15 @@ impl Application {
                 {
                     let candidate = self.version_original_path(&source.info.source_id, &version)?;
                     if candidate.exists() {
-                        self.staged_publication.push((
-                            self.source_dir(&source.info.source_id)?
-                                .join(&version.asset),
-                            fs::read(candidate)?,
-                        ));
+                        self.staged_originals.push(OriginalPublication {
+                            destination: self
+                                .source_dir(&source.info.source_id)?
+                                .join(generation_asset(&version.asset, &version.sha256)),
+                            source: candidate,
+                            proposed_digest: version.sha256.clone(),
+                        });
                         source.info.original_name = version.original_name.clone();
-                        source.info.asset = version.asset.clone();
+                        source.info.asset = generation_asset(&version.asset, &version.sha256);
                         source.info.sha256 = version.sha256.clone();
                         source.info.bytes = version.bytes;
                         source.info.format = version.format.clone();
@@ -4660,6 +5490,7 @@ impl Application {
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         "extracted Office projection; offsets are not original package byte offsets"
                     }
+                    EvidenceOffsetBasis::ExtractedContainerProjection => "extracted container projection; offsets are not original container byte offsets",
                     EvidenceOffsetBasis::ExtractedPdfProjection => "extracted PDF projection; offsets are not original PDF byte offsets",
                     EvidenceOffsetBasis::ExtractedImageProjection => "extracted image projection; offsets are not original image byte offsets",
                     EvidenceOffsetBasis::ExtractedConversationProjection => "extracted conversation projection; offsets are not original export byte offsets",
@@ -4713,6 +5544,9 @@ impl Application {
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         ("extracted projection lines", "extracted projection bytes")
                     }
+                    EvidenceOffsetBasis::ExtractedContainerProjection => {
+                        ("container projection lines", "container projection bytes")
+                    }
                     EvidenceOffsetBasis::ExtractedPdfProjection => {
                         ("PDF projection lines", "PDF projection bytes")
                     }
@@ -4742,12 +5576,32 @@ impl Application {
                 } else {
                     "Original opens at the beginning; use these source lines and byte offsets to locate this passage."
                 };
+                let container_link = if fact.evidence.offset_basis
+                    == EvidenceOffsetBasis::ExtractedContainerProjection
+                {
+                    fact.evidence
+                        .source_location
+                        .as_deref()
+                        .map(|location| {
+                            format!(
+                                " · [View retained part](?container_source={}&version={}&asset={}&locator={})",
+                                source.info.source_id, source_version_id, source.info.asset,
+                                percent_encoding::utf8_percent_encode(
+                                    location,
+                                    percent_encoding::NON_ALPHANUMERIC
+                                )
+                            )
+                        })
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
                 body.push_str(&format!(
                     "\n- **{}:** {}{}\n  - Fact identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Links: [Source page](../sources/{}/index.md) · [Retained original](../sources/{}/{}){}\n",
                     escape_markdown(&fact.property.replace('_', " ")), escape_markdown(&fact.value), fact.qualifier.as_deref().map(|q| format!(" ({})", escape_markdown(q))).unwrap_or_default(), fact.fact_id,
                     escape_markdown(&fact.evidence.quote), escape_markdown(&fact.origin), line_basis, fact.evidence.line_start, fact.evidence.line_end,
                     byte_basis, fact.evidence.byte_start, fact.evidence.byte_end, basis, locator, guidance, &source.info.source_id["source-".len()..],
-                    &source.info.source_id["source-".len()..], source.info.asset, audio_link
+                    &source.info.source_id["source-".len()..], source.info.asset, format_args!("{audio_link}{container_link}")
                 ));
             }
             body.push_str("\n## Relationships\n");
@@ -4785,6 +5639,11 @@ impl Application {
                             .map(|location| format!(" · original locator: {location}"))
                             .unwrap_or_default(),
                         "The original opens as a fallback; use the OOXML part and location above to find the extracted passage.",
+                    ),
+                    EvidenceOffsetBasis::ExtractedContainerProjection => (
+                        "container projection lines", "container projection bytes",
+                        relationship.evidence.source_location.as_deref().map(|location| format!(" · original locator: {location}")).unwrap_or_default(),
+                        "The original opens as a fallback; use the message part or archive member locator to find the passage.",
                     ),
                     EvidenceOffsetBasis::ExtractedPdfProjection => (
                         "PDF projection lines", "PDF projection bytes",
@@ -4873,13 +5732,34 @@ impl Application {
                 } else {
                     String::new()
                 };
+                let container_link = if relationship.evidence.offset_basis
+                    == EvidenceOffsetBasis::ExtractedContainerProjection
+                {
+                    relationship
+                        .evidence
+                        .source_location
+                        .as_deref()
+                        .map(|location| {
+                            format!(
+                                " · [View retained part](?container_source={}&version={}&asset={}&locator={})",
+                                source.info.source_id, source_version_id, source.info.asset,
+                                percent_encoding::utf8_percent_encode(
+                                    location,
+                                    percent_encoding::NON_ALPHANUMERIC
+                                )
+                            )
+                        })
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
                 body.push_str(&format!(
                     "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{}{}\n  - {}\n  - Links: [Source page](../sources/{}/index.md) · [Retained original](../sources/{}/{}){}\n",
                     escape_markdown(&from.0.label), from.1.page_id, escape_markdown(&relationship.kind.replace('_', " ")), escape_markdown(&to.0.label), to.1.page_id,
                     relationship.qualifier.as_deref().map(|q| format!(" (qualifier: {})", escape_markdown(q))).unwrap_or_default(), relationship.relationship_id,
                     escape_markdown(&relationship.evidence.quote), escape_markdown(&relationship.origin), line_basis, relationship.evidence.line_start, relationship.evidence.line_end,
                     byte_basis, relationship.evidence.byte_start, relationship.evidence.byte_end, locator, guidance, &source.info.source_id["source-".len()..],
-                    &source.info.source_id["source-".len()..], source.info.asset, audio_link
+                    &source.info.source_id["source-".len()..], source.info.asset, format_args!("{audio_link}{container_link}")
                 ));
             }
             body.push_str("\n## Tags\n");
@@ -5321,11 +6201,13 @@ impl Application {
             .source_dir(&source.info.source_id)?
             .join("versions")
             .join(&current_id)
-            .join(&current_asset);
-        if !previous_original.exists() {
-            self.staged_publication
-                .push((previous_original, fs::read(&current_original)?));
-        }
+            .join(&current_version.asset);
+        retain_version_original(
+            &self.root,
+            &previous_original,
+            &current_original,
+            &current_version.sha256,
+        )?;
         let candidate_path = self
             .source_dir(&source.info.source_id)?
             .join("versions")
@@ -5333,9 +6215,14 @@ impl Application {
             .join(&candidate.asset);
         let office_projection =
             if crate::extraction::is_structured_source(&candidate_path, &candidate.format) {
+                let verified_snapshot = self.verified_asset_snapshot(
+                    &candidate_path,
+                    &candidate.sha256,
+                    &candidate.format,
+                )?;
                 Some(
                     self.extract_while_running(
-                        &candidate_path,
+                        verified_snapshot.path(),
                         &candidate.format,
                         Path::new(&candidate.original_name)
                             .file_stem()
@@ -5364,16 +6251,18 @@ impl Application {
                 ));
             }
         }
-        let candidate_bytes = fs::read(candidate_path)?;
         let destination_original = self
             .source_dir(&source.info.source_id)?
-            .join(&candidate.asset);
-        self.staged_publication
-            .push((destination_original, candidate_bytes));
+            .join(generation_asset(&candidate.asset, &candidate.sha256));
+        self.staged_originals.push(OriginalPublication {
+            destination: destination_original,
+            source: candidate_path,
+            proposed_digest: candidate.sha256.clone(),
+        });
 
         source.info.extraction_version_id = Some(source_version_id.into());
         source.info.original_name = candidate.original_name.clone();
-        source.info.asset = candidate.asset.clone();
+        source.info.asset = generation_asset(&candidate.asset, &candidate.sha256);
         source.info.sha256 = candidate.sha256.clone();
         source.info.bytes = candidate.bytes;
         source.info.format = candidate.format.clone();
@@ -5880,6 +6769,11 @@ impl Application {
         path: &Path,
         labels: &std::collections::HashMap<String, String>,
     ) -> Result<bool> {
+        if trusted_pages::active(&self.root)? {
+            let markdown = trusted_pages::read_active_or_original(path, MAX_PAGE_BYTES)?;
+            self.remember_publication_base(path, &markdown);
+            return Ok(false);
+        }
         let markdown = fs::read_to_string(path)?;
         let current = parse_knowledge_header(&markdown)?;
         if current.page_id != header.page_id {
@@ -6011,6 +6905,9 @@ impl Application {
     }
 
     fn capture_external_knowledge_edits(&mut self) -> Result<()> {
+        if self.migration_import || trusted_pages::active(&self.root)? {
+            return Ok(());
+        }
         let pages_dir = self.root.join("pages");
         if !pages_dir.is_dir() {
             return Ok(());
@@ -6361,6 +7258,839 @@ impl Application {
         Ok(self.source_dir(source_id)?.join("index.md"))
     }
 
+    fn record_original_integrity_failure(
+        &mut self,
+        source_id: &str,
+        version_id: &str,
+        error: &GardenError,
+    ) -> Result<()> {
+        if matches!(error, GardenError::Recovery(_)) {
+            return Ok(());
+        }
+        let detail = error.to_string();
+        self.enqueue_integrity_exclusion(source_id, version_id, &detail)?;
+        self.recover_integrity_exclusions()
+    }
+
+    fn enqueue_integrity_exclusion(
+        &self,
+        source_id: &str,
+        version_id: &str,
+        detail: &str,
+    ) -> Result<PathBuf> {
+        let directory = self.root.join(".recovery/integrity-exclusions");
+        validate_real_collection_ancestors(&self.root, &directory.join("entry"))?;
+        fs::create_dir_all(&directory)?;
+        let identity = hex::encode(Sha256::digest(
+            format!("{source_id}\0{version_id}").as_bytes(),
+        ));
+        let intent = directory.join(format!("{identity}.json"));
+        write_atomic(
+            &intent,
+            &serde_json::to_vec(&(source_id, version_id, detail))?,
+        )?;
+        Ok(intent)
+    }
+
+    fn defer_integrity_recovery(&mut self, error: &GardenError) {
+        self.collection_diagnostics
+            .retain(|item| item.kind != "integrity_recovery_blocked");
+        self.collection_reconcile_pending = true;
+        self.collection_diagnostics.push(reconciliation::CollectionDiagnostic {
+            kind: "integrity_recovery_blocked".into(),
+            paths: Vec::new(),
+            detail: format!("Evidence recovery is pending: {error}. Original and recovery files remain preserved."),
+        });
+    }
+
+    pub(crate) fn require_integrity_recovered(&self) -> Result<()> {
+        if self
+            .startup_recovering
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Ok(());
+        }
+        if self.startup_recovery_pending {
+            return Err(GardenError::Invalid(
+                "Startup recovery is pending; retry after the collection is repaired.".into(),
+            ));
+        }
+        if self
+            .integrity_recovering
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Ok(());
+        }
+        if self.has_pending_integrity_exclusions()? {
+            return Err(GardenError::Invalid(
+                "Evidence integrity recovery is pending; retry after reopening the collection."
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn has_pending_integrity_exclusions(&self) -> Result<bool> {
+        let directory = self.root.join(".recovery/integrity-exclusions");
+        validate_real_collection_ancestors(&self.root, &directory.join("entry"))?;
+        let live = match fs::read_dir(directory) {
+            Ok(mut entries) => entries.next().transpose()?.is_some(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(error) => return Err(error.into()),
+        };
+        Ok(live || migration_backup::pre_recovery_has_integrity_intents(&self.root)?)
+    }
+
+    fn validate_integrity_intent_snapshot(&self) -> Result<()> {
+        let was_recovering = self
+            .integrity_recovering
+            .swap(true, std::sync::atomic::Ordering::AcqRel);
+        let _guard = (!was_recovering)
+            .then(|| IntegrityRecoveryGuard(Arc::clone(&self.integrity_recovering)));
+        for (name, bytes) in migration_backup::missing_integrity_intents(&self.root)? {
+            let (source_id, version_id, _detail): (String, String, String) =
+                serde_json::from_slice(&bytes)?;
+            let identity = hex::encode(Sha256::digest(
+                format!("{source_id}\0{version_id}").as_bytes(),
+            ));
+            if name != format!("{identity}.json")
+                || !migration_backup::consumed_integrity_matches(&self.root, &name, &bytes)?
+            {
+                return Err(GardenError::Recovery("An integrity intent changed or disappeared; inspect the verified snapshot before retrying.".into()));
+            }
+            let source_directory = self.source_dir(&source_id)?;
+            if matches!(fs::symlink_metadata(&source_directory), Err(ref error) if error.kind() == std::io::ErrorKind::NotFound)
+            {
+                return Err(GardenError::Recovery("An integrity intent disappeared and its source is unavailable; recovery remains pending.".into()));
+            } else {
+                let page = self.open_source(&source_id)?;
+                if !page.info.versions_seen.iter().any(|version| {
+                    version.source_version_id == version_id && version.state == "failed"
+                }) {
+                    return Err(GardenError::Recovery(
+                        "The consumed integrity intent has no failed-version proof.".into(),
+                    ));
+                }
+            }
+            for path in self.knowledge_paths()? {
+                let mut header = read_knowledge_header(&path)?;
+                ensure_legacy_supports(&mut header);
+                let matches = |id: &str, version: &str| {
+                    id == source_id && (version == version_id || version == "legacy")
+                };
+                if header
+                    .facts
+                    .iter()
+                    .flat_map(|fact| &fact.supports)
+                    .any(|support| matches(&support.source_id, &support.source_version_id))
+                    || header
+                        .relationships
+                        .iter()
+                        .flat_map(|relationship| &relationship.supports)
+                        .any(|support| matches(&support.source_id, &support.source_version_id))
+                    || header
+                        .tags
+                        .iter()
+                        .flat_map(|tag| &tag.supports)
+                        .any(|support| matches(&support.source_id, &support.source_version_id))
+                {
+                    return Err(GardenError::Recovery(
+                        "Trusted knowledge still refers to a consumed integrity intent.".into(),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn recover_integrity_exclusions(&mut self) -> Result<()> {
+        let directory = self.root.join(".recovery/integrity-exclusions");
+        validate_real_collection_ancestors(&self.root, &directory.join("entry"))?;
+        let live = match fs::read_dir(&directory) {
+            Ok(mut entries) => entries.next().transpose()?.is_some(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(error) => return Err(error.into()),
+        };
+        if !live && !migration_backup::pre_recovery_has_integrity_intents(&self.root)? {
+            return Ok(());
+        }
+        let runtime_recovery = !self
+            .startup_recovering
+            .load(std::sync::atomic::Ordering::Acquire);
+        if runtime_recovery {
+            migration_backup::prepare_pre_recovery(&self.root)?;
+        }
+        self.validate_integrity_intent_snapshot()?;
+        for entry in fs::read_dir(&directory)? {
+            let path = entry?.path();
+            if !fs::symlink_metadata(&path)?.is_file() {
+                return Err(GardenError::Invalid(
+                    "Integrity exclusion journal is not a regular file.".into(),
+                ));
+            }
+            let intent_bytes = fs::read(&path)?;
+            let (source_id, version_id, detail): (String, String, String) =
+                serde_json::from_slice(&intent_bytes)?;
+            let identity = hex::encode(Sha256::digest(
+                format!("{source_id}\0{version_id}").as_bytes(),
+            ));
+            if path.file_name().and_then(|n| n.to_str())
+                != Some(format!("{identity}.json").as_str())
+            {
+                return Err(GardenError::Invalid(
+                    "Integrity exclusion journal identity is invalid.".into(),
+                ));
+            }
+            self.apply_integrity_exclusion(&source_id, &version_id, &detail)?;
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| {
+                    GardenError::Recovery("Integrity intent name is not readable.".into())
+                })?;
+            migration_backup::consume_integrity_intent(&self.root, name, &intent_bytes)?;
+            #[cfg(test)]
+            if std::env::var_os("KG_STOP_AFTER_INTEGRITY_CONSUMPTION").is_some() {
+                std::process::exit(79);
+            }
+        }
+        if fs::read_dir(&directory)?.next().transpose()?.is_some() {
+            return Err(GardenError::Recovery(
+                "Additional integrity intents remain pending.".into(),
+            ));
+        }
+        if runtime_recovery {
+            migration_backup::finish_pre_recovery(&self.root)?;
+        }
+        self.collection_diagnostics
+            .retain(|item| item.kind != "integrity_recovery_blocked");
+        Ok(())
+    }
+
+    fn apply_integrity_exclusion(
+        &mut self,
+        source_id: &str,
+        version_id: &str,
+        detail: &str,
+    ) -> Result<()> {
+        if self
+            .integrity_recovering
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
+            return Err(GardenError::Invalid(
+                "Integrity recovery is already in progress.".into(),
+            ));
+        }
+        let _guard = IntegrityRecoveryGuard(Arc::clone(&self.integrity_recovering));
+        let mut page = self.open_source(source_id)?;
+        if !page
+            .info
+            .versions_seen
+            .iter()
+            .any(|version| version.source_version_id == version_id)
+        {
+            return Err(GardenError::Recovery(
+                "The integrity intent refers to an unknown source version; it remains pending."
+                    .into(),
+            ));
+        }
+        if let Some(audio) = candidate_audio_processing_mut(&mut page.info, version_id) {
+            audio.state = "failed".into();
+            audio.retry_at_ms = None;
+            audio.detail = detail.chars().take(300).collect();
+        }
+        if let Some(version) = page
+            .info
+            .versions_seen
+            .iter_mut()
+            .find(|item| item.source_version_id == version_id)
+        {
+            version.state = "failed".into();
+            version.coverage = "partial".into();
+        }
+        if page.info.current_version_id.is_some() {
+            page.info.update_status = Some("failed".into());
+        } else {
+            page.info.semantic_state = "failed".into();
+            page.info.extraction = ExtractionState::PartialText;
+            page.info.extraction_detail = detail.chars().take(300).collect();
+        }
+        page.info.semantic_error = Some(detail.chars().take(300).collect());
+        page.info.semantic_retry_at = None;
+        self.exclude_failed_version(&mut page, version_id)
+    }
+
+    // The publication manifest is the durable exclusion journal: source status,
+    // supported projections and their trusted records replay as one generation.
+    fn exclude_failed_version(&mut self, source: &mut SourcePage, version_id: &str) -> Result<()> {
+        let source_id = source.info.source_id.clone();
+        let paths = self.knowledge_paths()?;
+        let mut headers = Vec::new();
+        for path in paths {
+            let mut header = read_knowledge_header(&path)?;
+            ensure_legacy_supports(&mut header);
+            headers.push((path, header));
+        }
+        let excluded = |id: &str, version: &str| {
+            id == source_id && (version == version_id || version == "legacy")
+        };
+        let mut referenced = HashMap::new();
+        for (_, header) in &headers {
+            for relationship in &header.relationships {
+                if let Some(support) = relationship
+                    .supports
+                    .iter()
+                    .find(|s| !excluded(&s.source_id, &s.source_version_id))
+                {
+                    for id in [&relationship.from_page_id, &relationship.to_page_id] {
+                        referenced.insert(
+                            id.clone(),
+                            (support.source_id.clone(), support.evidence.clone()),
+                        );
+                    }
+                }
+            }
+        }
+        let mut files = Vec::new();
+        let mut removals = Vec::new();
+        let mut owners = HashMap::<String, SourcePage>::new();
+        let empty = HashSet::new();
+        for (path, mut header) in headers {
+            let affected = knowledge_header_supported_by(&header, &source_id);
+            if !affected {
+                continue;
+            }
+            for fact in &mut header.facts {
+                fact.supports
+                    .retain(|s| !excluded(&s.source_id, &s.source_version_id));
+            }
+            header
+                .facts
+                .retain(|f| !f.supports.is_empty() || f.manual_correction.is_some());
+            for relationship in &mut header.relationships {
+                relationship
+                    .supports
+                    .retain(|s| !excluded(&s.source_id, &s.source_version_id));
+            }
+            header.relationships.retain(|r| !r.supports.is_empty());
+            for tag in &mut header.tags {
+                tag.supports
+                    .retain(|s| !excluded(&s.source_id, &s.source_version_id));
+            }
+            header.tags.retain(|t| !t.supports.is_empty());
+            header.facts = self.reconcile_facts(header.facts, Vec::new(), &empty)?;
+            header.relationships =
+                self.reconcile_relationships(header.relationships, Vec::new(), &empty)?;
+            header.tags = self.reconcile_tags(header.tags, Vec::new(), &empty);
+            if header.facts.is_empty()
+                && header.relationships.is_empty()
+                && header.tags.is_empty()
+                && header.owner_content.is_empty()
+                && header.uninterpreted_owner_edits.is_empty()
+                && header.owner_metadata.is_empty()
+                && header.external_edit_status.is_none()
+                && !referenced.contains_key(&header.page_id)
+            {
+                source
+                    .info
+                    .knowledge_pages
+                    .retain(|p| p.page_id != header.page_id);
+                removals.push(path);
+                continue;
+            }
+            if header.source_id == source_id {
+                let support = header
+                    .facts
+                    .iter()
+                    .flat_map(|f| &f.supports)
+                    .chain(header.relationships.iter().flat_map(|r| &r.supports))
+                    .next()
+                    .map(|s| (s.source_id.clone(), s.evidence.clone()))
+                    .or_else(|| {
+                        header
+                            .tags
+                            .iter()
+                            .flat_map(|t| &t.supports)
+                            .next()
+                            .map(|s| (s.source_id.clone(), s.evidence.clone()))
+                    })
+                    .or_else(|| referenced.get(&header.page_id).cloned());
+                if let Some((owner, evidence)) = support {
+                    header.source_id = owner;
+                    header.evidence = evidence;
+                }
+            }
+            if header.source_id != source_id {
+                source
+                    .info
+                    .knowledge_pages
+                    .retain(|p| p.page_id != header.page_id);
+                if !owners.contains_key(&header.source_id) {
+                    owners.insert(
+                        header.source_id.clone(),
+                        self.open_source(&header.source_id)?,
+                    );
+                }
+                let owner = owners.get_mut(&header.source_id).unwrap();
+                if !owner
+                    .info
+                    .knowledge_pages
+                    .iter()
+                    .any(|p| p.page_id == header.page_id)
+                {
+                    owner.info.knowledge_pages.push(KnowledgePageSummary {
+                        page_id: header.page_id.clone(),
+                        title: header.title.clone(),
+                        kind: header.kind.clone(),
+                        path: path
+                            .strip_prefix(&self.root)
+                            .unwrap()
+                            .to_string_lossy()
+                            .into_owned(),
+                    });
+                    owner.body = replace_semantic_section(&owner.body, &owner.info.knowledge_pages);
+                }
+            }
+            files.push((
+                path,
+                self.render_knowledge_page(header, &HashMap::new())?
+                    .into_bytes(),
+            ));
+        }
+        source.body = replace_semantic_section(&source.body, &source.info.knowledge_pages);
+        files.push((
+            self.page_path(&source_id)?,
+            serialize_page(&source.info, &source.body)?.into_bytes(),
+        ));
+        for (id, owner) in owners {
+            files.push((
+                self.page_path(&id)?,
+                serialize_page(&owner.info, &owner.body)?.into_bytes(),
+            ));
+        }
+        commit_publication_with_removals(
+            &self.root,
+            files,
+            removals,
+            &HashMap::new(),
+            self.fail_after_publication_files.take(),
+        )?;
+        self.rebuild_index()
+    }
+
+    fn verified_asset_snapshot(
+        &self,
+        path: &Path,
+        expected_sha256: &str,
+        format: &str,
+    ) -> Result<tempfile::NamedTempFile> {
+        #[cfg(test)]
+        VERIFIED_SNAPSHOT_COUNT.with(|count| count.set(count.get() + 1));
+        let suffix = format!(
+            ".{}",
+            format
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .take(16)
+                .collect::<String>()
+        );
+        let mut snapshot = tempfile::Builder::new()
+            .suffix(&suffix)
+            .tempfile_in(self.root.join(".staging"))?;
+        let mut input = File::open(path)?;
+        let mut hasher = Sha256::new();
+        let mut buffer = [0; 64 * 1024];
+        loop {
+            let count = input.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            hasher.update(&buffer[..count]);
+            snapshot.write_all(&buffer[..count])?;
+        }
+        snapshot.as_file().sync_all()?;
+        let digest = hex::encode(hasher.finalize());
+        if digest != expected_sha256 {
+            let recovery = self.root.join(".recovery/external-originals").join(digest);
+            validate_real_collection_ancestors(&self.root, &recovery)?;
+            if !recovery.exists() {
+                write_atomic_from_file(&recovery, snapshot.path())?;
+            }
+            return Err(GardenError::Invalid("A retained original changed on disk; its changed bytes were retained for recovery and cannot be used as source evidence.".into()));
+        }
+        // Migration imports are journaled separately and must not create
+        // collateral files before their import intent has been committed.
+        if self.migration_import {
+            return Ok(snapshot);
+        }
+        let mut input = snapshot.as_file().try_clone()?;
+        std::io::Seek::seek(&mut input, std::io::SeekFrom::Start(0))?;
+        self.retain_verified_original(&digest, &mut input)
+            .map_err(|error| GardenError::Recovery(error.to_string()))?;
+        Ok(snapshot)
+    }
+
+    fn verified_original_bytes(&self, path: &Path, expected_sha256: &str) -> Result<Vec<u8>> {
+        let bytes = fs::read(path)?;
+        if hex::encode(Sha256::digest(&bytes)) != expected_sha256 {
+            let recovery = self
+                .root
+                .join(".recovery/external-originals")
+                .join(hex::encode(Sha256::digest(&bytes)));
+            validate_real_collection_ancestors(&self.root, &recovery)?;
+            if !recovery.exists() {
+                write_atomic(&recovery, &bytes)?;
+            }
+            return Err(GardenError::Invalid("A retained original changed on disk; its changed bytes were retained for recovery and cannot be used as source evidence.".into()));
+        }
+        if self.migration_import {
+            return Ok(bytes);
+        }
+        self.retain_verified_original(expected_sha256, &mut std::io::Cursor::new(&bytes))
+            .map_err(|error| GardenError::Recovery(error.to_string()))?;
+        Ok(bytes)
+    }
+
+    fn retain_verified_original(&self, digest: &str, input: &mut impl Read) -> Result<()> {
+        self.retain_verified_original_with_hook(digest, input, || {})
+    }
+
+    fn retain_verified_original_with_hook(
+        &self,
+        digest: &str,
+        input: &mut impl Read,
+        before_link: impl FnOnce(),
+    ) -> Result<()> {
+        use rustix::fs::{fchmod, linkat, mkdirat, openat, unlinkat, AtFlags, Mode, OFlags, CWD};
+        use rustix::io::Errno;
+        let directory_flags =
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+        let root = openat(CWD, &self.root, directory_flags, Mode::empty())
+            .map_err(std::io::Error::from)?;
+        match mkdirat(&root, ".recovery", Mode::from_bits_truncate(0o700)) {
+            Ok(()) | Err(Errno::EXIST) => (),
+            Err(error) => return Err(std::io::Error::from(error).into()),
+        }
+        let recovery = openat(&root, ".recovery", directory_flags, Mode::empty())
+            .map_err(std::io::Error::from)?;
+        match mkdirat(
+            &recovery,
+            "verified-originals",
+            Mode::from_bits_truncate(0o700),
+        ) {
+            Ok(()) | Err(Errno::EXIST) => (),
+            Err(error) => return Err(std::io::Error::from(error).into()),
+        }
+        let directory = openat(
+            &recovery,
+            "verified-originals",
+            directory_flags,
+            Mode::empty(),
+        )
+        .map_err(std::io::Error::from)?;
+        let check_directory = || -> Result<()> {
+            let current_recovery = openat(&root, ".recovery", directory_flags, Mode::empty())
+                .map_err(std::io::Error::from)?;
+            let current_directory = openat(
+                &current_recovery,
+                "verified-originals",
+                directory_flags,
+                Mode::empty(),
+            )
+            .map_err(std::io::Error::from)?;
+            let expected_recovery = rustix::fs::fstat(&recovery).map_err(std::io::Error::from)?;
+            let actual_recovery =
+                rustix::fs::fstat(&current_recovery).map_err(std::io::Error::from)?;
+            let expected = rustix::fs::fstat(&directory).map_err(std::io::Error::from)?;
+            let actual = rustix::fs::fstat(&current_directory).map_err(std::io::Error::from)?;
+            if expected_recovery.st_dev != actual_recovery.st_dev
+                || expected_recovery.st_ino != actual_recovery.st_ino
+                || expected.st_dev != actual.st_dev
+                || expected.st_ino != actual.st_ino
+            {
+                return Err(GardenError::Invalid(
+                    "Verified-original recovery directory changed; retry recovery.".into(),
+                ));
+            }
+            Ok(())
+        };
+        match openat(
+            &directory,
+            digest,
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        ) {
+            Ok(existing) => {
+                let mut existing = File::from(existing);
+                if !existing.metadata()?.is_file() {
+                    return Err(GardenError::Invalid("Verified-original recovery entry is not a regular file; it remains preserved.".into()));
+                }
+                let mut hash = Sha256::new();
+                let mut buffer = [0; 64 * 1024];
+                loop {
+                    let count = existing.read(&mut buffer)?;
+                    if count == 0 {
+                        break;
+                    }
+                    hash.update(&buffer[..count]);
+                }
+                if hex::encode(hash.finalize()) != digest {
+                    return Err(GardenError::Invalid("Verified-original recovery entry conflicts with its expected digest; the conflicting bytes remain preserved.".into()));
+                }
+                check_directory()?;
+                return Ok(());
+            }
+            Err(Errno::NOENT) => (),
+            Err(error) => return Err(std::io::Error::from(error).into()),
+        }
+        match mkdirat(
+            &recovery,
+            "verified-original-staging",
+            Mode::from_bits_truncate(0o700),
+        ) {
+            Ok(()) | Err(Errno::EXIST) => (),
+            Err(error) => return Err(std::io::Error::from(error).into()),
+        }
+        let staging = openat(
+            &recovery,
+            "verified-original-staging",
+            directory_flags,
+            Mode::empty(),
+        )
+        .map_err(std::io::Error::from)?;
+        let temporary = format!(".staged-{}", Uuid::new_v4());
+        let fd = openat(
+            &staging,
+            temporary.as_str(),
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::from_bits_truncate(0o600),
+        )
+        .map_err(std::io::Error::from)?;
+        let mut file = File::from(fd);
+        file.try_lock_exclusive()?;
+        let result = (|| -> Result<()> {
+            let mut actual = Sha256::new();
+            let mut buffer = [0; 64 * 1024];
+            loop {
+                let count = input.read(&mut buffer)?;
+                if count == 0 {
+                    break;
+                }
+                actual.update(&buffer[..count]);
+                file.write_all(&buffer[..count])?;
+            }
+            if hex::encode(actual.finalize()) != digest {
+                return Err(GardenError::Invalid(
+                    "Verified original changed while retaining it; retry recovery.".into(),
+                ));
+            }
+            file.sync_all()?;
+            fchmod(&file, Mode::from_bits_truncate(0o400)).map_err(std::io::Error::from)?;
+            file.sync_all()?;
+            before_link();
+            match linkat(
+                &staging,
+                temporary.as_str(),
+                &directory,
+                digest,
+                AtFlags::empty(),
+            ) {
+                Ok(()) => (),
+                Err(Errno::EXIST) => {
+                    let existing = openat(
+                        &directory,
+                        digest,
+                        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                        Mode::empty(),
+                    )
+                    .map_err(std::io::Error::from)?;
+                    let mut existing = File::from(existing);
+                    if !existing.metadata()?.is_file() {
+                        return Err(GardenError::Invalid("Verified-original recovery entry is not a regular file; it remains preserved.".into()));
+                    }
+                    let mut hash = Sha256::new();
+                    let mut buffer = [0; 64 * 1024];
+                    loop {
+                        let count = existing.read(&mut buffer)?;
+                        if count == 0 {
+                            break;
+                        }
+                        hash.update(&buffer[..count]);
+                    }
+                    if hex::encode(hash.finalize()) != digest {
+                        return Err(GardenError::Invalid("Verified-original recovery entry conflicts with its expected digest; the conflicting bytes remain preserved.".into()));
+                    }
+                }
+                Err(error) => return Err(std::io::Error::from(error).into()),
+            }
+            File::from(directory.try_clone()?).sync_all()?;
+            check_directory()?;
+            Ok(())
+        })();
+        let _ = unlinkat(&staging, temporary.as_str(), AtFlags::empty());
+        result
+    }
+
+    pub fn verified_original_open_path(&mut self, source_id: &str) -> Result<PathBuf> {
+        self.require_integrity_recovered()?;
+        let page = self.open_source(source_id)?;
+        let version_id = page
+            .info
+            .current_version_id
+            .clone()
+            .unwrap_or_else(|| page.info.sha256.clone());
+        let path = match self.original_path(source_id) {
+            Ok(path) => path,
+            Err(error) => {
+                self.record_original_integrity_failure(source_id, &version_id, &error)?;
+                return Err(error);
+            }
+        };
+        self.verified_open_copy(
+            source_id,
+            &version_id,
+            &path,
+            &page.info.sha256,
+            &page.info.format,
+        )
+    }
+
+    pub fn verified_original_version_open_path(
+        &mut self,
+        source_id: &str,
+        version_id: &str,
+        asset: &str,
+    ) -> Result<PathBuf> {
+        self.require_integrity_recovered()?;
+        let page = self.open_source(source_id)?;
+        let version = page
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == version_id)
+            .cloned()
+            .ok_or_else(|| {
+                GardenError::Invalid("The retained source version is unknown.".into())
+            })?;
+        let current_asset =
+            version.source_version_id == page.info.sha256 && asset == page.info.asset;
+        if (asset != version.asset && !current_asset)
+            || !asset.starts_with("original")
+            || Path::new(asset).components().count() != 1
+        {
+            return Err(GardenError::Invalid(
+                "The retained version's link is not a known original asset.".into(),
+            ));
+        }
+        let path = match self.original_version_path(source_id, version_id, asset) {
+            Ok(path) => path,
+            Err(error) => {
+                self.record_original_integrity_failure(source_id, version_id, &error)?;
+                return Err(error);
+            }
+        };
+        self.verified_open_copy(
+            source_id,
+            version_id,
+            &path,
+            &version.sha256,
+            &version.format,
+        )
+    }
+
+    pub fn verified_original_asset_open_path(
+        &mut self,
+        source_id: &str,
+        asset: &str,
+    ) -> Result<PathBuf> {
+        self.require_integrity_recovered()?;
+        let page = self.open_source(source_id)?;
+        if asset == page.info.asset {
+            return self.verified_original_open_path(source_id);
+        }
+        let versions = page
+            .info
+            .versions_seen
+            .iter()
+            .filter(|version| version.asset == asset)
+            .collect::<Vec<_>>();
+        let [version] = versions.as_slice() else {
+            return Err(GardenError::Invalid(
+                "The retained original asset is unknown or ambiguous.".into(),
+            ));
+        };
+        let version_id = version.source_version_id.clone();
+        self.verified_original_version_open_path(source_id, &version_id, asset)
+    }
+
+    fn verified_open_copy(
+        &mut self,
+        source_id: &str,
+        version_id: &str,
+        path: &Path,
+        digest: &str,
+        format: &str,
+    ) -> Result<PathBuf> {
+        let snapshot = match self.verified_asset_snapshot(path, digest, format) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                self.record_original_integrity_failure(source_id, version_id, &error)?;
+                return Err(error);
+            }
+        };
+        let suffix = format
+            .chars()
+            .filter(|character| character.is_ascii_alphanumeric())
+            .take(16)
+            .collect::<String>();
+        let file = if suffix.is_empty() {
+            "original".to_owned()
+        } else {
+            format!("original.{suffix}")
+        };
+        let output = self
+            .root
+            .join(".derived/opened-originals")
+            .join(digest)
+            .join(file);
+        validate_real_collection_ancestors(&self.root, &output)?;
+        match fs::symlink_metadata(&output) {
+            Ok(metadata) if metadata.is_file() => {
+                let mut input = File::open(&output)?;
+                let mut hasher = Sha256::new();
+                let mut buffer = [0; 64 * 1024];
+                loop {
+                    let count = input.read(&mut buffer)?;
+                    if count == 0 {
+                        break;
+                    }
+                    hasher.update(&buffer[..count]);
+                }
+                let actual = hex::encode(hasher.finalize());
+                if actual == digest {
+                    return Ok(output);
+                }
+                let retained = self.root.join(".recovery/external-originals").join(actual);
+                validate_real_collection_ancestors(&self.root, &retained)?;
+                if !retained.exists() {
+                    write_atomic_from_file(&retained, &output)?;
+                }
+            }
+            Ok(_) => {
+                return Err(GardenError::Invalid(
+                    "The private viewer copy is not a regular file.".into(),
+                ))
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(error) => return Err(error.into()),
+        }
+        write_atomic_from_file(&output, snapshot.path())?;
+        let mut permissions = fs::metadata(&output)?.permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&output, permissions)?;
+        Ok(output)
+    }
+
     pub fn original_path(&self, source_id: &str) -> Result<PathBuf> {
         let page = self.open_source(source_id)?;
         let asset = &page.info.asset;
@@ -6385,14 +8115,208 @@ impl Application {
         Ok(original)
     }
 
+    /// Hold the returned snapshot throughout rendering/inference and call
+    /// `verify_version_snapshot_current` immediately before publishing results.
+    pub(crate) fn verified_version_snapshot(
+        &mut self,
+        source_id: &str,
+        version_id: &str,
+        asset: &str,
+    ) -> Result<VerifiedVersionSnapshot> {
+        self.require_integrity_recovered()?;
+        let page = self.open_source(source_id)?;
+        let version = page
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == version_id)
+            .ok_or_else(|| {
+                GardenError::Invalid("The retained source version is unknown.".into())
+            })?;
+        let current_asset =
+            version.source_version_id == page.info.sha256 && asset == page.info.asset;
+        if (asset != version.asset && !current_asset)
+            || !asset.starts_with("original")
+            || Path::new(asset).components().count() != 1
+        {
+            return Err(GardenError::Invalid(
+                "The retained version's link is not a known original asset.".into(),
+            ));
+        }
+        let digest = version.sha256.clone();
+        let format = version.format.clone();
+        let path = match self.original_version_path(source_id, version_id, asset) {
+            Ok(path) => path,
+            Err(error) => {
+                self.record_original_integrity_failure(source_id, version_id, &error)?;
+                return Err(error);
+            }
+        };
+        let file = match self.verified_asset_snapshot(&path, &digest, &format) {
+            Ok(file) => file,
+            Err(error) => {
+                self.record_original_integrity_failure(source_id, version_id, &error)?;
+                return Err(error);
+            }
+        };
+        Ok(VerifiedVersionSnapshot {
+            file,
+            source_id: source_id.into(),
+            version_id: version_id.into(),
+            asset: asset.into(),
+            digest,
+            format,
+        })
+    }
+
+    /// Recheck trusted identity and original bytes before committing work based
+    /// on a snapshot. Callers must also retain their normal publication guard.
+    pub(crate) fn verify_version_snapshot_current(
+        &mut self,
+        snapshot: &VerifiedVersionSnapshot,
+    ) -> Result<()> {
+        self.require_integrity_recovered()?;
+        let page = self.open_source(&snapshot.source_id)?;
+        let version = page
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == snapshot.version_id)
+            .ok_or_else(|| {
+                GardenError::Invalid("The retained source version is no longer available.".into())
+            })?;
+        let current_asset =
+            version.source_version_id == page.info.sha256 && snapshot.asset == page.info.asset;
+        if (version.asset != snapshot.asset && !current_asset)
+            || version.sha256 != snapshot.digest
+            || version.format != snapshot.format
+        {
+            return Err(GardenError::Invalid(
+                "The retained source version changed while processing; retry.".into(),
+            ));
+        }
+        let path = match self.original_version_path(
+            &snapshot.source_id,
+            &snapshot.version_id,
+            &snapshot.asset,
+        ) {
+            Ok(path) => path,
+            Err(error) => {
+                self.record_original_integrity_failure(
+                    &snapshot.source_id,
+                    &snapshot.version_id,
+                    &error,
+                )?;
+                return Err(error);
+            }
+        };
+        match self.verified_asset_snapshot(&path, &snapshot.digest, &snapshot.format) {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                self.record_original_integrity_failure(
+                    &snapshot.source_id,
+                    &snapshot.version_id,
+                    &error,
+                )?;
+                Err(error)
+            }
+        }
+    }
+
+    fn snapshot_or_enqueue(
+        &self,
+        source_id: &str,
+        version_id: &str,
+        path: &Path,
+        digest: &str,
+        format: &str,
+    ) -> Result<tempfile::NamedTempFile> {
+        match self.verified_asset_snapshot(path, digest, format) {
+            Ok(snapshot) => Ok(snapshot),
+            Err(error) => {
+                if !matches!(error, GardenError::Recovery(_)) {
+                    self.enqueue_integrity_exclusion(source_id, version_id, &error.to_string())?;
+                }
+                Err(error)
+            }
+        }
+    }
+
+    pub fn preview_container_part(
+        &mut self,
+        source_id: &str,
+        version: &str,
+        asset: &str,
+        locator: &str,
+    ) -> Result<String> {
+        if locator.len() > 4096
+            || !(locator.starts_with("EMAIL ") || locator.starts_with("ZIP "))
+            || locator.contains(['\n', '\r', ']'])
+        {
+            return Err(GardenError::Invalid("Invalid container locator.".into()));
+        }
+        let snapshot = self.verified_version_snapshot(source_id, version, asset)?;
+        let format = &snapshot.format;
+        if !matches!(format.as_str(), "eml" | "zip") {
+            return Err(GardenError::Invalid(
+                "This retained original is not a supported container.".into(),
+            ));
+        }
+        let projection =
+            crate::containers::isolated_extract(snapshot.path(), format, "Retained source")
+                .map_err(GardenError::Invalid)?;
+        let marker = format!("[{locator}] ");
+        let text = projection
+            .semantic_text
+            .lines()
+            .filter_map(|line| line.strip_prefix(&marker))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if text.is_empty() {
+            return Err(GardenError::Invalid(
+                "This part is empty, unavailable, or was not extracted.".into(),
+            ));
+        }
+        self.verify_version_snapshot_current(&snapshot)?;
+        Ok(text)
+    }
+
     pub fn preview_original(&self, source_id: &str) -> Result<String> {
+        self.require_integrity_recovered()?;
         let source = self.open_source(source_id)?;
         if !crate::photo::is_photo(&source.info.format) {
             return Err(GardenError::Invalid(
                 "This original is not a supported photograph.".into(),
             ));
         }
-        crate::photo::preview(&self.original_path(source_id)?).map_err(GardenError::Invalid)
+        let version = source
+            .info
+            .current_version_id
+            .as_deref()
+            .unwrap_or(&source.info.sha256);
+        let original = match self.original_path(source_id) {
+            Ok(path) => path,
+            Err(error) => {
+                self.enqueue_integrity_exclusion(source_id, version, &error.to_string())?;
+                return Err(error);
+            }
+        };
+        let snapshot = self.snapshot_or_enqueue(
+            source_id,
+            version,
+            &original,
+            &source.info.sha256,
+            &source.info.format,
+        )?;
+        let preview = crate::photo::preview(snapshot.path()).map_err(GardenError::Invalid)?;
+        self.snapshot_or_enqueue(
+            source_id,
+            version,
+            &original,
+            &source.info.sha256,
+            &source.info.format,
+        )?;
+        Ok(preview)
     }
 
     pub fn preview_video_frame(
@@ -6402,8 +8326,42 @@ impl Application {
         asset: &str,
         at_ms: u64,
     ) -> Result<crate::media::VideoPreview> {
-        let original = self.original_version_path(source_id, source_version_id, asset)?;
-        if !crate::media::is_video_path(&original) {
+        self.require_integrity_recovered()?;
+        let source = self.open_source(source_id)?;
+        let version = source
+            .info
+            .versions_seen
+            .iter()
+            .find(|version| version.source_version_id == source_version_id)
+            .ok_or_else(|| {
+                GardenError::Invalid("The retained source version is unknown.".into())
+            })?;
+        let current_asset =
+            version.source_version_id == source.info.sha256 && asset == source.info.asset;
+        if (asset != version.asset && !current_asset)
+            || !asset.starts_with("original")
+            || Path::new(asset).components().count() != 1
+        {
+            return Err(GardenError::Invalid(
+                "The retained version's link is not a known original asset.".into(),
+            ));
+        }
+        let original = match self.original_version_path(source_id, source_version_id, asset) {
+            Ok(path) => path,
+            Err(error) => {
+                self.enqueue_integrity_exclusion(source_id, source_version_id, &error.to_string())?;
+                return Err(error);
+            }
+        };
+        let snapshot = self.snapshot_or_enqueue(
+            source_id,
+            source_version_id,
+            &original,
+            &version.sha256,
+            &version.format,
+        )?;
+        let snapshot_path = snapshot.path();
+        if !crate::media::is_video_path(snapshot_path) {
             return Err(GardenError::Invalid(
                 "This original is not a supported video.".into(),
             ));
@@ -6412,9 +8370,16 @@ impl Application {
         let jpeg = workspace.path().join("frame.jpg");
         let frame = self
             .audio_processor
-            .extract_frame(&original, at_ms, &jpeg)
+            .extract_frame(snapshot_path, at_ms, &jpeg)
             .map_err(GardenError::Invalid)?;
         let data_url = crate::photo::preview(&jpeg).map_err(GardenError::Invalid)?;
+        self.snapshot_or_enqueue(
+            source_id,
+            source_version_id,
+            &original,
+            &version.sha256,
+            &version.format,
+        )?;
         Ok(crate::media::VideoPreview { data_url, frame })
     }
 
@@ -6466,7 +8431,14 @@ impl Application {
             .ok_or_else(|| {
                 GardenError::Invalid("The retained source version is unknown.".into())
             })?;
-        if asset != version.asset
+        if version.withdrawn {
+            return Err(GardenError::Invalid(
+                "This source version is no longer supported by an active origin.".into(),
+            ));
+        }
+        let current_asset =
+            version.source_version_id == page.info.sha256 && asset == page.info.asset;
+        if (asset != version.asset && !current_asset)
             || !asset.starts_with("original")
             || Path::new(asset).components().count() != 1
         {
@@ -6477,7 +8449,7 @@ impl Application {
         // The first acquisition lives at the source root until a replacement
         // archives it. Resolve that exact identity through the same containment
         // checks as ordinary original opening; never substitute another version.
-        if source_version_id == page.info.sha256 && asset == page.info.asset {
+        if source_version_id == page.info.sha256 {
             return self.original_path(source_id);
         }
         let source_bundle = fs::canonicalize(self.source_dir(source_id)?)?;
@@ -6509,6 +8481,7 @@ impl Application {
     }
 
     pub fn list_sources(&self, offset: usize) -> Result<SourceList> {
+        self.require_integrity_recovered()?;
         let offset_i64 = i64::try_from(offset)
             .map_err(|_| GardenError::Invalid("Invalid page offset.".into()))?;
         let mut statement = self
@@ -6537,6 +8510,8 @@ impl Application {
     }
 
     pub fn search_pages(&mut self, request: PageSearchRequest) -> Result<PageSearchResults> {
+        self.resume_pending_startup()?;
+        self.recover_integrity_exclusions()?;
         let query = request.query.trim();
         let meaning_mode = request.mode == PageSearchMode::Meaning;
         let normalized_tags = request
@@ -6850,7 +8825,9 @@ impl Application {
         }
         if page_type == "source" {
             let source = read_page(&self.page_path(source_id)?)?;
-            let bytes = fs::read(self.original_path(source_id)?).unwrap_or_default();
+            let bytes = self
+                .verified_original_bytes(&self.original_path(source_id)?, &source.info.sha256)
+                .unwrap_or_default();
             if let Ok(text) = String::from_utf8(bytes) {
                 if let Some((start, end)) = find_text_match(&text, &terms) {
                     let line_start =
@@ -6948,6 +8925,7 @@ impl Application {
     }
 
     pub fn rebuild_index(&mut self) -> Result<()> {
+        self.require_integrity_recovered()?;
         // A failed publication is a committed intent, even if the process did
         // not exit. Finish it before capturing edits or rebuilding derived state.
         recover_publications(&self.root)?;
@@ -7484,7 +9462,7 @@ impl Application {
             .filter(|(_, header, _)| header.kind.eq_ignore_ascii_case("event"))
             .find_map(|(_, header, _)| event_date_from_facts(&header.facts));
         let mut documents = Vec::new();
-        let current_version_is_superseded = source_page
+        let current_version_is_unavailable = source_page
             .info
             .current_version_id
             .as_deref()
@@ -7495,15 +9473,18 @@ impl Application {
                     .iter()
                     .find(|version| version.source_version_id == version_id)
             })
-            .is_some_and(|version| version.state == "superseded");
-        let source_text = if current_version_is_superseded {
+            .is_some_and(|version| version.state == "superseded" || version.state == "failed");
+        let source_text = if current_version_is_unavailable {
             String::new()
         } else if source_page.info.extraction == ExtractionState::TextPreserved {
             self.original_path(&source_page.info.source_id)
                 .ok()
-                .and_then(|path| fs::read(path).ok())
+                .and_then(|path| {
+                    self.verified_original_bytes(&path, &source_page.info.sha256)
+                        .ok()
+                })
                 .and_then(|bytes| String::from_utf8(bytes).ok())
-                .unwrap_or_else(|| source_page.body.clone())
+                .unwrap_or_default()
         } else {
             source_page.body.clone()
         };
@@ -7746,9 +9727,8 @@ fn classify_source(
     format: &str,
     count: u64,
     text_bytes: Vec<u8>,
-    repository: bool,
 ) -> (ExtractionState, &'static str, String) {
-    if !is_text_format(format, repository) {
+    if !is_text_format(format) {
         return (
             ExtractionState::Unsupported,
             "This format is not supported by the text importer. The original is retained.",
@@ -7757,8 +9737,16 @@ fn classify_source(
     }
     if count > MAX_TEXT_BYTES as u64 {
         return (
-            ExtractionState::TooLarge,
-            "Text exceeds the 2 MiB preview limit. The complete original is retained.",
+            if count <= MAX_RECONCILIATION_BYTES {
+                ExtractionState::PartialText
+            } else {
+                ExtractionState::TooLarge
+            },
+            if count <= MAX_RECONCILIATION_BYTES {
+                "The complete original is retained. Resumable UTF-8 semantic processing is queued; the readable preview is limited to 2 MiB."
+            } else {
+                "Text exceeds the 32 MiB reconciliation limit. The complete original is retained; semantic coverage is incomplete."
+            },
             String::new(),
         );
     }
@@ -7779,6 +9767,11 @@ fn classify_source(
                 String::new(),
             )
         }
+        Ok(text) if text.trim_start_matches('\u{feff}').trim().is_empty() => (
+            ExtractionState::Unsupported,
+            "The source contains no extractable text. The original is retained.",
+            String::new(),
+        ),
         Ok(text) => (
             ExtractionState::TextPreserved,
             "Source text preserved. Semantic fact extraction has not run.",
@@ -7787,45 +9780,48 @@ fn classify_source(
     }
 }
 
-fn is_text_format(format: &str, repository: bool) -> bool {
-    matches!(format, "" | "txt" | "text" | "md" | "markdown")
-        || (repository
-            && matches!(
-                format,
-                "rs" | "toml"
-                    | "json"
-                    | "yaml"
-                    | "yml"
-                    | "html"
-                    | "css"
-                    | "js"
-                    | "mjs"
-                    | "cjs"
-                    | "ts"
-                    | "tsx"
-                    | "jsx"
-                    | "py"
-                    | "sh"
-                    | "sql"
-                    | "xml"
-                    | "csv"
-                    | "ini"
-                    | "cfg"
-                    | "go"
-                    | "java"
-                    | "kt"
-                    | "swift"
-                    | "c"
-                    | "h"
-                    | "cpp"
-                    | "hpp"
-                    | "cs"
-                    | "rb"
-                    | "php"
-                    | "vue"
-                    | "svelte"
-                    | "mdx"
-            ))
+fn is_text_format(format: &str) -> bool {
+    matches!(
+        format,
+        "" | "txt"
+            | "text"
+            | "md"
+            | "markdown"
+            | "rs"
+            | "toml"
+            | "json"
+            | "yaml"
+            | "yml"
+            | "html"
+            | "css"
+            | "js"
+            | "mjs"
+            | "cjs"
+            | "ts"
+            | "tsx"
+            | "jsx"
+            | "py"
+            | "sh"
+            | "sql"
+            | "xml"
+            | "csv"
+            | "ini"
+            | "cfg"
+            | "go"
+            | "java"
+            | "kt"
+            | "swift"
+            | "c"
+            | "h"
+            | "cpp"
+            | "hpp"
+            | "cs"
+            | "rb"
+            | "php"
+            | "vue"
+            | "svelte"
+            | "mdx"
+    )
 }
 
 fn check_omission_evidence(
@@ -7861,9 +9857,12 @@ fn source_version(
     format: &str,
     received_at: &str,
     state: &str,
+    owner: Option<&AcquisitionOwner>,
 ) -> SourceVersion {
     SourceVersion {
         source_version_id: digest.to_owned(),
+        acquisition_owners: owner.cloned().into_iter().collect(),
+        withdrawn: false,
         sha256: digest.to_owned(),
         bytes,
         original_name: original_name.to_owned(),
@@ -8006,6 +10005,7 @@ fn extraction_string(value: ExtractionState) -> String {
         ExtractionState::StructuredText => "structured_text",
         ExtractionState::PartialText => "partial_text",
         ExtractionState::InvalidContainer => "invalid_container",
+        ExtractionState::Encrypted => "encrypted",
         ExtractionState::Unsupported => "unsupported",
         ExtractionState::InvalidUtf8 => "invalid_utf8",
         ExtractionState::TooLarge => "too_large",
@@ -8019,6 +10019,7 @@ fn parse_extraction(value: &str) -> Result<ExtractionState> {
         "structured_text" => Ok(ExtractionState::StructuredText),
         "partial_text" => Ok(ExtractionState::PartialText),
         "invalid_container" => Ok(ExtractionState::InvalidContainer),
+        "encrypted" => Ok(ExtractionState::Encrypted),
         "unsupported" => Ok(ExtractionState::Unsupported),
         "invalid_utf8" => Ok(ExtractionState::InvalidUtf8),
         "too_large" => Ok(ExtractionState::TooLarge),
@@ -8183,6 +10184,7 @@ fn evidence_offset_basis_name(basis: EvidenceOffsetBasis) -> &'static str {
     match basis {
         EvidenceOffsetBasis::PreservedText => "preserved_text",
         EvidenceOffsetBasis::ExtractedOfficeProjection => "extracted_office_projection",
+        EvidenceOffsetBasis::ExtractedContainerProjection => "extracted_container_projection",
         EvidenceOffsetBasis::WebVisibleText => "web_visible_text",
         EvidenceOffsetBasis::AudioTranscript => "audio_transcript",
         EvidenceOffsetBasis::ExtractedImageProjection => "extracted_image_projection",
@@ -8230,10 +10232,8 @@ fn find_text_match(text: &str, terms: &[String]) -> Option<(usize, usize)> {
 }
 
 fn read_acquisition_record(path: &Path) -> Result<Acquisition> {
-    let mut record = String::new();
-    File::open(path)?
-        .take(64 * 1024)
-        .read_to_string(&mut record)?;
+    let record = String::from_utf8(trusted_pages::read_active_or_original(path, 64 * 1024)?)
+        .map_err(|_| GardenError::Invalid("An acquisition record is unreadable.".into()))?;
     let header = record
         .strip_prefix("---\n")
         .and_then(|value| value.split_once("\n---\n"))
@@ -8249,12 +10249,22 @@ fn write_acquisition(destination: &Path, acquisition: &Acquisition) -> Result<()
     // Preserve each record instead of overwriting or colliding with its predecessor.
     let key = hex::encode(Sha256::digest(serde_json::to_vec(acquisition)?));
     let mut record = tempfile::NamedTempFile::new_in(&contexts)?;
-    write!(
-        record,
+    let bytes = format!(
         "---\n{}---\n\n# Source acquisition\n\n[Source page](../index.md)\n",
         serde_yaml_ng::to_string(acquisition)?
-    )?;
+    )
+    .into_bytes();
+    record.write_all(&bytes)?;
     record.as_file().sync_all()?;
+    if let Some(root) = destination.parent().and_then(Path::parent) {
+        if trusted_pages::active(root)? {
+            let target = contexts.join(format!("{key}.md"));
+            let relative = target
+                .strip_prefix(root)
+                .map_err(|_| GardenError::Invalid("Acquisition escaped collection.".into()))?;
+            trusted_pages::record(root, relative, &bytes)?;
+        }
+    }
     record
         .persist_noclobber(contexts.join(format!("{key}.md")))
         .map_err(|error| GardenError::Io(error.error))?;
@@ -8339,10 +10349,9 @@ fn event_date_for_label(source_text: &str, label: &str) -> Option<String> {
 }
 
 fn read_bounded_text(path: &Path, max_bytes: u64) -> Result<String> {
-    let mut text = String::new();
-    File::open(path)?
-        .take(max_bytes + 1)
-        .read_to_string(&mut text)?;
+    let bytes = trusted_pages::read_active_or_original(path, max_bytes)?;
+    let text = String::from_utf8(bytes)
+        .map_err(|_| GardenError::Invalid("A page is not valid UTF-8.".into()))?;
     if text.len() as u64 > max_bytes {
         return Err(GardenError::Invalid(
             "A knowledge page exceeds the search limit.".into(),
@@ -8385,6 +10394,7 @@ enum EvidenceOffsetBasis {
     #[default]
     PreservedText,
     ExtractedOfficeProjection,
+    ExtractedContainerProjection,
     ExtractedConversationProjection,
     WebVisibleText,
     AudioTranscript,
@@ -8408,6 +10418,11 @@ fn evidence_display_basis(
             "extracted projection lines",
             "extracted projection bytes",
             "The retained original opens as a fallback; use the OOXML part and locator above to find this passage.",
+        ),
+        EvidenceOffsetBasis::ExtractedContainerProjection => (
+            "extracted container projection; offsets are not original container byte offsets",
+            "container projection lines", "container projection bytes",
+            "The original opens as a fallback; use the message part or archive member locator to find the passage.",
         ),
         EvidenceOffsetBasis::ExtractedPdfProjection => (
             "extracted PDF projection; offsets are not original PDF byte offsets",
@@ -8655,16 +10670,40 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
     let inferred_location = evidence_line
         .strip_prefix('[')
         .and_then(|line| line.find(']').map(|end| line[..end].to_owned()));
-    let source_location = evidence
-        .source_location
-        .clone()
-        .or(inferred_location.clone());
-    let offset_basis = match evidence.offset_basis.as_deref() {
+    let container_location = inferred_location
+        .as_deref()
+        .is_some_and(|locator| locator.starts_with("EMAIL ") || locator.starts_with("ZIP "));
+    if container_location && evidence.byte_end > line_end_byte {
+        return Err(GardenError::Invalid(
+            "Container evidence must stay within one located part line.".into(),
+        ));
+    }
+    let source_location = if container_location {
+        inferred_location.clone()
+    } else {
+        evidence
+            .source_location
+            .clone()
+            .or(inferred_location.clone())
+    };
+    let offset_basis = match evidence
+        .offset_basis
+        .as_deref()
+        .filter(|_| !container_location)
+    {
         None if inferred_location.as_deref().is_some_and(|locator| {
-            locator.starts_with("DOCX ") || locator.starts_with("PPTX ")
+            locator.starts_with("DOCX ")
+                || locator.starts_with("PPTX ")
+                || locator.starts_with("XLSX ")
         }) =>
         {
             EvidenceOffsetBasis::ExtractedOfficeProjection
+        }
+        None if inferred_location.as_deref().is_some_and(|locator| {
+            locator.starts_with("EMAIL ") || locator.starts_with("ZIP ")
+        }) =>
+        {
+            EvidenceOffsetBasis::ExtractedContainerProjection
         }
         None if inferred_location
             .as_deref()
@@ -8695,6 +10734,7 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         Some("office_projection") | Some("extracted_office_projection") => {
             EvidenceOffsetBasis::ExtractedOfficeProjection
         }
+        Some("extracted_container_projection") => EvidenceOffsetBasis::ExtractedContainerProjection,
         Some("web_visible_text") => EvidenceOffsetBasis::WebVisibleText,
         Some("audio_transcript") => EvidenceOffsetBasis::AudioTranscript,
         Some("extracted_image_projection") => EvidenceOffsetBasis::ExtractedImageProjection,
@@ -8859,6 +10899,56 @@ fn stable_relationship_id(from_page_id: &str, to_page_id: &str, kind: &str) -> S
     format!("relationship-{}", hex::encode(digest.finalize()))
 }
 
+#[cfg(test)]
+mod retained_version_tests {
+    use super::*;
+
+    #[test]
+    fn archive_refuses_a_symlinked_versions_directory() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("current");
+        fs::write(&source, b"original").unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        symlink(outside.path(), root.path().join("versions")).unwrap();
+        let archive = root.path().join("versions/v1/original.txt");
+        let digest = hex::encode(Sha256::digest(b"original"));
+        assert!(retain_version_original(root.path(), &archive, &source, &digest).is_err());
+        assert!(!outside.path().join("v1").exists());
+    }
+
+    #[test]
+    fn archive_retry_and_conflicts_preserve_both_generations() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("current");
+        let archive = root.path().join("versions/v1/original.txt");
+        let original = vec![b'x'; 4 * 1024 * 1024 + 7];
+        fs::write(&source, &original).unwrap();
+        let digest = hex::encode(Sha256::digest(&original));
+        retain_version_original(root.path(), &archive, &source, &digest).unwrap();
+        retain_version_original(root.path(), &archive, &source, &digest).unwrap();
+        assert_eq!(fs::read(&archive).unwrap(), original);
+        fs::write(&archive, b"different retained data").unwrap();
+        assert!(retain_version_original(root.path(), &archive, &source, &digest).is_err());
+        assert_eq!(fs::read(&archive).unwrap(), b"different retained data");
+        assert_eq!(fs::read(&source).unwrap(), original);
+        fs::remove_file(&archive).unwrap();
+        fs::write(&source, b"changed generation").unwrap();
+        assert!(retain_version_original(root.path(), &archive, &source, &digest).is_err());
+        assert!(!archive.exists());
+    }
+}
+
+fn generation_asset(asset: &str, digest: &str) -> String {
+    match Path::new(asset)
+        .extension()
+        .and_then(|value| value.to_str())
+    {
+        Some(extension) => format!("original-{digest}.{extension}"),
+        None => format!("original-{digest}"),
+    }
+}
+
 fn write_atomic_from_file(path: &Path, source: &Path) -> Result<()> {
     let parent = path.parent().ok_or_else(|| {
         GardenError::Invalid("Cannot publish a file without a parent directory.".into())
@@ -8997,10 +11087,11 @@ fn escape_markdown(value: &str) -> String {
 }
 
 fn read_knowledge_page(path: &Path) -> Result<KnowledgePage> {
-    let mut markdown = String::new();
-    File::open(path)?
-        .take(256 * 1024)
-        .read_to_string(&mut markdown)?;
+    let markdown = String::from_utf8(trusted_pages::read_active_or_original(
+        path,
+        MAX_PAGE_BYTES,
+    )?)
+    .map_err(|_| GardenError::Invalid("Knowledge page metadata is unreadable.".into()))?;
     let header = markdown
         .strip_prefix("---\n")
         .and_then(|rest| rest.split_once("\n---\n").map(|(yaml, _)| yaml))
@@ -9025,15 +11116,17 @@ fn parse_knowledge_header(markdown: &str) -> Result<KnowledgePageHeader> {
 }
 
 fn read_knowledge_header(path: &Path) -> Result<KnowledgePageHeader> {
-    let mut markdown = Vec::new();
-    File::open(path)?
-        .take(256 * 1024)
-        .read_to_end(&mut markdown)?;
+    let markdown = trusted_pages::read_active_or_original(path, MAX_PAGE_BYTES)?;
     let end = markdown
         .windows(5)
         .position(|bytes| bytes == b"\n---\n")
         .ok_or_else(|| GardenError::Invalid("Knowledge page metadata is unreadable.".into()))?
         + 5;
+    if end > 256 * 1024 {
+        return Err(GardenError::Invalid(
+            "Knowledge page header exceeds its supported size limit.".into(),
+        ));
+    }
     let header = std::str::from_utf8(&markdown[..end])
         .map_err(|_| GardenError::Invalid("Knowledge page metadata is unreadable.".into()))?;
     parse_knowledge_header(header)
@@ -9183,6 +11276,9 @@ fn audio_semantic_text(audio: &AudioProcessingInfo) -> String {
                 top.confidence,
                 frame.classification_revision
             ));
+        }
+        if let Some(observation) = &frame.qwen_interpretation {
+            rows.push(format!("[VIDEO FRAME {} ms; channel=generated_interpretation] Qwen interpretation: {} (unverified model interpretation; may hallucinate; one sampled frame only; model {}; observed revision {})\n", frame.time_ms, observation.description.replace(['\n', '\r', '\0'], " "), observation.model, observation.observed_revision));
         }
         for row in rows {
             if frame_lines >= MAX_VIDEO_SEMANTIC_FRAME_LINES {
@@ -9596,7 +11692,9 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
         .replace(['\n', '\r'], " ")
         .replace(['[', ']', '<', '>'], "");
     if let Some(projection) = office {
-        return projection.markdown.replace("ORIGINAL_ASSET", &info.asset);
+        return projection
+            .markdown
+            .replacen("ORIGINAL_ASSET", &info.asset, 1);
     }
     let published_audio = info.audio_processing.as_ref().filter(|audio| {
         info.current_version_id.as_deref() == audio.source_version_id.as_deref()
@@ -9694,16 +11792,27 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
             info.asset
         );
     }
+    let mut preview_end = text.len().min(MAX_TEXT_BYTES);
+    while !text.is_char_boundary(preview_end) {
+        preview_end -= 1;
+    }
+    let clipped = preview_end < text.len();
+    let text = &text[..preview_end];
+    let preview_detail = if clipped {
+        "\nOnly the first 2 MiB are shown below. Semantic processing examines the retained original in resumable chunks; use the original for later byte ranges.\n"
+    } else {
+        ""
+    };
     let longest_run = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
     let fence = "`".repeat(3.max(longest_run + 1));
     format!(
-        "# {title}\n\n[Open original]({})\n\n## Source text · lines 1–{}\n\n{fence}text\n{text}\n{fence}\n",
-        info.asset, info.line_count
+        "# {title}\n\n[Open original]({})\n\n## Source text · lines 1–{}\n{preview_detail}\n{fence}text\n{text}\n{fence}\n",
+        info.asset, text.lines().count()
     )
 }
 
 fn append_video_body(info: &SourceInfo, audio: &AudioProcessingInfo, body: &mut String) {
-    body.push_str("\n## Sampled visual evidence\n\nFrames are sampled every three seconds in bounded windows. Intervals between samples are unexamined. Narration is not visual observation. OCR and classifier predictions are unverified; a title-card date is not an authenticated capture time.\n\n");
+    body.push_str("\n## Sampled visual evidence\n\nFrames are sampled every three seconds in bounded windows. Qwen examines at most one frame per 30-second window; the rest of the video is not examined by Qwen. Intervals between samples are unexamined. Narration is not visual observation. OCR, classifier predictions, and Qwen interpretations are unverified and may be wrong; a title-card date is not an authenticated capture time.\n\n");
     if let Some(tracks) = &audio.tracks {
         let visual = if !tracks.video.present {
             "absent"
@@ -9760,6 +11869,9 @@ fn append_video_body(info: &SourceInfo, audio: &AudioProcessingInfo, body: &mut 
                 row.confidence,
                 frame.classification_revision
             ));
+        }
+        if let Some(observation) = &frame.qwen_interpretation {
+            body.push_str(&format!("- Qwen interpretation of this sampled frame: {} · unverified and may hallucinate · {} · observed revision {}\n", escape_markdown(&observation.description), escape_markdown(&observation.model), escape_markdown(&observation.observed_revision)));
         }
         for gap in &frame.gaps {
             body.push_str(&format!(
@@ -9888,6 +12000,7 @@ fn url_name_and_format(
         "text/markdown" => Some("md"),
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => Some("docx"),
         "application/vnd.openxmlformats-officedocument.presentationml.presentation" => Some("pptx"),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => Some("xlsx"),
         _ => None,
     };
     let format = mime_format.map(str::to_owned).unwrap_or(ext);
@@ -9906,10 +12019,11 @@ fn serialize_page(info: &SourceInfo, body: &str) -> Result<String> {
 }
 
 fn read_page(path: &Path) -> Result<SourcePage> {
-    let mut markdown = String::new();
-    File::open(path)?
-        .take(MAX_PAGE_BYTES + 1)
-        .read_to_string(&mut markdown)?;
+    let markdown = String::from_utf8(trusted_pages::read_active_or_original(
+        path,
+        MAX_PAGE_BYTES,
+    )?)
+    .map_err(|_| GardenError::Invalid("Source page metadata is unreadable.".into()))?;
     if markdown.len() as u64 > MAX_PAGE_BYTES {
         return Err(GardenError::Invalid(
             "This source page exceeds the reader's size limit.".into(),
@@ -9941,6 +12055,7 @@ fn read_page(path: &Path) -> Result<SourcePage> {
             } else {
                 "pending"
             },
+            None,
         );
         legacy.coverage = if info.extraction == ExtractionState::TextPreserved
             && info.semantic_state == "complete"
@@ -10213,7 +12328,7 @@ mod source_version_stage_tests {
         let path = app.page_path(source_id).unwrap();
         let mut page = read_page(&path).unwrap();
         page.info.versions_seen[0].format = value.into();
-        fs::write(path, serialize_page(&page.info, &page.body).unwrap()).unwrap();
+        app.write_source_page(&mut page).unwrap();
     }
 
     #[test]
@@ -10230,7 +12345,7 @@ mod source_version_stage_tests {
         let path = app.page_path(&source_id).unwrap();
         let mut page = read_page(&path).unwrap();
         page.info.title = "Changed owner title".into();
-        fs::write(path, serialize_page(&page.info, &page.body).unwrap()).unwrap();
+        app.write_source_page(&mut page).unwrap();
         app.interrupt_source_summaries_after_batch = true;
         assert!(
             app.rebuild_index().is_err(),
@@ -10378,7 +12493,7 @@ mod source_version_stage_tests {
         let mut duplicate = page.info.versions_seen[0].clone();
         duplicate.format = "a-format".into();
         page.info.versions_seen.push(duplicate);
-        fs::write(path, serialize_page(&page.info, &page.body).unwrap()).unwrap();
+        app.write_source_page(&mut page).unwrap();
         app.rebuild_index().unwrap();
         let format: String = app
             .index
@@ -10426,10 +12541,20 @@ mod source_version_stage_tests {
             )
             .unwrap();
         let path = app.page_path(&source_id).unwrap();
+        let publication_root = app.root.clone();
         app.before_source_version_indexing = Some(Box::new(move || {
             let mut page = read_page(&path).unwrap();
             page.info.versions_seen[0].format = "late-format".into();
-            fs::write(path, serialize_page(&page.info, &page.body).unwrap()).unwrap();
+            commit_publication(
+                &publication_root,
+                vec![(
+                    path.clone(),
+                    serialize_page(&page.info, &page.body).unwrap().into_bytes(),
+                )],
+                &HashMap::from([(path.clone(), page.disk_markdown.as_bytes().to_vec())]),
+                None,
+            )
+            .unwrap();
         }));
         assert!(app.rebuild_index().is_err());
         let format: String = app
@@ -10533,10 +12658,20 @@ mod source_version_stage_tests {
             )
             .unwrap();
         let path = app.page_path(&source_id).unwrap();
+        let publication_root = app.root.clone();
         app.before_final_source_validation = Some(Box::new(move || {
             let mut page = read_page(&path).unwrap();
             page.info.versions_seen[0].format = "later-format".into();
-            fs::write(path, serialize_page(&page.info, &page.body).unwrap()).unwrap();
+            commit_publication(
+                &publication_root,
+                vec![(
+                    path.clone(),
+                    serialize_page(&page.info, &page.body).unwrap().into_bytes(),
+                )],
+                &HashMap::from([(path.clone(), page.disk_markdown.as_bytes().to_vec())]),
+                None,
+            )
+            .unwrap();
         }));
         assert!(app.rebuild_index().is_err());
         let format: String = app
@@ -10572,10 +12707,20 @@ mod source_version_stage_tests {
             )
             .unwrap();
         let path = app.page_path(&source_id).unwrap();
+        let publication_root = app.root.clone();
         app.before_source_index_commit = Some(Box::new(move || {
             let mut page = read_page(&path).unwrap();
             page.info.versions_seen[0].format = "last-moment-format".into();
-            fs::write(path, serialize_page(&page.info, &page.body).unwrap()).unwrap();
+            commit_publication(
+                &publication_root,
+                vec![(
+                    path.clone(),
+                    serialize_page(&page.info, &page.body).unwrap().into_bytes(),
+                )],
+                &HashMap::from([(path.clone(), page.disk_markdown.as_bytes().to_vec())]),
+                None,
+            )
+            .unwrap();
         }));
         assert!(app.rebuild_index().is_err());
         let format: String = app
@@ -10612,9 +12757,22 @@ mod source_version_stage_tests {
             .unwrap();
         let path = app.page_path(&source_id).unwrap();
         let original = fs::read(&path).unwrap();
-        fs::write(&path, "---\nschema: [broken\n---\n").unwrap();
+        let publication_root = app.root.clone();
+        commit_publication(
+            &publication_root,
+            vec![(path.clone(), b"---\nschema: [broken\n---\n".to_vec())],
+            &HashMap::from([(path.clone(), original.clone())]),
+            None,
+        )
+        .unwrap();
         app.before_source_version_indexing = Some(Box::new(move || {
-            fs::write(path, original).unwrap();
+            commit_publication(
+                &publication_root,
+                vec![(path.clone(), original)],
+                &HashMap::new(),
+                None,
+            )
+            .unwrap();
         }));
         assert!(app.rebuild_index().is_err());
         let format: String = app
@@ -10783,13 +12941,43 @@ mod page_lookup_stage_tests {
                 external_edit_status: None,
             };
             let yaml = serde_yaml_ng::to_string(&header).unwrap();
-            fs::write(
-                pages.join(format!("{number}.md")),
-                format!("---\n{yaml}---\n\n# Owner\n"),
+            let destination = app.root.join("pages").join(format!("{number}.md"));
+            commit_publication(
+                &app.root,
+                vec![(
+                    destination,
+                    format!("---\n{yaml}---\n\n# Owner\n").into_bytes(),
+                )],
+                &HashMap::new(),
+                None,
             )
             .unwrap();
         }
         (temp, app, root)
+    }
+
+    #[test]
+    fn xlsx_evidence_infers_sheet_cell_locator_and_office_basis() {
+        let text = "[XLSX sheet \"Field notes\" cell B1; channel=cell] River Delta";
+        let start = text.find("River Delta").unwrap();
+        let draft = EvidenceDraft {
+            quote: "River Delta".into(),
+            byte_start: start,
+            byte_end: start + "River Delta".len(),
+            origin: "table_cell".into(),
+            qualifier: None,
+            offset_basis: None,
+            source_location: None,
+        };
+        let location = validate_evidence(text, &draft).unwrap();
+        assert_eq!(
+            location.source_location.as_deref(),
+            Some("XLSX sheet \"Field notes\" cell B1; channel=cell")
+        );
+        assert!(matches!(
+            location.offset_basis,
+            EvidenceOffsetBasis::ExtractedOfficeProjection
+        ));
     }
 
     #[test]
@@ -10874,11 +13062,13 @@ mod page_lookup_stage_tests {
         fs::copy(pages.join("0.md"), pages.join("duplicate.md")).unwrap();
         fs::rename(pages.join("1.md"), pages.join("moved.md")).unwrap();
         let reopened = Application::open(&root).unwrap();
-        assert!(reopened
-            .open_knowledge_page("page-stage-0")
-            .unwrap_err()
-            .to_string()
-            .contains("ambiguous"));
+        assert_eq!(
+            reopened
+                .open_knowledge_page("page-stage-0")
+                .unwrap()
+                .page_id,
+            "page-stage-0"
+        );
         assert_eq!(
             reopened
                 .open_knowledge_page("page-stage-1")
@@ -10886,15 +13076,8 @@ mod page_lookup_stage_tests {
                 .page_id,
             "page-stage-1"
         );
-        let indexed: bool = reopened
-            .index
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM knowledge_pages WHERE page_id='page-stage-0')",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert!(!indexed);
+        assert!(pages.join("duplicate.md").exists());
+        assert!(pages.join("moved.md").exists());
     }
 
     #[test]
@@ -10906,9 +13089,14 @@ mod page_lookup_stage_tests {
         let mut app = Application::open(&root).unwrap();
         let pages = root.join("pages");
         let page = fs::read_to_string(pages.join("0.md")).unwrap();
-        fs::write(
-            pages.join("3.md"),
-            page.replace("page-stage-0", "page-stage-3"),
+        commit_publication(
+            &app.root,
+            vec![(
+                app.root.join("pages/3.md"),
+                page.replace("page-stage-0", "page-stage-3").into_bytes(),
+            )],
+            &HashMap::new(),
+            None,
         )
         .unwrap();
         app.interrupt_page_lookup_after_batch = true;
@@ -11014,9 +13202,15 @@ mod page_lookup_stage_tests {
                 external_edit_status: None,
             };
             let yaml = serde_yaml_ng::to_string(&header).unwrap();
-            fs::write(
-                pages.join(format!("{number}.md")),
-                format!("---\n{yaml}---\n\n# Owner\n"),
+            let destination = app.root.join("pages").join(format!("{number}.md"));
+            commit_publication(
+                &app.root,
+                vec![(
+                    destination,
+                    format!("---\n{yaml}---\n\n# Owner\n").into_bytes(),
+                )],
+                &HashMap::new(),
+                None,
             )
             .unwrap();
         }
@@ -11075,5 +13269,223 @@ mod page_lookup_stage_tests {
             .pages
             .iter()
             .any(|page| page.source_id == imported.info.source_id));
+    }
+}
+
+#[cfg(test)]
+mod startup_url_recovery_tests {
+    use super::*;
+    #[test]
+    fn symlinked_url_record_is_rejected_without_touching_target() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("collection");
+        let app = Application::open(&root).unwrap();
+        let status = UrlAcquisitionStatus {
+            url: "https://example.invalid/owner".into(),
+            attempts: 1,
+            state: "processing".into(),
+            retry_at: None,
+            last_error: String::new(),
+            previous_source_available: false,
+        };
+        let target = temp.path().join("outside.json");
+        let bytes = serde_json::to_vec(&status).unwrap();
+        fs::write(&target, &bytes).unwrap();
+        let path = app.url_status_path(&status.url);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        symlink(&target, &path).unwrap();
+        drop(app);
+        let mut app = Application::open_pending_with_all_providers_and_meaning_assets(
+            &root,
+            Arc::new(UnavailableProvider),
+            Arc::new(LocalExtractor),
+            Arc::new(NativeAudioProcessor),
+            None::<&Path>,
+        )
+        .unwrap();
+        let mut rejected = false;
+        for _ in 0..100 {
+            match app.recover_interrupted_url_step(false) {
+                Err(_) => {
+                    rejected = true;
+                    break;
+                }
+                Ok(true) => break,
+                Ok(false) => (),
+            }
+        }
+        assert!(rejected);
+        assert_eq!(fs::read(target).unwrap(), bytes);
+    }
+    fn pending_job_app(root: &Path) -> Application {
+        let mut app = Application::open_pending_with_all_providers_and_meaning_assets(
+            root,
+            Arc::new(UnavailableProvider),
+            Arc::new(LocalExtractor),
+            Arc::new(NativeAudioProcessor),
+            None::<&Path>,
+        )
+        .unwrap();
+        app.startup_storage_prepared = true;
+        app.startup_cutover_prepared = true;
+        app.startup_external_prepared = true;
+        app.startup_reconciled = true;
+        app.startup_urls_recovered = true;
+        app
+    }
+    #[test]
+    fn replaced_source_directory_stops_job_recovery() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("collection");
+        let app = Application::open(&root).unwrap();
+        drop(app);
+        let outside = temp.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("sentinel"), b"preserved").unwrap();
+        fs::rename(root.join("sources"), root.join("old-sources")).unwrap();
+        symlink(&outside, root.join("sources")).unwrap();
+        let mut app = pending_job_app(&root);
+        assert!(app.resume_pending_startup_step().is_err());
+        assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"preserved");
+    }
+    #[test]
+    fn changed_source_directory_stops_an_active_job_cursor() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("collection");
+        let app = Application::open(&root).unwrap();
+        drop(app);
+        fs::create_dir(root.join("sources/first")).unwrap();
+        let mut app = pending_job_app(&root);
+        assert!(!app.resume_pending_startup_step().unwrap());
+        fs::create_dir(root.join("sources/external")).unwrap();
+        assert!(app.resume_pending_startup_step().is_err());
+        assert!(root.join("sources/external").is_dir());
+    }
+    #[test]
+    fn interrupted_source_child() {
+        let Some(root) = std::env::var_os("KG_SOURCE_RECOVERY_FIXTURE") else {
+            return;
+        };
+        let mut app = pending_job_app(Path::new(&root));
+        assert!(!app.resume_pending_startup_step().unwrap());
+        std::process::exit(87);
+    }
+    #[test]
+    fn interrupted_source_recovery_reenumerates_without_reapplying_attempts() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("collection");
+        let mut app = Application::open(&root).unwrap();
+        let mut ids = Vec::new();
+        for i in 0..5 {
+            let input = temp.path().join(format!("source-{i}.txt"));
+            fs::write(&input, format!("Source {i} has distinct durable content.")).unwrap();
+            ids.push(
+                app.import_source(&input, AcquisitionMethod::Picker)
+                    .unwrap()
+                    .info
+                    .source_id,
+            );
+        }
+        assert_eq!(app.claim_due_semantic_jobs_at(5, 1000).unwrap().len(), 5);
+        Application::record_controlled_shutdown(&root).unwrap();
+        drop(app);
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "application::startup_url_recovery_tests::interrupted_source_child",
+            ])
+            .env("KG_SOURCE_RECOVERY_FIXTURE", &root)
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(87));
+        let mut app = pending_job_app(&root);
+        for _ in 0..100 {
+            if app.startup_ready_for_finish {
+                break;
+            }
+            assert!(!app.resume_pending_startup_step().unwrap());
+        }
+        assert!(app.startup_ready_for_finish);
+        for id in ids {
+            let page = read_page(&app.page_path(&id).unwrap()).unwrap();
+            assert_eq!(page.info.semantic_state, "pending");
+            assert_eq!(page.info.versions_seen[0].processing_interruptions, 0);
+        }
+    }
+    #[test]
+    fn interrupted_child() {
+        let Some(root) = std::env::var_os("KG_URL_RECOVERY_FIXTURE") else {
+            return;
+        };
+        let mut app = Application::open_pending_with_all_providers_and_meaning_assets(
+            PathBuf::from(root),
+            Arc::new(UnavailableProvider),
+            Arc::new(LocalExtractor),
+            Arc::new(NativeAudioProcessor),
+            None::<&Path>,
+        )
+        .unwrap();
+        for _ in 0..1000 {
+            if app.recover_interrupted_url_step(false).unwrap() {
+                panic!("fixture finished before interruption");
+            }
+            if !app.startup_url_after.is_empty() {
+                std::process::exit(88);
+            }
+        }
+        panic!("fixture did not advance");
+    }
+    #[test]
+    fn interrupted_url_recovery_restarts_without_skipping_records() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("collection");
+        let app = Application::open(&root).unwrap();
+        for i in 0..20 {
+            app.write_url_status(&UrlAcquisitionStatus {
+                url: format!("https://example.invalid/{i}"),
+                attempts: 1,
+                state: "processing".into(),
+                retry_at: None,
+                last_error: String::new(),
+                previous_source_available: false,
+            })
+            .unwrap();
+        }
+        drop(app);
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "application::startup_url_recovery_tests::interrupted_child",
+            ])
+            .env("KG_URL_RECOVERY_FIXTURE", &root)
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(88));
+        let mut app = Application::open_pending_with_all_providers_and_meaning_assets(
+            &root,
+            Arc::new(UnavailableProvider),
+            Arc::new(LocalExtractor),
+            Arc::new(NativeAudioProcessor),
+            None::<&Path>,
+        )
+        .unwrap();
+        let mut done = false;
+        for _ in 0..1000 {
+            if app.recover_interrupted_url_step(false).unwrap() {
+                done = true;
+                break;
+            }
+        }
+        assert!(done);
+        for i in 0..20 {
+            let record = app
+                .read_url_status(&format!("https://example.invalid/{i}"))
+                .unwrap()
+                .unwrap();
+            assert_eq!(record.state, "pending");
+            assert_eq!(record.attempts, 1);
+        }
     }
 }

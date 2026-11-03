@@ -1,5 +1,7 @@
 # Owner-run verification procedures
 
+> **Historical procedures:** The manual-edit and saved-view steps below predate [ADR 0009](adr/0009-sources-are-the-content-authority.md) and no longer define acceptance. The current pivot uses [its acceptance matrix](pivot-acceptance.md); do not edit generated facts or create issues to perform these older checks.
+
 These procedures close the acceptance criteria that need hardware, third-party
 software, provider spend, or physical timing that an agent cannot supply. Each
 names the exact prerequisite, the commands, and the fields to record. Run them at

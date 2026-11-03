@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+# Knowledge Garden verification harness (collection driver + reader journeys).
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ROOT="$(cd "${SKILL_DIR}/../../.." && pwd)"
+RUNS_DIR="${SKILL_DIR}/.run"
+ARTIFACTS_ROOT="${SKILL_DIR}/artifacts"
+DRIVER="${CARGO_TARGET_DIR:-${ROOT}/src-tauri/target}/debug/examples/application_driver"
+MANIFEST="${ROOT}/src-tauri/Cargo.toml"
+VITEST_CONFIG="${SKILL_DIR}/vitest.config.ts"
+
+usage() {
+  cat <<'EOF'
+Usage: kg-verify <command> [args]
+
+Commands:
+  init-run [run-id]     Export RUN_ID, workspace, collection, and artifact paths.
+  doctor                Read-only health check for this verification instance.
+  build-driver          Build the application_driver example (public Application boundary).
+  driver <op> [args...] Run application_driver against $KG_VERIFY_COLLECTION.
+  journey <name>        Run a mapped reader journey (see features/).
+  launch-native         Start `tauri dev` with an isolated collection (one instance only).
+  stop-native           Stop the native instance started by launch-native for this RUN_ID.
+  cleanup               Tear down workspace and native process; keep proof artifacts.
+
+Environment (set by init-run or export manually):
+  RUN_ID                Unique run identifier.
+  KG_VERIFY_WORKSPACE   Disposable directory for this run.
+  KG_VERIFY_COLLECTION  Collection root passed to Application and native shell.
+  KG_VERIFY_ARTIFACTS   Proof output directory for this run.
+EOF
+}
+
+require_run() {
+  if [[ -z "${RUN_ID:-}" || -z "${KG_VERIFY_COLLECTION:-}" ]]; then
+    echo "kg-verify: run 'eval \"\$(./.cursor/skills/verify-knowledge-garden/scripts/kg-verify init-run)\"' first." >&2
+    exit 1
+  fi
+}
+
+init_run() {
+  local id="${1:-kg-$(date +%Y%m%d-%H%M%S)-$$}"
+  export RUN_ID="$id"
+  export KG_VERIFY_WORKSPACE="${KG_VERIFY_WORKSPACE:-/tmp/knowledge-garden-verify-${RUN_ID}}"
+  export KG_VERIFY_COLLECTION="${KG_VERIFY_COLLECTION:-${KG_VERIFY_WORKSPACE}/collection}"
+  export KG_VERIFY_ARTIFACTS="${KG_VERIFY_ARTIFACTS:-${ARTIFACTS_ROOT}/${RUN_ID}}"
+  mkdir -p "${KG_VERIFY_WORKSPACE}" "${KG_VERIFY_COLLECTION}" "${KG_VERIFY_ARTIFACTS}"
+  mkdir -p "${RUNS_DIR}/${RUN_ID}"
+  cat <<EOF
+export RUN_ID='${RUN_ID}'
+export KG_VERIFY_WORKSPACE='${KG_VERIFY_WORKSPACE}'
+export KG_VERIFY_COLLECTION='${KG_VERIFY_COLLECTION}'
+export KG_VERIFY_ARTIFACTS='${KG_VERIFY_ARTIFACTS}'
+EOF
+}
+
+doctor() {
+  require_run
+  local ok=1
+  echo "kg-verify doctor (RUN_ID=${RUN_ID})"
+
+  if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
+    echo "WARN: qualified checks target Apple Silicon macOS; this host is $(uname -s)/$(uname -m)."
+  fi
+
+  local node_major
+  node_major="$(node -p "process.versions.node.split('.')[0]")"
+  if [[ "${node_major}" != "24" ]]; then
+    echo "FAIL: Node 24 required (see .nvmrc); got $(node -v)."
+    ok=0
+  else
+    echo "OK: node $(node -v)"
+  fi
+
+  if ! command -v cargo >/dev/null; then
+    echo "FAIL: cargo not on PATH."
+    ok=0
+  else
+    echo "OK: cargo $(cargo --version)"
+  fi
+
+  if [[ ! -x "${DRIVER}" ]]; then
+    echo "FAIL: application_driver missing at ${DRIVER} (run build-driver)."
+    ok=0
+  else
+    echo "OK: application_driver ${DRIVER}"
+  fi
+
+  if [[ ! -d "${KG_VERIFY_COLLECTION}" ]]; then
+    echo "FAIL: collection directory missing: ${KG_VERIFY_COLLECTION}"
+    ok=0
+  else
+    echo "OK: collection ${KG_VERIFY_COLLECTION}"
+  fi
+
+  if [[ -f "${RUNS_DIR}/${RUN_ID}/native.pid" ]]; then
+    local pid
+    pid="$(cat "${RUNS_DIR}/${RUN_ID}/native.pid")"
+    if kill -0 "${pid}" 2>/dev/null; then
+      echo "OK: native shell pid ${pid} (port 1420 should belong to this run)"
+    else
+      echo "WARN: stale native.pid ${pid}; run stop-native or cleanup."
+    fi
+  fi
+
+  if lsof -iTCP:1420 -sTCP:LISTEN -P -n 2>/dev/null | grep -q .; then
+    if [[ ! -f "${RUNS_DIR}/${RUN_ID}/native.pid" ]]; then
+      echo "WARN: something is listening on 1420 but this RUN_ID did not start it; refuse launch-native."
+    fi
+  fi
+
+  if [[ "${ok}" -eq 1 ]]; then
+    echo "doctor: ready"
+    return 0
+  fi
+  echo "doctor: not ready"
+  return 1
+}
+
+build_driver() {
+  (
+    cd "${ROOT}"
+    cargo build --locked --quiet --manifest-path "${MANIFEST}" --example application_driver
+  )
+  echo "Built ${DRIVER}"
+}
+
+cmd_driver() {
+  require_run
+  if [[ ! -x "${DRIVER}" ]]; then
+    build_driver
+  fi
+  if [[ $# -lt 1 ]]; then
+    echo "kg-verify driver: missing operation (see application_driver.rs)." >&2
+    exit 1
+  fi
+  "${DRIVER}" "${KG_VERIFY_COLLECTION}" "$@"
+}
+
+cmd_journey() {
+  require_run
+  local name="${1:?journey name required}"
+  if [[ ! -x "${DRIVER}" ]]; then
+    build_driver
+  fi
+  local journey_file="${SKILL_DIR}/journeys/${name}.test.ts"
+  if [[ ! -f "${journey_file}" ]]; then
+    echo "kg-verify journey: missing ${journey_file}" >&2
+    exit 1
+  fi
+  (
+    cd "${ROOT}"
+    npx vitest run --config "${VITEST_CONFIG}" "${journey_file}" \
+      --reporter=verbose \
+      2>&1 | tee "${KG_VERIFY_ARTIFACTS}/journey-${name}.log"
+  )
+}
+
+launch_native() {
+  require_run
+  if [[ -f "${RUNS_DIR}/${RUN_ID}/native.pid" ]] && kill -0 "$(cat "${RUNS_DIR}/${RUN_ID}/native.pid")" 2>/dev/null; then
+    echo "Native shell already running for RUN_ID=${RUN_ID}" >&2
+    exit 1
+  fi
+  if lsof -iTCP:1420 -sTCP:LISTEN -P -n 2>/dev/null | grep -q .; then
+    echo "kg-verify: port 1420 is in use; stop the other dev server before launch-native." >&2
+    exit 1
+  fi
+  local log="${RUNS_DIR}/${RUN_ID}/tauri-dev.log"
+  (
+    cd "${ROOT}"
+    export KNOWLEDGE_GARDEN_COLLECTION="${KG_VERIFY_COLLECTION}"
+    nohup npm run tauri dev >>"${log}" 2>&1 &
+    echo $! >"${RUNS_DIR}/${RUN_ID}/native.pid"
+  )
+  local pid
+  pid="$(cat "${RUNS_DIR}/${RUN_ID}/native.pid")"
+  echo "Started tauri dev pid ${pid}; log ${log}"
+  local deadline=$((SECONDS + 300))
+  while (( SECONDS < deadline )); do
+    if curl -sf "http://127.0.0.1:1420/" >/dev/null 2>&1; then
+      echo "Ready: Vite dev server on http://127.0.0.1:1420 (webview loads this URL under tauri dev)."
+      return 0
+    fi
+    if ! kill -0 "${pid}" 2>/dev/null; then
+      echo "FAIL: tauri dev exited early; see ${log}" >&2
+      tail -40 "${log}" >&2 || true
+      return 1
+    fi
+    sleep 2
+  done
+  echo "FAIL: timed out waiting for http://127.0.0.1:1420" >&2
+  tail -40 "${log}" >&2 || true
+  return 1
+}
+
+stop_native() {
+  require_run
+  local pid_file="${RUNS_DIR}/${RUN_ID}/native.pid"
+  if [[ ! -f "${pid_file}" ]]; then
+    return 0
+  fi
+  local pid
+  pid="$(cat "${pid_file}")"
+  if kill -0 "${pid}" 2>/dev/null; then
+    kill "${pid}" 2>/dev/null || true
+    pkill -P "${pid}" 2>/dev/null || true
+    wait "${pid}" 2>/dev/null || true
+  fi
+  rm -f "${pid_file}"
+}
+
+cleanup() {
+  require_run
+  stop_native
+  if [[ -d "${KG_VERIFY_WORKSPACE}" ]]; then
+    rm -rf "${KG_VERIFY_WORKSPACE}"
+  fi
+  rm -rf "${RUNS_DIR}/${RUN_ID}"
+  if [[ -d "${KG_VERIFY_ARTIFACTS}" ]]; then
+    echo "Proof artifacts kept at ${KG_VERIFY_ARTIFACTS}"
+  fi
+}
+
+main() {
+  local cmd="${1:-}"
+  shift || true
+  case "${cmd}" in
+    init-run) init_run "$@" ;;
+    doctor) doctor ;;
+    build-driver) build_driver ;;
+    driver) cmd_driver "$@" ;;
+    journey)
+      local journey_name="${1:-}"
+      shift || true
+      cmd_journey "${journey_name}"
+      ;;
+    launch-native) launch_native ;;
+    stop-native) stop_native ;;
+    cleanup) cleanup ;;
+    ""|-h|--help|help) usage ;;
+    *)
+      echo "Unknown command: ${cmd}" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"

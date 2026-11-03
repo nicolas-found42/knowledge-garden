@@ -1,3 +1,5 @@
+#[path = "fixtures/recovery/mod.rs"]
+mod recovery;
 use knowledge_garden::application::{AcquisitionMethod, Application, PageSearchRequest};
 use std::fs;
 
@@ -9,7 +11,7 @@ fn obsolete_checkpoint_cleanup_respects_reconciliation_budget() {
     let pages = root.join("pages");
     fs::create_dir_all(&pages).unwrap();
     for index in 0..24 {
-        fs::write(pages.join(format!("owner-{index}.md")), "owner content").unwrap();
+        recovery::seed_metadata(&pages.join(format!("owner-{index}.md")), b"owner content");
     }
     while !app.reconcile_collection(100).unwrap().complete {}
     let database = rusqlite::Connection::open(root.join(".derived/lookup.sqlite")).unwrap();
@@ -31,7 +33,7 @@ fn obsolete_checkpoint_cleanup_respects_reconciliation_budget() {
     };
     let mut previous = count_old();
     assert_eq!(previous, 24);
-    fs::remove_file(pages.join("owner-0.md")).unwrap();
+    recovery::remove_generated_fixture(&root, &pages.join("owner-0.md"));
     for _ in 0..200 {
         let status = app.reconcile_collection(1).unwrap();
         let current = count_old();
@@ -56,7 +58,7 @@ fn interrupted_candidate_inspection_keeps_a_reusable_derived_checkpoint() {
     let pages = root.join("pages");
     fs::create_dir_all(&pages).unwrap();
     for index in 0..24 {
-        fs::write(pages.join(format!("owner-{index}.md")), "owner content").unwrap();
+        recovery::seed_metadata(&pages.join(format!("owner-{index}.md")), b"owner content");
     }
     for _ in 0..32 {
         assert!(!app.reconcile_collection(1).unwrap().complete);
@@ -114,7 +116,7 @@ fn interrupted_candidate_inspection_keeps_a_reusable_derived_checkpoint() {
         );
     }
     drop(app);
-    fs::remove_file(pages.join("owner-0.md")).unwrap();
+    recovery::remove_generated_fixture(&root, &pages.join("owner-0.md"));
     let app = Application::open(&root).unwrap();
     let status = app.collection_status();
     assert_eq!(
@@ -173,12 +175,12 @@ fn reconciliation_restarts_when_a_page_is_added_during_candidate_inspection() {
     let pages = root.join("pages");
     fs::create_dir_all(&pages).unwrap();
     for index in 0..24 {
-        fs::write(pages.join(format!("owner-{index}.md")), "owner content").unwrap();
+        recovery::seed_metadata(&pages.join(format!("owner-{index}.md")), b"owner content");
     }
     for _ in 0..32 {
         assert!(!app.reconcile_collection(1).unwrap().complete);
     }
-    fs::write(pages.join("added.md"), "new owner content").unwrap();
+    recovery::seed_metadata(&pages.join("added.md"), b"new owner content");
     for _ in 0..200 {
         let status = app.reconcile_collection(1).unwrap();
         if status.complete {
@@ -200,7 +202,7 @@ fn reconciliation_budgets_candidate_inspection_before_publishing() {
     let pages = root.join("pages");
     fs::create_dir_all(&pages).unwrap();
     for index in 0..24 {
-        fs::write(pages.join(format!("owner-{index}.md")), "owner content").unwrap();
+        recovery::seed_metadata(&pages.join(format!("owner-{index}.md")), b"owner content");
     }
     let original_revision = app.collection_status().revision;
     let mut calls = 0;
@@ -229,7 +231,7 @@ fn changed_files_keep_reconciliation_status_incomplete_until_retry_succeeds() {
     let pages = root.join("pages");
     fs::create_dir_all(&pages).unwrap();
     for index in 0..12 {
-        fs::write(pages.join(format!("owner-{index}.md")), "initial").unwrap();
+        recovery::seed_metadata(&pages.join(format!("owner-{index}.md")), b"initial");
     }
     for revision in 0..200 {
         let status = app.reconcile_collection(1).unwrap();
@@ -242,11 +244,10 @@ fn changed_files_keep_reconciliation_status_incomplete_until_retry_succeeds() {
             "a rejected snapshot still needs a retry"
         );
         for index in 0..12 {
-            fs::write(
-                pages.join(format!("owner-{index}.md")),
-                format!("revision {revision}"),
-            )
-            .unwrap();
+            recovery::seed_metadata(
+                &pages.join(format!("owner-{index}.md")),
+                format!("revision {revision}").as_bytes(),
+            );
         }
     }
     for _ in 0..100 {
@@ -330,6 +331,41 @@ fn malformed_source_is_reported_without_blocking_cold_rebuild_or_other_pending_w
     );
 }
 
+#[test]
+fn external_source_metadata_edit_is_reported_without_replacing_trusted_evidence() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("collection");
+    let input = temp.path().join("source.txt");
+    fs::write(&input, "A retained orchard observation.").unwrap();
+    let mut app = Application::open(&root).unwrap();
+    let source = app
+        .import_source(&input, AcquisitionMethod::Picker)
+        .unwrap();
+    let path = app.page_path(&source.info.source_id).unwrap();
+    drop(app);
+    let external = b"---\nschema: [broken\n---\nPreserve this owner edit.\n";
+    fs::write(&path, external).unwrap();
+    let app = Application::open(&root).unwrap();
+    assert!(app
+        .collection_status()
+        .diagnostics
+        .iter()
+        .any(|item| item.kind == "external_edit_retained"
+            && item.paths.iter().any(|value| path.ends_with(value))));
+    assert_eq!(
+        app.open_source(&source.info.source_id)
+            .unwrap()
+            .info
+            .source_id,
+        source.info.source_id
+    );
+    assert_eq!(fs::read(&path).unwrap(), external);
+    let retained = fs::read_dir(root.join(".recovery/external-edits"))
+        .unwrap()
+        .any(|entry| fs::read(entry.unwrap().path()).is_ok_and(|bytes| bytes == external));
+    assert!(retained);
+}
+
 #[path = "fixtures/queries/provider.rs"]
 mod labeled;
 
@@ -372,7 +408,7 @@ fn exercise_damaged_support(mismatched_identity: bool) {
         .collection_status()
         .diagnostics
         .iter()
-        .any(|d| d.kind == "malformed_metadata"
+        .any(|d| d.kind == "external_edit_retained"
             && d.paths.iter().any(|p| metadata_path.ends_with(p))));
     let page = app.open_knowledge_page(&place.page_id).unwrap();
     assert_eq!(page.page_id, place.page_id);
@@ -385,7 +421,7 @@ fn exercise_damaged_support(mismatched_identity: bool) {
     assert!(matches
         .pages
         .iter()
-        .any(|p| p.page_id == place.page_id && p.processing_status == "source_unavailable"));
+        .any(|p| p.page_id == place.page_id && p.processing_status != "source_unavailable"));
     let paths = app
         .explore_paths(knowledge_garden::application::PathExploreRequest {
             start_page_id: place.page_id.clone(),
@@ -395,10 +431,18 @@ fn exercise_damaged_support(mismatched_identity: bool) {
             continuation: None,
         })
         .expect("path navigation must disclose missing support without failing");
-    assert!(paths.diagnostics.iter().any(
+    assert!(!paths.diagnostics.iter().any(
         |d| d.kind == knowledge_garden::application::PathExploreDiagnosticKind::MissingSupport
     ));
     assert_eq!(fs::read_to_string(&metadata_path).unwrap(), broken);
+    recovery::assert_retains(&root, broken.as_bytes());
+    assert_eq!(
+        app.open_source(&source.info.source_id)
+            .unwrap()
+            .info
+            .source_id,
+        source.info.source_id
+    );
     assert_eq!(
         fs::read(metadata_path.parent().unwrap().join("original.txt")).unwrap(),
         original
