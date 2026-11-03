@@ -3,6 +3,19 @@ use knowledge_garden::application::{AcquisitionMethod, Application, ExtractionSt
 use knowledge_garden::semantic::{EntityDraft, EvidenceDraft, FactDraft, KnowledgeDraft};
 use std::{fs, path::Path};
 
+fn finish_visual_jobs(app: &mut knowledge_garden::application::Application) {
+    for _ in 0..8 {
+        app.resume_due_visual_jobs_at_with(u64::MAX - 100_000, |_| {
+            Ok(knowledge_garden::visual_inference::VisualInterpretation {
+                description: "Unverified fixture interpretation.".into(),
+                model: "qwen2.5vl:7b".into(),
+                observed_revision: "a".repeat(64),
+            })
+        })
+        .unwrap();
+    }
+}
+
 fn fixture(name: &str) -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/photos")
@@ -70,6 +83,7 @@ fn photo_caption_cannot_be_published_as_an_authenticated_capture_date() {
             AcquisitionMethod::Picker,
         )
         .unwrap();
+    finish_visual_jobs(&mut app);
     let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
     let quote = "Captured May 17, 2024 by Maya at Riverside.";
     let start = job.source_text.find(quote).unwrap();
@@ -146,6 +160,7 @@ fn photo_channel_records_are_durable_searchable_and_reopen_with_region_context()
             AcquisitionMethod::Picker,
         )
         .unwrap();
+    finish_visual_jobs(&mut app);
     let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
     let mut draft = KnowledgeDraft::default();
     for (needle, origin, property, qualifier) in [
@@ -295,6 +310,7 @@ fn injected_wrong_ocr_remains_a_qualified_transcription_and_cannot_become_a_coun
     let page = app
         .import_source(fixture("river-no-date.png"), AcquisitionMethod::Picker)
         .unwrap();
+    finish_visual_jobs(&mut app);
     let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
     let quote = job.source_text.split_once("] ").unwrap().1.to_owned();
     let start = job.source_text.find(&quote).unwrap();
@@ -346,6 +362,7 @@ fn injected_wrong_ocr_remains_a_qualified_transcription_and_cannot_become_a_coun
     let second = app
         .import_source(fixture("river-no-date.heic"), AcquisitionMethod::Picker)
         .unwrap();
+    finish_visual_jobs(&mut app);
     let second_job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
     let forged = KnowledgeDraft {
         entities: vec![EntityDraft {
@@ -419,6 +436,7 @@ fn caption_that_mentions_an_event_correction_stays_a_caption_without_mutating_ev
     let source = app
         .import_source(fixture("river-no-date.png"), AcquisitionMethod::Picker)
         .unwrap();
+    finish_visual_jobs(&mut app);
     let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
     let quote = job.source_text.split_once("] ").unwrap().1.to_owned();
     let start = job.source_text.find(&quote).unwrap();
@@ -478,6 +496,7 @@ fn supplied_text_cannot_impersonate_a_native_pixel_projection() {
     fs::write(&path, &text).unwrap();
     let mut app = Application::open(workspace.path().join("collection")).unwrap();
     let source = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    finish_visual_jobs(&mut app);
     let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
     let start = text.find(quote).unwrap();
     let evidence = EvidenceDraft {
@@ -524,6 +543,7 @@ fn supplied_text_cannot_label_relationship_or_tag_support_as_observed_pixels() {
         fs::write(&path, quote).unwrap();
         let mut app = Application::open(workspace.path().join("collection")).unwrap();
         let source = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+        finish_visual_jobs(&mut app);
         let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
         let evidence = EvidenceDraft {
             quote: quote.into(),

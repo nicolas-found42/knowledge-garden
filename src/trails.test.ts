@@ -87,14 +87,13 @@ function setup() {
     follow: vi.fn().mockResolvedValue(true),
     origin: vi.fn(),
     returnOrigin: vi.fn().mockResolvedValue(undefined),
-    save: vi.fn().mockResolvedValue(undefined),
     error: vi.fn(),
   };
   const panel = trailPanel(host, api as GardenApi, callbacks);
   panel.show();
   return { panel, api, callbacks, state };
 }
-it("assembles mixed stops, keeps duplicate visits distinct, reorders by keyboard, traverses and explicitly saves the route", async () => {
+it("assembles mixed stops, keeps duplicate visits distinct, reorders by keyboard, and traverses the temporary route", async () => {
   const { panel, api, callbacks, state } = setup();
   const user = userEvent.setup();
   await user.click(
@@ -148,12 +147,7 @@ it("assembles mixed stops, keeps duplicate visits distinct, reorders by keyboard
     "Recording 500 ms",
     "Source passage",
   ]);
-  expect(callbacks.save).not.toHaveBeenCalled();
-  await user.type(screen.getByLabelText("Trail name"), "River study");
-  await user.click(screen.getByRole("button", { name: "Save this trail" }));
-  await waitFor(() =>
-    expect(callbacks.save).toHaveBeenCalledWith("River study", panel.stops()),
-  );
+  expect(screen.queryByRole("button", { name: "Save this trail" })).toBeNull();
   // Revisiting one location is a distinct ordered stop, never a duplicate stable stop ID.
   await user.click(
     screen.getByRole("button", {
@@ -199,7 +193,7 @@ it("cancels a pending stop resolution when the route is edited and discloses una
   expect(panel.stops()[0].stop_id).toBe(selected.stop_id);
 });
 it("offers only existing Jev-selected stops and adds none until the owner chooses one", async () => {
-  const { panel, callbacks } = setup();
+  const { panel } = setup();
   const user = userEvent.setup();
   await user.type(screen.getByLabelText("Reading goal"), "Riverside");
   await user.click(
@@ -209,7 +203,6 @@ it("offers only existing Jev-selected stops and adds none until the owner choose
     name: "Add suggested Related observation",
   });
   expect(panel.stops()).toEqual([]);
-  expect(callbacks.save).not.toHaveBeenCalled();
   await user.click(add);
   expect(panel.stops()[0].label).toBe("Related observation");
   expect(screen.getByText(/typesafe\/jev-1.14-recorded/)).toBeTruthy();

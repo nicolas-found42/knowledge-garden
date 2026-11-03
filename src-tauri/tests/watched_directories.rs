@@ -133,6 +133,21 @@ fn actual_removal_withdraws_only_sole_support_and_preserves_external_manual_auth
         scan(&mut app);
         assert!(!original.exists());
         assert!(app.open_source(&source_id).is_err());
+        let removed = app.list_removed_sources().unwrap();
+        let backup = removed
+            .iter()
+            .find(|item| item.source_id == source_id)
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(
+                collection
+                    .join(".recovery/sources")
+                    .join(&backup.recovery_id)
+                    .join("bundle/original.txt")
+            )
+            .unwrap(),
+            V17
+        );
         let retained_place = app.open_knowledge_page(&place.page_id).unwrap();
         assert!(retained_place.markdown.contains("10 minutes"));
         assert!(retained_place.markdown.contains("Source support count: 1"));
@@ -287,20 +302,18 @@ fn watching_an_existing_origin_keeps_its_identity_and_other_acquisitions() {
         fs::remove_dir_all(&nested).unwrap();
         scan(&mut app);
         scan(&mut app);
+        assert!(app.retained_source_exists(&initial.info.source_id).unwrap());
+        let retained = app.open_source(&initial.info.source_id).unwrap();
         assert_eq!(
-            app.retained_source_exists(&initial.info.source_id).unwrap(),
-            independent
+            retained.info.acquisitions.len(),
+            if independent { 2 } else { 1 }
         );
-        if independent {
-            let retained = app.open_source(&initial.info.source_id).unwrap();
-            assert_eq!(retained.info.acquisitions.len(), 1);
-            assert!(retained
-                .info
-                .acquisitions
-                .iter()
-                .all(|acquisition| acquisition.path != path.to_string_lossy()));
-            assert!(app.original_path(&initial.info.source_id).unwrap().exists());
-        }
+        assert!(retained
+            .info
+            .acquisitions
+            .iter()
+            .all(|acquisition| acquisition.method == AcquisitionMethod::Picker));
+        assert!(app.original_path(&initial.info.source_id).unwrap().exists());
     }
 }
 
@@ -354,11 +367,11 @@ fn repository_escaped_origins_stay_distinct_through_watching_changes_and_removal
         fs::remove_file(&second_path).unwrap();
         scan(&mut app);
         scan(&mut app);
-        assert!(!app.retained_source_exists(&second_id).unwrap());
+        assert!(app.retained_source_exists(&second_id).unwrap());
         assert!(app.retained_source_exists(&first_id).unwrap());
         drop(app);
         let app = open(&collection);
-        assert_eq!(app.list_sources(0).unwrap().sources.len(), 1);
+        assert_eq!(app.list_sources(0).unwrap().sources.len(), 2);
         assert_eq!(
             fs::read(app.original_path(&first_id).unwrap()).unwrap(),
             V17.as_bytes()
@@ -474,7 +487,7 @@ fn legacy_repository_origins_remain_raw_and_ambiguous_records_are_preserved() {
         fs::remove_file(&paths[1]).unwrap();
         scan(&mut app);
         scan(&mut app);
-        assert_eq!(app.retained_source_exists(&ids[1]).unwrap(), ambiguous);
+        assert!(app.retained_source_exists(&ids[1]).unwrap());
         assert_eq!(
             fs::read(app.original_path(&ids[0]).unwrap()).unwrap(),
             V17.as_bytes()
@@ -489,7 +502,7 @@ fn legacy_repository_origins_remain_raw_and_ambiguous_records_are_preserved() {
             let mut app = open(&collection);
             scan(&mut app);
             scan(&mut app);
-            assert!(!app.retained_source_exists(&ids[1]).unwrap());
+            assert!(app.retained_source_exists(&ids[1]).unwrap());
             assert!(app.retained_source_exists(&ids[0]).unwrap());
         }
     }
@@ -1059,4 +1072,1253 @@ fn unavailable_watch_roots_still_consume_the_shared_turn_budget() {
             .count(),
         2
     );
+}
+
+#[test]
+fn explicit_removal_preserves_backup_and_suppresses_changed_watched_origin_until_readd() {
+    let workspace = tempdir().unwrap();
+    let incoming = workspace.path().join("incoming");
+    fs::create_dir(&incoming).unwrap();
+    let file = incoming.join("V17.txt");
+    fs::write(&file, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    app.watch_directory(&incoming).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let id = app.list_sources(0).unwrap().sources[0].source_id.clone();
+    app.remove_source(&id).unwrap();
+    assert!(app.list_sources(0).unwrap().sources.is_empty());
+    assert_eq!(fs::read_to_string(&file).unwrap(), V17);
+    let backups = collection.join(".recovery/sources");
+    let backup = fs::read_dir(backups)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    assert!(backup.join("completed").exists());
+    assert_eq!(
+        fs::read_to_string(backup.join("bundle/original.txt")).unwrap(),
+        V17
+    );
+    drop(app);
+    fs::write(&file, V17.replace("Visits: 12", "Visits: 15")).unwrap();
+    let mut app = open(&collection);
+    scan(&mut app);
+    assert!(app.list_sources(0).unwrap().sources.is_empty());
+    let removed = app.list_removed_sources().unwrap();
+    assert_eq!(removed.len(), 1);
+    let restored = app.restore_removed_source(&removed[0].recovery_id).unwrap();
+    assert_eq!(
+        fs::read_to_string(app.original_path(&restored.info.source_id).unwrap()).unwrap(),
+        V17
+    );
+    scan(&mut app);
+    assert_eq!(app.list_sources(0).unwrap().sources.len(), 1);
+}
+
+#[test]
+fn interrupted_explicit_removal_recovers_and_keeps_independent_support() {
+    let workspace = tempdir().unwrap();
+    let incoming = workspace.path().join("incoming");
+    fs::create_dir(&incoming).unwrap();
+    fs::write(incoming.join("V17.txt"), V17).unwrap();
+    fs::write(incoming.join("independent.txt"), INDEPENDENT).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    app.watch_directory(&incoming).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let source = app
+        .list_sources(0)
+        .unwrap()
+        .sources
+        .into_iter()
+        .find_map(|s| {
+            let page = app.open_source(&s.source_id).unwrap();
+            page.knowledge_pages
+                .iter()
+                .any(|p| p.title == "Observation V17")
+                .then_some(page)
+        })
+        .unwrap();
+    let event = source
+        .knowledge_pages
+        .iter()
+        .find(|p| p.title == "Observation V17")
+        .unwrap()
+        .page_id
+        .clone();
+    let place = source
+        .knowledge_pages
+        .iter()
+        .find(|p| p.title == "Riverside")
+        .unwrap()
+        .page_id
+        .clone();
+    app.set_publication_failpoint_for_test(1);
+    assert!(app.remove_source(&source.info.source_id).is_err());
+    drop(app);
+    let mut app = open(&collection);
+    assert!(app.open_source(&source.info.source_id).is_err());
+    assert!(app.open_knowledge_page(&event).is_err());
+    assert!(!app
+        .search_pages(PageSearchRequest {
+            query: "Observation V17".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .pages
+        .iter()
+        .any(|page| page.page_id == event));
+    assert!(app
+        .open_knowledge_page(&place)
+        .unwrap()
+        .markdown
+        .contains("Source support count: 1"));
+    scan(&mut app);
+    assert_eq!(app.list_sources(0).unwrap().sources.len(), 1);
+}
+
+#[test]
+fn overlapping_watches_do_not_resurrect_removed_source() {
+    let workspace = tempdir().unwrap();
+    let incoming = workspace.path().join("incoming");
+    let nested = incoming.join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    let file = nested.join("V17.txt");
+    fs::write(&file, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    app.watch_directory(&incoming).unwrap();
+    app.watch_directory(&nested).unwrap();
+    for _ in 0..10 {
+        app.reconcile_watched_directories(128).unwrap();
+    }
+    let id = app.list_sources(0).unwrap().sources[0].source_id.clone();
+    app.remove_source(&id).unwrap();
+    fs::write(&file, V17.replace("Visits: 12", "Visits: 15")).unwrap();
+    drop(app);
+    let mut app = open(&collection);
+    for _ in 0..10 {
+        app.reconcile_watched_directories(128).unwrap();
+    }
+    assert!(app.list_sources(0).unwrap().sources.is_empty());
+}
+
+#[test]
+fn interrupted_restore_finishes_on_restart() {
+    let workspace = tempdir().unwrap();
+    let file = workspace.path().join("source.txt");
+    fs::write(&file, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    let source = app.import_source(&file, AcquisitionMethod::Picker).unwrap();
+    app.remove_source(&source.info.source_id).unwrap();
+    let backup = app.list_removed_sources().unwrap().remove(0);
+    let backup_dir = collection
+        .join(".recovery/sources")
+        .join(&backup.recovery_id);
+    fs::write(backup_dir.join("restore-pending"), "fixture-generation").unwrap();
+    drop(app);
+    let app = open(&collection);
+    let restored = app.open_source(&source.info.source_id).unwrap();
+    assert_eq!(
+        fs::read_to_string(app.original_path(&restored.info.source_id).unwrap()).unwrap(),
+        V17
+    );
+    assert!(!collection
+        .join(".recovery/sources")
+        .join(&backup.recovery_id)
+        .join("restore-pending")
+        .exists());
+}
+
+#[test]
+fn restore_keeps_changed_source_version_history_and_rebuilds_knowledge() {
+    let workspace = tempdir().unwrap();
+    let file = workspace.path().join("source.txt");
+    fs::write(&file, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    let source = app.import_source(&file, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let revision = V17
+        .replace("revision 1", "revision 2")
+        .replace("Visits: 12", "Visits: 15");
+    fs::write(&file, &revision).unwrap();
+    app.import_source(&file, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let before = app.open_source(&source.info.source_id).unwrap();
+    assert_eq!(before.info.versions_seen.len(), 2);
+    let versions: Vec<_> = before
+        .info
+        .versions_seen
+        .iter()
+        .map(|v| {
+            (
+                v.source_version_id.clone(),
+                v.asset.clone(),
+                fs::read(
+                    app.original_version_path(
+                        &source.info.source_id,
+                        &v.source_version_id,
+                        &v.asset,
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+            )
+        })
+        .collect();
+    app.remove_source(&source.info.source_id).unwrap();
+    let backup = app.list_removed_sources().unwrap().remove(0);
+    app.restore_removed_source(&backup.recovery_id).unwrap();
+    let restored = app.open_source(&source.info.source_id).unwrap();
+    assert_eq!(restored.info.versions_seen.len(), 2);
+    for (version_id, asset, bytes) in versions {
+        assert_eq!(
+            fs::read(
+                app.original_version_path(&source.info.source_id, &version_id, &asset)
+                    .unwrap()
+            )
+            .unwrap(),
+            bytes
+        );
+    }
+    app.resume_due_semantic_jobs().unwrap();
+    let restored = app.open_source(&source.info.source_id).unwrap();
+    let event = restored
+        .knowledge_pages
+        .iter()
+        .find(|p| p.title == "Observation V17")
+        .unwrap();
+    assert!(app
+        .open_knowledge_page(&event.page_id)
+        .unwrap()
+        .markdown
+        .contains("15"));
+}
+
+#[test]
+fn corrupted_recovery_copy_is_not_restored_or_left_pending() {
+    let workspace = tempdir().unwrap();
+    let file = workspace.path().join("source.txt");
+    fs::write(&file, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    let source = app.import_source(&file, AcquisitionMethod::Picker).unwrap();
+    app.remove_source(&source.info.source_id).unwrap();
+    let backup = app.list_removed_sources().unwrap().remove(0);
+    let directory = collection
+        .join(".recovery/sources")
+        .join(&backup.recovery_id);
+    fs::write(directory.join("bundle/original.txt"), "damaged").unwrap();
+    assert!(app.restore_removed_source(&backup.recovery_id).is_err());
+    assert!(!directory.join("restore-pending").exists());
+    drop(app);
+    let app = open(&collection);
+    assert!(app.list_sources(0).unwrap().sources.is_empty());
+}
+
+#[test]
+fn removal_recovers_at_each_durable_checkpoint() {
+    for checkpoint in ["backup", "intent", "generation", "suppression", "withdrawn"] {
+        let workspace = tempdir().unwrap();
+        let file = workspace.path().join("source.txt");
+        fs::write(&file, V17).unwrap();
+        let collection = workspace.path().join("collection");
+        let mut app = open(&collection);
+        let source = app.import_source(&file, AcquisitionMethod::Picker).unwrap();
+        app.resume_due_semantic_jobs().unwrap();
+        app.set_source_recovery_failpoint_for_test(checkpoint);
+        assert!(
+            app.remove_source(&source.info.source_id).is_err(),
+            "{checkpoint}"
+        );
+        drop(app);
+        let app = open(&collection);
+        if checkpoint == "backup" {
+            assert!(
+                app.open_source(&source.info.source_id).is_ok(),
+                "{checkpoint}"
+            );
+        } else {
+            assert!(
+                app.open_source(&source.info.source_id).is_err(),
+                "{checkpoint}"
+            );
+            let backup = app.list_removed_sources().unwrap().remove(0);
+            assert_eq!(
+                fs::read_to_string(
+                    collection
+                        .join(".recovery/sources")
+                        .join(backup.recovery_id)
+                        .join("bundle/original.txt")
+                )
+                .unwrap(),
+                V17
+            );
+        }
+        assert_eq!(fs::read_to_string(&file).unwrap(), V17);
+    }
+}
+
+#[test]
+fn restore_recovers_at_each_durable_checkpoint() {
+    for checkpoint in ["restore-intent", "restore-staged", "restore-published"] {
+        let workspace = tempdir().unwrap();
+        let file = workspace.path().join("source.txt");
+        fs::write(&file, V17).unwrap();
+        let collection = workspace.path().join("collection");
+        let mut app = open(&collection);
+        let source = app.import_source(&file, AcquisitionMethod::Picker).unwrap();
+        app.remove_source(&source.info.source_id).unwrap();
+        let backup = app.list_removed_sources().unwrap().remove(0);
+        app.set_source_recovery_failpoint_for_test(checkpoint);
+        assert!(
+            app.restore_removed_source(&backup.recovery_id).is_err(),
+            "{checkpoint}"
+        );
+        drop(app);
+        let app = open(&collection);
+        assert_eq!(
+            fs::read_to_string(app.original_path(&source.info.source_id).unwrap()).unwrap(),
+            V17,
+            "{checkpoint}"
+        );
+        assert!(!collection
+            .join(".recovery/sources")
+            .join(backup.recovery_id)
+            .join("restore-pending")
+            .exists());
+    }
+}
+
+#[test]
+fn withdrawing_one_acquisition_requeues_inflight_semantic_work() {
+    let workspace = tempdir().unwrap();
+    let incoming = workspace.path().join("incoming");
+    fs::create_dir(&incoming).unwrap();
+    let first = incoming.join("first.txt");
+    let second = incoming.join("second.txt");
+    fs::write(&first, V17).unwrap();
+    fs::write(&second, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    let independent_path = workspace.path().join("independent.txt");
+    fs::write(&independent_path, INDEPENDENT).unwrap();
+    let independent = app
+        .import_source(&independent_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let place = app
+        .open_source(&independent.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .iter()
+        .find(|page| page.title == "Riverside")
+        .unwrap()
+        .page_id
+        .clone();
+    app.watch_directory(&incoming).unwrap();
+    scan(&mut app);
+    let source_id = app
+        .list_sources(0)
+        .unwrap()
+        .sources
+        .into_iter()
+        .find(|source| source.source_id != independent.info.source_id)
+        .unwrap()
+        .source_id;
+    assert_eq!(
+        app.open_source(&source_id).unwrap().info.acquisitions.len(),
+        2
+    );
+    let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    fs::remove_file(&first).unwrap();
+    scan(&mut app);
+    scan(&mut app);
+    assert_eq!(
+        app.open_source(&source_id).unwrap().info.acquisitions.len(),
+        1
+    );
+    let draft = FixtureProvider.form_knowledge(&job.source_text).unwrap();
+    assert!(app.finish_semantic_job(job, Ok(draft)).is_err());
+    let queued = app.open_source(&source_id).unwrap();
+    assert_eq!(queued.info.semantic_state, "pending");
+    assert_eq!(queued.info.versions_seen[0].processing_interruptions, 0);
+    let retry = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    let draft = FixtureProvider.form_knowledge(&retry.source_text).unwrap();
+    app.finish_semantic_job(retry, Ok(draft)).unwrap();
+    let source = app.open_source(&source_id).unwrap();
+    assert_eq!(source.info.semantic_state, "complete");
+    assert!(app
+        .open_knowledge_page(&place)
+        .unwrap()
+        .markdown
+        .contains("Source support count: 2"));
+    assert!(source
+        .knowledge_pages
+        .iter()
+        .any(|page| page.title == "Observation V17"));
+    drop(app);
+    let app = open(&collection);
+    let source = app.open_source(&source_id).unwrap();
+    assert!(app
+        .open_knowledge_page(&place)
+        .unwrap()
+        .markdown
+        .contains("Source support count: 2"));
+    assert_eq!(source.info.acquisitions.len(), 1);
+    assert!(source
+        .knowledge_pages
+        .iter()
+        .any(|page| page.title == "Observation V17"));
+}
+
+#[test]
+fn direct_readd_finishes_interrupted_withdrawal_before_new_work() {
+    for restart in [false, true] {
+        let workspace = tempdir().unwrap();
+        let incoming = workspace.path().join("incoming");
+        fs::create_dir(&incoming).unwrap();
+        let file = incoming.join("source.txt");
+        fs::write(&file, V17).unwrap();
+        let collection = workspace.path().join("collection");
+        let mut app = open(&collection);
+        app.watch_directory(&incoming).unwrap();
+        scan(&mut app);
+        let source_id = app.list_sources(0).unwrap().sources[0].source_id.clone();
+        let old = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+        fs::remove_file(&file).unwrap();
+        scan(&mut app);
+        app.set_source_recovery_failpoint_for_test("suppression");
+        scan(&mut app);
+        assert_eq!(
+            app.list_watched_directories().unwrap()[0].state,
+            "unavailable"
+        );
+        fs::write(&file, V17).unwrap();
+        if restart {
+            drop(app);
+            app = open(&collection);
+        }
+        let added = app.import_source(&file, AcquisitionMethod::Picker).unwrap();
+        assert_eq!(added.info.source_id, source_id);
+        let new = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+        let old_draft = FixtureProvider.form_knowledge(&old.source_text).unwrap();
+        assert!(app.finish_semantic_job(old, Ok(old_draft)).is_err());
+        let draft = FixtureProvider.form_knowledge(&new.source_text).unwrap();
+        app.finish_semantic_job(new, Ok(draft)).unwrap();
+        drop(app);
+        let app = open(&collection);
+        let source = app.open_source(&source_id).unwrap();
+        assert_eq!(source.info.semantic_state, "complete");
+        assert!(source
+            .knowledge_pages
+            .iter()
+            .any(|page| page.title == "Observation V17"));
+    }
+}
+
+#[test]
+fn withdrawn_origin_does_not_leave_its_unique_changed_version_as_evidence() {
+    let workspace = tempdir().unwrap();
+    let incoming = workspace.path().join("incoming");
+    fs::create_dir(&incoming).unwrap();
+    let changed = incoming.join("changed.txt");
+    let unchanged = incoming.join("unchanged.txt");
+    fs::write(&changed, V17).unwrap();
+    fs::write(&unchanged, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    app.watch_directory(&incoming).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let id = app.list_sources(0).unwrap().sources[0].source_id.clone();
+    let revision = V17
+        .replace("revision 1", "revision 2")
+        .replace("Visits: 12", "Visits: 15");
+    fs::write(&changed, &revision).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let source = app.open_source(&id).unwrap();
+    let withdrawn_version = source.info.current_version_id.clone().unwrap();
+    let withdrawn_asset = source
+        .info
+        .versions_seen
+        .iter()
+        .find(|v| v.source_version_id == withdrawn_version)
+        .unwrap()
+        .asset
+        .clone();
+    let event = source
+        .knowledge_pages
+        .iter()
+        .find(|p| p.title == "Observation V17")
+        .unwrap()
+        .page_id
+        .clone();
+    assert!(app
+        .open_knowledge_page(&event)
+        .unwrap()
+        .markdown
+        .contains("**visits:** 15"));
+    fs::remove_file(&changed).unwrap();
+    scan(&mut app);
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let knowledge = app.open_knowledge_page(&event).unwrap().markdown;
+    assert!(knowledge.contains("**visits:** 12"), "{knowledge}");
+    assert!(!knowledge.contains("**visits:** 15"), "{knowledge}");
+    assert!(app
+        .original_version_path(&id, &withdrawn_version, &withdrawn_asset)
+        .is_err());
+    assert_eq!(fs::read_to_string(&unchanged).unwrap(), V17);
+    let backup_root = collection.join(".recovery/sources");
+    let backup = fs::read_dir(backup_root)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    assert_eq!(
+        fs::read_to_string(
+            backup
+                .join("bundle/versions")
+                .join(&withdrawn_version)
+                .join(&withdrawn_asset)
+        )
+        .unwrap(),
+        revision
+    );
+    drop(app);
+    let app = open(&collection);
+    assert!(app
+        .original_version_path(&id, &withdrawn_version, &withdrawn_asset)
+        .is_err());
+    assert!(app
+        .open_knowledge_page(&event)
+        .unwrap()
+        .markdown
+        .contains("**visits:** 12"));
+}
+
+#[test]
+fn same_version_remains_supported_by_a_second_origin() {
+    let workspace = tempdir().unwrap();
+    let incoming = workspace.path().join("incoming");
+    fs::create_dir(&incoming).unwrap();
+    let first = incoming.join("first.txt");
+    let second = incoming.join("second.txt");
+    fs::write(&first, V17).unwrap();
+    fs::write(&second, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    app.watch_directory(&incoming).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let id = app.list_sources(0).unwrap().sources[0].source_id.clone();
+    let revision = V17
+        .replace("revision 1", "revision 2")
+        .replace("Visits: 12", "Visits: 15");
+    fs::write(&first, &revision).unwrap();
+    fs::write(&second, &revision).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let source = app.open_source(&id).unwrap();
+    let version = source.info.current_version_id.unwrap();
+    let event = source
+        .knowledge_pages
+        .iter()
+        .find(|p| p.title == "Observation V17")
+        .unwrap()
+        .page_id
+        .clone();
+    fs::remove_file(&first).unwrap();
+    scan(&mut app);
+    scan(&mut app);
+    let source = app.open_source(&id).unwrap();
+    assert_eq!(
+        source.info.current_version_id.as_deref(),
+        Some(version.as_str())
+    );
+    assert!(app
+        .open_knowledge_page(&event)
+        .unwrap()
+        .markdown
+        .contains("**visits:** 15"));
+    drop(app);
+    let app = open(&collection);
+    assert!(app
+        .open_knowledge_page(&event)
+        .unwrap()
+        .markdown
+        .contains("**visits:** 15"));
+}
+
+#[test]
+fn ordered_remaining_versions_restore_the_newest_supported_version() {
+    let workspace = tempdir().unwrap();
+    let incoming = workspace.path().join("incoming");
+    fs::create_dir(&incoming).unwrap();
+    let first = incoming.join("first.txt");
+    let second = incoming.join("second.txt");
+    let third = incoming.join("third.txt");
+    for path in [&first, &second, &third] {
+        fs::write(path, V17).unwrap();
+    }
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    app.watch_directory(&incoming).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let id = app.list_sources(0).unwrap().sources[0].source_id.clone();
+    let rev2 = V17
+        .replace("revision 1", "revision 2")
+        .replace("Visits: 12", "Visits: 15");
+    fs::write(&second, &rev2).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let version2 = app
+        .open_source(&id)
+        .unwrap()
+        .info
+        .current_version_id
+        .unwrap();
+    let rev3 = rev2.replace("revision 2", "revision 3");
+    fs::write(&first, &rev3).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    fs::remove_file(&first).unwrap();
+    scan(&mut app);
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let source = app.open_source(&id).unwrap();
+    assert_eq!(
+        source.info.current_version_id.as_deref(),
+        Some(version2.as_str())
+    );
+    let event = source
+        .knowledge_pages
+        .iter()
+        .find(|p| p.title == "Observation V17")
+        .unwrap();
+    assert!(app
+        .open_knowledge_page(&event.page_id)
+        .unwrap()
+        .markdown
+        .contains("**visits:** 15"));
+    drop(app);
+    let app = open(&collection);
+    assert_eq!(
+        app.open_source(&id)
+            .unwrap()
+            .info
+            .current_version_id
+            .as_deref(),
+        Some(version2.as_str())
+    );
+}
+
+#[test]
+fn interrupted_fallback_recovers_before_search_serves_removed_version() {
+    let workspace = tempdir().unwrap();
+    let incoming = workspace.path().join("incoming");
+    fs::create_dir(&incoming).unwrap();
+    let changed = incoming.join("changed.txt");
+    let retained = incoming.join("retained.txt");
+    fs::write(&changed, V17).unwrap();
+    fs::write(&retained, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    app.watch_directory(&incoming).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let id = app.list_sources(0).unwrap().sources[0].source_id.clone();
+    fs::write(
+        &changed,
+        V17.replace("revision 1", "revision 2")
+            .replace("Visits: 12", "Visits: 15"),
+    )
+    .unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let version = app
+        .open_source(&id)
+        .unwrap()
+        .info
+        .current_version_id
+        .unwrap();
+    fs::remove_file(&changed).unwrap();
+    scan(&mut app);
+    app.set_source_recovery_failpoint_for_test("fallback-original");
+    scan(&mut app);
+    assert_eq!(
+        app.list_watched_directories().unwrap()[0].state,
+        "unavailable"
+    );
+    drop(app);
+    let mut app = open(&collection);
+    assert!(app
+        .original_version_path(&id, &version, "original.txt")
+        .is_err());
+    assert_eq!(
+        fs::read_to_string(app.original_path(&id).unwrap()).unwrap(),
+        V17
+    );
+    assert!(!app
+        .search_pages(PageSearchRequest {
+            query: "Visits: 15".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .pages
+        .iter()
+        .any(|page| page.source_id == id));
+    app.resume_due_semantic_jobs().unwrap();
+    let source = app.open_source(&id).unwrap();
+    let event = source
+        .knowledge_pages
+        .iter()
+        .find(|p| p.title == "Observation V17")
+        .unwrap();
+    assert!(app
+        .open_knowledge_page(&event.page_id)
+        .unwrap()
+        .markdown
+        .contains("**visits:** 12"));
+}
+
+#[test]
+fn legacy_version_ownership_remains_unknown_until_reacquired() {
+    let workspace = tempdir().unwrap();
+    let first = workspace.path().join("first.txt");
+    let second = workspace.path().join("second.txt");
+    fs::write(&first, V17).unwrap();
+    fs::write(&second, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    let source = app
+        .import_source(&first, AcquisitionMethod::Picker)
+        .unwrap();
+    app.import_source(&second, AcquisitionMethod::Picker)
+        .unwrap();
+    let page_path = app.page_path(&source.info.source_id).unwrap();
+    drop(app);
+    let markdown = fs::read_to_string(&page_path).unwrap();
+    let (header, body) = markdown
+        .strip_prefix("---\n")
+        .unwrap()
+        .split_once("\n---\n")
+        .unwrap();
+    let mut data: serde_yaml_ng::Value = serde_yaml_ng::from_str(header).unwrap();
+    for version in data["versions_seen"].as_sequence_mut().unwrap() {
+        version
+            .as_mapping_mut()
+            .unwrap()
+            .remove(serde_yaml_ng::Value::String("acquisition_owners".into()));
+        version
+            .as_mapping_mut()
+            .unwrap()
+            .remove(serde_yaml_ng::Value::String("withdrawn".into()));
+    }
+    fs::write(
+        &page_path,
+        format!(
+            "---\n{}---\n{}",
+            serde_yaml_ng::to_string(&data).unwrap(),
+            body
+        ),
+    )
+    .unwrap();
+    let mut app = open(&collection);
+    assert!(app
+        .open_source(&source.info.source_id)
+        .unwrap()
+        .info
+        .versions_seen[0]
+        .acquisition_owners
+        .is_empty());
+    assert_eq!(
+        fs::read_to_string(app.original_path(&source.info.source_id).unwrap()).unwrap(),
+        V17
+    );
+    app.import_source(&first, AcquisitionMethod::Picker)
+        .unwrap();
+    let source = app.open_source(&source.info.source_id).unwrap();
+    assert_eq!(source.info.versions_seen[0].acquisition_owners.len(), 1);
+}
+
+#[test]
+fn reverting_an_origin_to_seen_older_bytes_retracts_unsupported_newer_version() {
+    let workspace = tempdir().unwrap();
+    let incoming = workspace.path().join("incoming");
+    fs::create_dir(&incoming).unwrap();
+    let first = incoming.join("first.txt");
+    let second = incoming.join("second.txt");
+    fs::write(&first, V17).unwrap();
+    fs::write(&second, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    app.watch_directory(&incoming).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let id = app.list_sources(0).unwrap().sources[0].source_id.clone();
+    fs::write(
+        &first,
+        V17.replace("revision 1", "revision 2")
+            .replace("Visits: 12", "Visits: 15"),
+    )
+    .unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let version2 = app
+        .open_source(&id)
+        .unwrap()
+        .info
+        .current_version_id
+        .unwrap();
+    fs::write(&first, V17).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let source = app.open_source(&id).unwrap();
+    let event = source
+        .knowledge_pages
+        .iter()
+        .find(|p| p.title == "Observation V17")
+        .unwrap();
+    let markdown = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+    assert!(markdown.contains("**visits:** 12"), "{markdown}");
+    assert!(!markdown.contains("**visits:** 15"), "{markdown}");
+    assert!(app
+        .original_version_path(&id, &version2, "original.txt")
+        .is_err());
+    drop(app);
+    let app = open(&collection);
+    assert!(app
+        .original_version_path(&id, &version2, "original.txt")
+        .is_err());
+}
+
+#[test]
+fn interrupted_reacquisition_reconciles_before_restart_search() {
+    for checkpoint in ["intent", "generation", "fallback-original"] {
+        let workspace = tempdir().unwrap();
+        let incoming = workspace.path().join("incoming");
+        fs::create_dir(&incoming).unwrap();
+        let first = incoming.join("first.txt");
+        let second = incoming.join("second.txt");
+        fs::write(&first, V17).unwrap();
+        fs::write(&second, V17).unwrap();
+        let collection = workspace.path().join("collection");
+        let mut app = open(&collection);
+        app.watch_directory(&incoming).unwrap();
+        scan(&mut app);
+        app.resume_due_semantic_jobs().unwrap();
+        let id = app.list_sources(0).unwrap().sources[0].source_id.clone();
+        fs::write(
+            &first,
+            V17.replace("revision 1", "revision 2")
+                .replace("Visits: 12", "Visits: 15"),
+        )
+        .unwrap();
+        scan(&mut app);
+        app.resume_due_semantic_jobs().unwrap();
+        let version2 = app
+            .open_source(&id)
+            .unwrap()
+            .info
+            .current_version_id
+            .unwrap();
+        fs::write(&first, V17).unwrap();
+        app.set_source_recovery_failpoint_for_test(checkpoint);
+        let mut interrupted = false;
+        for _ in 0..1000 {
+            app.reconcile_watched_directories(1).unwrap();
+            if app.list_watched_directories().unwrap()[0]
+                .detail
+                .as_deref()
+                .is_some_and(|detail| detail.contains("Injected source recovery interruption"))
+            {
+                interrupted = true;
+                break;
+            }
+        }
+        assert!(interrupted, "{checkpoint}");
+        drop(app);
+        let mut app = open(&collection);
+        assert!(
+            app.original_version_path(&id, &version2, "original.txt")
+                .is_err(),
+            "{checkpoint}"
+        );
+        assert_eq!(
+            fs::read_to_string(app.original_path(&id).unwrap()).unwrap(),
+            V17,
+            "{checkpoint}"
+        );
+        app.resume_due_semantic_jobs().unwrap();
+        let source = app.open_source(&id).unwrap();
+        let event = source
+            .knowledge_pages
+            .iter()
+            .find(|p| p.title == "Observation V17")
+            .unwrap();
+        assert!(app
+            .open_knowledge_page(&event.page_id)
+            .unwrap()
+            .markdown
+            .contains("**visits:** 12"));
+    }
+}
+
+struct UnorderedProvider;
+impl SemanticProvider for UnorderedProvider {
+    fn form_knowledge(&self, text: &str) -> Result<KnowledgeDraft, ProviderError> {
+        let mut draft = FixtureProvider.form_knowledge(text)?;
+        if let Some(update) = draft.source_update.as_mut() {
+            update.source_revision = None;
+            update.source_revision_evidence = None;
+            update.source_revision_certainty = 0.0;
+        }
+        Ok(draft)
+    }
+}
+
+#[test]
+fn unorderable_remaining_versions_are_reported_as_uncertain() {
+    let workspace = tempdir().unwrap();
+    let incoming = workspace.path().join("incoming");
+    fs::create_dir(&incoming).unwrap();
+    let first = incoming.join("first.txt");
+    let second = incoming.join("second.txt");
+    let third = incoming.join("third.txt");
+    for path in [&first, &second, &third] {
+        fs::write(path, V17).unwrap();
+    }
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(UnorderedProvider),
+    )
+    .unwrap();
+    app.watch_directory(&incoming).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let id = app.list_sources(0).unwrap().sources[0].source_id.clone();
+    let rev2 = V17
+        .replace("revision 1", "revision 2")
+        .replace("Visits: 12", "Visits: 15");
+    fs::write(&second, &rev2).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    fs::write(&first, rev2.replace("revision 2", "revision 3")).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    fs::remove_file(&first).unwrap();
+    scan(&mut app);
+    scan(&mut app);
+    let source = app.open_source(&id).unwrap();
+    assert!(source.info.ordering_uncertain);
+    assert!(source
+        .info
+        .semantic_error
+        .as_deref()
+        .unwrap()
+        .contains("no reliable ordering"));
+    assert!(source.info.current_version_id.is_none());
+    assert!(source.info.knowledge_pages.is_empty());
+}
+
+#[test]
+fn unregister_one_of_overlapping_watches_preserves_shared_source_and_original() {
+    let workspace = tempdir().unwrap();
+    let incoming = workspace.path().join("incoming");
+    let nested = incoming.join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    let file = nested.join("source.txt");
+    fs::write(&file, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    let outer = app.watch_directory(&incoming).unwrap();
+    let inner = app.watch_directory(&nested).unwrap();
+    for _ in 0..10 {
+        app.reconcile_watched_directories(128).unwrap();
+    }
+    app.resume_due_semantic_jobs().unwrap();
+    let id = app.list_sources(0).unwrap().sources[0].source_id.clone();
+    assert_eq!(app.open_source(&id).unwrap().info.acquisitions.len(), 2);
+    app.unregister_watched_directory(&outer.watch_id).unwrap();
+    assert_eq!(app.list_watched_directories().unwrap().len(), 1);
+    assert_eq!(app.open_source(&id).unwrap().info.acquisitions.len(), 1);
+    assert_eq!(fs::read_to_string(&file).unwrap(), V17);
+    drop(app);
+    let mut app = open(&collection);
+    for _ in 0..5 {
+        app.reconcile_watched_directories(128).unwrap();
+    }
+    assert_eq!(app.list_sources(0).unwrap().sources.len(), 1);
+    app.unregister_watched_directory(&inner.watch_id).unwrap();
+    assert!(app.list_sources(0).unwrap().sources.is_empty());
+    assert_eq!(fs::read_to_string(&file).unwrap(), V17);
+    drop(app);
+    let mut app = open(&collection);
+    app.reconcile_watched_directories(128).unwrap();
+    assert!(app.list_watched_directories().unwrap().is_empty());
+    assert!(app.list_sources(0).unwrap().sources.is_empty());
+}
+
+#[test]
+fn unregister_watch_preserves_picker_acquisition_at_same_path() {
+    let workspace = tempdir().unwrap();
+    let incoming = workspace.path().join("incoming");
+    fs::create_dir(&incoming).unwrap();
+    let file = incoming.join("source.txt");
+    fs::write(&file, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    let picked = app.import_source(&file, AcquisitionMethod::Picker).unwrap();
+    let watch = app.watch_directory(&incoming).unwrap();
+    scan(&mut app);
+    app.unregister_watched_directory(&watch.watch_id).unwrap();
+    let retained = app.open_source(&picked.info.source_id).unwrap();
+    assert_eq!(retained.info.acquisitions.len(), 1);
+    assert_eq!(
+        retained.info.acquisitions[0].method,
+        AcquisitionMethod::Picker
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), V17);
+    drop(app);
+    let app = open(&collection);
+    assert!(app.open_source(&picked.info.source_id).is_ok());
+}
+
+#[test]
+fn unregister_overlapping_repositories_preserves_shared_source_and_original() {
+    let workspace = tempdir().unwrap();
+    let outer = workspace.path().join("repository");
+    let inner = outer.join("nested");
+    fs::create_dir_all(&inner).unwrap();
+    let file = inner.join("source.txt");
+    fs::write(&file, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    let first = app.import_repository(&outer).unwrap();
+    let second = app.import_repository(&inner).unwrap();
+    let first_id = &first.sources[0].source_id;
+    let second_id = &second.sources[0].source_id;
+    assert_ne!(first_id, second_id);
+    app.resume_due_semantic_jobs().unwrap();
+    let page = app
+        .open_source(second_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|page| page.title == "Riverside")
+        .unwrap();
+    assert!(app
+        .open_knowledge_page(&page.page_id)
+        .unwrap()
+        .markdown
+        .contains("Source support count: 2"));
+    app.unregister_repository(&first.repository_id).unwrap();
+    assert_eq!(app.list_repositories().unwrap().len(), 1);
+    assert!(app.open_source(first_id).is_err());
+    assert!(app.open_source(second_id).is_ok());
+    assert!(app
+        .open_knowledge_page(&page.page_id)
+        .unwrap()
+        .markdown
+        .contains("Source support count: 1"));
+    assert_eq!(fs::read_to_string(&file).unwrap(), V17);
+    drop(app);
+    let mut app = open(&collection);
+    assert!(app.open_source(second_id).is_ok());
+    app.unregister_repository(&second.repository_id).unwrap();
+    assert!(app.list_sources(0).unwrap().sources.is_empty());
+    assert_eq!(fs::read_to_string(&file).unwrap(), V17);
+    drop(app);
+    let app = open(&collection);
+    assert!(app.list_repositories().unwrap().is_empty());
+    assert!(app.list_sources(0).unwrap().sources.is_empty());
+}
+
+#[test]
+fn interrupted_repository_unregister_finishes_on_restart() {
+    let workspace = tempdir().unwrap();
+    let repository = workspace.path().join("repository");
+    fs::create_dir(&repository).unwrap();
+    let file = repository.join("source.txt");
+    fs::write(&file, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    let imported = app.import_repository(&repository).unwrap();
+    app.set_source_recovery_failpoint_for_test("intent");
+    assert!(app.unregister_repository(&imported.repository_id).is_err());
+    drop(app);
+    let app = open(&collection);
+    assert!(app.list_repositories().unwrap().is_empty());
+    assert!(app.list_sources(0).unwrap().sources.is_empty());
+    assert_eq!(fs::read_to_string(&file).unwrap(), V17);
+}
+
+#[test]
+fn interrupted_watch_unregister_finishes_on_restart_without_resurrection() {
+    let workspace = tempdir().unwrap();
+    let incoming = workspace.path().join("incoming");
+    fs::create_dir(&incoming).unwrap();
+    let file = incoming.join("source.txt");
+    fs::write(&file, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    let watch = app.watch_directory(&incoming).unwrap();
+    scan(&mut app);
+    app.set_source_recovery_failpoint_for_test("intent");
+    assert!(app.unregister_watched_directory(&watch.watch_id).is_err());
+    drop(app);
+    let mut app = open(&collection);
+    app.reconcile_watched_directories(128).unwrap();
+    assert!(app.list_watched_directories().unwrap().is_empty());
+    assert!(app.list_sources(0).unwrap().sources.is_empty());
+    assert_eq!(fs::read_to_string(&file).unwrap(), V17);
+}
+
+#[test]
+fn explicit_legacy_repository_can_be_unregistered_without_deleting_originals() {
+    let workspace = tempdir().unwrap();
+    let repository = workspace.path().join("repository");
+    fs::create_dir(&repository).unwrap();
+    let file = repository.join("source.txt");
+    fs::write(&file, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    let imported = app.import_repository(&repository).unwrap();
+    let page_path = app.page_path(&imported.sources[0].source_id).unwrap();
+    drop(app);
+    fs::remove_file(
+        collection
+            .join("repositories")
+            .join(format!("{}.json", imported.repository_id)),
+    )
+    .unwrap();
+    let markdown = fs::read_to_string(&page_path).unwrap();
+    let (header, body) = markdown
+        .strip_prefix("---\n")
+        .unwrap()
+        .split_once("\n---\n")
+        .unwrap();
+    let mut data: serde_yaml_ng::Value = serde_yaml_ng::from_str(header).unwrap();
+    for acquisition in data["acquisitions"].as_sequence_mut().unwrap() {
+        acquisition
+            .as_mapping_mut()
+            .unwrap()
+            .remove(serde_yaml_ng::Value::String("registration_id".into()));
+    }
+    for version in data["versions_seen"].as_sequence_mut().unwrap() {
+        version
+            .as_mapping_mut()
+            .unwrap()
+            .remove(serde_yaml_ng::Value::String("acquisition_owners".into()));
+    }
+    fs::write(
+        &page_path,
+        format!(
+            "---\n{}---\n{}",
+            serde_yaml_ng::to_string(&data).unwrap(),
+            body
+        ),
+    )
+    .unwrap();
+    let mut app = open(&collection);
+    let listed = app.list_repositories().unwrap();
+    assert_eq!(listed[0].state, "legacy_explicit");
+    app.unregister_repository(&imported.repository_id).unwrap();
+    assert!(app.list_sources(0).unwrap().sources.is_empty());
+    assert_eq!(fs::read_to_string(&file).unwrap(), V17);
+    drop(app);
+    let app = open(&collection);
+    assert!(app.list_repositories().unwrap().is_empty());
+}
+
+#[test]
+fn ambiguous_legacy_repository_is_visible_and_cannot_be_unregistered() {
+    let workspace = tempdir().unwrap();
+    let repository = workspace.path().join("repository");
+    fs::create_dir(&repository).unwrap();
+    let file = repository.join("source.txt");
+    fs::write(&file, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    let imported = app.import_repository(&repository).unwrap();
+    let page_path = app.page_path(&imported.sources[0].source_id).unwrap();
+    drop(app);
+    fs::remove_file(
+        collection
+            .join("repositories")
+            .join(format!("{}.json", imported.repository_id)),
+    )
+    .unwrap();
+    let markdown = fs::read_to_string(&page_path).unwrap();
+    let (header, body) = markdown
+        .strip_prefix("---\n")
+        .unwrap()
+        .split_once("\n---\n")
+        .unwrap();
+    let mut data: serde_yaml_ng::Value = serde_yaml_ng::from_str(header).unwrap();
+    let acquisition = &mut data["acquisitions"][0];
+    acquisition
+        .as_mapping_mut()
+        .unwrap()
+        .remove(serde_yaml_ng::Value::String("registration_id".into()));
+    acquisition["path"] = serde_yaml_ng::Value::String(
+        workspace
+            .path()
+            .join("other.txt")
+            .to_string_lossy()
+            .into_owned(),
+    );
+    fs::write(
+        &page_path,
+        format!(
+            "---\n{}---\n{}",
+            serde_yaml_ng::to_string(&data).unwrap(),
+            body
+        ),
+    )
+    .unwrap();
+    let mut app = open(&collection);
+    assert_eq!(
+        app.list_repositories().unwrap()[0].state,
+        "legacy_ambiguous"
+    );
+    assert!(app.unregister_repository(&imported.repository_id).is_err());
+    assert!(app.open_source(&imported.sources[0].source_id).is_ok());
+    assert_eq!(fs::read_to_string(&file).unwrap(), V17);
+}
+
+#[test]
+fn unregister_repository_preserves_picker_acquisition_of_same_file() {
+    let workspace = tempdir().unwrap();
+    let repository = workspace.path().join("repository");
+    fs::create_dir(&repository).unwrap();
+    let file = repository.join("source.txt");
+    fs::write(&file, V17).unwrap();
+    let collection = workspace.path().join("collection");
+    let mut app = open(&collection);
+    let imported = app.import_repository(&repository).unwrap();
+    let picked = app.import_source(&file, AcquisitionMethod::Picker).unwrap();
+    assert_eq!(picked.info.source_id, imported.sources[0].source_id);
+    app.unregister_repository(&imported.repository_id).unwrap();
+    let source = app.open_source(&picked.info.source_id).unwrap();
+    assert_eq!(source.info.acquisitions.len(), 1);
+    assert_eq!(
+        source.info.acquisitions[0].method,
+        AcquisitionMethod::Picker
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), V17);
+    drop(app);
+    let app = open(&collection);
+    assert!(app.open_source(&picked.info.source_id).is_ok());
 }

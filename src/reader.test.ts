@@ -102,6 +102,33 @@ function testApi(): GardenApi {
   };
 }
 
+it("reports local model and Jev checks without using collection content", async () => {
+  const api = Object.assign(testApi(), {
+    checkLocalVisualModel: vi.fn().mockResolvedValue({
+      model: "qwen2.5vl:7b",
+      observed_revision: "test-revision",
+    }),
+    checkJevConnection: vi.fn().mockRejectedValue("Jev could not be reached"),
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Processing setup" }));
+  await user.click(screen.getByRole("button", { name: "Check local model" }));
+  expect(
+    await screen.findByText(/Local model responded: qwen2.5vl:7b/),
+  ).toBeTruthy();
+  await user.click(
+    screen.getByRole("button", { name: "Check Jev connection" }),
+  );
+  expect(
+    await screen.findByText(/Jev check failed: Jev could not be reached/),
+  ).toBeTruthy();
+  expect(api.checkLocalVisualModel).toHaveBeenCalledWith();
+  expect(api.checkJevConnection).toHaveBeenCalledWith();
+});
+
 it("selects a watched directory once and shows unavailability without hiding retained sources", async () => {
   const chooseDirectory = vi.fn().mockResolvedValue("/Volumes/Field notes");
   const watchDirectory = vi.fn().mockResolvedValue({});
@@ -132,6 +159,90 @@ it("selects a watched directory once and shows unavailability without hiding ret
   expect(await screen.findByText(/Field notes.*unavailable/)).toBeTruthy();
   await user.click(screen.getByRole("button", { name: /Riverside notes/ }));
   expect(screen.getByRole("article").textContent).toContain("Observation V17");
+});
+
+it("confirms source removal and offers recovery copies", async () => {
+  const api = testApi();
+  api.listSources = vi
+    .fn()
+    .mockResolvedValue({ sources: [riverside.info], next_offset: null });
+  api.openSource = vi.fn().mockResolvedValue(riverside);
+  api.removeSource = vi.fn().mockResolvedValue(undefined);
+  api.listRemovedSources = vi.fn().mockResolvedValue([
+    {
+      recovery_id: "backup-id",
+      source_id: riverside.info.source_id,
+      title: riverside.info.title,
+    },
+  ]);
+  api.restoreRemovedSource = vi.fn().mockResolvedValue(riverside);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Sources" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Riverside notes" }),
+  );
+  expect(api.removeSource).not.toHaveBeenCalled();
+  await user.click(screen.getByText("Remove source"));
+  expect(
+    screen.getByText(/Knowledge supported only by this source/),
+  ).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Confirm removal" }));
+  await waitFor(() =>
+    expect(api.removeSource).toHaveBeenCalledWith(riverside.info.source_id),
+  );
+  await user.click(screen.getByRole("button", { name: "Sources" }));
+  await user.click(screen.getByText("Recover removed sources"));
+  await user.click(
+    await screen.findByRole("button", { name: "Restore Riverside notes" }),
+  );
+  await waitFor(() =>
+    expect(api.restoreRemovedSource).toHaveBeenCalledWith("backup-id"),
+  );
+  expect(screen.getByText("Source restored.")).toBeTruthy();
+});
+
+it("confirms removal of watched directories and repositories", async () => {
+  const api = testApi();
+  api.listWatchedDirectories = vi.fn().mockResolvedValue([
+    {
+      watch_id: "watch-1",
+      path: "/fixture/watch",
+      state: "watching",
+      processed_files: 1,
+      detail: null,
+    },
+  ]);
+  api.unregisterWatchedDirectory = vi.fn().mockResolvedValue(undefined);
+  api.listRepositories = vi
+    .fn()
+    .mockResolvedValue([
+      { repository_id: "repo-1", path: "/fixture/repository", state: "active" },
+    ]);
+  api.unregisterRepository = vi.fn().mockResolvedValue(undefined);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Sources" }));
+  await user.click(await screen.findByText("Remove watched directory"));
+  expect(api.unregisterWatchedDirectory).not.toHaveBeenCalled();
+  await user.click(
+    screen.getByRole("button", { name: "Confirm directory removal" }),
+  );
+  await waitFor(() =>
+    expect(api.unregisterWatchedDirectory).toHaveBeenCalledWith("watch-1"),
+  );
+  await user.click(await screen.findByText("Remove repository"));
+  expect(api.unregisterRepository).not.toHaveBeenCalled();
+  await user.click(
+    screen.getByRole("button", { name: "Confirm repository removal" }),
+  );
+  await waitFor(() =>
+    expect(api.unregisterRepository).toHaveBeenCalledWith("repo-1"),
+  );
 });
 
 it("refreshes watched source discovery, completed pages, and confirmed removal while open", async () => {
@@ -176,11 +287,7 @@ it("refreshes watched source discovery, completed pages, and confirmed removal w
   api.openSource = vi.fn().mockRejectedValue(new Error("Source removed"));
   api.retainedSourceExists = vi.fn().mockResolvedValue(false);
   refresh!();
-  expect(
-    await screen.findByText(
-      /This source was removed from its watched directory/,
-    ),
-  ).toBeTruthy();
+  expect(await screen.findByText(/This source was removed/)).toBeTruthy();
 });
 
 it("keeps explicit source pagination when an older background refresh finishes later", async () => {
@@ -4612,87 +4719,6 @@ it("discloses timeline evidence from an earlier retained version and opens that 
   );
 });
 
-it("explicitly saves applied criteria, opens fresh results, and manages the durable view by stable identity", async () => {
-  const api = testApi();
-  let definition: import("./api").SavedViewDefinition | null = null;
-  let name = "River fieldwork";
-  let removed = false;
-  const saved = () => ({
-    view_id: "view-river",
-    name,
-    definition: definition!,
-    warnings: [],
-    resolved_groups: [],
-    resolved_references: [],
-  });
-  api.listSavedViews = vi.fn().mockImplementation(async () => ({
-    views:
-      definition && !removed
-        ? [{ view_id: "view-river", name, path: "views/owner.md" }]
-        : [],
-    next_offset: null,
-    diagnostics: [],
-  }));
-  api.createSavedView = vi.fn().mockImplementation(async (title, criteria) => {
-    name = title;
-    definition = criteria;
-    return saved();
-  });
-  api.openSavedView = vi.fn().mockImplementation(async () => saved());
-  api.renameSavedView = vi.fn().mockImplementation(async (_id, title) => {
-    name = title;
-    return saved();
-  });
-  api.removeSavedView = vi.fn().mockImplementation(async () => {
-    removed = true;
-  });
-  const root = document.createElement("div");
-  document.body.append(root);
-  dispose = await mountReader(root, api);
-  const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: "Search" }));
-  await user.click(screen.getByRole("button", { name: "Saved views" }));
-  expect(api.createSavedView).not.toHaveBeenCalled();
-  await user.type(screen.getByLabelText("View name"), name);
-  await user.click(
-    screen.getByRole("button", { name: "Save current applied view" }),
-  );
-  await screen.findByRole("button", {
-    name: "Open saved view River fieldwork",
-  });
-  expect(api.createSavedView).toHaveBeenCalledWith(
-    "River fieldwork",
-    expect.objectContaining({
-      active: "search",
-      search: expect.objectContaining({ query: "", offset: 0 }),
-      collection: expect.objectContaining({ presentation: "reading" }),
-    }),
-  );
-  const count = vi.mocked(api.searchPages).mock.calls.length;
-  await user.click(
-    screen.getByRole("button", { name: "Open saved view River fieldwork" }),
-  );
-  await waitFor(() =>
-    expect(vi.mocked(api.searchPages).mock.calls.length).toBe(count + 1),
-  );
-  expect(api.searchPages).toHaveBeenLastCalledWith(definition!.search);
-  await user.click(
-    screen.getByRole("button", { name: "Rename River fieldwork" }),
-  );
-  const input = screen.getByLabelText("New name for River fieldwork");
-  await user.clear(input);
-  await user.type(input, "River 2024");
-  await user.click(screen.getByRole("button", { name: "Save view name" }));
-  await screen.findByRole("button", { name: "Open saved view River 2024" });
-  expect(api.renameSavedView).toHaveBeenCalledWith("view-river", "River 2024");
-  await user.click(screen.getByRole("button", { name: "Remove River 2024" }));
-  await waitFor(() =>
-    expect(api.removeSavedView).toHaveBeenCalledWith("view-river"),
-  );
-  await screen.findByText(/No saved views match/);
-  expect(api.createSavedView).toHaveBeenCalledOnce();
-});
-
 it("ignores a late saved-view lookup after the owner navigates elsewhere", async () => {
   const api = testApi();
   api.listSavedViews = vi.fn().mockResolvedValue({
@@ -4700,9 +4726,6 @@ it("ignores a late saved-view lookup after the owner navigates elsewhere", async
     next_offset: null,
     diagnostics: [],
   });
-  api.createSavedView = vi.fn();
-  api.renameSavedView = vi.fn();
-  api.removeSavedView = vi.fn();
   let finish!: (view: import("./api").SavedView) => void;
   api.openSavedView = vi.fn().mockImplementation(
     () =>
@@ -4756,7 +4779,7 @@ it("ignores a late saved-view lookup after the owner navigates elsewhere", async
   expect(screen.queryByText(/Opened River against/)).toBeNull();
 });
 
-it("cannot resave the previous source when a saved target is unavailable", async () => {
+it("keeps an unavailable saved target read-only", async () => {
   const api = testApi();
   api.listSavedViews = vi.fn().mockResolvedValue({
     views: [
@@ -4769,9 +4792,6 @@ it("cannot resave the previous source when a saved target is unavailable", async
     next_offset: null,
     diagnostics: [],
   });
-  api.createSavedView = vi.fn();
-  api.renameSavedView = vi.fn();
-  api.removeSavedView = vi.fn();
   api.openSavedView = vi.fn().mockResolvedValue({
     view_id: "view-missing",
     name: "Missing B",
@@ -4806,150 +4826,14 @@ it("cannot resave the previous source when a saved target is unavailable", async
   await screen.findByRole("heading", {
     name: "Saved view “Missing B” is unavailable",
   });
-  await user.type(screen.getByLabelText("View name"), "Copy of missing B");
-  await user.click(
-    screen.getByRole("button", { name: "Save current applied view" }),
-  );
-  expect(api.createSavedView).not.toHaveBeenCalled();
-  await screen.findByText("Open a reading or exploration view before saving.");
+  expect(screen.queryByLabelText("View name")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Rename Missing B" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Remove Missing B" })).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Save current applied view" }),
+  ).toBeNull();
   await user.click(screen.getByRole("button", { name: "Back" }));
   await screen.findByRole("article", { name: "Riverside notes" });
-});
-
-it("saves a source-context trail explicitly, reopens its mixed route, and returns to the originating page", async () => {
-  const api = testApi();
-  const quote = "Observation V17 took place at Riverside on May 17, 2024.";
-  const stop: import("./api").TrailStop = {
-    stop_id: crypto.randomUUID(),
-    label: "Riverside passage",
-    target: {
-      source_id: riverside.info.source_id,
-      page_id: null,
-      title: riverside.info.title,
-    },
-    context: {
-      kind: "span",
-      source_version_id: riverside.info.sha256,
-      basis: "retained_original_text",
-      byte_start: 0,
-      byte_end: quote.length,
-      quote,
-    },
-  };
-  api.resolveTrail = vi
-    .fn()
-    .mockImplementation(async (stops: import("./api").TrailStop[]) =>
-      stops.map((s) => ({
-        stop: s,
-        status: "available",
-        title: s.target.title,
-        detail: "Current contextual source",
-        quote: s.context?.kind === "span" ? s.context.quote : null,
-        locator: s.context ? "Source passage" : null,
-        retained_asset: "original.md",
-      })),
-    );
-  api.trailSourceChoices = vi.fn().mockResolvedValue({
-    stops: [],
-    next_offset: null,
-    detail: "No message locations",
-  });
-  api.trailSelectedPassage = vi.fn().mockResolvedValue(stop);
-  api.suggestTrailStops = vi.fn();
-  let definition: import("./api").SavedViewDefinition | null = null;
-  const saved = () => ({
-    view_id: "view-route",
-    name: "Field route",
-    definition: definition!,
-    warnings: [],
-    resolved_groups: [],
-    resolved_references: [],
-  });
-  api.createSavedView = vi.fn().mockImplementation(async (_name, d) => {
-    definition = d;
-    return saved();
-  });
-  api.listSavedViews = vi.fn().mockResolvedValue({
-    views: [
-      { view_id: "view-route", name: "Field route", path: "views/route.md" },
-    ],
-    next_offset: null,
-    diagnostics: [],
-  });
-  api.openSavedView = vi.fn().mockImplementation(async () => saved());
-  api.renameSavedView = vi.fn();
-  api.removeSavedView = vi.fn();
-  const root = document.createElement("div");
-  document.body.append(root);
-  dispose = await mountReader(root, api);
-  const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: "Add source" }));
-  await user.click(screen.getByRole("button", { name: "Trails" }));
-  await user.click(
-    screen.getByRole("button", { name: "Add current page to trail" }),
-  );
-  const code = screen.getByRole("article").querySelector("code")!.firstChild!;
-  const selection = window.getSelection()!;
-  const range = document.createRange();
-  range.selectNodeContents(code);
-  selection.removeAllRanges();
-  selection.addRange(range);
-  await user.click(
-    screen.getByRole("button", { name: "Add selected source passage" }),
-  );
-  await screen.findByRole("button", {
-    name: "Read trail stop 2: Riverside passage",
-  });
-  expect(api.createSavedView).not.toHaveBeenCalled();
-  await user.click(
-    screen.getByRole("button", {
-      name: "Read trail stop 2: Riverside passage",
-    }),
-  );
-  await screen.findByRole("region", { name: "Trail stop context" });
-  expect(screen.getByRole("article").querySelector("mark")?.textContent).toBe(
-    quote,
-  );
-  await user.click(
-    screen.getByRole("button", { name: "Return to trail origin" }),
-  );
-  await screen.findByText("Returned to the originating view.");
-  expect(
-    screen.queryByRole("region", { name: "Trail stop context" }),
-  ).toBeNull();
-  expect(document.activeElement?.textContent).toBe("Return to trail origin");
-  await user.type(screen.getByLabelText("Trail name"), "Field route");
-  await user.click(screen.getByRole("button", { name: "Save this trail" }));
-  await waitFor(() =>
-    expect(api.createSavedView).toHaveBeenCalledWith(
-      "Field route",
-      expect.objectContaining({
-        active: "trail",
-        trail: expect.arrayContaining([
-          expect.objectContaining({ context: stop.context }),
-        ]),
-      }),
-    ),
-  );
-  await user.click(screen.getByRole("button", { name: "Saved views" }));
-  await user.click(
-    await screen.findByRole("button", { name: "Open saved view Field route" }),
-  );
-  await screen.findByRole("heading", { name: "Saved trail" });
-  await user.click(
-    screen.getByRole("button", {
-      name: "Read trail stop 2: Riverside passage",
-    }),
-  );
-  await screen.findByRole("region", { name: "Trail stop context" });
-  await user.click(
-    screen.getByRole("button", { name: "Open trail supporting original" }),
-  );
-  expect(api.openOriginalVersion).toHaveBeenCalledWith(
-    riverside.info.source_id,
-    riverside.info.sha256,
-    "original.md",
-  );
 });
 
 it("does not navigate to a removed route stop when its source-open response arrives late", async () => {

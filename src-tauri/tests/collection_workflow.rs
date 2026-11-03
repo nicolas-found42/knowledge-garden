@@ -1,3 +1,5 @@
+#[path = "fixtures/views/mod.rs"]
+mod legacy_views;
 use knowledge_garden::application::{
     AcquisitionMethod, Application, ExtractionState, PageSearchMode, PageSearchRequest,
 };
@@ -3837,7 +3839,7 @@ fn oversized_text_retains_the_entire_original_without_claiming_complete_extracti
 }
 
 #[test]
-fn empty_text_source_has_an_accurate_line_location() {
+fn empty_text_source_is_retained_without_claiming_extraction() {
     let workspace = tempdir().unwrap();
     let source = workspace.path().join("empty.txt");
     fs::write(&source, []).unwrap();
@@ -3847,9 +3849,9 @@ fn empty_text_source_has_an_accurate_line_location() {
         .import_source(&source, AcquisitionMethod::Picker)
         .unwrap();
 
-    assert_eq!(page.info.extraction, ExtractionState::TextPreserved);
+    assert_eq!(page.info.extraction, ExtractionState::Unsupported);
     assert_eq!(page.info.line_count, 0);
-    assert!(page.body.contains("Source text is empty."));
+    assert!(page.info.extraction_detail.contains("no extractable text"));
     assert!(!page.body.contains("lines 1–0"));
     assert!(fs::read(app.original_path(&page.info.source_id).unwrap())
         .unwrap()
@@ -5465,12 +5467,9 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
         "active":"trail", "trail":[{"stop_id":uuid::Uuid::new_v4().to_string(), "label":"Corrected observation", "target":{"source_id":null,"page_id":event.page_id,"title":"Observation V17"},"context":null}],
         "search":null,"query":null,"collection":null,"timeline":null,"paths":null,"comparison":[],"target":null
     })).unwrap();
-    let saved_search = app
-        .create_saved_view("Corrected observations", search_definition.clone())
-        .unwrap();
-    let saved_trail = app
-        .create_saved_view("Reviewed route", trail_definition.clone())
-        .unwrap();
+    let saved_search =
+        legacy_views::seed(&collection, "Corrected observations", &search_definition);
+    let saved_trail = legacy_views::seed(&collection, "Reviewed route", &trail_definition);
     let unfinished = workspace.path().join("unfinished.txt");
     fs::write(
         &unfinished,
@@ -5498,8 +5497,8 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
     drop(app);
     fs::remove_dir_all(collection.join(".derived")).unwrap();
     let mut reopened = Application::open(&collection).unwrap();
-    let reopened_search = reopened.open_saved_view(&saved_search.view_id).unwrap();
-    let reopened_trail = reopened.open_saved_view(&saved_trail.view_id).unwrap();
+    let reopened_search = reopened.open_saved_view(&saved_search).unwrap();
+    let reopened_trail = reopened.open_saved_view(&saved_trail).unwrap();
     assert_eq!(
         serde_json::to_value(&reopened_search.definition).unwrap(),
         serde_json::to_value(&search_definition).unwrap()
@@ -7027,4 +7026,75 @@ fn structured_update_does_not_invent_a_concurrent_owner_save() {
                 .is_none(),
         "the update retained no competing owner bytes"
     );
+}
+
+#[test]
+fn stale_semantic_claim_cannot_publish_after_same_source_is_readded() {
+    let workspace = tempdir().unwrap();
+    let collection = workspace.path().join("collection");
+    let source = workspace.path().join("source.txt");
+    fs::write(&source, "A source with a stable observation.").unwrap();
+    let mut app = Application::open_with_semantic_provider(
+        &collection,
+        Arc::new(RecordedProvider::once(Ok(KnowledgeDraft::default()))),
+    )
+    .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    let old_job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    let bundle = app
+        .page_path(&imported.info.source_id)
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_owned();
+    fs::remove_dir_all(bundle).unwrap();
+    let readded = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    assert_eq!(imported.info.source_id, readded.info.source_id);
+    let new_job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    assert_eq!(old_job.attempt, new_job.attempt);
+    assert_ne!(old_job.claim, new_job.claim);
+    assert!(app
+        .finish_semantic_job(old_job, Ok(KnowledgeDraft::default()))
+        .is_err());
+    assert_eq!(
+        app.open_source(&readded.info.source_id)
+            .unwrap()
+            .info
+            .semantic_state,
+        "processing"
+    );
+    app.finish_semantic_job(new_job, Ok(KnowledgeDraft::default()))
+        .unwrap();
+}
+
+#[test]
+fn removed_and_readded_source_rejects_old_semantic_generation() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("source.txt");
+    fs::write(&source, "A source with a stable observation.").unwrap();
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::once(Ok(KnowledgeDraft::default()))),
+    )
+    .unwrap();
+    let first = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    let old = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    app.remove_source(&first.info.source_id).unwrap();
+    let readded = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    assert_eq!(first.info.source_id, readded.info.source_id);
+    let new = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    assert_ne!(old.generation, new.generation);
+    assert!(app
+        .finish_semantic_job(old, Ok(KnowledgeDraft::default()))
+        .is_err());
+    app.finish_semantic_job(new, Ok(KnowledgeDraft::default()))
+        .unwrap();
 }

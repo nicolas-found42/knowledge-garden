@@ -1,9 +1,11 @@
 use knowledge_garden::application::{views::ViewDefinition, AcquisitionMethod, Application};
-use serde_json::{json, Value};
+use serde_json::json;
 use std::{fs, sync::Arc};
 #[path = "fixtures/queries/provider.rs"]
 mod labeled;
 use labeled::{LabeledGraph, TEXT};
+#[path = "fixtures/views/mod.rs"]
+mod legacy_views;
 fn definition(start: &str) -> ViewDefinition {
     serde_json::from_value(json!({
         "active":"search",
@@ -41,12 +43,10 @@ fn saved_composite_criteria_survive_restart_and_rebuild_with_current_membership(
     app.search_pages(criteria.search.clone().unwrap()).unwrap();
     app.timeline(criteria.timeline.clone().unwrap()).unwrap();
     assert!(app.list_saved_views("", 0).unwrap().views.is_empty());
-    let saved = app
-        .create_saved_view("River fieldwork", criteria.clone())
-        .unwrap();
+    let saved = legacy_views::seed(&root, "River fieldwork", &criteria);
     let path = root.join(&app.list_saved_views("", 0).unwrap().views[0].path);
     let markdown = fs::read_to_string(&path).unwrap();
-    assert!(markdown.contains("# River fieldwork") && markdown.contains("[Maya](../"));
+    assert!(markdown.contains("# River fieldwork"));
     assert!(!markdown.contains("graph_revision") && !markdown.contains("results:"));
     let input = temp.path().join("new.txt");
     fs::write(&input, format!("{TEXT}\nAdditional independent fieldwork.")).unwrap();
@@ -62,7 +62,7 @@ fn saved_composite_criteria_survive_restart_and_rebuild_with_current_membership(
     drop(app);
     let mut app = Application::open(&root).unwrap();
     app.rebuild_index().unwrap();
-    let reopened = app.open_saved_view(&saved.view_id).unwrap();
+    let reopened = app.open_saved_view(&saved).unwrap();
     assert_eq!(
         serde_json::to_value(&reopened.definition).unwrap(),
         serde_json::to_value(criteria).unwrap()
@@ -85,57 +85,29 @@ fn saved_composite_criteria_survive_restart_and_rebuild_with_current_membership(
     assert_eq!(fs::read_to_string(path).unwrap(), markdown);
 }
 #[test]
-fn external_filename_and_owner_prose_survive_rename_and_recoverable_removal() {
+fn legacy_filename_and_owner_prose_remain_unchanged_when_opened() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("garden");
-    let mut app = Application::open(&root).unwrap();
-    let saved = app
-        .create_saved_view("River fieldwork", definition("page-v17"))
-        .unwrap();
-    let path = root.join(&app.list_saved_views("", 0).unwrap().views[0].path);
+    let app = Application::open(&root).unwrap();
+    let saved = legacy_views::seed(&root, "River fieldwork", &definition("page-v17"));
+    let path = root.join("views").join(format!("{saved}.md"));
     let renamed = root.join("views/owner-file.md");
-    let text = fs::read_to_string(&path).unwrap().replacen(
-        "schema: 1",
-        "owner_note: retain me\nschema: 1",
-        1,
-    ) + "\nOwner commentary stays here.\n";
+    let text = fs::read_to_string(&path).unwrap() + "\nOwner commentary stays here.\n";
     fs::write(&path, &text).unwrap();
     fs::rename(path, &renamed).unwrap();
-    let opened = app.open_saved_view(&saved.view_id).unwrap();
-    assert!(!opened.warnings.is_empty());
-    app.rename_saved_view(&saved.view_id, "Fieldwork 2024")
-        .unwrap();
-    let updated = fs::read_to_string(&renamed).unwrap();
-    assert!(
-        updated.contains("owner_note: retain me")
-            && updated.contains("Owner commentary stays here.")
-            && updated.contains("# Fieldwork 2024")
-    );
-    app.remove_saved_view(&saved.view_id).unwrap();
-    assert!(!renamed.exists());
-    assert!(app.list_saved_views("", 0).unwrap().views.is_empty());
-    let trash = fs::read_dir(root.join(".trash/views"))
-        .unwrap()
-        .next()
-        .unwrap()
-        .unwrap()
-        .path();
-    assert_eq!(fs::read_to_string(trash).unwrap(), updated);
+    assert!(!app.open_saved_view(&saved).unwrap().warnings.is_empty());
+    assert_eq!(fs::read_to_string(renamed).unwrap(), text);
 }
 #[test]
 fn malformed_duplicate_and_symlinked_owner_definitions_are_preserved_without_choosing_one() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("garden");
-    let mut app = Application::open(&root).unwrap();
-    let saved = app
-        .create_saved_view("River fieldwork", definition("page-v17"))
-        .unwrap();
+    let app = Application::open(&root).unwrap();
+    let saved = legacy_views::seed(&root, "River fieldwork", &definition("page-v17"));
     let path = root.join(&app.list_saved_views("", 0).unwrap().views[0].path);
     let text = fs::read_to_string(&path).unwrap();
     fs::write(root.join("views/duplicate.md"), &text).unwrap();
-    assert!(app.rename_saved_view(&saved.view_id, "Never").is_err());
-    assert!(app.remove_saved_view(&saved.view_id).is_err());
-    assert!(app.open_saved_view(&saved.view_id).is_err());
+    assert!(app.open_saved_view(&saved).is_err());
     fs::remove_file(root.join("views/duplicate.md")).unwrap();
     fs::write(
         root.join("views/future.md"),
@@ -155,20 +127,13 @@ fn malformed_duplicate_and_symlinked_owner_definitions_are_preserved_without_cho
         .diagnostics
         .iter()
         .any(|d| d.path.ends_with("link.md")));
-    assert!(app.remove_saved_view("../../escape").is_err());
     assert_eq!(fs::read_to_string(&path).unwrap(), text);
-    let mut invalid: Value = serde_json::to_value(definition("page-v17")).unwrap();
-    invalid["query"]["continuation"] = json!("stale-cursor");
-    assert!(app
-        .create_saved_view("Transient", serde_json::from_value(invalid).unwrap())
-        .is_err());
     #[cfg(unix)]
     {
         let outside = temp.path().join("outside-views");
         fs::rename(root.join("views"), &outside).unwrap();
         std::os::unix::fs::symlink(&outside, root.join("views")).unwrap();
         assert!(app.list_saved_views("", 0).is_err());
-        assert!(app.remove_saved_view(&saved.view_id).is_err());
         assert_eq!(
             fs::read_to_string(outside.join(path.file_name().unwrap())).unwrap(),
             text
