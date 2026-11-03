@@ -71,10 +71,29 @@ fn projection_verifier_rejects_wrong_generation_paths_and_changed_bytes() {
     let mut store = PartStore::open(root.path(), first_identity.clone()).unwrap();
     store.commit(0, b"evidence", || Ok(())).unwrap();
     let projection = store.finish(8, || Ok(())).unwrap();
-    assert!(verified_projection(root.path(), &first_identity, &projection.sha256, &projection.path).is_ok());
-    assert!(verified_projection(root.path(), &identity("generation-2"), &projection.sha256, &projection.path).is_err());
-    let other = root.path().join("other.txt"); std::fs::write(&other, b"evidence").unwrap();
+    assert!(verified_projection(
+        root.path(),
+        &first_identity,
+        &projection.sha256,
+        &projection.path
+    )
+    .is_ok());
+    assert!(verified_projection(
+        root.path(),
+        &identity("generation-2"),
+        &projection.sha256,
+        &projection.path
+    )
+    .is_err());
+    let other = root.path().join("other.txt");
+    std::fs::write(&other, b"evidence").unwrap();
     assert!(verified_projection(root.path(), &first_identity, &projection.sha256, &other).is_err());
     std::fs::write(&projection.path, b"modified").unwrap();
-    assert!(verified_projection(root.path(), &first_identity, &projection.sha256, &projection.path).is_err());
+    assert!(verified_projection(
+        root.path(),
+        &first_identity,
+        &projection.sha256,
+        &projection.path
+    )
+    .is_err());
 }

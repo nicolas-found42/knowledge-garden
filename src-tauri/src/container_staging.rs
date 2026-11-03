@@ -77,9 +77,9 @@ fn identity_dir(root: &Path, identity: &Identity) -> io::Result<PathBuf> {
     if identity.source_id.is_empty()
         || identity.version.len() != 64
         || !identity
-        .version
-        .bytes()
-        .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+            .version
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
         || identity.generation.is_empty()
         || identity.locator.is_empty()
         || identity.locator.len() > 4096
@@ -93,17 +93,48 @@ fn identity_dir(root: &Path, identity: &Identity) -> io::Result<PathBuf> {
 
 /// Resolve only the immutable decoded projection belonging to this exact identity.
 /// The enclosing job must independently fence the active source version and generation.
-pub fn verified_projection(root: &Path, identity: &Identity, sha256: &str, supplied: &Path) -> io::Result<PathBuf> {
-    if sha256.len() != 64 || !sha256.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) { return Err(invalid("Invalid decoded projection digest")); }
+pub fn verified_projection(
+    root: &Path,
+    identity: &Identity,
+    sha256: &str,
+    supplied: &Path,
+) -> io::Result<PathBuf> {
+    if sha256.len() != 64
+        || !sha256
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    {
+        return Err(invalid("Invalid decoded projection digest"));
+    }
     let dir = identity_dir(root, identity)?;
-    if fs::symlink_metadata(&dir)?.file_type().is_symlink() { return Err(invalid("Decoded part staging directory is a symbolic link")); }
+    if fs::symlink_metadata(&dir)?.file_type().is_symlink() {
+        return Err(invalid("Decoded part staging directory is a symbolic link"));
+    }
     let expected = dir.join(format!("projection-{sha256}.txt"));
-    if fs::symlink_metadata(&expected)?.file_type().is_symlink() || fs::symlink_metadata(supplied)?.file_type().is_symlink() { return Err(invalid("Decoded projection is a symbolic link")); }
+    if fs::symlink_metadata(&expected)?.file_type().is_symlink()
+        || fs::symlink_metadata(supplied)?.file_type().is_symlink()
+    {
+        return Err(invalid("Decoded projection is a symbolic link"));
+    }
     let expected = expected.canonicalize()?;
-    if expected.parent() != Some(dir.canonicalize()?.as_path()) || supplied.canonicalize()? != expected { return Err(invalid("Decoded projection does not match its identity")); }
-    let mut file = File::open(&expected)?; let mut hash = Sha256::new(); let mut buf = [0u8; 65536];
-    loop { let n = file.read(&mut buf)?; if n == 0 { break; } hash.update(&buf[..n]); }
-    if hex::encode(hash.finalize()) != sha256 { return Err(invalid("Decoded projection hash does not match")); }
+    if expected.parent() != Some(dir.canonicalize()?.as_path())
+        || supplied.canonicalize()? != expected
+    {
+        return Err(invalid("Decoded projection does not match its identity"));
+    }
+    let mut file = File::open(&expected)?;
+    let mut hash = Sha256::new();
+    let mut buf = [0u8; 65536];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hash.update(&buf[..n]);
+    }
+    if hex::encode(hash.finalize()) != sha256 {
+        return Err(invalid("Decoded projection hash does not match"));
+    }
     Ok(expected)
 }
 
