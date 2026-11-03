@@ -148,7 +148,9 @@ impl Application {
             );
             self.bind_extraction_gap(info, &mut explanation);
             gaps.push(explanation);
-            return;
+            if info.update_status.is_none() {
+                return;
+            }
         }
         for linked in info.knowledge_pages.iter().take(100) {
             if let Err(error) = self.knowledge_path(&linked.page_id) {
@@ -159,7 +161,9 @@ impl Application {
         let recovery = recovery(info);
         if !matches!(
             info.extraction,
-            ExtractionState::TextPreserved | ExtractionState::StructuredText
+            ExtractionState::Empty
+                | ExtractionState::TextPreserved
+                | ExtractionState::StructuredText
         ) {
             let mut explanation = gap(
                 "extraction_incomplete",

@@ -289,6 +289,73 @@ fn ordinary_prose_publishes_through_the_application_boundary() {
 }
 
 #[test]
+fn long_prose_with_a_shared_display_prefix_publishes_distinct_pages() {
+    let prefix = "The garden planning note for the café ".repeat(6);
+    let text = format!("{prefix}the west garden opens on 2026-11-20.\n{prefix}the east garden opens on 2026-11-21.");
+    let temp = tempfile::tempdir().unwrap();
+    let input = temp.path().join("long-notes.md");
+    fs::write(&input, &text).unwrap();
+    let mut app = Application::open_with_providers(
+        temp.path().join("collection"),
+        Arc::new(provider()),
+        Arc::new(LocalExtractor),
+    )
+    .unwrap();
+    let source = app
+        .import_source(&input, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let current = app.open_source(&source.info.source_id).unwrap();
+    assert_eq!(
+        current.info.semantic_state, "complete",
+        "{:?}",
+        current.info.semantic_error
+    );
+    assert_eq!(current.knowledge_pages.len(), 2);
+    assert_ne!(
+        current.knowledge_pages[0].page_id,
+        current.knowledge_pages[1].page_id
+    );
+    let pages = current
+        .knowledge_pages
+        .iter()
+        .map(|page| app.open_knowledge_page(&page.page_id).unwrap().markdown)
+        .collect::<Vec<_>>();
+    for date in ["2026-11-20", "2026-11-21"] {
+        assert_eq!(pages.iter().filter(|page| page.contains(date)).count(), 1);
+    }
+}
+
+#[test]
+fn repeated_prose_passages_keep_unambiguous_fact_subjects() {
+    let text = "The garden opens on 2026-11-20.\nThe garden opens on 2026-11-20.\nthe garden opens on 2026-11-20.";
+    let draft = provider().form_knowledge(text).unwrap();
+    let labels = draft
+        .entities
+        .iter()
+        .map(|entity| entity.label.to_lowercase())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(labels.len(), draft.entities.len());
+    assert_eq!(draft.entities.len(), 3);
+    for entity in &draft.entities {
+        let statements = draft
+            .facts
+            .iter()
+            .filter(|fact| fact.subject == entity.label && fact.property == "source_statement")
+            .collect::<Vec<_>>();
+        assert_eq!(statements.len(), 1);
+        assert_eq!(
+            statements[0].evidence.byte_start,
+            entity.evidence.byte_start
+        );
+        assert_eq!(
+            &text[statements[0].evidence.byte_start..statements[0].evidence.byte_end],
+            statements[0].evidence.quote
+        );
+    }
+}
+
+#[test]
 fn a_negative_statement_does_not_become_an_occurred_event() {
     let draft = provider()
         .form_knowledge("The garden opening was not held on November 15, 2026.")

@@ -94,6 +94,11 @@ pub(super) fn append_knowledge(
     model: &str,
     draft: &mut KnowledgeDraft,
 ) -> Result<(), ProviderError> {
+    let mut used_labels = draft
+        .entities
+        .iter()
+        .map(|entity| entity.label.to_lowercase())
+        .collect::<std::collections::HashSet<_>>();
     for (index, passage) in candidates
         .iter()
         .enumerate()
@@ -127,6 +132,14 @@ pub(super) fn append_knowledge(
         let mut label = passage.quote.chars().take(180).collect::<String>();
         if label.len() < passage.quote.len() {
             label.push('…');
+        }
+        // Labels bind facts to pages. Disambiguate only collisions, including
+        // case variants that would otherwise hash to the same page identity.
+        let base_label = label.clone();
+        let mut ordinal = 2;
+        while !used_labels.insert(label.to_lowercase()) {
+            label = format!("{base_label} ({ordinal})");
+            ordinal += 1;
         }
         let evidence = passage.evidence();
         draft.entities.push(EntityDraft {
