@@ -12,4 +12,6 @@ pub mod processes;
 pub mod providers;
 pub mod semantic;
 pub mod timeline;
+pub mod video_provenance;
+pub mod visual_inference;
 pub mod web;

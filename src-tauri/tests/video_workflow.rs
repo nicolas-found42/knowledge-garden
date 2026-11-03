@@ -2,6 +2,19 @@
 use knowledge_garden::application::{AcquisitionMethod, Application};
 use std::{fs, path::Path};
 
+fn finish_visual_jobs(app: &mut knowledge_garden::application::Application) {
+    for _ in 0..8 {
+        app.resume_due_visual_jobs_at_with(u64::MAX - 100_000, |_| {
+            Ok(knowledge_garden::visual_inference::VisualInterpretation {
+                description: "Unverified fixture interpretation.".into(),
+                model: "qwen2.5vl:7b".into(),
+                observed_revision: "a".repeat(64),
+            })
+        })
+        .unwrap();
+    }
+}
+
 fn fixture(name: &str) -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/video")
@@ -152,19 +165,19 @@ impl SemanticProvider for LocatedProvider {
         Ok(KnowledgeDraft {
             entities: vec![EntityDraft {
                 kind: "recording".into(),
-                label: "Survey video".into(),
+                label: "Recorded video".into(),
                 evidence: speech.clone(),
             }],
             facts: vec![
                 FactDraft {
-                    subject: "Survey video".into(),
+                    subject: "Recorded video".into(),
                     property: "narrated location".into(),
                     value: "uncertain".into(),
                     evidence: speech.clone(),
                     record_key: None,
                 },
                 FactDraft {
-                    subject: "Survey video".into(),
+                    subject: "Recorded video".into(),
                     property: "title card".into(),
                     value: "SURVEY CARD".into(),
                     evidence: visual,
@@ -211,6 +224,7 @@ fn narration_and_visuals_keep_separate_located_support_and_version_specific_prev
         )
         .unwrap();
     app.resume_due_audio_jobs().unwrap();
+    finish_visual_jobs(&mut app);
     let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
     assert!(job.source_text.contains("[AUDIO 0–3000 ms"));
     assert!(job.source_text.contains("VIDEO FRAME 6000 ms"));
@@ -308,6 +322,7 @@ fn interrupted_long_video_resumes_without_duplicate_frames_or_facts() {
     );
     app.resume_due_audio_jobs().unwrap();
     app.resume_due_audio_jobs().unwrap();
+    finish_visual_jobs(&mut app);
     let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
     let draft = LocatedProvider.form_knowledge(&job.source_text);
     app.finish_semantic_job(job, draft).unwrap();
@@ -351,6 +366,7 @@ fn title_card_date_cannot_become_authenticated_capture_time() {
         )
         .unwrap();
     app.resume_due_audio_jobs().unwrap();
+    finish_visual_jobs(&mut app);
     let job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
     let mut draft = LocatedProvider.form_knowledge(&job.source_text).unwrap();
     draft.facts[1].property = "capture_date".into();
@@ -494,6 +510,7 @@ fn jev_visual_channels_form_qualified_video_knowledge_without_capture_metadata()
         )
         .unwrap();
     app.resume_due_audio_jobs().unwrap();
+    finish_visual_jobs(&mut app);
     app.resume_due_semantic_jobs().unwrap();
     let page = app.open_source(&page.info.source_id).unwrap();
     assert_eq!(
@@ -530,6 +547,7 @@ fn pasted_video_projection_cannot_claim_acquired_frame_provenance() {
     let page = app
         .import_source(&input, AcquisitionMethod::Picker)
         .unwrap();
+    finish_visual_jobs(&mut app);
     app.resume_due_semantic_jobs().unwrap();
     let page = app.open_source(&page.info.source_id).unwrap();
     assert_ne!(page.info.semantic_state, "complete");
@@ -585,4 +603,125 @@ fn successful_video_window_resets_failures_before_the_next_interval() {
         .gaps
         .iter()
         .any(|gap| gap.track == "audio" && gap.start_ms == 30_000));
+}
+
+#[test]
+#[ignore = "requires installed local Ollama and qwen2.5vl:7b"]
+fn acquired_video_retains_qualified_qwen_frame_observation() {
+    let collection = tempfile::tempdir().unwrap();
+    let mut app = Application::open(collection.path()).unwrap();
+    let page = app
+        .import_source(
+            fixture("silent-no-audio-track.mp4"),
+            AcquisitionMethod::Picker,
+        )
+        .unwrap();
+    app.resume_due_audio_jobs().unwrap();
+    app.resume_due_visual_jobs().unwrap();
+    let page = app.open_source(&page.info.source_id).unwrap();
+    let frames = &page.info.audio_processing.as_ref().unwrap().frames;
+    assert!(
+        frames
+            .iter()
+            .any(|frame| frame.qwen_interpretation.is_some()),
+        "{:?}",
+        frames
+    );
+    assert!(page.body.contains("unverified and may hallucinate"));
+    assert!(page.body.contains("sampled frame"));
+}
+
+struct CrossTrackRelationProvider;
+impl SemanticProvider for CrossTrackRelationProvider {
+    fn form_knowledge(&self, source: &str) -> Result<KnowledgeDraft, ProviderError> {
+        let start = source.to_lowercase().find("visits").ok_or_else(|| {
+            ProviderError::permanent("Expected fixture speech was not transcribed.".into())
+        })?;
+        let evidence = EvidenceDraft {
+            quote: source[start..start + 6].into(),
+            byte_start: start,
+            byte_end: start + 6,
+            origin: "audio_transcript".into(),
+            qualifier: None,
+            offset_basis: None,
+            source_location: None,
+        };
+        let mut draft = KnowledgeDraft::default();
+        draft
+            .relationships
+            .push(knowledge_garden::semantic::RelationshipDraft {
+                from: "orange".into(),
+                kind: "has".into(),
+                to: "12 visits".into(),
+                qualifier: None,
+                evidence,
+            });
+        Ok(draft)
+    }
+}
+
+#[test]
+#[ignore = "requires ffmpeg, local Whisper assets, Ollama and qwen2.5vl:7b"]
+fn real_fruit_and_visits_video_does_not_publish_cross_track_relation() {
+    let collection = tempfile::tempdir().unwrap();
+    let video = collection.path().join("fixture.mp4");
+    let fruit = Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/research/expanded-exploration/01-source-interpretation/experiments/media-lab/fruits.jpg");
+    let speech = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/frozen-two-speaker-uncertain-correction.wav");
+    let status = std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-y", "-loop", "1", "-i"])
+        .arg(fruit)
+        .arg("-i")
+        .arg(speech)
+        .args([
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-t",
+            "11",
+            "-shortest",
+        ])
+        .arg(&video)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let mut app = Application::open_with_semantic_provider(
+        collection.path().join("library"),
+        Arc::new(CrossTrackRelationProvider),
+    )
+    .unwrap();
+    let page = app
+        .import_source(&video, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_audio_jobs().unwrap();
+    app.resume_due_visual_jobs().unwrap();
+    let page = app.open_source(&page.info.source_id).unwrap();
+    let media = page.info.audio_processing.as_ref().unwrap();
+    assert!(
+        media
+            .segments
+            .iter()
+            .any(|segment| segment.text.to_lowercase().contains("visits")),
+        "media: {media:?}"
+    );
+    assert!(media.frames.iter().any(|frame| frame
+        .qwen_interpretation
+        .as_ref()
+        .is_some_and(|observation| observation.description.to_lowercase().contains("orange"))));
+    finish_visual_jobs(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let page = app.open_source(&page.info.source_id).unwrap();
+    assert!(
+        page.info
+            .semantic_error
+            .as_deref()
+            .unwrap_or("")
+            .contains("Video claims require support"),
+        "{:?}",
+        page.info.semantic_error
+    );
+    assert!(page.knowledge_pages.is_empty());
 }

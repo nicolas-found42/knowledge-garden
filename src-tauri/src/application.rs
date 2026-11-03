@@ -9,6 +9,8 @@ pub mod reconciliation;
 mod source_version_stage;
 pub mod trails;
 pub mod views;
+mod visual;
+pub use visual::VisualClaim;
 pub mod watched;
 use crate::extraction::{LocalExtractor, SourceExtractor};
 use crate::meaning::{MeaningFilters, MeaningSearch};
@@ -219,6 +221,18 @@ pub struct SourceVersion {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VisualJob {
+    pub source_version_id: String,
+    /// None means the photo; otherwise this is a sampled video frame request time.
+    pub frame_ms: Option<u64>,
+    pub attempts: u32,
+    pub retry_at_ms: u64,
+    pub state: String,
+    pub detail: String,
+    pub result: Option<crate::visual_inference::VisualInterpretation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceInfo {
     #[serde(flatten)]
     pub owner_metadata: std::collections::BTreeMap<String, serde_yaml_ng::Value>,
@@ -271,6 +285,8 @@ pub struct SourceInfo {
     /// In-progress recording replacement; the published audio transcript remains separate.
     #[serde(default)]
     pub pending_audio_processing: Option<AudioProcessingInfo>,
+    #[serde(default)]
+    pub visual_jobs: Vec<VisualJob>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1839,6 +1855,7 @@ impl Application {
                     semantic_decisions: Vec::new(),
                     audio_processing: None,
                     pending_audio_processing: None,
+                    visual_jobs: Vec::new(),
                 };
                 let body = source_body(&pending, "", None);
                 let markdown = serialize_page(&pending, &body)?;
@@ -2023,6 +2040,7 @@ impl Application {
             audio_processing: inspected_audio
                 .map(|audio| audio_processing_info(audio, &digest, inspected_media)),
             pending_audio_processing: None,
+            visual_jobs: Vec::new(),
         };
         let mut body = web_projection
             .as_ref()
@@ -2716,6 +2734,7 @@ impl Application {
         now: u128,
     ) -> Result<Vec<SemanticJob>> {
         self.recover_pending_publications()?;
+        self.discover_visual_jobs()?;
         let mut due = Vec::new();
         for entry in fs::read_dir(self.root.join("sources"))? {
             if due.len() >= max_jobs {
@@ -2797,6 +2816,10 @@ impl Application {
             if (page.info.semantic_state == "pending"
                 || (has_pending_version && page.info.update_status.as_deref() == Some("pending")))
                 && audio_ready
+                && !page.info.visual_jobs.iter().any(|job| {
+                    Some(job.source_version_id.as_str()) == pending_version_id
+                        && (job.state == "pending" || job.state == "processing")
+                })
                 && retry_at <= now
             {
                 due.push(page.info.source_id);
@@ -2899,7 +2922,7 @@ impl Application {
                     .map_err(GardenError::Invalid)?
                     .semantic_text
             } else if structured_candidate {
-                let projection = match self.extract_while_running(
+                let mut projection = match self.extract_while_running(
                     &candidate_path,
                     &version.format,
                     &page.info.title,
@@ -2963,6 +2986,36 @@ impl Application {
                     }
                     Err(detail) => return Err(GardenError::Invalid(detail)),
                 };
+                if crate::photo::is_photo(&version.format) {
+                    if let Some(result) = page
+                        .info
+                        .visual_jobs
+                        .iter()
+                        .find(|job| {
+                            job.source_version_id == source_version_id
+                                && job.frame_ms.is_none()
+                                && job.state == "complete"
+                        })
+                        .and_then(|job| job.result.as_ref())
+                    {
+                        crate::photo::append_qwen(&mut projection, result);
+                    } else if page.info.visual_jobs.iter().any(|job| {
+                        job.source_version_id == source_version_id
+                            && job.frame_ms.is_none()
+                            && job.state == "failed"
+                    }) {
+                        projection.partial = true;
+                        projection.detail = "Local Qwen visual interpretation failed after bounded retries; native channels and the original remain available.".into();
+                        for part in projection
+                            .coverage
+                            .iter_mut()
+                            .filter(|part| part.scope == CoverageScope::ImageInterpretation)
+                        {
+                            part.status = CoverageStatus::Partial;
+                            part.detail = projection.detail.clone();
+                        }
+                    }
+                }
                 if !initial
                     && (projection.partial
                         || projection
@@ -3622,6 +3675,15 @@ impl Application {
                         true,
                         true,
                     )?;
+                } else if candidate_audio.is_some_and(|audio| audio.is_video())
+                    && crate::video_provenance::validate(&job.source_text, &draft).is_err()
+                {
+                    self.record_semantic_failure(
+                        &mut page,
+                        "Video claims require support from one retained frame or transcript item, and relationships require an explicit statement in that item; semantic coverage remains incomplete.".into(),
+                        true,
+                        true,
+                    )?;
                 } else if version_audio && draft_claims_audio_speaker_identity(&draft) {
                     self.record_semantic_failure(
                         &mut page,
@@ -4078,6 +4140,7 @@ impl Application {
             gaps: vision.gaps,
             ocr_revision: vision.ocr_revision,
             classification_revision: vision.classification_revision,
+            qwen_interpretation: None,
         })
     }
 
@@ -9184,6 +9247,9 @@ fn audio_semantic_text(audio: &AudioProcessingInfo) -> String {
                 frame.classification_revision
             ));
         }
+        if let Some(observation) = &frame.qwen_interpretation {
+            rows.push(format!("[VIDEO FRAME {} ms; channel=generated_interpretation] Qwen interpretation: {} (unverified model interpretation; may hallucinate; one sampled frame only; model {}; observed revision {})\n", frame.time_ms, observation.description.replace(['\n', '\r', '\0'], " "), observation.model, observation.observed_revision));
+        }
         for row in rows {
             if frame_lines >= MAX_VIDEO_SEMANTIC_FRAME_LINES {
                 omitted += 1;
@@ -9703,7 +9769,7 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
 }
 
 fn append_video_body(info: &SourceInfo, audio: &AudioProcessingInfo, body: &mut String) {
-    body.push_str("\n## Sampled visual evidence\n\nFrames are sampled every three seconds in bounded windows. Intervals between samples are unexamined. Narration is not visual observation. OCR and classifier predictions are unverified; a title-card date is not an authenticated capture time.\n\n");
+    body.push_str("\n## Sampled visual evidence\n\nFrames are sampled every three seconds in bounded windows. Qwen examines at most one frame per 30-second window; the rest of the video is not examined by Qwen. Intervals between samples are unexamined. Narration is not visual observation. OCR, classifier predictions, and Qwen interpretations are unverified and may be wrong; a title-card date is not an authenticated capture time.\n\n");
     if let Some(tracks) = &audio.tracks {
         let visual = if !tracks.video.present {
             "absent"
@@ -9760,6 +9826,9 @@ fn append_video_body(info: &SourceInfo, audio: &AudioProcessingInfo, body: &mut 
                 row.confidence,
                 frame.classification_revision
             ));
+        }
+        if let Some(observation) = &frame.qwen_interpretation {
+            body.push_str(&format!("- Qwen interpretation of this sampled frame: {} · unverified and may hallucinate · {} · observed revision {}\n", escape_markdown(&observation.description), escape_markdown(&observation.model), escape_markdown(&observation.observed_revision)));
         }
         for gap in &frame.gaps {
             body.push_str(&format!(

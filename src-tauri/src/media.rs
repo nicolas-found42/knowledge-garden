@@ -188,6 +188,8 @@ pub struct VideoFrameEvidence {
     pub ocr_revision: u64,
     #[serde(default)]
     pub classification_revision: u64,
+    #[serde(default)]
+    pub qwen_interpretation: Option<crate::visual_inference::VisualInterpretation>,
 }
 
 /// A time range one track could not supply; other tracks keep their own evidence.
