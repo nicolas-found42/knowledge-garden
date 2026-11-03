@@ -9,3 +9,9 @@ __pycache__/
 *.pyc
 .cursor/skills/verify-knowledge-garden/artifacts/
 .cursor/skills/verify-knowledge-garden/.run/
+
+src-tauri/binaries/kg-container-helper-*
+src-tauri/binaries/kg-mime-unit-*
+src-tauri/resources/container-runtime/
+src-tauri/resources/container-licenses/
+src-tauri/container-helper/generated-gmime/

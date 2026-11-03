@@ -1235,6 +1235,9 @@ export async function mountReader(
       const videoFrameMatch = href.match(
         /^\?video_frame=(source-[a-f0-9]{64})&at_ms=(\d+)&version=([a-f0-9]{64})&asset=(original(?:\.[a-zA-Z0-9]+)?)$/,
       );
+      const containerMatch = href.match(
+        /^\?container_source=(source-[a-f0-9]{64})&version=([a-f0-9]{64})&asset=(original\.(?:eml|zip))&locator=([A-Za-z0-9%]+)$/,
+      );
       const audioSeekMatch = href.match(
         /^\?audio_seek=(source-[a-f0-9]{64})&at_ms=(\d+)(?:&version=([a-f0-9]{64})&asset=(original(?:\.[a-zA-Z0-9]+)?))?$/,
       );
@@ -1250,7 +1253,37 @@ export async function mountReader(
       const originalMatch = href.match(
         /^(?:\.\.\/)*sources\/([a-f0-9]{64})\/(original(?:\.[a-zA-Z0-9]+)?)$/,
       );
-      if (videoFrameMatch) {
+      if (containerMatch) {
+        let locator: string;
+        try {
+          locator = decodeURIComponent(containerMatch[4]);
+        } catch {
+          message("The container location is invalid.");
+          return;
+        }
+        if (!/^(EMAIL |ZIP )/.test(locator) || !api.previewContainerPart) {
+          message("The container part preview is unavailable.");
+          return;
+        }
+        void api
+          .previewContainerPart(
+            containerMatch[1],
+            containerMatch[2],
+            containerMatch[3],
+            locator,
+          )
+          .then((text) => {
+            if (disposed || !article.isConnected) return;
+            const preview = element("section");
+            preview.setAttribute("aria-label", "Retained container part");
+            preview.append(
+              element("p", `Retained source part ${locator}`),
+              element("pre", text),
+            );
+            link.after(preview);
+          })
+          .catch(report);
+      } else if (videoFrameMatch) {
         const atMs = Number(videoFrameMatch[2]);
         if (!Number.isSafeInteger(atMs)) {
           message(
@@ -1421,6 +1454,47 @@ export async function mountReader(
       });
       removal.append(confirm);
       article.prepend(removal);
+    }
+    if (api.previewContainerPart && /^(eml|zip)$/.test(next.info.format)) {
+      const locations = new Set(
+        Array.from(
+          next.body.matchAll(
+            /\[((?:EMAIL (?:part=[0-9.]+|header=(?:From|To|Cc|Date|Subject))|ZIP member=[0-9]+ name=[A-Za-z0-9%]+))\]/g,
+          ),
+          (match) => match[1],
+        ),
+      );
+      if (locations.size) {
+        const parts = element("section");
+        parts.setAttribute("aria-label", "Retained container parts");
+        parts.append(element("h2", "Retained parts"));
+        for (const locator of locations) {
+          const button = element("button", `View ${locator}`);
+          button.addEventListener("click", () => {
+            void api.previewContainerPart!(
+              next.info.source_id,
+              next.info.sha256,
+              next.info.asset,
+              locator,
+            )
+              .then((text) => {
+                if (disposed || !article.isConnected) return;
+                parts.querySelector("[data-part-preview]")?.remove();
+                const preview = element("section");
+                preview.dataset.partPreview = "true";
+                preview.setAttribute("aria-label", "Retained container part");
+                preview.append(
+                  element("p", `Retained source part ${locator}`),
+                  element("pre", text),
+                );
+                parts.append(preview);
+              })
+              .catch(report);
+          });
+          parts.append(button);
+        }
+        article.prepend(parts);
+      }
     }
     if (api.comparisonSide) {
       const compare = element("button", "Compare this source");

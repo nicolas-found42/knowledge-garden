@@ -417,6 +417,20 @@ async fn open_original(engine: State<'_, Engine>, source_id: String) -> Result<(
 }
 
 #[tauri::command]
+async fn preview_container_part(
+    engine: State<'_, Engine>,
+    source_id: String,
+    version: String,
+    asset: String,
+    locator: String,
+) -> Result<String, String> {
+    with_engine(&engine, move |app| {
+        app.preview_container_part(&source_id, &version, &asset, &locator)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn preview_original(engine: State<'_, Engine>, source_id: String) -> Result<String, String> {
     with_engine(&engine, move |app| app.preview_original(&source_id)).await
 }
@@ -583,6 +597,7 @@ pub fn run() {
             explore_path_details,
             open_original,
             preview_original,
+            preview_container_part,
             preview_video_frame,
             open_original_version,
             open_original_asset

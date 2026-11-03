@@ -7,7 +7,7 @@ pub trait SourceExtractor: Send + Sync {
 }
 
 pub fn is_structured_format(format: &str) -> bool {
-    matches!(format, "docx" | "pptx" | "xlsx" | "pdf") || crate::photo::is_photo(format)
+    matches!(format, "docx" | "pptx" | "xlsx" | "pdf" | "eml" | "zip") || crate::photo::is_photo(format)
 }
 
 pub fn is_structured_source(path: &Path, format: &str) -> bool {
@@ -18,7 +18,9 @@ pub struct LocalExtractor;
 
 impl SourceExtractor for LocalExtractor {
     fn extract(&self, path: &Path, format: &str, title: &str) -> Result<OfficeProjection, String> {
-        if format == "pdf" {
+        if matches!(format, "eml" | "zip") {
+            crate::containers::isolated_extract(path, format, title)
+        } else if format == "pdf" {
             crate::pdf::extract(path, title)
         } else if crate::conversation::is_supported_export(path, format) {
             crate::conversation::extract(path, format, title)
