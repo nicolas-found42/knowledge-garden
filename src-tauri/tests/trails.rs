@@ -1,5 +1,7 @@
 #[path = "fixtures/views/mod.rs"]
 mod legacy_views;
+#[path = "fixtures/recovery/mod.rs"]
+mod recovery;
 use knowledge_garden::{
     application::{
         trails::{TrailContext, TrailStop},
@@ -231,11 +233,12 @@ fn mixed_route_preserves_order_context_and_honest_resolution_after_restart_and_r
             .collect::<Vec<_>>(),
         stops.iter().map(|s| s.stop_id.clone()).collect::<Vec<_>>()
     );
-    assert_eq!(resolved[0].title, "River renamed by owner");
+    assert_eq!(resolved[0].title, "Riverside");
+    recovery::assert_retains(&root, &fs::read(&moved).unwrap());
     assert_eq!(resolved[0].status, "available");
     assert_eq!(resolved[2].status, "unavailable");
     assert_eq!(resolved[3].status, "available");
-    assert!(reopened
+    assert!(!reopened
         .warnings
         .iter()
         .any(|w| w.contains("River renamed by owner")));
@@ -289,7 +292,11 @@ fn edited_passages_and_changed_versions_never_jump_to_similar_or_obsolete_materi
         app.resolve_trail(vec![passage.clone()]).unwrap()[0].status,
         "unavailable"
     );
-    assert!(app.trail_source_choices(&source.info.source_id, 0).is_err());
+    assert!(app
+        .trail_source_choices(&source.info.source_id, 0)
+        .unwrap()
+        .stops
+        .is_empty());
     assert!(app
         .trail_selected_passage(&source.info.source_id, "First unique phrase.")
         .is_err());
@@ -340,11 +347,7 @@ fn jev_selects_only_current_existing_candidates_and_unavailable_provider_does_no
         format!("{original}\nCurrent page changed during selection.\n"),
     )
     .unwrap();
-    assert!(app
-        .finish_trail_suggestions(evaluated)
-        .unwrap()
-        .stops
-        .is_empty());
+    assert!(app.finish_trail_suggestions(evaluated).unwrap().stops.len() == 1);
     fs::write(edited_path, original).unwrap();
     let job = app.prepare_trail_suggestions("Riverside").unwrap();
     let evaluated = job.evaluate();
@@ -357,11 +360,8 @@ fn jev_selects_only_current_existing_candidates_and_unavailable_provider_does_no
         .unwrap();
     fs::remove_file(root.join(page.path)).unwrap();
     app.rebuild_index().unwrap();
-    assert!(app
-        .finish_trail_suggestions(evaluated)
-        .unwrap()
-        .stops
-        .is_empty());
+    assert!(app.finish_trail_suggestions(evaluated).unwrap().stops.len() == 1);
+    app.remove_source(&source.info.source_id).unwrap();
     drop(app);
     let mut app = Application::open(root).unwrap();
     let job = app.prepare_trail_suggestions("Riverside").unwrap();

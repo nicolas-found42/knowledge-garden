@@ -193,7 +193,9 @@ impl Application {
                     .into_owned();
                 match read_bounded_text(&path, MAX_PAGE_BYTES) {
                     Ok(text) => {
-                        if (is_source_index(&relative) || is_source_acquisition(&relative))
+                        if (relative.starts_with("pages/")
+                            || is_source_index(&relative)
+                            || is_source_acquisition(&relative))
                             && trusted_pages::active(&self.root)?
                         {
                             let visible = migration_backup::read_bounded_nofollow(
@@ -206,6 +208,12 @@ impl Application {
                                 .map_or(true, |bytes| bytes.as_slice() != text.as_bytes())
                             {
                                 scan.unreadable.push(CollectionDiagnostic { kind: "external_edit_retained".into(), paths: vec![relative.clone()], detail: "An external edit was retained for recovery; the previously verified source record remains authoritative.".into() });
+                                if visible
+                                    .as_ref()
+                                    .map_or(true, |bytes| std::str::from_utf8(bytes).is_err())
+                                {
+                                    scan.unreadable.push(CollectionDiagnostic { kind: "unreadable_markdown".into(), paths: vec![relative.clone()], detail: "Visible Markdown exceeds the supported size or encoding bounds. Its bytes remain retained; verified knowledge stays available.".into() });
+                                }
                             }
                         }
                         scan.files

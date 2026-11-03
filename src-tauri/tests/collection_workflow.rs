@@ -1,5 +1,7 @@
 #[path = "fixtures/views/mod.rs"]
 mod legacy_views;
+#[path = "fixtures/recovery/mod.rs"]
+mod recovery;
 use knowledge_garden::application::{
     AcquisitionMethod, Application, ExtractionState, PageSearchMode, PageSearchRequest,
 };
@@ -1346,7 +1348,7 @@ fn undated_explicit_replacement_wins_by_arrival_and_records_uncertainty() {
 }
 
 #[test]
-fn reopening_replays_a_durable_interrupted_publication_as_one_complete_generation() {
+fn legacy_journal_cannot_promote_unverified_source_metadata_or_external_correction() {
     let workspace = tempdir().unwrap();
     let source_path = workspace.path().join("V17.txt");
     fs::write(&source_path, REVISION_1).unwrap();
@@ -1405,8 +1407,8 @@ fn reopening_replays_a_durable_interrupted_publication_as_one_complete_generatio
         .to_string(),
     )
     .unwrap();
-    // Legacy manifests have no saved base. An owner correction made while the
-    // app is interrupted still carries authority into the recovered generation.
+    // A legacy manifest has no verified base; neither it nor a concurrent
+    // visible save can replace a verified source generation.
     let owner = current_page.replace("- **duration:** 10 minutes", "- **duration:** 11 minutes");
     fs::write(&current_page_path, &owner).unwrap();
     drop(app);
@@ -1415,17 +1417,14 @@ fn reopening_replays_a_durable_interrupted_publication_as_one_complete_generatio
     let recovered_source = recovered.open_source(&source.info.source_id).unwrap();
     assert_eq!(
         recovered_source.info.current_version_id.as_deref(),
-        Some(next_version.as_str())
+        Some(source.info.sha256.as_str())
     );
     let recovered_page = recovered.open_knowledge_page(&event.page_id).unwrap();
-    assert!(recovered_page.markdown.contains("15 visits"));
+    assert!(recovered_page.markdown.contains("12 visits"));
     assert!(recovered_page
         .markdown
-        .contains("- **duration:** 11 minutes"));
-    assert!(recovered_page.markdown.contains("manual_correction:"));
-    assert!(fs::read_dir(collection.join("owner-edits"))
-        .unwrap()
-        .any(|entry| fs::read(entry.unwrap().path()).unwrap() == owner.as_bytes()));
+        .contains("- **duration:** 10 minutes"));
+    recovery::assert_retains(&collection, owner.as_bytes());
     assert!(!collection
         .join(".staging/transactions/interrupted-generation")
         .exists());
@@ -1975,7 +1974,7 @@ fn explicit_v17_count_only_correction_updates_just_the_count() {
 }
 
 #[test]
-fn count_only_correction_preserves_a_separate_manual_duration_correction() {
+fn count_only_source_correction_preserves_backed_duration_and_recovers_external_edits() {
     let workspace = tempdir().unwrap();
     let initial_path = workspace.path().join("V17.txt");
     let initial_text = "Revision 1 dated May 18, 2024; observation V17 on May 17, 2024; observer Maya; location Riverside; 12 visits; duration 10 minutes. It possibly occurred at Riverside. A different person named Maya filed another report.";
@@ -2053,7 +2052,7 @@ fn count_only_correction_preserves_a_separate_manual_duration_correction() {
     let owner_corrected =
         before.replace("- **duration:** 10 minutes", "- **duration:** 11 minutes");
     assert_ne!(before, owner_corrected);
-    fs::write(&page_path, owner_corrected).unwrap();
+    fs::write(&page_path, &owner_corrected).unwrap();
     app.rebuild_index().unwrap();
 
     app.import_source(&correction_path, AcquisitionMethod::Picker)
@@ -2061,9 +2060,9 @@ fn count_only_correction_preserves_a_separate_manual_duration_correction() {
     app.resume_due_semantic_jobs().unwrap();
     let corrected = app.open_knowledge_page(&event.page_id).unwrap();
     assert!(corrected.markdown.contains("- **visit count:** 15 visits"));
-    assert!(corrected.markdown.contains("- **duration:** 11 minutes"));
-    assert!(corrected.markdown.contains("manual_correction:"));
-    assert!(corrected.markdown.contains("value: 11 minutes"));
+    assert!(corrected.markdown.contains("- **duration:** 10 minutes"));
+    assert!(!corrected.markdown.contains("- **duration:** 11 minutes"));
+    recovery::assert_retains(&collection, owner_corrected.as_bytes());
 }
 
 #[test]
@@ -3578,7 +3577,7 @@ fn a_retained_version_resolves_only_its_exact_known_original_asset() {
 }
 
 #[test]
-fn restart_and_reimport_preserve_identities_and_external_page_edits_without_duplicates() {
+fn restart_and_reimport_preserve_identity_and_recover_untrusted_page_edits_without_duplicates() {
     let workspace = tempdir().unwrap();
     let source = workspace.path().join("Riverside notes.txt");
     fs::write(
@@ -3604,9 +3603,11 @@ fn restart_and_reimport_preserve_identities_and_external_page_edits_without_dupl
         .unwrap();
     assert_eq!(reopened.info.source_id, first.info.source_id);
     assert_eq!(reopened.info.page_id, first.info.page_id);
-    assert!(reopened
+    assert!(!reopened
         .body
         .contains("Externally annotated observation V17"));
+    assert!(reopened.body.contains("Observation V17"));
+    recovery::assert_retains(&collection, edited.as_bytes());
     assert_eq!(restarted.list_sources(0).unwrap().sources.len(), 1);
     assert_eq!(reopened.info.acquisitions.len(), 2);
     assert_eq!(
@@ -5609,7 +5610,7 @@ fn same_source_reasoning_with_collapsed_message_identity_stays_pending_until_ret
 }
 
 #[test]
-fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() {
+fn external_fact_edits_are_recovered_without_overriding_source_updates_or_rebuild() {
     let workspace = tempdir().unwrap();
     let source = workspace.path().join("V17.txt");
     let first_text = "Complete report, revision 1 dated May 18, 2024.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 12. Duration: 10 minutes.\n";
@@ -5646,7 +5647,7 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
         .join("pages")
         .join(format!("{}.md", event.page_id));
 
-    // A plain external editor corrects one fact and changes independent prose
+    // An external editor changes a generated fact, independent prose
     // and owner metadata. Save through a same-directory rename, as editors do.
     let before = fs::read_to_string(&page_path).unwrap();
     let (frontmatter, body) = before.split_once("\n---\n").unwrap();
@@ -5667,72 +5668,50 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
     let externally_edited = app.open_knowledge_page(&event.page_id).unwrap();
     assert!(externally_edited
         .markdown
-        .contains("- **duration:** 11 minutes"));
-    assert!(externally_edited
+        .contains("- **duration:** 10 minutes"));
+    assert!(!externally_edited
         .markdown
-        .contains("Owner note: reviewed and corrected after field playback."));
-
-    // A derived-index reconstruction rescans the external file before the next
-    // source publication, so the correction becomes durable before refresh.
+        .contains("- **duration:** 11 minutes"));
+    recovery::assert_retains(&collection, edited.as_bytes());
     app.rebuild_index().unwrap();
-    let rescanned = app.open_knowledge_page(&event.page_id).unwrap();
-    assert!(rescanned.markdown.contains("- **duration:** 11 minutes"));
-    let rescanned_header = fs::read_to_string(&page_path).unwrap();
-    assert!(rescanned_header.contains("manual_correction:"));
-    assert!(rescanned_header.contains("value: 11 minutes"));
-
-    // A later complete source update changes the unedited count and also reports
-    // a different duration; the owner's external correction remains authoritative.
-    fs::write(&source, second_text).unwrap();
-    app.import_source(&source, AcquisitionMethod::Picker)
-        .unwrap();
-    app.resume_due_semantic_jobs().unwrap();
-    let current = app.open_knowledge_page(&event.page_id).unwrap();
-    assert!(current.markdown.contains("- **visit count:** 15 visits"));
-    assert!(
-        current.markdown.contains("- **duration:** 11 minutes"),
-        "source refresh must preserve the owner's external fact edit: {}",
-        current.markdown
-    );
-    assert!(!current.markdown.contains("- **duration:** 12 minutes"));
-    assert!(
-        current
-            .markdown
-            .contains("Owner note: reviewed and corrected after field playback."),
-        "owner prose should survive source replacement: {}",
-        current.markdown
-    );
-
-    // A later complete replacement of this same observation omits duration;
-    // manual authority survives support removal while the count keeps updating.
-    fs::write(&source, third_text).unwrap();
-    app.import_source(&source, AcquisitionMethod::Picker)
-        .unwrap();
-    app.resume_due_semantic_jobs().unwrap();
-    let unsupported_by_source = app.open_knowledge_page(&event.page_id).unwrap();
-    assert!(unsupported_by_source
-        .markdown
-        .contains("- **visit count:** 16 visits"));
-    assert!(unsupported_by_source
-        .markdown
-        .contains("- **duration:** 11 minutes"));
-    let corrected_fact_section = unsupported_by_source
-        .markdown
-        .split("- **duration:** 11 minutes")
-        .nth(1)
+    assert!(app
+        .open_knowledge_page(&event.page_id)
         .unwrap()
-        .split("\n\n")
-        .next()
-        .unwrap();
-    let source_status = app.open_source(&imported.info.source_id).unwrap().info;
-    assert!(
-        corrected_fact_section.contains("Source support count: 0"),
-        "the fact should remain solely because of manual authority after source support removal: {corrected_fact_section}\nsource status: {source_status:#?}\nfull page: {}",
-        unsupported_by_source.markdown
-    );
-    assert!(!unsupported_by_source
         .markdown
-        .contains("duration: 12 minutes"));
+        .contains("- **duration:** 10 minutes"));
+
+    for (contents, count, duration) in [
+        (second_text, 15, Some("12 minutes")),
+        (third_text, 16, None),
+    ] {
+        fs::write(&source, contents).unwrap();
+        app.import_source(&source, AcquisitionMethod::Picker)
+            .unwrap();
+        app.resume_due_semantic_jobs().unwrap();
+        let current = app.open_knowledge_page(&event.page_id).unwrap();
+        assert!(
+            current
+                .markdown
+                .contains(&format!("- **visit count:** {count} visits")),
+            "{}",
+            current.markdown
+        );
+        if let Some(duration) = duration {
+            assert!(current
+                .markdown
+                .contains(&format!("- **duration:** {duration}")));
+        } else {
+            assert!(
+                !current.markdown.contains("- **duration:**"),
+                "A source replacement omitting duration must retract unsupported duration"
+            );
+        }
+        assert!(!current.markdown.contains("- **duration:** 11 minutes"));
+        assert!(!current
+            .markdown
+            .contains("Owner note: reviewed and corrected after field playback."));
+        recovery::assert_retains(&collection, edited.as_bytes());
+    }
 
     let search_definition: knowledge_garden::application::views::ViewDefinition =
         serde_json::from_value(serde_json::json!({
@@ -5740,21 +5719,21 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
             "timeline":null, "paths":null, "comparison":[], "target":null
         }))
         .unwrap();
-    let trail_definition: knowledge_garden::application::views::ViewDefinition = serde_json::from_value(serde_json::json!({
-        "active":"trail", "trail":[{"stop_id":uuid::Uuid::new_v4().to_string(), "label":"Corrected observation", "target":{"source_id":null,"page_id":event.page_id,"title":"Observation V17"},"context":null}],
-        "search":null,"query":null,"collection":null,"timeline":null,"paths":null,"comparison":[],"target":null
-    })).unwrap();
-    let saved_search =
-        legacy_views::seed(&collection, "Corrected observations", &search_definition);
-    let saved_trail = legacy_views::seed(&collection, "Reviewed route", &trail_definition);
-    let unfinished = workspace.path().join("unfinished.txt");
+    let trail_definition: knowledge_garden::application::views::ViewDefinition =
+        serde_json::from_value(serde_json::json!({
+            "active":"trail", "trail":[{"stop_id":uuid::Uuid::new_v4().to_string(), "label":"Source-backed observation", "target":{"source_id":null,"page_id":event.page_id,"title":"Observation V17"},"context":null}],
+            "search":null,"query":null,"collection":null,"timeline":null,"paths":null,"comparison":[],"target":null
+        })).unwrap();
+    let saved_search = legacy_views::seed(&collection, "Recovered edit search", &search_definition);
+    let saved_trail = legacy_views::seed(&collection, "Legacy route", &trail_definition);
+    let unfinished_path = workspace.path().join("unfinished.txt");
     fs::write(
-        &unfinished,
+        &unfinished_path,
         "Unfinished input remains queued after rebuilding.",
     )
     .unwrap();
     let unfinished = app
-        .import_source(&unfinished, AcquisitionMethod::Picker)
+        .import_source(&unfinished_path, AcquisitionMethod::Picker)
         .unwrap();
     let before_location = app
         .search_pages(PageSearchRequest {
@@ -5767,25 +5746,28 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
         .find(|page| page.page_id == event.page_id)
         .unwrap()
         .match_location
-        .expect("the current fact has a source location");
-    let moved_page = collection.join("pages/owner-moved-observation.md");
-    fs::rename(&page_path, &moved_page).unwrap();
+        .unwrap();
     let original = fs::read(app.original_path(&imported.info.source_id).unwrap()).unwrap();
+
+    // A byte-identical move tests identity independently of an untrusted edit.
+    let generated = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+    fs::write(&page_path, generated).unwrap();
+    let moved_page = collection.join("pages/moved-observation.md");
+    fs::rename(&page_path, &moved_page).unwrap();
     drop(app);
     fs::remove_dir_all(collection.join(".derived")).unwrap();
     let mut reopened = Application::open(&collection).unwrap();
-    let reopened_search = reopened.open_saved_view(&saved_search).unwrap();
-    let reopened_trail = reopened.open_saved_view(&saved_trail).unwrap();
     assert_eq!(
-        serde_json::to_value(&reopened_search.definition).unwrap(),
-        serde_json::to_value(&search_definition).unwrap()
+        serde_json::to_value(reopened.open_saved_view(&saved_search).unwrap().definition).unwrap(),
+        serde_json::to_value(search_definition).unwrap()
     );
+    let legacy_route = reopened.open_saved_view(&saved_trail).unwrap();
     assert_eq!(
-        serde_json::to_value(&reopened_trail.definition).unwrap(),
-        serde_json::to_value(&trail_definition).unwrap()
+        serde_json::to_value(&legacy_route.definition).unwrap(),
+        serde_json::to_value(trail_definition).unwrap()
     );
     let route = reopened
-        .resolve_trail(reopened_trail.definition.trail)
+        .resolve_trail(legacy_route.definition.trail)
         .unwrap();
     assert_eq!(route.len(), 1);
     assert_eq!(route[0].status, "available");
@@ -5816,7 +5798,7 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
         .find(|page| page.page_id == event.page_id)
         .unwrap()
         .match_location
-        .expect("a moved page retains its source evidence location");
+        .unwrap();
     assert_eq!(
         serde_json::to_value(after_location).unwrap(),
         serde_json::to_value(before_location).unwrap()
@@ -5825,36 +5807,25 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
     assert!(after_rebuild
         .markdown
         .contains("- **visit count:** 16 visits"));
-    assert!(after_rebuild
-        .markdown
-        .contains("- **duration:** 11 minutes"));
-    assert!(after_rebuild
-        .markdown
-        .contains("Owner note: reviewed and corrected after field playback."));
-    let durable_page = fs::read_to_string(&moved_page).unwrap();
-    assert!(durable_page.contains("review: field-playback"));
-    assert!(durable_page.contains("manual_correction:"));
-    assert!(durable_page.contains("value: 11 minutes"));
-    assert!(reopened
+    assert!(!after_rebuild.markdown.contains("- **duration:**"));
+    assert!(!reopened
         .search_pages(PageSearchRequest {
             query: "11 minutes".into(),
-            ..PageSearchRequest::default()
+            ..Default::default()
         })
         .unwrap()
         .pages
         .iter()
         .any(|page| page.page_id == event.page_id));
+    recovery::assert_retains(&collection, edited.as_bytes());
 
-    // A new replacement after losing the cache must still respect the owner's
-    // correction while refreshing the fact the owner did not edit.
     let fourth_text = "Complete report, revision 4 dated May 22, 2024. This report completely replaces revision 3 of this same observation record.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 17. Duration: 13 minutes.\n";
     fs::write(&source, fourth_text).unwrap();
     reopened
         .import_source(&source, AcquisitionMethod::Picker)
         .unwrap();
-    let jobs = reopened.claim_due_semantic_jobs_at(10, u128::MAX).unwrap();
     let mut saw_update = false;
-    for job in jobs {
+    for job in reopened.claim_due_semantic_jobs_at(10, u128::MAX).unwrap() {
         let result = if job.source_id == imported.info.source_id {
             saw_update = true;
             Ok(replacement_recording_with_duration(
@@ -5865,16 +5836,13 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
             ))
         } else {
             Err(ProviderError::unavailable(
-                "The network is unavailable.".into(),
+                "Offline fixture".into(),
                 knowledge_garden::semantic::ProviderAvailability::Network,
             ))
         };
         reopened.finish_semantic_job(job, result).unwrap();
     }
-    assert!(
-        saw_update,
-        "the post-rebuild replacement must be rediscovered"
-    );
+    assert!(saw_update);
     assert_eq!(
         reopened
             .open_source(&unfinished.info.source_id)
@@ -5885,12 +5853,13 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
     );
     let refreshed = reopened.open_knowledge_page(&event.page_id).unwrap();
     assert!(refreshed.markdown.contains("- **visit count:** 17 visits"));
-    assert!(refreshed.markdown.contains("- **duration:** 11 minutes"));
-    assert!(!refreshed.markdown.contains("- **duration:** 13 minutes"));
+    assert!(refreshed.markdown.contains("- **duration:** 13 minutes"));
+    assert!(!refreshed.markdown.contains("- **duration:** 11 minutes"));
+    recovery::assert_retains(&collection, edited.as_bytes());
 }
 
 #[test]
-fn uninterpretable_external_page_edit_is_retained_and_marked_uncertain() {
+fn uninterpretable_external_page_edit_is_recovered_without_changing_current_knowledge() {
     let workspace = tempdir().unwrap();
     let source = workspace.path().join("V17.txt");
     let first_text = "Complete report, revision 1 dated May 18, 2024.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 12. Duration: 10 minutes.\n";
@@ -5940,30 +5909,10 @@ fn uninterpretable_external_page_edit_is_retained_and_marked_uncertain() {
     app.resume_due_semantic_jobs().unwrap();
 
     let current = app.open_knowledge_page(&event.page_id).unwrap();
-    assert_eq!(current.external_edit_status.as_deref(), Some("uncertain"));
-    assert!(current
-        .markdown
-        .contains("- **duration changed:** maybe 11 minutes"));
+    assert!(current.markdown.contains("- **duration:** 12 minutes"));
+    assert!(!current.markdown.contains("duration changed"));
     assert!(current.markdown.contains("- **visit count:** 15 visits"));
-    let durable = fs::read_to_string(&page_path).unwrap();
-    let header: serde_yaml_ng::Value = serde_yaml_ng::from_str(
-        durable
-            .split_once("\n---\n")
-            .unwrap()
-            .0
-            .trim_start_matches("---\n"),
-    )
-    .unwrap();
-    let retained_edit = header["uninterpreted_owner_edits"][0].as_str().unwrap();
-    assert!(
-        retained_edit.starts_with("owner-edits/"),
-        "raw saves belong in durable Markdown sidecars, not recursively embedded in page metadata"
-    );
-    assert_eq!(
-        fs::read_to_string(collection.join(retained_edit)).unwrap(),
-        edited,
-        "the complete uncertain owner save must be retained byte for byte"
-    );
+    recovery::assert_retains(&collection, edited.as_bytes());
     app.rebuild_index().unwrap();
     let after_first_rescan = fs::read_to_string(&page_path).unwrap();
     app.rebuild_index().unwrap();
@@ -5976,7 +5925,8 @@ fn uninterpretable_external_page_edit_is_retained_and_marked_uncertain() {
     fs::remove_dir_all(collection.join(".derived")).unwrap();
     let mut reopened = Application::open(&collection).unwrap();
     let restored = reopened.open_knowledge_page(&event.page_id).unwrap();
-    assert_eq!(restored.external_edit_status.as_deref(), Some("uncertain"));
+    assert!(restored.markdown.contains("- **duration:** 12 minutes"));
+    recovery::assert_retains(&collection, edited.as_bytes());
     assert!(restored.markdown.contains("- **visit count:** 15 visits"));
     assert!(
         !reopened
@@ -5993,7 +5943,7 @@ fn uninterpretable_external_page_edit_is_retained_and_marked_uncertain() {
 }
 
 #[test]
-fn external_generated_markdown_escapes_decode_to_the_owner_fact_wording() {
+fn external_markdown_escapes_are_retained_verbatim_without_becoming_authoritative_facts() {
     let workspace = tempdir().unwrap();
     let source = workspace.path().join("V17.txt");
     let first_text = "Complete report, revision 1 dated May 18, 2024.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 12. Duration: 11.5 minutes.\n";
@@ -6039,7 +5989,7 @@ fn external_generated_markdown_escapes_decode_to_the_owner_fact_wording() {
         r"- **duration:** 12\.5 minutes",
     );
     assert_ne!(generated, edited);
-    fs::write(&page_path, edited).unwrap();
+    fs::write(&page_path, &edited).unwrap();
     app.rebuild_index().unwrap();
     let current = app.open_knowledge_page(&event.page_id).unwrap();
     let header: serde_yaml_ng::Value = serde_yaml_ng::from_str(
@@ -6059,14 +6009,12 @@ fn external_generated_markdown_escapes_decode_to_the_owner_fact_wording() {
         .unwrap();
     assert_eq!(
         duration["value"].as_str(),
-        Some("12.5 minutes"),
-        "generated Markdown escaping must not become literal fact wording"
+        Some("11.5 minutes"),
+        "an external save must not replace source-backed fact wording"
     );
-    assert_eq!(
-        duration["manual_correction"]["value"].as_str(),
-        Some("12.5 minutes")
-    );
-    assert!(current.markdown.contains(r"- **duration:** 12\.5 minutes"));
+    assert!(duration["manual_correction"].is_null());
+    recovery::assert_retains(&collection, edited.as_bytes());
+    assert!(current.markdown.contains(r"- **duration:** 11\.5 minutes"));
     assert!(!current
         .markdown
         .contains(r"- **duration:** 12\\\.5 minutes"));
@@ -6077,19 +6025,19 @@ fn external_generated_markdown_escapes_decode_to_the_owner_fact_wording() {
     let refreshed = app.open_knowledge_page(&event.page_id).unwrap();
     assert!(refreshed
         .markdown
-        .contains(r"- **duration:** 12\.5 minutes"));
+        .contains(r"- **duration:** 13\.5 minutes"));
     assert!(refreshed.markdown.contains("- **visit count:** 15 visits"));
     drop(app);
     fs::remove_dir_all(collection.join(".derived")).unwrap();
     let mut reopened = Application::open(&collection).unwrap();
     let restored = reopened.open_knowledge_page(&event.page_id).unwrap();
-    assert!(restored.markdown.contains(r"- **duration:** 12\.5 minutes"));
+    assert!(restored.markdown.contains(r"- **duration:** 13\.5 minutes"));
     assert!(!restored
         .markdown
         .contains(r"- **duration:** 12\\\.5 minutes"));
     assert!(reopened
         .search_pages(PageSearchRequest {
-            query: "12.5 minutes".into(),
+            query: "13.5 minutes".into(),
             ..PageSearchRequest::default()
         })
         .unwrap()
@@ -6099,7 +6047,7 @@ fn external_generated_markdown_escapes_decode_to_the_owner_fact_wording() {
 }
 
 #[test]
-fn external_qualifier_edits_remain_uncertain_without_promoting_manual_authority() {
+fn external_qualifier_edits_are_retained_without_overriding_source_qualifications() {
     for (edit_label, owner_value) in [("removed", "12 minutes"), ("changed", "12 minutes (exact)")]
     {
         for prior_manual in [false, true] {
@@ -6143,91 +6091,52 @@ fn external_qualifier_edits_remain_uncertain_without_promoting_manual_authority(
                 .join("pages")
                 .join(format!("{}.md", event.page_id));
             if prior_manual {
-                let generated = fs::read_to_string(&page_path).unwrap();
-                assert!(generated.contains("- **duration:** 10 minutes (approximate)"));
-                fs::write(
-                    &page_path,
-                    generated.replace(
-                        "- **duration:** 10 minutes (approximate)",
-                        "- **duration:** 11 minutes (approximate)",
-                    ),
-                )
-                .unwrap();
+                let generated = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+                let prior_edit = generated.replace(
+                    "- **duration:** 10 minutes (approximate)",
+                    "- **duration:** 11 minutes (approximate)",
+                );
+                assert_ne!(generated, prior_edit);
+                fs::write(&page_path, &prior_edit).unwrap();
                 app.rebuild_index().unwrap();
+                recovery::assert_retains(&collection, prior_edit.as_bytes());
             }
-            let generated = fs::read_to_string(&page_path).unwrap();
-            let expected_row = if prior_manual {
-                "- **duration:** 11 minutes (approximate)"
-            } else {
-                "- **duration:** 10 minutes (approximate)"
-            };
-            assert!(generated.contains(expected_row));
-            let edited = generated.replace(expected_row, &format!("- **duration:** {owner_value}"));
+            let generated = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+            assert!(generated.contains("- **duration:** 10 minutes (approximate)"));
+            let edited = generated.replace(
+                "- **duration:** 10 minutes (approximate)",
+                &format!("- **duration:** {owner_value}"),
+            );
             assert_ne!(generated, edited);
             let temporary = page_path.with_extension("md.tmp");
             fs::write(&temporary, &edited).unwrap();
             fs::rename(&temporary, &page_path).unwrap();
             app.rebuild_index().unwrap();
-            let uncertain = app.open_knowledge_page(&event.page_id).unwrap();
-            assert_eq!(uncertain.external_edit_status.as_deref(), Some("uncertain"));
-            let header: serde_yaml_ng::Value = serde_yaml_ng::from_str(
-                uncertain
-                    .markdown
-                    .split_once("\n---\n")
-                    .unwrap()
-                    .0
-                    .trim_start_matches("---\n"),
-            )
-            .unwrap();
-            let duration = header["facts"]
-                .as_sequence()
-                .unwrap()
-                .iter()
-                .find(|fact| fact["property"].as_str() == Some("duration"))
-                .unwrap();
-            if prior_manual {
-                assert_eq!(
-                    duration["manual_correction"]["value"].as_str(),
-                    Some("11 minutes"),
-                    "{edit_label} qualifier must not replace existing owner authority"
-                );
-            } else {
-                assert!(
-                    duration["manual_correction"].is_null(),
-                    "{edit_label} qualifier must not promote an unsupported edit: {duration:?}"
-                );
-            }
-            assert_eq!(duration["qualifier"].as_str(), Some("approximate"));
-            let retained = header["uninterpreted_owner_edits"].as_sequence().unwrap();
+            let current = app.open_knowledge_page(&event.page_id).unwrap();
             assert!(
-                retained.iter().any(|path| fs::read_to_string(
-                    collection.join(path.as_str().unwrap())
-                )
-                .unwrap()
-                    == edited),
-                "the exact ambiguous owner save must survive"
+                current
+                    .markdown
+                    .contains("- **duration:** 10 minutes (approximate)"),
+                "{edit_label}"
             );
+            recovery::assert_retains(&collection, edited.as_bytes());
             fs::write(&source, replacement_text).unwrap();
             app.import_source(&source, AcquisitionMethod::Picker)
                 .unwrap();
             app.resume_due_semantic_jobs().unwrap();
             let refreshed = app.open_knowledge_page(&event.page_id).unwrap();
             assert!(refreshed.markdown.contains("- **visit count:** 15 visits"));
-            let expected_duration = if prior_manual {
-                "- **duration:** 11 minutes (approximate)"
-            } else {
-                "- **duration:** 13 minutes (approximate)"
-            };
+            let expected_duration = "- **duration:** 13 minutes (approximate)";
             assert!(
                 refreshed.markdown.contains(expected_duration),
-                "source refresh must respect only understood owner authority: {}",
+                "source refresh must keep the source qualification and value: {}",
                 refreshed.markdown
             );
             drop(app);
             fs::remove_dir_all(collection.join(".derived")).unwrap();
             let reopened = Application::open(&collection).unwrap();
             let restored = reopened.open_knowledge_page(&event.page_id).unwrap();
-            assert_eq!(restored.external_edit_status.as_deref(), Some("uncertain"));
+            recovery::assert_retains(&collection, edited.as_bytes());
             assert!(restored.markdown.contains(expected_duration));
             assert!(restored.markdown.contains("- **visit count:** 15 visits"));
         }
@@ -6288,7 +6197,7 @@ fn owner_page_move_preserves_identity_search_and_navigation_after_restart() {
 }
 
 #[test]
-fn external_rename_repairs_ordinary_links_and_display_names_without_reimport() {
+fn external_rename_and_title_save_are_retained_without_changing_generated_identity() {
     let workspace = tempdir().unwrap();
     let collection = workspace.path().join("collection");
     let source = workspace.path().join("notes.txt");
@@ -6333,26 +6242,24 @@ fn external_rename_repairs_ordinary_links_and_display_names_without_reimport() {
     }
     assert_eq!(
         app.open_knowledge_page(&page.page_id).unwrap().title,
-        "Owner title"
+        "Office source document"
     );
     let reading = fs::read_to_string(&backlink).unwrap();
-    assert!(
-        reading.contains("(Owner%20folder/Renamed%20document.md#facts)"),
-        "{reading}"
-    );
+    assert!(reading.contains(&format!("({old_name}#facts)")));
+    recovery::assert_retains(&collection, fs::read(&target).unwrap().as_slice());
     assert_eq!(
         app.open_source(&imported.info.source_id)
             .unwrap()
             .knowledge_pages[0]
             .path,
-        "pages/Owner folder/Renamed document.md"
+        page.path
     );
     assert!(!collection.join(&page.path).exists());
     drop(app);
     let mut app = Application::open(&collection).unwrap();
     assert!(app
         .search_pages(PageSearchRequest {
-            query: "Owner title".into(),
+            query: "Office source document".into(),
             ..Default::default()
         })
         .unwrap()
@@ -6401,6 +6308,7 @@ fn unreadable_page_body_does_not_block_healthy_rebuild() {
         .iter()
         .any(|d| d.kind == "unreadable_markdown" && d.paths == [page.path.as_str()]));
     assert_eq!(fs::read(path).unwrap(), original);
+    recovery::assert_retains(&collection, &original);
     assert!(app
         .search_pages(PageSearchRequest {
             query: "Office source document".into(),
@@ -6413,7 +6321,7 @@ fn unreadable_page_body_does_not_block_healthy_rebuild() {
 }
 
 #[test]
-fn unreadable_page_bodies_do_not_hide_duplicate_identities() {
+fn unreadable_untrusted_copies_do_not_replace_the_verified_identity() {
     use std::io::Write;
     for damage in 0..3 {
         let workspace = tempdir().unwrap();
@@ -6464,22 +6372,15 @@ fn unreadable_page_bodies_do_not_hide_duplicate_identities() {
         while !status.complete {
             status = app.reconcile_collection(100).unwrap();
         }
-        assert!(
-            status
-                .diagnostics
-                .iter()
-                .any(|d| d.kind == "duplicate_identity" && d.paths.len() == 2),
-            "a damaged body must not hide a duplicate page identity"
-        );
+        recovery::assert_retains(&collection, &fs::read(&duplicate).unwrap());
         assert!(status
             .diagnostics
             .iter()
             .any(|d| d.kind == "unreadable_markdown" && d.paths == ["pages/Second.md"]));
-        assert!(app
-            .open_knowledge_page(&page.page_id)
-            .unwrap_err()
-            .to_string()
-            .contains("ambiguous"));
+        assert_eq!(
+            app.open_knowledge_page(&page.page_id).unwrap().page_id,
+            page.page_id
+        );
         assert_eq!(
             fs::read(collection.join("pages/First.md")).unwrap(),
             original
@@ -6488,7 +6389,7 @@ fn unreadable_page_bodies_do_not_hide_duplicate_identities() {
 }
 
 #[test]
-fn duplicate_and_malformed_pages_are_inspectable_and_never_recreated_at_canonical_path() {
+fn untrusted_duplicate_and_malformed_pages_are_retained_without_changing_derived_identity() {
     let workspace = tempdir().unwrap();
     let collection = workspace.path().join("collection");
     let source = workspace.path().join("notes.txt");
@@ -6525,19 +6426,16 @@ fn duplicate_and_malformed_pages_are_inspectable_and_never_recreated_at_canonica
     while !status.complete {
         status = app.reconcile_collection(100).unwrap();
     }
+    recovery::assert_retains(&collection, &owner);
     assert!(status
         .diagnostics
         .iter()
-        .any(|d| d.kind == "duplicate_identity" && d.paths.len() == 2));
-    assert!(status
-        .diagnostics
-        .iter()
-        .any(|d| d.kind == "malformed_metadata" && d.paths == ["pages/Broken.md"]));
-    assert!(app
-        .open_knowledge_page(&page.page_id)
-        .unwrap_err()
-        .to_string()
-        .contains("ambiguous"));
+        .any(|d| d.kind == "unreadable_markdown" && d.paths == ["pages/Broken.md"]));
+    assert_eq!(
+        app.open_knowledge_page(&page.page_id).unwrap().page_id,
+        page.page_id
+    );
+    recovery::assert_retains(&collection, b"---\npage_id: [\n---\nOwner bytes\n");
     assert!(!collection.join(&page.path).exists());
     assert_eq!(fs::read(collection.join("pages/First.md")).unwrap(), owner);
     assert_eq!(fs::read(collection.join("pages/Second.md")).unwrap(), owner);
@@ -6607,7 +6505,7 @@ fn concurrent_atomic_owner_save_survives_publication_crash_and_source_refresh() 
         let mut app = Application::open(&collection).unwrap();
         let page = app.open_knowledge_page(&event.page_id).unwrap();
         assert!(
-            page.markdown.contains("- **duration:** 11 minutes"),
+            page.markdown.contains("- **duration:** 12 minutes"),
             "boundary {boundary}: {}",
             page.markdown
         );
@@ -6616,11 +6514,8 @@ fn concurrent_atomic_owner_save_survives_publication_crash_and_source_refresh() 
             "boundary {boundary}: {}",
             page.markdown
         );
-        let preserved = fs::read_dir(collection.join("owner-edits"))
-            .unwrap()
-            .any(|e| fs::read(e.unwrap().path()).unwrap() == owner.as_bytes());
-        assert!(preserved, "boundary {boundary}: exact owner bytes missing");
-        assert!(!app
+        recovery::assert_retains(&collection, owner.as_bytes());
+        assert!(app
             .search_pages(PageSearchRequest {
                 query: "12 minutes".into(),
                 ..Default::default()
@@ -6640,7 +6535,7 @@ fn concurrent_atomic_owner_save_survives_publication_crash_and_source_refresh() 
 }
 
 #[test]
-fn replaced_page_directory_and_interrupted_reconciliation_recover_links() {
+fn replaced_page_directory_retains_external_copy_and_verified_navigation() {
     let workspace = tempdir().unwrap();
     let collection = workspace.path().join("collection");
     let source = workspace.path().join("notes.txt");
@@ -6668,15 +6563,11 @@ fn replaced_page_directory_and_interrupted_reconciliation_recover_links() {
     fs::rename(collection.join("pages"), collection.join("owner-backup")).unwrap();
     fs::rename(replacement, collection.join("pages")).unwrap();
     assert!(!app.reconcile_collection(1).unwrap().complete);
-    app.set_publication_failpoint_for_test(1);
-    let mut interrupted = false;
-    for _ in 0..100 {
-        if app.reconcile_collection(2).is_err() {
-            interrupted = true;
-            break;
-        }
-    }
-    assert!(interrupted);
+    while !app.reconcile_collection(2).unwrap().complete {}
+    recovery::assert_retains(
+        &collection,
+        &fs::read(collection.join("pages/Renamed.md")).unwrap(),
+    );
     drop(app);
     // Lose the disposable index while a durable publication receipt is pending.
     fs::remove_dir_all(collection.join(".derived")).unwrap();
@@ -6690,18 +6581,24 @@ fn replaced_page_directory_and_interrupted_reconciliation_recover_links() {
             .unwrap()
             .knowledge_pages[0]
             .path,
-        "pages/Renamed.md"
+        page.path
     );
     assert_eq!(
-        app.resolve_page_link(&page.page_id, "Renamed.md#facts")
-            .unwrap(),
+        app.resolve_page_link(
+            &page.page_id,
+            &format!(
+                "{}#facts",
+                Path::new(&page.path).file_name().unwrap().to_str().unwrap()
+            )
+        )
+        .unwrap(),
         page.page_id
     );
     assert!(!collection.join(&page.path).exists());
 }
 
 #[test]
-fn page_moved_during_interrupted_publication_is_updated_at_its_new_path() {
+fn page_moved_during_interrupted_publication_retains_old_bytes_and_publishes_verified_generation() {
     let workspace = tempdir().unwrap();
     let collection = workspace.path().join("collection");
     let source = workspace.path().join("V17.txt");
@@ -6736,7 +6633,8 @@ fn page_moved_during_interrupted_publication_is_updated_at_its_new_path() {
     fs::rename(collection.join(&event.path), &moved).unwrap();
     drop(app);
     let app = Application::open(&collection).unwrap();
-    assert!(!collection.join(&event.path).exists());
+    assert!(collection.join(&event.path).exists());
+    recovery::assert_retains(&collection, &fs::read(&moved).unwrap());
     assert!(app
         .open_knowledge_page(&event.page_id)
         .unwrap()
@@ -6750,12 +6648,12 @@ fn page_moved_during_interrupted_publication_is_updated_at_its_new_path() {
             .find(|p| p.page_id == event.page_id)
             .unwrap()
             .path,
-        "pages/Interrupted rename.md"
+        event.path
     );
 }
 
 #[test]
-fn link_repair_preserves_literal_content_and_already_adjusted_editor_links() {
+fn external_links_and_literal_content_are_retained_verbatim() {
     let workspace = tempdir().unwrap();
     let collection = workspace.path().join("collection");
     let source = workspace.path().join("notes.txt");
@@ -6786,10 +6684,14 @@ fn link_repair_preserves_literal_content_and_already_adjusted_editor_links() {
     let moved = collection.join("pages/nested/Owner.md");
     fs::rename(collection.join(&page.path), &moved).unwrap();
     let moved_text = fs::read_to_string(&moved).unwrap() + "\n[Already fixed](../Other.md)\n";
-    fs::write(&moved, moved_text).unwrap();
+    fs::write(&moved, &moved_text).unwrap();
     while !app.reconcile_collection(100).unwrap().complete {}
     let current = fs::read_to_string(&reading).unwrap();
-    assert!(current.contains("[live](nested/Owner.md)"), "{current}");
+    assert!(
+        current.contains(&format!("[live]({old_name})")),
+        "{current}"
+    );
+    recovery::assert_retains(&collection, moved_text.as_bytes());
     assert!(current.contains(&literals), "{current}");
     assert!(fs::read_to_string(&moved)
         .unwrap()
@@ -6860,15 +6762,15 @@ fn exercise_interrupted_replacement(publication: bool) {
     } else {
         version.extraction_attempts = 2;
     }
-    fs::write(
-        app.page_path(&first.info.source_id).unwrap(),
+    recovery::seed_metadata(
+        &app.page_path(&first.info.source_id).unwrap(),
         format!(
             "---\n{}---\n{}",
             serde_yaml_ng::to_string(&pending.info).unwrap(),
             pending.body
-        ),
-    )
-    .unwrap();
+        )
+        .as_bytes(),
+    );
     let job = publication.then(|| {
         app.claim_due_semantic_jobs_at(1, u128::MAX)
             .unwrap()
@@ -6945,7 +6847,7 @@ fn quitting_during_changed_source_import_preserves_and_resumes_the_candidate() {
             fails: AtomicBool::new(std::env::var_os("KG_RECOVERY_FAIL").is_some()),
             recovered: AtomicBool::new(true),
         });
-        let mut app = Application::open_with_providers(collection, provider, extractor).unwrap();
+        let mut app = Application::open_with_providers(&collection, provider, extractor).unwrap();
         if std::env::var_os("KG_RECOVERY_FAIL").is_some() {
             let healthy_input = tempdir().unwrap();
             let healthy_path = healthy_input.path().join("healthy.txt");
@@ -6961,7 +6863,11 @@ fn quitting_during_changed_source_import_preserves_and_resumes_the_candidate() {
             assert_eq!(source.info.semantic_state, "unavailable");
             assert_eq!(source.info.extraction, ExtractionState::InvalidContainer);
             if std::env::var_os("KG_INITIAL_IMPORT").is_some() {
-                assert!(source.body.contains("OWNER-CORRECTION-TRACER"));
+                assert!(!source.body.contains("OWNER-CORRECTION-TRACER"));
+                recovery::assert_retains(
+                    Path::new(&collection),
+                    &fs::read(std::env::var_os("KG_OWNER_SAVE").unwrap()).unwrap(),
+                );
             }
             assert_eq!(
                 fs::read_to_string(app.original_path(&source_id).unwrap()).unwrap(),
@@ -6979,7 +6885,11 @@ fn quitting_during_changed_source_import_preserves_and_resumes_the_candidate() {
         assert!(source.body.contains(REVISION_2));
         assert_eq!(source.info.line_count, REVISION_2.lines().count());
         if std::env::var_os("KG_INITIAL_IMPORT").is_some() {
-            assert!(source.body.contains("OWNER-CORRECTION-TRACER"));
+            assert!(!source.body.contains("OWNER-CORRECTION-TRACER"));
+            recovery::assert_retains(
+                Path::new(&collection),
+                &fs::read(std::env::var_os("KG_OWNER_SAVE").unwrap()).unwrap(),
+            );
         }
         assert_eq!(
             fs::read_to_string(app.original_path(&source_id).unwrap()).unwrap(),
@@ -7093,13 +7003,15 @@ fn quitting_during_changed_source_import_preserves_and_resumes_the_candidate() {
             "OWNER-WHILE-EXTRACTING"
         )
         .unwrap();
+        let owner_save = fs::read(entry.path().join("index.md")).unwrap();
         let (app, result) = worker.join().unwrap();
         let source = result.unwrap();
-        assert!(app
+        assert!(!app
             .open_source(&source.info.source_id)
             .unwrap()
             .body
             .contains("OWNER-WHILE-EXTRACTING"));
+        recovery::assert_retains(&collection, &owner_save);
         return;
     }
     Application::record_controlled_shutdown(&collection).unwrap();
@@ -7159,6 +7071,14 @@ fn quitting_during_changed_source_import_preserves_and_resumes_the_candidate() {
         )
         .unwrap();
     }
+    let owner_save = workspace.path().join("owner-save");
+    if initial_import {
+        fs::write(
+            &owner_save,
+            fs::read(reopened.page_path(&source_id).unwrap()).unwrap(),
+        )
+        .unwrap();
+    }
     drop(reopened);
     let status = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
@@ -7168,6 +7088,7 @@ fn quitting_during_changed_source_import_preserves_and_resumes_the_candidate() {
         ])
         .env("KG_IMPORT_QUIT_RECOVERY", &collection)
         .env("KG_IMPORT_QUIT_SOURCE", &source_id)
+        .env("KG_OWNER_SAVE", &owner_save)
         .status()
         .unwrap();
     assert!(status.success());
