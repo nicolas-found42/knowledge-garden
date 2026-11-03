@@ -862,6 +862,283 @@ const REVISION_1: &str = "Complete report, revision 1 dated May 18, 2024.\nObser
 const REVISION_2: &str = "Complete report, revision 2 dated May 20, 2024. This report completely replaces revision 1 of this same observation record.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 15.\n";
 
 #[test]
+fn invalid_video_preview_locator_does_not_exclude_source_evidence() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("source.txt");
+    fs::write(&path, REVISION_1).unwrap();
+    let root = workspace.path().join("collection");
+    let mut app = Application::open_with_semantic_provider(
+        &root,
+        Arc::new(RecordedProvider::once(Ok(replacement_recording(
+            REVISION_1, 12, true,
+        )))),
+    )
+    .unwrap();
+    let source = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let page = app.open_source(&source.info.source_id).unwrap();
+    let event = page
+        .knowledge_pages
+        .iter()
+        .find(|p| p.kind == "event")
+        .unwrap();
+    let version = page.info.current_version_id.as_deref().unwrap();
+    assert!(app
+        .preview_video_frame(&source.info.source_id, version, "../invalid", 0)
+        .is_err());
+    assert!(app
+        .preview_video_frame(&source.info.source_id, "not-a-version", &page.info.asset, 0)
+        .is_err());
+    assert!(app
+        .verified_original_version_open_path(&source.info.source_id, version, "../invalid")
+        .is_err());
+    assert!(app
+        .verified_original_version_open_path(
+            &source.info.source_id,
+            "not-a-version",
+            &page.info.asset
+        )
+        .is_err());
+    assert!(app
+        .open_knowledge_page(&event.page_id)
+        .unwrap()
+        .markdown
+        .contains("12 visits"));
+    assert!(!root.join(".recovery/integrity-exclusions").exists());
+}
+
+#[test]
+fn comparison_detection_blocks_knowledge_until_search_finishes_exclusion() {
+    use knowledge_garden::application::comparison::{ComparisonRequest, ComparisonStatus};
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("source.txt");
+    fs::write(&path, REVISION_1).unwrap();
+    let root = workspace.path().join("collection");
+    let mut app = Application::open_with_semantic_provider(
+        &root,
+        Arc::new(RecordedProvider::once(Ok(replacement_recording(
+            REVISION_1, 12, true,
+        )))),
+    )
+    .unwrap();
+    let source = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let event = app
+        .open_source(&source.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|p| p.kind == "event")
+        .unwrap();
+    fs::write(
+        app.original_path(&source.info.source_id).unwrap(),
+        b"changed original",
+    )
+    .unwrap();
+    let side = app
+        .comparison_side(ComparisonRequest {
+            source_id: source.info.source_id.clone(),
+            line_start: 1,
+            expected_signature: None,
+        })
+        .unwrap();
+    assert_eq!(side.status, ComparisonStatus::Unavailable);
+    assert!(!app.collection_status().complete);
+    assert!(app
+        .collection_status()
+        .diagnostics
+        .iter()
+        .any(|item| item.kind == "integrity_recovery_pending"));
+    assert!(app.open_knowledge_page(&event.page_id).is_err());
+    assert!(app.open_source(&source.info.source_id).is_err());
+    assert!(app.list_sources(0).is_err());
+    assert!(app.list_url_acquisitions().is_err());
+    assert!(app
+        .timeline(knowledge_garden::timeline::TimelineRequest::default())
+        .is_err());
+    assert!(app.path_graph_revision().is_err());
+    assert!(app.list_saved_views("", 0).is_err());
+    assert!(app.open_saved_view("invalid").is_err());
+    assert!(app.prepare_trail_suggestions("inspect").is_err());
+    assert!(app.watch_directory(workspace.path()).is_err());
+    assert!(app.reconcile_watched_directories(1).is_err());
+    assert!(app.resume_due_audio_jobs().is_err());
+    assert!(app.retained_source_exists(&source.info.source_id).is_err());
+    assert!(app.import_source(&path, AcquisitionMethod::Picker).is_err());
+    assert!(app.claim_due_semantic_jobs(1).is_err());
+    assert!(app.rebuild_index().is_err());
+    let results = app
+        .search_pages(PageSearchRequest {
+            query: "12 visits".into(),
+            ..PageSearchRequest::default()
+        })
+        .unwrap();
+    assert!(!results.pages.iter().any(|p| p.page_id == event.page_id));
+    assert!(app.collection_status().complete);
+    assert!(app.open_source(&source.info.source_id).is_ok());
+    assert!(app.list_sources(0).is_ok());
+    assert!(app.open_knowledge_page(&event.page_id).is_err());
+}
+
+#[test]
+fn tampered_original_recovery_before_first_publication_write() {
+    assert_tampered_original_recovery(0);
+}
+
+#[test]
+fn tampered_original_recovery_after_a_publication_write() {
+    assert_tampered_original_recovery(1);
+}
+
+fn assert_tampered_original_recovery(fail_after: usize) {
+    let workspace = tempdir().unwrap();
+    let first_path = workspace.path().join("first.txt");
+    let second_path = workspace.path().join("second.txt");
+    let independent = "Independent report dated May 19, 2024.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 12. Duration: 10 minutes.\n";
+    fs::write(&first_path, REVISION_1).unwrap();
+    fs::write(&second_path, independent).unwrap();
+    let root = workspace.path().join("collection");
+    let mut app = Application::open_with_semantic_provider(
+        &root,
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(replacement_recording(REVISION_1, 12, true)),
+            Ok(replacement_recording(independent, 12, true)),
+        ])),
+    )
+    .unwrap();
+    let first = app
+        .import_source(&first_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let second = app
+        .import_source(&second_path, AcquisitionMethod::Picker)
+        .unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let event = app
+        .open_source(&first.info.source_id)
+        .unwrap()
+        .knowledge_pages
+        .into_iter()
+        .find(|p| p.kind == "event")
+        .unwrap();
+    let original = root
+        .join("sources")
+        .join(first.info.source_id.trim_start_matches("source-"))
+        .join(&first.info.asset);
+    let retained = root
+        .join(".recovery/verified-originals")
+        .join(&first.info.sha256);
+    assert_eq!(fs::read(&retained).unwrap(), REVISION_1.as_bytes());
+    fs::write(&original, b"changed external bytes").unwrap();
+    app.set_publication_failpoint_for_test(fail_after);
+    assert!(app
+        .verified_original_open_path(&first.info.source_id)
+        .is_err());
+    assert!(app.open_knowledge_page(&event.page_id).is_err());
+    drop(app);
+    let app = Application::open(&root).unwrap();
+    let markdown = app.open_knowledge_page(&event.page_id).unwrap().markdown;
+    assert!(
+        markdown.contains("- **duration:** 10 minutes"),
+        "{markdown}"
+    );
+    assert!(
+        markdown.contains(&format!("source_id: {}", second.info.source_id)),
+        "{markdown}"
+    );
+    assert!(
+        !markdown.contains(&format!("source_id: {}", first.info.source_id)),
+        "{markdown}"
+    );
+    assert_eq!(fs::read(retained).unwrap(), REVISION_1.as_bytes());
+    let recovery = root.join(".recovery/external-originals");
+    assert!(fs::read_dir(recovery)
+        .unwrap()
+        .any(|e| fs::read(e.unwrap().path()).unwrap() == b"changed external bytes"));
+}
+
+#[test]
+fn tampered_version_preserves_support_from_another_version_of_the_same_source() {
+    let workspace = tempdir().unwrap();
+    let path = workspace.path().join("source.txt");
+    let supplement = "Independent supplement dated May 19, 2024.\nObservation V17 took place on May 17, 2024.\nObserver: Maya. Location: Riverside. Visits: 12. Duration: 10 minutes.\n";
+    fs::write(&path, REVISION_1).unwrap();
+    let mut second_draft = replacement_recording(supplement, 12, true);
+    second_draft.source_update = Some(recorded_update(supplement, SourceUpdateRole::Supplement));
+    let root = workspace.path().join("collection");
+    let mut app = Application::open_with_semantic_provider(
+        &root,
+        Arc::new(RecordedProvider::sequence(vec![
+            Ok(replacement_recording(REVISION_1, 12, true)),
+            Ok(second_draft),
+        ])),
+    )
+    .unwrap();
+    let first = app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    fs::write(&path, supplement).unwrap();
+    app.import_source(&path, AcquisitionMethod::Picker).unwrap();
+    app.resume_due_semantic_jobs().unwrap();
+    let source = app.open_source(&first.info.source_id).unwrap();
+    let event = source
+        .knowledge_pages
+        .iter()
+        .find(|p| p.kind == "event")
+        .unwrap();
+    let event_id = event.page_id.clone();
+    let event_path = root.join(&event.path);
+    let old = &source.info.versions_seen[0];
+    let newer = &source.info.versions_seen[1];
+    // Legacy input may carry multiple version supports on one fact. Construct
+    // that pre-cutover fixture through its serialized metadata, then migrate it.
+    let markdown = fs::read_to_string(&event_path).unwrap();
+    let (yaml, body) = markdown
+        .strip_prefix("---\n")
+        .unwrap()
+        .split_once("\n---\n")
+        .unwrap();
+    let mut metadata: serde_yaml_ng::Value = serde_yaml_ng::from_str(yaml).unwrap();
+    for fact in metadata["facts"].as_sequence_mut().unwrap() {
+        let supports = fact["supports"].as_sequence_mut().unwrap();
+        let mut independent = supports[0].clone();
+        independent["source_version_id"] =
+            serde_yaml_ng::Value::String(newer.source_version_id.clone());
+        supports.push(independent);
+    }
+    drop(app);
+    fs::write(
+        &event_path,
+        format!(
+            "---\n{}---\n{}",
+            serde_yaml_ng::to_string(&metadata).unwrap(),
+            body
+        ),
+    )
+    .unwrap();
+    fs::remove_dir_all(root.join(".recovery/migration")).unwrap();
+    fs::remove_dir_all(root.join(".recovery/trusted-pages")).unwrap();
+    let mut app = Application::open(&root).unwrap();
+    let before = app.open_knowledge_page(&event_id).unwrap().markdown;
+    assert!(before.contains(&old.source_version_id), "{before}");
+    assert!(before.contains(&newer.source_version_id), "{before}");
+    let old_path = app
+        .original_version_path(&first.info.source_id, &old.source_version_id, &old.asset)
+        .unwrap();
+    fs::write(old_path, b"altered old version").unwrap();
+    assert!(app
+        .verified_original_version_open_path(
+            &first.info.source_id,
+            &old.source_version_id,
+            &old.asset
+        )
+        .is_err());
+    let after = app.open_knowledge_page(&event_id).unwrap().markdown;
+    assert!(after.contains("- **duration:** 10 minutes"), "{after}");
+    assert!(after.contains(&newer.source_version_id), "{after}");
+    assert!(!after.contains(&old.source_version_id), "{after}");
+}
+
+#[test]
 fn independently_acquired_duration_support_survives_replacement() {
     let workspace = tempdir().unwrap();
     let revision_one = workspace.path().join("revision-1.txt");

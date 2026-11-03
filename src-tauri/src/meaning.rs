@@ -83,6 +83,7 @@ impl MeaningSearch {
             .get_or_init(|| {
                 ort::init_from(runtime)
                     .map_err(|error| format!("Could not load local ONNX Runtime: {error}"))?
+                    .with_telemetry(false)
                     .build()
                     .map_err(|error| format!("Could not initialize local ONNX Runtime: {error}"))
             })

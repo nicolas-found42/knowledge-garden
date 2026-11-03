@@ -330,6 +330,26 @@ fn malformed_source_is_reported_without_blocking_cold_rebuild_or_other_pending_w
     );
 }
 
+#[test]
+fn external_source_metadata_edit_is_reported_without_replacing_trusted_evidence() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("collection");
+    let input = temp.path().join("source.txt");
+    fs::write(&input, "A retained orchard observation.").unwrap();
+    let mut app = Application::open(&root).unwrap();
+    let source = app.import_source(&input, AcquisitionMethod::Picker).unwrap();
+    let path = app.page_path(&source.info.source_id).unwrap();
+    drop(app);
+    let external = b"---\nschema: [broken\n---\nPreserve this owner edit.\n";
+    fs::write(&path, external).unwrap();
+    let app = Application::open(&root).unwrap();
+    assert!(app.collection_status().diagnostics.iter().any(|item| item.kind == "external_edit_retained" && item.paths.iter().any(|value| path.ends_with(value))));
+    assert_eq!(app.open_source(&source.info.source_id).unwrap().info.source_id, source.info.source_id);
+    assert_eq!(fs::read(&path).unwrap(), external);
+    let retained = fs::read_dir(root.join(".recovery/external-edits")).unwrap().any(|entry| fs::read(entry.unwrap().path()).is_ok_and(|bytes| bytes == external));
+    assert!(retained);
+}
+
 #[path = "fixtures/queries/provider.rs"]
 mod labeled;
 

@@ -249,6 +249,7 @@ impl Application {
         Ok(source.body.clone())
     }
     pub fn trail_source_choices(&self, source_id: &str, offset: usize) -> Result<TrailChoices> {
+        self.require_integrity_recovered()?;
         views::source_id(source_id)?;
         let source = self.open_source(source_id)?;
         if superseded(&source) {
@@ -310,6 +311,7 @@ impl Application {
         Ok(TrailChoices {stops:stops.into_iter().skip(offset).take(PAGE).collect(),next_offset:(offset.saturating_add(PAGE)<total).then_some(offset.saturating_add(PAGE)),detail:"Locations come from existing messages and decoded media evidence. Select source wording to add a passage; no stop is saved until you explicitly save the trail.".into()})
     }
     pub fn trail_selected_passage(&self, source_id: &str, quote: &str) -> Result<TrailStop> {
+        self.require_integrity_recovered()?;
         views::source_id(source_id)?;
         if quote.trim().is_empty() || quote.len() > MAX_QUOTE {
             return invalid("Select 1–2048 bytes of source wording for a trail passage.");
@@ -358,6 +360,7 @@ impl Application {
         ))
     }
     pub fn resolve_trail(&self, stops: Vec<TrailStop>) -> Result<Vec<ResolvedStop>> {
+        self.require_integrity_recovered()?;
         validate_stops(&stops)?;
         Ok(stops
             .into_iter()
@@ -507,6 +510,7 @@ impl Application {
         resolved
     }
     pub fn prepare_trail_suggestions(&mut self, goal: &str) -> Result<SuggestionJob> {
+        self.require_integrity_recovered()?;
         if goal.trim().is_empty() || goal.len() > 1024 {
             return invalid("Describe the reading goal in 1–1024 bytes.");
         }
@@ -570,6 +574,7 @@ impl Application {
         &self,
         evaluated: EvaluatedSuggestions,
     ) -> Result<TrailSuggestions> {
+        self.require_integrity_recovered()?;
         let EvaluatedSuggestions {
             stops,
             fingerprints,

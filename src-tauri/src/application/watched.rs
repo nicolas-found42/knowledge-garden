@@ -40,6 +40,7 @@ struct DirectoryVolume {
 impl Application {
     /// Registers a directory without enumerating it or waiting for semantic work.
     pub fn watch_directory(&mut self, path: impl AsRef<Path>) -> Result<WatchedDirectory> {
+        self.require_integrity_recovered()?;
         let path = fs::canonicalize(path)?;
         readable_directory(&path)?;
         if path.starts_with(&self.root) {
@@ -85,6 +86,7 @@ impl Application {
     }
 
     pub fn list_watched_directories(&self) -> Result<Vec<WatchedDirectory>> {
+        self.require_integrity_recovered()?;
         let root = self.root.join("watches");
         if !root.exists() {
             return Ok(Vec::new());
@@ -132,6 +134,7 @@ impl Application {
     /// A stream is held only for the active directory. Restart replays that directory
     /// using durable receipts, then continues the saved frontier.
     pub fn reconcile_watched_directories(&mut self, work_budget: usize) -> Result<()> {
+        self.require_integrity_recovered()?;
         self.recover_pending_publications()?;
         let mut watches = self.list_watched_directories()?;
         let mut remaining = work_budget.min(128);

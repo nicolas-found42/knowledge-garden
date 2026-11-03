@@ -12,6 +12,7 @@ pub struct BackgroundStatus {
     pub reader_visible: bool,
     pub completed_turns: u64,
     pub last_issue: Option<String>,
+    pub recovery_detail: Option<String>,
 }
 struct State {
     stop: bool,
@@ -19,6 +20,8 @@ struct State {
     wake: bool,
     active: usize,
     reader_visible: bool,
+    startup_pending: bool,
+    recovery_detail: Option<String>,
     turns: u64,
     last_issue: Option<String>,
 }
@@ -46,6 +49,8 @@ impl BackgroundControl {
                 wake: true,
                 active: 0,
                 reader_visible,
+                startup_pending: false,
+                recovery_detail: None,
                 turns: 0,
                 last_issue: None,
             }),
@@ -60,6 +65,8 @@ impl BackgroundControl {
                 "stopped"
             } else if s.stop {
                 "stopping"
+            } else if s.startup_pending {
+                "recovering"
             } else if s.active > 0 {
                 "working"
             } else {
@@ -69,6 +76,7 @@ impl BackgroundControl {
             reader_visible: s.reader_visible,
             completed_turns: s.turns,
             last_issue: s.last_issue.clone(),
+            recovery_detail: s.recovery_detail.clone(),
         }
     }
     pub fn observe(&self, observer: Arc<dyn Fn(BackgroundStatus) + Send + Sync>) {
@@ -89,6 +97,30 @@ impl BackgroundControl {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).active += 1;
         self.publish();
         WorkGuard(Arc::clone(self))
+    }
+    fn recovery_progress(&self, detail: &str) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let changed =
+            state.recovery_detail.as_deref() != Some(detail) || state.last_issue.is_some();
+        state.recovery_detail = Some(detail.into());
+        state.last_issue = None;
+        drop(state);
+        if changed {
+            self.publish();
+        }
+    }
+    pub fn startup_pending(&self) -> bool {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .startup_pending
+    }
+    pub fn set_startup_pending(&self, pending: bool) {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .startup_pending = pending;
+        self.publish();
     }
     pub fn reader_visible(&self, visible: bool) {
         self.state
@@ -142,7 +174,255 @@ pub fn spawn_worker(
     thread::Builder::new()
         .name("knowledge-garden-maintenance".into())
         .spawn(move || {
+            let mut startup_root = None;
+            let mut startup_session =
+                crate::application::migration_backup::startup_coordinator::Session::new();
+            let mut startup_coordinated = false;
+            let mut legacy_initialized = false;
+            let mut legacy_complete = false;
+            let mut legacy_adoption = None;
+            let mut precutover_initialized = false;
+            let mut precutover_complete = false;
+            let mut precutover = None;
+            let mut initial_checked = false;
+            let mut preverified_enabled = false;
+            let mut initial_verifier = None;
+            let mut final_verifier = None;
             while control.wait(interval) {
+                if control.startup_pending() && !startup_coordinated {
+                    if startup_root.is_none() {
+                        let root = match app.lock() {
+                            Ok(app) => app.startup_collection_root(),
+                            Err(_) => {
+                                control.finished_turn(
+                                    Some("The collection worker stopped unexpectedly.".into()),
+                                    false,
+                                );
+                                continue;
+                            }
+                        };
+                        if let Err(error) =
+                            crate::application::migration_backup::startup_coordinator::begin(&root)
+                        {
+                            control.finished_turn(Some(error.to_string()), false);
+                            continue;
+                        }
+                        startup_root = Some(root);
+                    }
+                    let root = startup_root.as_ref().unwrap();
+                    if let Ok(detail) =
+                        crate::application::migration_backup::startup_coordinator::description(root, &startup_session)
+                    {
+                        control.recovery_progress(&detail);
+                    }
+                    match crate::application::migration_backup::startup_coordinator::step(
+                        root,
+                        &mut startup_session,
+                    ) {
+                        Ok(true) => startup_coordinated = true,
+                        Ok(false) => {
+                            control.wake();
+                            continue;
+                        }
+                        Err(error) => {
+                            control.finished_turn(Some(error.to_string()), false);
+                            continue;
+                        }
+                    }
+                }
+                if control.startup_pending() && startup_coordinated && !legacy_complete {
+                    let root = startup_root.as_ref().unwrap();
+                    if !legacy_initialized {
+                        match crate::application::migration_backup::legacy_adopt::Session::new(root) {
+                            Ok(Some(session)) => legacy_adoption = Some(session),
+                            Ok(None) => legacy_complete = true,
+                            Err(error) => { control.finished_turn(Some(error.to_string()), false); continue; }
+                        }
+                        legacy_initialized = true;
+                    }
+                    if let Some(session) = legacy_adoption.as_mut() {
+                        control.recovery_progress("Verifying and preparing the previous migration backup.");
+                        match session.step() {
+                            Ok(true) => { legacy_complete = true; legacy_adoption = None; },
+                            Ok(false) => { control.wake(); continue; },
+                            Err(error) => { control.finished_turn(Some(error.to_string()), false); continue; }
+                        }
+                    }
+                }
+                if control.startup_pending() && startup_coordinated && !precutover_complete {
+                    let root = startup_root.as_ref().unwrap();
+                    if !precutover_initialized {
+                        match crate::application::migration_backup::precutover::Session::new(root) {
+                            Ok(Some(session)) => precutover = Some(session),
+                            Ok(None) => precutover_complete = true,
+                            Err(error) => {
+                                control.finished_turn(Some(error.to_string()), false);
+                                continue;
+                            }
+                        }
+                        precutover_initialized = true;
+                    }
+                    if let Some(session) = precutover.as_mut() {
+                        control.recovery_progress(
+                            "Checking and preserving historical owner statements.",
+                        );
+                        let action = match session.step(root) {
+                            Ok(action) => action,
+                            Err(error) => {
+                                control.finished_turn(Some(error.to_string()), false);
+                                continue;
+                            }
+                        };
+                        use crate::application::migration_backup::precutover::Action;
+                        match action {
+                            Action::More => {
+                                control.wake();
+                                continue;
+                            }
+                            Action::Import(id) => {
+                                let result = match app.lock() {
+                                    Ok(mut app) => session.import(&mut app, &id),
+                                    Err(_) => {
+                                        control.finished_turn(
+                                            Some(
+                                                "The collection worker stopped unexpectedly."
+                                                    .into(),
+                                            ),
+                                            false,
+                                        );
+                                        continue;
+                                    }
+                                };
+                                if let Err(error) = result {
+                                    control.finished_turn(Some(error.to_string()), false);
+                                    continue;
+                                }
+                                control.wake();
+                                continue;
+                            }
+                            Action::Receipts => {
+                                let result = match app.lock() {
+                                    Ok(mut app) => session.verify_receipt(&mut app),
+                                    Err(_) => {
+                                        control.finished_turn(
+                                            Some(
+                                                "The collection worker stopped unexpectedly."
+                                                    .into(),
+                                            ),
+                                            false,
+                                        );
+                                        continue;
+                                    }
+                                };
+                                if let Err(error) = result {
+                                    control.finished_turn(Some(error.to_string()), false);
+                                    continue;
+                                }
+                                control.wake();
+                                continue;
+                            }
+                            action @ (Action::VerifyPage(_)
+                            | Action::VerifyImport(_)
+                            | Action::Retire(_)
+                            | Action::Trust(_)
+                            | Action::TrustImport(_)) => {
+                                let result = match app.lock() {
+                                    Ok(mut app) => session.retirement_action(&mut app, action),
+                                    Err(_) => {
+                                        control.finished_turn(
+                                            Some(
+                                                "The collection worker stopped unexpectedly."
+                                                    .into(),
+                                            ),
+                                            false,
+                                        );
+                                        continue;
+                                    }
+                                };
+                                if let Err(error) = result {
+                                    control.finished_turn(Some(error.to_string()), false);
+                                    continue;
+                                }
+                                control.wake();
+                                continue;
+                            }
+                            Action::Complete => {
+                                precutover_complete = true;
+                                precutover = None;
+                            }
+                        }
+                    }
+                }
+                if control.startup_pending() && startup_coordinated && precutover_complete && !initial_checked {
+                    let root = startup_root.as_ref().unwrap();
+                    if initial_verifier.is_none() {
+                        match crate::application::migration_backup::final_verify::eligible(root) {
+                            Ok(false) => {
+                                control.finished_turn(Some("Migration authority is not ready for bounded startup verification.".into()), false);
+                                continue;
+                            },
+                            Ok(true) => match crate::application::migration_backup::final_verify::Session::new(root, true) {
+                                Ok(session) => { initial_verifier = Some(session); preverified_enabled = true; },
+                                Err(error) => { control.finished_turn(Some(error.to_string()), false); continue; }
+                            },
+                            Err(error) => { control.finished_turn(Some(error.to_string()), false); continue; }
+                        }
+                    }
+                    if let Some(session) = initial_verifier.as_mut() {
+                        control.recovery_progress("Verifying recovery backups before opening the library.");
+                        match session.step() {
+                            Ok(Some(proof)) => {
+                                let result = match app.lock() {
+                                    Ok(mut app) => app.accept_verified_startup(&proof),
+                                    Err(_) => { control.finished_turn(Some("The collection worker stopped unexpectedly.".into()), false); continue; }
+                                };
+                                if let Err(error) = result { control.finished_turn(Some(error.to_string()), false); continue; }
+                                initial_checked = true; initial_verifier = None;
+                            }
+                            Ok(None) => { control.wake(); continue; }
+                            Err(error) => { control.finished_turn(Some(error.to_string()), false); continue; }
+                        }
+                    }
+                }
+                if control.startup_pending() && startup_coordinated && precutover_complete && initial_checked {
+                    let ready = match app.lock() {
+                        Ok(app) => app.startup_ready_for_finish(),
+                        Err(_) => { control.finished_turn(Some("The collection worker stopped unexpectedly.".into()), false); continue; }
+                    };
+                    if ready && preverified_enabled {
+                        let root = startup_root.as_ref().unwrap();
+                        if final_verifier.is_none() {
+                            match crate::application::migration_backup::final_verify::Session::new(root, false) {
+                                Ok(session) => final_verifier = Some(session),
+                                Err(error) => { control.finished_turn(Some(error.to_string()), false); continue; }
+                            }
+                        }
+                        control.recovery_progress("Checking the recovery backup before completing startup.");
+                        match final_verifier.as_mut().unwrap().step() {
+                            Ok(Some(proof)) => {
+                                let result = match app.lock() {
+                                    Ok(mut app) => app.finish_verified_startup(&proof),
+                                    Err(_) => { control.finished_turn(Some("The collection worker stopped unexpectedly.".into()), false); continue; }
+                                };
+                                if let Err(error) = result { control.finished_turn(Some(error.to_string()), false); continue; }
+                                control.set_startup_pending(false);
+                            }
+                            Ok(None) => { control.wake(); continue; }
+                            Err(error) => { control.finished_turn(Some(error.to_string()), false); continue; }
+                        }
+                    } else {
+                        control.recovery_progress("Preparing library indexes and recovering queued work.");
+                        let outcome = match app.lock() {
+                            Ok(mut app) => app.resume_pending_startup_step(),
+                            Err(_) => { control.finished_turn(Some("The collection worker stopped unexpectedly.".into()), false); continue; }
+                        };
+                        match outcome {
+                            Ok(true) => control.set_startup_pending(false),
+                            Ok(false) => { control.wake(); continue; }
+                            Err(error) => { control.finished_turn(Some(error.to_string()), false); continue; }
+                        }
+                    }
+                }
                 let work = control.enter();
                 let mut issue = None;
                 let mut processed = false;
@@ -153,7 +433,14 @@ pub fn spawn_worker(
                         }
                         match app.lock() {
                             Ok(mut app) => {
-                                if let Err(error) = operation(&mut app) {
+                                let startup = app.resume_pending_startup();
+                                if startup.is_ok() {
+                                    control.set_startup_pending(false);
+                                }
+                                if let Err(error) = startup
+                                    .and_then(|_| app.recover_integrity_exclusions())
+                                    .and_then(|_| operation(&mut app))
+                                {
                                     issue = Some(error.to_string());
                                 }
                             }
@@ -173,7 +460,11 @@ pub fn spawn_worker(
                     Vec::new()
                 } else {
                     match app.lock() {
-                        Ok(mut app) => match app.claim_due_semantic_jobs(2) {
+                        Ok(mut app) => match app
+                            .resume_pending_startup()
+                            .and_then(|_| app.recover_integrity_exclusions())
+                            .and_then(|_| app.claim_due_semantic_jobs(2))
+                        {
                             Ok(jobs) => jobs,
                             Err(error) => {
                                 issue = Some(error.to_string());
@@ -204,7 +495,11 @@ pub fn spawn_worker(
                     }
                     match app.lock() {
                         Ok(mut app) => {
-                            if let Err(error) = app.finish_semantic_job(job, result) {
+                            if let Err(error) = app
+                                .resume_pending_startup()
+                                .and_then(|_| app.recover_integrity_exclusions())
+                                .and_then(|_| app.finish_semantic_job(job, result))
+                            {
                                 issue = Some(error.to_string());
                             }
                         }
@@ -224,4 +519,21 @@ pub fn spawn_worker(
                 .stopped = true;
             control.publish();
         })
+}
+
+#[cfg(test)]
+mod startup_status_tests {
+    use super::*;
+    #[test]
+    fn recovery_status_is_available_without_collection_lock() {
+        let control = BackgroundControl::new(true);
+        control.set_startup_pending(true);
+        let guard = control.enter();
+        assert_eq!(control.status().phase, "recovering");
+        assert!(control.startup_pending());
+        control.set_startup_pending(false);
+        assert_eq!(control.status().phase, "working");
+        drop(guard);
+        assert_eq!(control.status().phase, "waiting");
+    }
 }

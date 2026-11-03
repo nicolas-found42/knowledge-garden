@@ -54,6 +54,26 @@ pub struct ComparisonSide {
     pub passage: Option<ComparisonPassage>,
 }
 impl Application {
+    pub fn verified_comparison_original_path(
+        &mut self,
+        request: ComparisonRequest,
+    ) -> Result<std::path::PathBuf> {
+        self.require_integrity_recovered()?;
+        let side = self.comparison_side(request)?;
+        if side.status == ComparisonStatus::Stale || side.asset.is_none() {
+            return Err(GardenError::Invalid(side.detail));
+        }
+        if let Some(version) = side.source_version_id {
+            self.verified_original_version_open_path(
+                &side.source_id,
+                &version,
+                side.asset.as_deref().unwrap(),
+            )
+        } else {
+            self.verified_original_open_path(&side.source_id)
+        }
+    }
+
     pub fn comparison_original_path(
         &self,
         request: ComparisonRequest,
@@ -70,6 +90,7 @@ impl Application {
     }
 
     pub fn comparison_side(&self, request: ComparisonRequest) -> Result<ComparisonSide> {
+        self.require_integrity_recovered()?;
         self.source_dir(&request.source_id)?;
         if request.line_start == 0
             || request
@@ -128,11 +149,29 @@ impl Application {
         }
         let original = match self.original_path(&request.source_id) {
             Ok(path) => path,
-            Err(_) => {
+            Err(error) => {
+                self.enqueue_integrity_exclusion(&request.source_id, version, &error.to_string())?;
                 side.detail="The retained original is unavailable. Its missing passage has not been replaced with generated text.".into();
                 return Ok(side);
             }
         };
+        let snapshot =
+            match self.verified_asset_snapshot(&original, &page.info.sha256, &page.info.format) {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    if !matches!(error, GardenError::Recovery(_)) {
+                        self.enqueue_integrity_exclusion(
+                            &request.source_id,
+                            version,
+                            &error.to_string(),
+                        )?;
+                    }
+                    side.detail =
+                        format!("The retained original failed integrity verification. {error}");
+                    side.processing_status = "failed".into();
+                    return Ok(side);
+                }
+            };
         side.source_version_id = page
             .info
             .versions_seen
@@ -148,7 +187,7 @@ impl Application {
                 .is_none_or(|media| !media.has_evidence());
         let (text, basis) = match page.info.extraction {
             ExtractionState::TextPreserved => {
-                match read_bounded_text(&original, MAX_TEXT_BYTES as u64) {
+                match read_bounded_text(snapshot.path(), MAX_TEXT_BYTES as u64) {
                     Ok(text) => (text, "retained_original_text"),
                     Err(_) => {
                         side.detail="A bounded UTF-8 passage could not be read from this original. Open the retained original or source context.".into();
@@ -176,14 +215,13 @@ impl Application {
         // interpretation without changing the acquired source's bytes or version.
         for summary in &page.info.knowledge_pages {
             digest.update(summary.page_id.as_bytes());
-            match self
-                .knowledge_path(&summary.page_id)
-                .and_then(|path| read_bounded_text(&path, MAX_PAGE_BYTES))
-            {
+            match self.knowledge_path(&summary.page_id).and_then(|path| {
+                super::trusted_pages::read_active_or_original(&path, MAX_PAGE_BYTES)
+            }) {
                 Ok(content) => {
                     digest.update([1]);
                     digest.update((content.len() as u64).to_be_bytes());
-                    digest.update(content.as_bytes());
+                    digest.update(&content);
                 }
                 Err(_) => {
                     digest.update([0]);
@@ -203,6 +241,17 @@ impl Application {
         {
             side.status = ComparisonStatus::Stale;
             side.detail="This source or its current knowledge changed. Refresh this selection to compare current material.".into();
+            return Ok(side);
+        }
+        if let Err(error) =
+            self.verified_asset_snapshot(&original, &page.info.sha256, &page.info.format)
+        {
+            if !matches!(error, GardenError::Recovery(_)) {
+                self.enqueue_integrity_exclusion(&request.source_id, version, &error.to_string())?;
+            }
+            side.status = ComparisonStatus::Unavailable;
+            side.detail = format!("The retained original failed integrity verification. {error}");
+            side.processing_status = "failed".into();
             return Ok(side);
         }
         side.passage = passage(&text, request.line_start, basis);

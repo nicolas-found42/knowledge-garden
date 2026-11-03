@@ -461,6 +461,7 @@ impl Application {
         Ok((path, record, body, text.into_bytes()))
     }
     pub fn list_saved_views(&self, query: &str, offset: usize) -> Result<SavedViews> {
+        self.require_integrity_recovered()?;
         if query.len() > 512 {
             return invalid("Saved view name filter is too long.");
         }
@@ -483,6 +484,7 @@ impl Application {
         })
     }
     pub fn open_saved_view(&self, id: &str) -> Result<SavedView> {
+        self.require_integrity_recovered()?;
         let (_, record, _, _) = self.read_saved_view(id)?;
         self.saved_view_dto(record)
     }
@@ -630,6 +632,7 @@ impl Application {
         name: &str,
         mut definition: ViewDefinition,
     ) -> Result<SavedView> {
+        self.require_integrity_recovered()?;
         definition.validate()?;
         definition.reset_positions();
         let name = view_name(name)?;
@@ -723,6 +726,7 @@ impl Application {
         self.saved_view_dto(record)
     }
     pub fn rename_saved_view(&mut self, id: &str, name: &str) -> Result<SavedView> {
+        self.require_integrity_recovered()?;
         let (path, mut record, body, expected) = self.read_saved_view(id)?;
         let name = view_name(name)?;
         if self
@@ -747,6 +751,7 @@ impl Application {
         self.saved_view_dto(record)
     }
     pub fn remove_saved_view(&mut self, id: &str) -> Result<()> {
+        self.require_integrity_recovered()?;
         let (path, _, _, expected) = self.read_saved_view(id)?;
         let trash = self
             .root
