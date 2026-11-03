@@ -136,6 +136,20 @@ impl Application {
             gaps.push(gap("source_unavailable", id, "The retained original is unavailable; readable source and knowledge pages remain accessible.", "Automatic reconciliation continues. A missing original cannot be regenerated from knowledge.", Some(id.into()), false, None));
         }
         let info = &page.info;
+        if info.extraction == ExtractionState::Empty {
+            let mut explanation = gap(
+                "empty_source",
+                id,
+                &info.extraction_detail,
+                "The original is retained. A new source version containing text can be processed.",
+                Some(id.into()),
+                available,
+                None,
+            );
+            self.bind_extraction_gap(info, &mut explanation);
+            gaps.push(explanation);
+            return;
+        }
         for linked in info.knowledge_pages.iter().take(100) {
             if let Err(error) = self.knowledge_path(&linked.page_id) {
                 let detail = error.to_string();

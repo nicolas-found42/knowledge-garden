@@ -37,6 +37,80 @@ fn observe(control: &Arc<BackgroundControl>) -> Receiver<BackgroundStatus> {
     }));
     rx
 }
+
+#[test]
+#[ignore = "Run via npm run test:rust:startup without unrelated test I/O"]
+fn clean_restart_of_nine_small_sources_opens_the_reader_promptly() {
+    use knowledge_garden::{
+        application::AcquisitionMethod, extraction::LocalExtractor, media::NativeAudioProcessor,
+    };
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("collection");
+    let mut existing = Application::open(&root).unwrap();
+    for index in 0..9 {
+        let input = temp.path().join(format!("note-{index}.txt"));
+        fs::write(
+            &input,
+            format!("Garden note {index}. The north beds use drip irrigation."),
+        )
+        .unwrap();
+        existing
+            .import_source(&input, AcquisitionMethod::Picker)
+            .unwrap();
+    }
+    Application::record_controlled_shutdown(&root).unwrap();
+    drop(existing);
+    let started = Instant::now();
+    let app = Arc::new(Mutex::new(
+        Application::open_pending_with_all_providers_and_meaning_assets(
+            &root,
+            Arc::new(Offline),
+            Arc::new(LocalExtractor),
+            Arc::new(NativeAudioProcessor),
+            None::<&std::path::Path>,
+        )
+        .unwrap(),
+    ));
+    let control = BackgroundControl::new(true);
+    control.set_startup_pending(true);
+    let events = observe(&control);
+    let worker = spawn_worker(
+        Arc::clone(&app),
+        Arc::new(Offline),
+        Arc::clone(&control),
+        Duration::from_secs(1),
+    )
+    .unwrap();
+    let deadline = started + Duration::from_secs(60);
+    let mut transitions = Vec::new();
+    while control.startup_pending() && Instant::now() < deadline {
+        if let Ok(event) = events.recv_timeout(Duration::from_millis(20)) {
+            if !event
+                .recovery_detail
+                .as_deref()
+                .is_some_and(|detail| detail.starts_with("Backup:"))
+            {
+                transitions.push((started.elapsed(), event.phase, event.recovery_detail));
+            }
+        }
+    }
+    let ready = !control.startup_pending();
+    let elapsed = started.elapsed();
+    control.stop();
+    worker.join().unwrap();
+    eprintln!(
+        "Reader startup took {elapsed:?}; last transitions: {:?}",
+        &transitions[transitions.len().saturating_sub(8)..]
+    );
+    assert!(
+        ready && elapsed < Duration::from_secs(5),
+        "Reader startup took {elapsed:?}"
+    );
+    assert_eq!(
+        app.lock().unwrap().list_sources(0).unwrap().sources.len(),
+        9
+    );
+}
 #[test]
 fn hidden_reader_continues_watching_quit_stops_and_restart_resumes_without_duplicate_sources() {
     let temp = tempfile::tempdir().unwrap();
@@ -284,6 +358,7 @@ fn unchanged_background_reopen_reuses_the_retained_snapshot() {
         );
         control.stop();
         worker.join().unwrap();
+        Application::record_controlled_shutdown(&root).unwrap();
         drop(app);
         let count = fs::read_dir(root.join(".recovery/migration"))
             .unwrap()

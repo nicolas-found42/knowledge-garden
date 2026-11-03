@@ -4,6 +4,7 @@ use crate::semantic::{
     FieldAlignmentOutcome, KnowledgeDraft, ProviderError, RelationshipDraft, SemanticDecision,
     SemanticProvider, SourceUpdateDraft, SourceUpdateRole, TagDraft,
 };
+mod prose;
 use regex::Regex;
 use reqwest::blocking::Client;
 use serde_json::{json, Value};
@@ -333,6 +334,9 @@ impl JevSemanticProvider {
 }
 
 impl SemanticProvider for JevSemanticProvider {
+    fn policy_revision(&self) -> u32 {
+        1
+    }
     fn judge_navigation(
         &self,
         goal: &str,
@@ -417,6 +421,30 @@ impl SemanticProvider for JevSemanticProvider {
         source_text: &str,
         prior_source_text: Option<&str>,
     ) -> std::result::Result<KnowledgeDraft, ProviderError> {
+        self.form_knowledge_with_policy(source_text, prior_source_text, true)
+    }
+
+    fn form_knowledge_for_source(
+        &self,
+        source_text: &str,
+        prior_source_text: Option<&str>,
+        source_format: &str,
+    ) -> std::result::Result<KnowledgeDraft, ProviderError> {
+        let prose_allowed = matches!(
+            source_format,
+            "" | "txt" | "text" | "md" | "markdown" | "html" | "htm"
+        );
+        self.form_knowledge_with_policy(source_text, prior_source_text, prose_allowed)
+    }
+}
+
+impl JevSemanticProvider {
+    fn form_knowledge_with_policy(
+        &self,
+        source_text: &str,
+        prior_source_text: Option<&str>,
+        prose_allowed: bool,
+    ) -> std::result::Result<KnowledgeDraft, ProviderError> {
         if source_text.starts_with("[CONVERSATION ") {
             return self.form_conversation_knowledge(source_text);
         }
@@ -439,6 +467,23 @@ impl SemanticProvider for JevSemanticProvider {
         let office_candidates = office_statement_candidates(source_text);
         let office_mode = !office_candidates.is_empty() || source_text.contains("; channel=");
         candidates.extend(office_candidates);
+        let prose_mode = prose_allowed
+            && !photo_mode
+            && !pdf_mode
+            && !audio_mode
+            && !office_mode
+            && !candidates.iter().any(|candidate| {
+                matches!(
+                    candidate.kind,
+                    CandidateKind::Event
+                        | CandidateKind::CodeConcept
+                        | CandidateKind::AdrDecision
+                        | CandidateKind::RepositoryQuestion
+                )
+            });
+        if prose_mode {
+            candidates.extend(prose::candidates(source_text));
+        }
         candidates.sort_by_key(|candidate| (candidate.start, candidate.end));
         if candidates.is_empty() && !(audio_mode && !audio_transcript_spans(source_text).is_empty())
         {
@@ -488,6 +533,7 @@ impl SemanticProvider for JevSemanticProvider {
                 CandidateKind::Reference => "Does the supplied text contain this exact URL as a reference occurrence? Do not infer or fetch its destination content.",
                 CandidateKind::PhotoStatement => "Does this exact native photo channel statement contain useful evidence for a photo page? Preserve the exact text and channel qualifiers. Metadata/captions are unauthenticated, OCR is transcription rather than a verified event, and classification is uncertain model interpretation. Include an explicit unknown capture date rather than inventing one. Do not infer people, dates, counts or scene objects beyond this channel statement.",
                 CandidateKind::OfficeStatement => "Is this exact extracted document passage a meaningful source statement worth representing on a source knowledge page? This includes qualified table measurements, short visible count/value fragments, and speaker-note instructions or corrections; do not drop them merely because they are provisional, conditional, or not a complete sentence. Preserve table headers, every qualification, and visible-slide versus speaker-note origin. Do not convert a proposed correction or conditional instruction into a completed event. Reject headings or labels alone. Judge what the source states, not whether it is true in the world.",
+                CandidateKind::ProseStatement => "Does this exact acquired passage state meaningful information worth retaining as source-backed knowledge? Preserve uncertainty, negation, proposals and future tense as stated. Reject headings, separator lines, greetings and labels alone. Judge what the source states, not whether it is true in the world.",
                 _ => "Does this exact source span support the candidate as a statement made by the source? Do not judge whether the statement is true in the world.",
             };
             questions.insert(format!("support_{i}"), json!({
@@ -495,6 +541,9 @@ impl SemanticProvider for JevSemanticProvider {
                 "instructions":format!("{judgment} Candidate value: {}; preserved qualification: {}; origin: {}. Exact source span: {}", candidate.value, candidate.qualifier.as_deref().unwrap_or("none stated"), candidate.origin, candidate.quote),
                 "criteria":{"true":"The value and its stated meaning are supported by the span", "false":"The value is unsupported, overstates the span, or loses an explicit qualification"}
             }));
+        }
+        if prose_mode {
+            prose::add_questions(&mut questions, &candidates);
         }
         let update_criteria = update_spans
             .iter()
@@ -843,7 +892,8 @@ impl SemanticProvider for JevSemanticProvider {
             .iter()
             .find(|candidate| candidate.kind == CandidateKind::Event)
             .copied();
-        if event.is_none()
+        if !prose_mode
+            && event.is_none()
             && !accepted.iter().any(|candidate| {
                 matches!(
                     candidate.kind,
@@ -1134,6 +1184,9 @@ impl SemanticProvider for JevSemanticProvider {
             }
         }
         draft.entities.extend(entity_labels.values().cloned());
+        if prose_mode {
+            prose::append_knowledge(&candidates, &accepted, &result_answers, &model, &mut draft)?;
+        }
         if let Some(event) = event {
             let event_label = event.value.clone();
             for candidate in &accepted {
@@ -1521,6 +1574,7 @@ fn push_audio_sentence(
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CandidateKind {
+    ProseStatement,
     CodeConcept,
     AdrDecision,
     RepositoryQuestion,

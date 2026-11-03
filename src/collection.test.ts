@@ -21,6 +21,26 @@ const listing = {
   next_offset: null,
   revision: "r1",
 };
+it("shows zero groups for an empty collection without an inverted range", async () => {
+  const root = document.createElement("main");
+  document.body.append(root);
+  renderCollection(
+    root,
+    {
+      collectionGroups: vi.fn().mockResolvedValue({
+        groups: [],
+        next_offset: null,
+        revision: "empty",
+      }),
+      collectionMembers: vi.fn(),
+    },
+    newCollectionView(),
+    vi.fn(),
+    vi.fn(),
+  );
+  expect(await screen.findByText("0 groups")).toBeTruthy();
+  expect(root.textContent).not.toContain("1–0 groups");
+});
 it("continues bounded member windows and retains selection, expansion and draft filter across presentations", async () => {
   const api: Pick<GardenApi, "collectionGroups" | "collectionMembers"> = {
     collectionGroups: vi.fn().mockResolvedValue(listing),

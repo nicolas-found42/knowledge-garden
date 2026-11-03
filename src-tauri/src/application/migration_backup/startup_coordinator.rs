@@ -56,7 +56,7 @@ fn verified(saved: &Path, session: &mut Session) -> Result<bool> {
                 &saved.join("manifest.sqlite"),
                 work.path(),
             )?;
-            let mut cursor = incremental_verify::Session::new();
+            let mut cursor = incremental_verify::Session::ephemeral();
             cursor.capture()?;
             Verification::V3 {
                 path: saved.to_owned(),
@@ -421,7 +421,7 @@ pub(crate) fn step(root: &Path, session: &mut Session) -> Result<bool> {
             if session.live_comparison.is_none() {
                 let work = tempfile::tempdir()?;
                 incremental_verify::begin(root, &db, work.path())?;
-                session.live_comparison = Some((work, incremental_verify::Session::new()));
+                session.live_comparison = Some((work, incremental_verify::Session::ephemeral()));
                 return Ok(false);
             }
             let (work, cursor) = session.live_comparison.as_mut().unwrap();

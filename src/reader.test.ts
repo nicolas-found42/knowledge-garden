@@ -1311,6 +1311,56 @@ it("shows background semantic completion on the active source without closing it
   );
 });
 
+it("shows failed first-version processing prominently instead of a pending banner", async () => {
+  const failed: SourcePage = {
+    ...riverside,
+    info: {
+      ...riverside.info,
+      semantic_state: "failed",
+      semantic_error:
+        "Semantic processing could not identify supported knowledge.",
+      update_status: "pending",
+      semantic_retry_at: null,
+    },
+  };
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(failed);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Add source" }));
+  expect(await screen.findByText(/Processing failed ·/)).toBeTruthy();
+  expect(root.textContent).not.toContain("Processing pending ·");
+});
+
+it("describes empty supported text without calling its format unsupported", async () => {
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue({
+    ...riverside,
+    info: {
+      ...riverside.info,
+      bytes: 0,
+      line_count: 0,
+      extraction: "empty",
+      semantic_state: "unavailable",
+      extraction_detail:
+        "The source contains no extractable text. The original is retained.",
+    },
+    body: "# Empty source\n\nThe source contains no extractable text. The original is retained.",
+  } satisfies SourcePage);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(await screen.findByText("Source information"));
+  expect(screen.getByText("No text to process")).toBeTruthy();
+  expect(root.textContent).not.toContain("Unsupported format");
+  expect(root.textContent).not.toContain("Not available for this format");
+});
+
 it("shows permanent semantic failure separately and stops polling that source", async () => {
   const failed: SourcePage = {
     ...riverside,

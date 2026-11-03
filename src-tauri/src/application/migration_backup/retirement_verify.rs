@@ -69,7 +69,7 @@ impl Session {
             imported_cursor: None,
             pending_import: None,
             phase: 0,
-            verification: incremental_verify::Session::new(),
+            verification: incremental_verify::Session::ephemeral(),
             identity: identity(&saved.join("manifest.sqlite"))?,
         })
     }

@@ -23,7 +23,7 @@ struct Cursor {
     pending: Option<Pending>,
 }
 
-struct Directory(*mut libc::DIR);
+struct Directory(*mut libc::DIR, fs::Metadata);
 impl Directory {
     fn open(root: &Path, relative: &Path) -> Result<Self> {
         use rustix::fs::{openat, Mode, OFlags, CWD};
@@ -34,7 +34,9 @@ impl Directory {
             fd = openat(&fd, part.as_os_str(), flags, Mode::empty())
                 .map_err(std::io::Error::from)?;
         }
-        let raw = fd.into_raw_fd();
+        let file: File = fd.into();
+        let metadata = file.metadata()?;
+        let raw = file.into_raw_fd();
         let dir = unsafe { libc::fdopendir(raw) };
         if dir.is_null() {
             unsafe {
@@ -42,7 +44,7 @@ impl Directory {
             }
             return Err(std::io::Error::last_os_error().into());
         }
-        Ok(Self(dir))
+        Ok(Self(dir, metadata))
     }
     fn read(&mut self) -> Result<Option<String>> {
         unsafe {
@@ -163,6 +165,116 @@ pub(super) enum Turn {
     Complete,
 }
 
+fn excluded(current: &Path, name: &str, path: &Path) -> bool {
+    (current.as_os_str().is_empty() && [".derived", ".collection.lock"].contains(&name))
+        || path == Path::new(".recovery/migration")
+}
+
+/// Read-only verification starts afresh after restart. Keeping one stream per
+/// ancestor avoids durable `seen` markers without buffering the directory tree.
+pub(super) struct MemoryTraversal {
+    stack: Vec<(Frame, Directory)>,
+    pending: Option<Pending>,
+    failure: Option<String>,
+}
+impl MemoryTraversal {
+    pub(super) fn new(root: &Path) -> Result<Self> {
+        Ok(Self {
+            stack: vec![Self::open_frame(root, PathBuf::new())?],
+            pending: None,
+            failure: None,
+        })
+    }
+    fn open_frame(root: &Path, path: PathBuf) -> Result<(Frame, Directory)> {
+        let expected = frame(root, path.clone())?;
+        let directory = Directory::open(root, &path)?;
+        let m = &directory.1;
+        if (
+            expected.device,
+            expected.inode,
+            expected.modified,
+            expected.modified_ns,
+        ) != (m.dev(), m.ino(), m.mtime(), m.mtime_nsec())
+        {
+            return Err(GardenError::Recovery(
+                "Verification directory changed while opening it.".into(),
+            ));
+        }
+        Ok((expected, directory))
+    }
+    pub(super) fn next(&mut self, root: &Path) -> Result<Turn> {
+        if let Some(error) = &self.failure {
+            return Err(GardenError::Recovery(error.clone()));
+        }
+        let result = self.advance(root);
+        if let Err(error) = &result {
+            self.failure = Some(error.to_string());
+        }
+        result
+    }
+    fn advance(&mut self, root: &Path) -> Result<Turn> {
+        if let Some(item) = &self.pending {
+            return Ok(Turn::Entry(item.path.clone(), item.directory));
+        }
+        let Some((expected, directory)) = self.stack.last_mut() else {
+            return Ok(Turn::Complete);
+        };
+        let actual = frame(root, expected.path.clone())?;
+        if (
+            actual.device,
+            actual.inode,
+            actual.modified,
+            actual.modified_ns,
+        ) != (
+            expected.device,
+            expected.inode,
+            expected.modified,
+            expected.modified_ns,
+        ) {
+            return Err(GardenError::Recovery(
+                "A collection directory changed during verification.".into(),
+            ));
+        }
+        for _ in 0..16 {
+            let Some(name) = directory.read()? else {
+                self.stack.pop();
+                return Ok(Turn::More);
+            };
+            if name == "." || name == ".." {
+                continue;
+            }
+            let path = expected.path.join(&name);
+            if excluded(&expected.path, &name, &path) {
+                continue;
+            }
+            let metadata = fs::symlink_metadata(root.join(&path))?;
+            if !metadata.is_file() && !metadata.is_dir() {
+                return Err(GardenError::Recovery(
+                    "Verification found a non-regular collection entry.".into(),
+                ));
+            }
+            let directory = metadata.is_dir();
+            self.pending = Some(Pending {
+                path: path.clone(),
+                directory,
+            });
+            return Ok(Turn::Entry(path, directory));
+        }
+        Ok(Turn::More)
+    }
+    pub(super) fn acknowledge(&mut self, root: &Path, descend: bool) -> Result<()> {
+        let item = self
+            .pending
+            .as_ref()
+            .ok_or_else(|| GardenError::Recovery("No verification entry is pending.".into()))?;
+        if item.directory && descend {
+            self.stack.push(Self::open_frame(root, item.path.clone())?);
+        }
+        self.pending = None;
+        Ok(())
+    }
+}
+
 fn marker(root: &Path, journal: &Path, path: &Path) -> Result<PathBuf> {
     validate_relative_collection_path(path)?;
     let bytes = serde_json::to_vec(path)?;
@@ -242,10 +354,7 @@ pub(super) fn next(
             continue;
         }
         let path = current.path.join(&name);
-        if (current.path.as_os_str().is_empty()
-            && [".derived", ".collection.lock"].contains(&name.as_str()))
-            || path == Path::new(".recovery/migration")
-        {
+        if excluded(&current.path, &name, &path) {
             continue;
         }
         if seen(work_root, journal, &path)? {
@@ -309,6 +418,51 @@ fn acknowledge_with_descend(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn memory_cursor_keeps_pending_entries_and_nested_parent_positions() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir(root.join("nested")).unwrap();
+        fs::write(root.join("nested/file"), b"retained").unwrap();
+        for i in 0..80 {
+            fs::write(root.join(format!("item-{i}")), b"x").unwrap();
+        }
+        let mut cursor = MemoryTraversal::new(root).unwrap();
+        let mut seen = Vec::new();
+        for _ in 0..1000 {
+            match cursor.next(root).unwrap() {
+                Turn::Entry(path, directory) => {
+                    assert_eq!(
+                        cursor.next(root).unwrap(),
+                        Turn::Entry(path.clone(), directory)
+                    );
+                    assert!(!seen.contains(&path));
+                    seen.push(path);
+                    cursor.acknowledge(root, true).unwrap();
+                }
+                Turn::More => (),
+                Turn::Complete => break,
+            }
+        }
+        assert_eq!(seen.len(), 82);
+        assert!(seen.contains(&PathBuf::from("nested/file")));
+        assert!(seen.contains(&PathBuf::from("item-79")));
+    }
+    #[test]
+    fn memory_cursor_never_skips_an_error_on_a_changed_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir(root.join("nested")).unwrap();
+        let mut cursor = MemoryTraversal::new(root).unwrap();
+        assert_eq!(
+            cursor.next(root).unwrap(),
+            Turn::Entry("nested".into(), true)
+        );
+        cursor.acknowledge(root, true).unwrap();
+        fs::write(root.join("nested/new-file"), b"changed").unwrap();
+        assert!(cursor.next(root).is_err());
+        assert!(cursor.next(root).is_err());
+    }
     #[test]
     fn cursor_repeats_unacknowledged_entry_and_resumes_nested_directories() {
         let temp = tempfile::tempdir().unwrap();

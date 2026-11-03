@@ -120,6 +120,7 @@ jobs:
         # Run the slow AAC case first so a hosted inference deadline failure
         # surfaces promptly. The remaining invocation excludes only that case.
         run: |
+          npm run test:rust:startup
           cargo test --locked --manifest-path src-tauri/Cargo.toml --test audio_workflow pinned_local_whisper_accepts_aac_m4a_through_application_import -- --exact
           npm run test:rust -- -- --skip pinned_local_whisper_accepts_aac_m4a_through_application_import
       - name: Test frontend against native application driver

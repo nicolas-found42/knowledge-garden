@@ -378,7 +378,9 @@ export function renderCollection(
     pagination.append(
       node(
         "span",
-        `${state.offset + 1}–${state.offset + state.result.groups.length} groups`,
+        state.result.groups.length
+          ? `${state.offset + 1}–${state.offset + state.result.groups.length} groups`
+          : "0 groups",
       ),
     );
     if (state.offset > 0)

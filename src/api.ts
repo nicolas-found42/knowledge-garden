@@ -6,6 +6,7 @@ export type AcquisitionMethod =
   "picker" | "drop" | "url" | "watch" | "repository";
 export type ExtractionState =
   | "text_preserved"
+  | "empty"
   | "structured_text"
   | "partial_text"
   | "invalid_container"

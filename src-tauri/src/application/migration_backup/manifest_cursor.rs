@@ -37,6 +37,11 @@ pub(super) fn digest_bytes(bytes: &[u8]) -> String {
     finish(digest, bytes.len() as u64)
 }
 pub(super) fn digest_file(root: &Path, path: &Path) -> Result<String> {
+    digest_bounded(root, path, u64::MAX)?
+        .ok_or_else(|| GardenError::Recovery("Manifest member exceeds its digest limit.".into()))
+}
+/// Return no digest when the opened file exceeds this turn's byte budget.
+pub(super) fn digest_bounded(root: &Path, path: &Path, limit: u64) -> Result<Option<String>> {
     let mut file = bounded_copy::source_file(root, path)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() {
@@ -45,6 +50,9 @@ pub(super) fn digest_file(root: &Path, path: &Path) -> Result<String> {
         ));
     }
     let length = metadata.len();
+    if length > limit {
+        return Ok(None);
+    }
     let identity = Cursor {
         path: path.to_owned(),
         device: metadata.dev(),
@@ -66,7 +74,7 @@ pub(super) fn digest_file(root: &Path, path: &Path) -> Result<String> {
     }
     check(&file, &identity)?;
     check(&bounded_copy::source_file(root, path)?, &identity)?;
-    Ok(finish(digest, length))
+    Ok(Some(finish(digest, length)))
 }
 #[derive(Serialize, Deserialize)]
 struct Cursor {

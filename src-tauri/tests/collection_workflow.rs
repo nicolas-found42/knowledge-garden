@@ -3969,7 +3969,7 @@ fn office_record_keys_preserve_multiple_fields_and_source_scope_across_revision(
 }
 
 #[test]
-fn ordinary_report_without_event_identity_stays_recoverable_instead_of_panicking() {
+fn ordinary_report_without_special_event_identity_publishes_source_backed_knowledge() {
     let workspace = tempdir().unwrap();
     let source = workspace.path().join("field-report.txt");
     fs::write(&source, "There were 12 visits on May 17, 2024.").unwrap();
@@ -3988,13 +3988,20 @@ fn ordinary_report_without_event_identity_stays_recoverable_instead_of_panicking
         .unwrap();
     app.resume_due_semantic_jobs().unwrap();
     let current = app.open_source(&imported.info.source_id).unwrap();
-    assert_eq!(current.info.semantic_state, "pending");
-    assert!(current
-        .info
-        .semantic_error
-        .as_deref()
-        .unwrap_or_default()
-        .contains("No supported event identity"));
+    assert_eq!(current.info.semantic_state, "complete");
+    assert_eq!(current.info.update_status, None);
+    assert_eq!(current.info.semantic_error, None);
+    assert!(!current.info.knowledge_pages.is_empty());
+    let knowledge = app
+        .open_knowledge_page(&current.info.knowledge_pages[0].page_id)
+        .unwrap();
+    assert!(knowledge
+        .markdown
+        .contains("There were 12 visits on May 17, 2024."));
+    assert_eq!(
+        fs::read(app.original_path(&current.info.source_id).unwrap()).unwrap(),
+        fs::read(&source).unwrap()
+    );
     assert!(current
         .body
         .contains("There were 12 visits on May 17, 2024."));
@@ -4127,7 +4134,7 @@ fn empty_text_source_is_retained_without_claiming_extraction() {
         .import_source(&source, AcquisitionMethod::Picker)
         .unwrap();
 
-    assert_eq!(page.info.extraction, ExtractionState::Unsupported);
+    assert_eq!(page.info.extraction, ExtractionState::Empty);
     assert_eq!(page.info.line_count, 0);
     assert!(page.info.extraction_detail.contains("no extractable text"));
     assert!(!page.body.contains("lines 1–0"));

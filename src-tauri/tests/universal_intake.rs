@@ -3,6 +3,35 @@ use std::fs;
 use tempfile::tempdir;
 
 #[test]
+fn empty_supported_text_has_a_distinct_state_and_preserves_its_original() {
+    let temp = tempdir().unwrap();
+    let mut app = Application::open(temp.path().join("collection")).unwrap();
+    for (name, bytes) in [("zero.txt", ""), ("whitespace.md", " \n\t")] {
+        let input = temp.path().join(name);
+        fs::write(&input, bytes).unwrap();
+        let source = app
+            .import_source(&input, AcquisitionMethod::Picker)
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(source.info.extraction).unwrap(),
+            "empty"
+        );
+        assert!(source
+            .info
+            .extraction_detail
+            .contains("no extractable text"));
+        assert_eq!(
+            fs::read(app.original_path(&source.info.source_id).unwrap()).unwrap(),
+            bytes.as_bytes()
+        );
+        assert!(app.claim_due_semantic_jobs(1).unwrap().is_empty());
+        let gaps = app.inspect_gaps(&source.info.source_id).unwrap();
+        assert_eq!(gaps.gaps.len(), 1);
+        assert_eq!(gaps.gaps[0].category, "empty_source");
+    }
+}
+
+#[test]
 fn unknown_and_empty_files_are_retained_with_honest_states() {
     let temp = tempdir().unwrap();
     let mut app = Application::open(temp.path().join("collection")).unwrap();
@@ -15,7 +44,14 @@ fn unknown_and_empty_files_are_retained_with_honest_states() {
         let source = app
             .import_source(&input, AcquisitionMethod::Picker)
             .unwrap();
-        assert_eq!(source.info.extraction, ExtractionState::Unsupported);
+        assert_eq!(
+            source.info.extraction,
+            if name == "empty.txt" {
+                ExtractionState::Empty
+            } else {
+                ExtractionState::Unsupported
+            }
+        );
         assert!(source.info.extraction_detail.contains("retained"));
         let original = app
             .original_asset_path(&source.info.source_id, &source.info.asset)
