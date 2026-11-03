@@ -624,6 +624,12 @@ export interface GardenApi {
   openKnowledgePage(pageId: string): Promise<KnowledgePage>;
   openOriginal(sourceId: string): Promise<void>;
   previewOriginal?(sourceId: string): Promise<string>;
+  previewContainerPart?(
+    sourceId: string,
+    version: string,
+    asset: string,
+    locator: string,
+  ): Promise<string>;
   previewVideoFrame?(
     sourceId: string,
     sourceVersionId: string,
@@ -725,6 +731,8 @@ export const desktopApi: GardenApi = {
   openKnowledgePage: (pageId) => invoke("open_knowledge_page", { pageId }),
   openOriginal: (sourceId) => invoke("open_original", { sourceId }),
   previewOriginal: (sourceId) => invoke("preview_original", { sourceId }),
+  previewContainerPart: (sourceId, version, asset, locator) =>
+    invoke("preview_container_part", { sourceId, version, asset, locator }),
   previewVideoFrame: (sourceId, sourceVersionId, asset, atMs) =>
     invoke("preview_video_frame", { sourceId, sourceVersionId, asset, atMs }),
   openOriginalVersion: (sourceId, sourceVersionId, asset) =>

@@ -42,7 +42,7 @@ pub struct CoveragePart {
     pub detail: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OfficeProjection {
     pub markdown: String,
     /// A located text projection passed to semantic providers. Each evidence line is

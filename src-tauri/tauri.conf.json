@@ -26,10 +26,13 @@
   },
   "bundle": {
     "active": true,
+    "externalBin": ["binaries/kg-container-helper", "binaries/kg-mime-unit"],
     "targets": ["app"],
     "resources": {
       "resources/meaning/*": "meaning/",
-      "resources/audio/*": "audio/"
+      "resources/audio/*": "audio/",
+      "resources/container-runtime/*": "container-runtime/",
+      "resources/container-licenses/*": "container-licenses/"
     },
     "category": "Productivity",
     "shortDescription": "A durable local Markdown collection",

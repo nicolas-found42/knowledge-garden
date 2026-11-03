@@ -1,10 +1,13 @@
 pub mod application;
 pub mod background;
+pub mod container_staging;
+pub mod containers;
 pub mod conversation;
 pub mod desktop;
 pub mod extraction;
 pub mod meaning;
 pub mod media;
+pub mod mime_stream;
 pub mod office;
 pub mod pdf;
 pub mod photo;

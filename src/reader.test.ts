@@ -5095,3 +5095,75 @@ it("restores the last page, scope, filters, selection, and scroll without a save
       ).checked,
   ).toBe(true);
 });
+
+it("opens the cited retained container part as inert text", async () => {
+  const digest = "b".repeat(64);
+  const version = "c".repeat(64);
+  const locator = "EMAIL part=1.2";
+  const source: SourcePage = {
+    ...riverside,
+    info: { ...riverside.info, source_id: `source-${digest}` },
+    body: `# Evidence\n\n[View retained part](?container_source=source-${digest}&version=${version}&asset=original.eml&locator=${encodeURIComponent(locator).replaceAll(".", "%2E")})`,
+  };
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(source);
+  api.previewContainerPart = vi
+    .fn()
+    .mockResolvedValue("<script>not executable</script>");
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(
+    await screen.findByRole("link", { name: "View retained part" }),
+  );
+  expect(api.previewContainerPart).toHaveBeenCalledWith(
+    source.info.source_id,
+    version,
+    "original.eml",
+    locator,
+  );
+  expect(
+    (await screen.findByLabelText("Retained container part")).textContent,
+  ).toContain("<script>not executable</script>");
+  expect(root.querySelector("script")).toBeNull();
+});
+
+it("previews a located email part from its source", async () => {
+  const digest = "d".repeat(64);
+  const version = "e".repeat(64);
+  const source: SourcePage = {
+    ...riverside,
+    info: {
+      ...riverside.info,
+      source_id: `source-${digest}`,
+      sha256: version,
+      format: "eml",
+      asset: "original.eml",
+    },
+    body: "# Email\n\n[EMAIL part=1] Three trees are in the garden.",
+  };
+  const api = testApi();
+  api.importSource = vi.fn().mockResolvedValue(source);
+  api.previewContainerPart = vi
+    .fn()
+    .mockResolvedValue("Three trees are in the garden.");
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add source" }));
+  await user.click(
+    await screen.findByRole("button", { name: "View EMAIL part=1" }),
+  );
+  expect(api.previewContainerPart).toHaveBeenCalledWith(
+    source.info.source_id,
+    version,
+    "original.eml",
+    "EMAIL part=1",
+  );
+  expect(
+    (await screen.findByLabelText("Retained container part")).textContent,
+  ).toContain("Three trees are in the garden.");
+});

@@ -4660,6 +4660,7 @@ impl Application {
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         "extracted Office projection; offsets are not original package byte offsets"
                     }
+                    EvidenceOffsetBasis::ExtractedContainerProjection => "extracted container projection; offsets are not original container byte offsets",
                     EvidenceOffsetBasis::ExtractedPdfProjection => "extracted PDF projection; offsets are not original PDF byte offsets",
                     EvidenceOffsetBasis::ExtractedImageProjection => "extracted image projection; offsets are not original image byte offsets",
                     EvidenceOffsetBasis::ExtractedConversationProjection => "extracted conversation projection; offsets are not original export byte offsets",
@@ -4713,6 +4714,9 @@ impl Application {
                     EvidenceOffsetBasis::ExtractedOfficeProjection => {
                         ("extracted projection lines", "extracted projection bytes")
                     }
+                    EvidenceOffsetBasis::ExtractedContainerProjection => {
+                        ("container projection lines", "container projection bytes")
+                    }
                     EvidenceOffsetBasis::ExtractedPdfProjection => {
                         ("PDF projection lines", "PDF projection bytes")
                     }
@@ -4742,12 +4746,32 @@ impl Application {
                 } else {
                     "Original opens at the beginning; use these source lines and byte offsets to locate this passage."
                 };
+                let container_link = if fact.evidence.offset_basis
+                    == EvidenceOffsetBasis::ExtractedContainerProjection
+                {
+                    fact.evidence
+                        .source_location
+                        .as_deref()
+                        .map(|location| {
+                            format!(
+                                " · [View retained part](?container_source={}&version={}&asset={}&locator={})",
+                                source.info.source_id, source_version_id, source.info.asset,
+                                percent_encoding::utf8_percent_encode(
+                                    location,
+                                    percent_encoding::NON_ALPHANUMERIC
+                                )
+                            )
+                        })
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
                 body.push_str(&format!(
                     "\n- **{}:** {}{}\n  - Fact identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{} · {}{}\n  - {}\n  - Links: [Source page](../sources/{}/index.md) · [Retained original](../sources/{}/{}){}\n",
                     escape_markdown(&fact.property.replace('_', " ")), escape_markdown(&fact.value), fact.qualifier.as_deref().map(|q| format!(" ({})", escape_markdown(q))).unwrap_or_default(), fact.fact_id,
                     escape_markdown(&fact.evidence.quote), escape_markdown(&fact.origin), line_basis, fact.evidence.line_start, fact.evidence.line_end,
                     byte_basis, fact.evidence.byte_start, fact.evidence.byte_end, basis, locator, guidance, &source.info.source_id["source-".len()..],
-                    &source.info.source_id["source-".len()..], source.info.asset, audio_link
+                    &source.info.source_id["source-".len()..], source.info.asset, format!("{audio_link}{container_link}")
                 ));
             }
             body.push_str("\n## Relationships\n");
@@ -4785,6 +4809,11 @@ impl Application {
                             .map(|location| format!(" · original locator: {location}"))
                             .unwrap_or_default(),
                         "The original opens as a fallback; use the OOXML part and location above to find the extracted passage.",
+                    ),
+                    EvidenceOffsetBasis::ExtractedContainerProjection => (
+                        "container projection lines", "container projection bytes",
+                        relationship.evidence.source_location.as_deref().map(|location| format!(" · original locator: {location}")).unwrap_or_default(),
+                        "The original opens as a fallback; use the message part or archive member locator to find the passage.",
                     ),
                     EvidenceOffsetBasis::ExtractedPdfProjection => (
                         "PDF projection lines", "PDF projection bytes",
@@ -4873,13 +4902,34 @@ impl Application {
                 } else {
                     String::new()
                 };
+                let container_link = if relationship.evidence.offset_basis
+                    == EvidenceOffsetBasis::ExtractedContainerProjection
+                {
+                    relationship
+                        .evidence
+                        .source_location
+                        .as_deref()
+                        .map(|location| {
+                            format!(
+                                " · [View retained part](?container_source={}&version={}&asset={}&locator={})",
+                                source.info.source_id, source_version_id, source.info.asset,
+                                percent_encoding::utf8_percent_encode(
+                                    location,
+                                    percent_encoding::NON_ALPHANUMERIC
+                                )
+                            )
+                        })
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
                 body.push_str(&format!(
                     "\n- [{}](../pages/{}.md) — **{} →** — [{}](../pages/{}.md){}\n  - Relationship identity: `{}`\n  - Evidence: “{}”\n  - Origin: {} · {} {}–{}, {} {}–{}{}\n  - {}\n  - Links: [Source page](../sources/{}/index.md) · [Retained original](../sources/{}/{}){}\n",
                     escape_markdown(&from.0.label), from.1.page_id, escape_markdown(&relationship.kind.replace('_', " ")), escape_markdown(&to.0.label), to.1.page_id,
                     relationship.qualifier.as_deref().map(|q| format!(" (qualifier: {})", escape_markdown(q))).unwrap_or_default(), relationship.relationship_id,
                     escape_markdown(&relationship.evidence.quote), escape_markdown(&relationship.origin), line_basis, relationship.evidence.line_start, relationship.evidence.line_end,
                     byte_basis, relationship.evidence.byte_start, relationship.evidence.byte_end, locator, guidance, &source.info.source_id["source-".len()..],
-                    &source.info.source_id["source-".len()..], source.info.asset, audio_link
+                    &source.info.source_id["source-".len()..], source.info.asset, format!("{audio_link}{container_link}")
                 ));
             }
             body.push_str("\n## Tags\n");
@@ -6383,6 +6433,47 @@ impl Application {
             ));
         }
         Ok(original)
+    }
+
+    pub fn preview_container_part(
+        &self,
+        source_id: &str,
+        version: &str,
+        asset: &str,
+        locator: &str,
+    ) -> Result<String> {
+        if locator.len() > 4096
+            || !(locator.starts_with("EMAIL ") || locator.starts_with("ZIP "))
+            || locator.contains(['\n', '\r', ']'])
+        {
+            return Err(GardenError::Invalid("Invalid container locator.".into()));
+        }
+        let original = self.original_version_path(source_id, version, asset)?;
+        let format = original
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if !matches!(format.as_str(), "eml" | "zip") {
+            return Err(GardenError::Invalid(
+                "This retained original is not a supported container.".into(),
+            ));
+        }
+        let projection = crate::containers::isolated_extract(&original, &format, "Retained source")
+            .map_err(GardenError::Invalid)?;
+        let marker = format!("[{locator}] ");
+        let text = projection
+            .semantic_text
+            .lines()
+            .filter_map(|line| line.strip_prefix(&marker))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if text.is_empty() {
+            return Err(GardenError::Invalid(
+                "This part is empty, unavailable, or was not extracted.".into(),
+            ));
+        }
+        Ok(text)
     }
 
     pub fn preview_original(&self, source_id: &str) -> Result<String> {
@@ -8183,6 +8274,7 @@ fn evidence_offset_basis_name(basis: EvidenceOffsetBasis) -> &'static str {
     match basis {
         EvidenceOffsetBasis::PreservedText => "preserved_text",
         EvidenceOffsetBasis::ExtractedOfficeProjection => "extracted_office_projection",
+        EvidenceOffsetBasis::ExtractedContainerProjection => "extracted_container_projection",
         EvidenceOffsetBasis::WebVisibleText => "web_visible_text",
         EvidenceOffsetBasis::AudioTranscript => "audio_transcript",
         EvidenceOffsetBasis::ExtractedImageProjection => "extracted_image_projection",
@@ -8385,6 +8477,7 @@ enum EvidenceOffsetBasis {
     #[default]
     PreservedText,
     ExtractedOfficeProjection,
+    ExtractedContainerProjection,
     ExtractedConversationProjection,
     WebVisibleText,
     AudioTranscript,
@@ -8408,6 +8501,11 @@ fn evidence_display_basis(
             "extracted projection lines",
             "extracted projection bytes",
             "The retained original opens as a fallback; use the OOXML part and locator above to find this passage.",
+        ),
+        EvidenceOffsetBasis::ExtractedContainerProjection => (
+            "extracted container projection; offsets are not original container byte offsets",
+            "container projection lines", "container projection bytes",
+            "The original opens as a fallback; use the message part or archive member locator to find the passage.",
         ),
         EvidenceOffsetBasis::ExtractedPdfProjection => (
             "extracted PDF projection; offsets are not original PDF byte offsets",
@@ -8655,16 +8753,38 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
     let inferred_location = evidence_line
         .strip_prefix('[')
         .and_then(|line| line.find(']').map(|end| line[..end].to_owned()));
-    let source_location = evidence
-        .source_location
-        .clone()
-        .or(inferred_location.clone());
-    let offset_basis = match evidence.offset_basis.as_deref() {
+    let container_location = inferred_location
+        .as_deref()
+        .is_some_and(|locator| locator.starts_with("EMAIL ") || locator.starts_with("ZIP "));
+    if container_location && evidence.byte_end > line_end_byte {
+        return Err(GardenError::Invalid(
+            "Container evidence must stay within one located part line.".into(),
+        ));
+    }
+    let source_location = if container_location {
+        inferred_location.clone()
+    } else {
+        evidence
+            .source_location
+            .clone()
+            .or(inferred_location.clone())
+    };
+    let offset_basis = match evidence
+        .offset_basis
+        .as_deref()
+        .filter(|_| !container_location)
+    {
         None if inferred_location.as_deref().is_some_and(|locator| {
             locator.starts_with("DOCX ") || locator.starts_with("PPTX ")
         }) =>
         {
             EvidenceOffsetBasis::ExtractedOfficeProjection
+        }
+        None if inferred_location.as_deref().is_some_and(|locator| {
+            locator.starts_with("EMAIL ") || locator.starts_with("ZIP ")
+        }) =>
+        {
+            EvidenceOffsetBasis::ExtractedContainerProjection
         }
         None if inferred_location
             .as_deref()
@@ -8695,6 +8815,7 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         Some("office_projection") | Some("extracted_office_projection") => {
             EvidenceOffsetBasis::ExtractedOfficeProjection
         }
+        Some("extracted_container_projection") => EvidenceOffsetBasis::ExtractedContainerProjection,
         Some("web_visible_text") => EvidenceOffsetBasis::WebVisibleText,
         Some("audio_transcript") => EvidenceOffsetBasis::AudioTranscript,
         Some("extracted_image_projection") => EvidenceOffsetBasis::ExtractedImageProjection,
