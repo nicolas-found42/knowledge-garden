@@ -596,7 +596,24 @@ impl Application {
         format: &str,
         title: &str,
     ) -> Result<std::result::Result<crate::office::OfficeProjection, String>> {
-        let result = self.extractor.extract(path, format, title);
+        let result = self
+            .extractor
+            .extract(path, format, title)
+            .map(|mut projection| {
+                if projection.semantic_text.trim().is_empty() {
+                    projection.partial = true;
+                    projection
+                        .detail
+                        .push_str(" No extractable text was found; the original is retained.");
+                    for part in &mut projection.coverage {
+                        if part.status == CoverageStatus::Complete {
+                            part.status = CoverageStatus::Partial;
+                            part.detail.push_str(" No extractable text was found.");
+                        }
+                    }
+                }
+                projection
+            });
         self.ensure_running()?;
         Ok(result)
     }
@@ -1627,6 +1644,14 @@ impl Application {
                     &text_bytes,
                     acquisition.final_url.as_deref().unwrap_or(""),
                 ) {
+                    Ok(web) if web.semantic_text.trim().is_empty() => (
+                        ExtractionState::PartialText,
+                        format!(
+                            "{} No extractable text was found; the original is retained.",
+                            web.detail
+                        ),
+                        None,
+                    ),
                     Ok(web) if count > MAX_TEXT_BYTES as u64 => {
                         (ExtractionState::PartialText, web.detail, None)
                     }
@@ -1765,7 +1790,18 @@ impl Application {
             } else if let Some(Err(_)) = &web_result {
                 (ExtractionState::InvalidUtf8, "The downloaded HTML is not valid UTF-8. The exact original is retained without lossy extraction.".into(), String::new(), None, None)
             } else if let Some(web) = web_projection {
-                if count > MAX_TEXT_BYTES as u64 {
+                if web.semantic_text.trim().is_empty() {
+                    (
+                        ExtractionState::PartialText,
+                        format!(
+                            "{} No extractable text was found; the original is retained.",
+                            web.detail
+                        ),
+                        String::new(),
+                        None,
+                        None,
+                    )
+                } else if count > MAX_TEXT_BYTES as u64 {
                     (
                         ExtractionState::PartialText,
                         format!(
@@ -1791,6 +1827,7 @@ impl Application {
             {
                 match String::from_utf8(text_bytes.clone()) {
                 Err(_) => (ExtractionState::InvalidUtf8, "The source is not valid UTF-8. The original is retained without lossy decoding.".into(), String::new(), None, None),
+                Ok(text) if text.trim_start_matches('\u{feff}').trim().is_empty() => (ExtractionState::Unsupported, "The response contains no extractable text. The original is retained.".into(), String::new(), None, None),
                 Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 response text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
             }
             } else if crate::extraction::is_structured_source(&staging.path().join(&asset), &format)
@@ -1930,6 +1967,7 @@ impl Application {
                 Err(_) => (ExtractionState::InvalidUtf8, "The source is not valid UTF-8. The original is retained without lossy decoding.".into(), String::new(), None, None),
                 Ok(text) if text.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t')) =>
                     (ExtractionState::Unsupported, "The source contains binary control characters. The original is retained.".into(), String::new(), None, None),
+                Ok(text) if text.trim_start_matches('\u{feff}').trim().is_empty() => (ExtractionState::Unsupported, "The source contains no extractable text. The original is retained.".into(), String::new(), None, None),
                 Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 source text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
             }
             };
@@ -2965,6 +3003,7 @@ impl Application {
                 };
                 if !initial
                     && (projection.partial
+                        || projection.semantic_text.trim().is_empty()
                         || projection
                             .coverage
                             .iter()
@@ -7779,6 +7818,11 @@ fn classify_source(
                 String::new(),
             )
         }
+        Ok(text) if text.trim_start_matches('\u{feff}').trim().is_empty() => (
+            ExtractionState::Unsupported,
+            "The source contains no extractable text. The original is retained.",
+            String::new(),
+        ),
         Ok(text) => (
             ExtractionState::TextPreserved,
             "Source text preserved. Semantic fact extraction has not run.",

@@ -3837,7 +3837,7 @@ fn oversized_text_retains_the_entire_original_without_claiming_complete_extracti
 }
 
 #[test]
-fn empty_text_source_has_an_accurate_line_location() {
+fn empty_text_source_is_retained_without_claiming_extraction() {
     let workspace = tempdir().unwrap();
     let source = workspace.path().join("empty.txt");
     fs::write(&source, []).unwrap();
@@ -3847,9 +3847,9 @@ fn empty_text_source_has_an_accurate_line_location() {
         .import_source(&source, AcquisitionMethod::Picker)
         .unwrap();
 
-    assert_eq!(page.info.extraction, ExtractionState::TextPreserved);
+    assert_eq!(page.info.extraction, ExtractionState::Unsupported);
     assert_eq!(page.info.line_count, 0);
-    assert!(page.body.contains("Source text is empty."));
+    assert!(page.info.extraction_detail.contains("no extractable text"));
     assert!(!page.body.contains("lines 1–0"));
     assert!(fs::read(app.original_path(&page.info.source_id).unwrap())
         .unwrap()
