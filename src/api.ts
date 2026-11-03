@@ -9,6 +9,7 @@ export type ExtractionState =
   | "structured_text"
   | "partial_text"
   | "invalid_container"
+  | "encrypted"
   | "unsupported"
   | "invalid_utf8"
   | "too_large";
@@ -17,6 +18,7 @@ export type CoverageScope =
   | "pdf_pages"
   | "main_document"
   | "tables"
+  | "spreadsheet_cells"
   | "slide_text"
   | "speaker_notes"
   | "embedded_object"

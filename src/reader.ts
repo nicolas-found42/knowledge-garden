@@ -46,6 +46,7 @@ const labels = {
   structured_text: "Structured text extracted",
   partial_text: "Partially extracted",
   invalid_container: "Damaged Office container",
+  encrypted: "Encrypted source",
   unsupported: "Unsupported format",
   invalid_utf8: "Text could not be decoded",
   too_large: "Text exceeds preview limit",

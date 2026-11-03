@@ -2005,6 +2005,8 @@ fn office_statement_candidates(text: &str) -> Vec<Candidate> {
                 "main_document"
                     | "pdf_text"
                     | "table"
+                    | "cell"
+                    | "cached_formula_value"
                     | "slide_text"
                     | "slide_text_table"
                     | "speaker_notes"
@@ -2021,7 +2023,8 @@ fn office_statement_candidates(text: &str) -> Vec<Candidate> {
                     let start = line_start + body_offset + leading;
                     let end = start + quote.len();
                     let origin = match channel {
-                        "table" => "table_cell",
+                        "table" | "cell" => "table_cell",
+                        "cached_formula_value" => "cached_formula_value",
                         "slide_text" => "slide_visible",
                         "slide_text_table" => "slide_table_cell",
                         "speaker_notes" => "speaker_note",
@@ -2049,7 +2052,7 @@ fn office_statement_candidates(text: &str) -> Vec<Candidate> {
                             "ocr" => "OCR transcription; confidence and region retained; not a verified event or identity",
                             "generated_interpretation" => "uncertain classifier interpretation; not a verified pixel observation",
                             _ => "decoded dimensions; named identities unknown",
-                        }.into()) } else if line.starts_with("[PDF ") && channel == "ocr" { Some(format!("OCR transcription; unverified{}", office_qualification(quote).map(|q| format!("; {q}")).unwrap_or_default())) } else { office_qualification(quote) },
+                        }.into()) } else if line.starts_with("[PDF ") && channel == "ocr" { Some(format!("OCR transcription; unverified{}", office_qualification(quote).map(|q| format!("; {q}")).unwrap_or_default())) } else if channel == "cached_formula_value" { Some("Cached formula value; the formula was not evaluated and this value may be stale".into()) } else { office_qualification(quote) },
                         origin: origin.into(),
                     });
                 }
@@ -2066,6 +2069,7 @@ fn office_line_channel(line: &str) -> Option<(&str, usize)> {
     let channel = marker
         .strip_prefix("PPTX ")
         .or_else(|| marker.strip_prefix("DOCX "))
+        .or_else(|| marker.strip_prefix("XLSX "))
         .or_else(|| marker.strip_prefix("PHOTO "))
         .or_else(|| marker.strip_prefix("VIDEO FRAME "))
         .or_else(|| marker.strip_prefix("PDF "))?;
@@ -2156,6 +2160,14 @@ fn office_record_key(text: &str, offset: usize, channel: &str, quote: &str) -> O
             column,
             prefix,
             occurrence
+        ));
+    }
+    if text[line_start..].starts_with("[XLSX ") {
+        use sha2::{Digest, Sha256};
+        let address = marker.rsplit_once("; channel=")?.0;
+        return Some(format!(
+            "spreadsheet:{}",
+            hex::encode(Sha256::digest(address.as_bytes()))
         ));
     }
     let heading = office_heading_context(text, line_start);
@@ -2931,6 +2943,27 @@ fn keychain_credential(account: &str) -> std::result::Result<String, ProviderErr
 #[cfg(test)]
 mod ticket5_tests {
     use super::{candidates, CandidateKind};
+
+    #[test]
+    fn xlsx_cell_values_become_located_candidates_with_stale_formula_qualification() {
+        let text = "[XLSX sheet \"Field notes\" cell B1; channel=cell] River Delta\n[XLSX sheet \"Field notes\" cell D4; channel=cached_formula_value] 84";
+        let candidates = super::office_statement_candidates(text);
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(&text[candidates[0].start..candidates[0].end], "River Delta");
+        assert_eq!(
+            super::office_channel_at(text, candidates[0].start).as_deref(),
+            Some("cell")
+        );
+        assert!(candidates[1]
+            .qualifier
+            .as_deref()
+            .unwrap()
+            .contains("stale"));
+        assert_ne!(
+            super::office_record_key(text, candidates[0].start, "cell", "River Delta"),
+            super::office_record_key(text, candidates[1].start, "cached_formula_value", "84")
+        );
+    }
 
     #[test]
     fn explicit_visit_total_correction_selects_the_new_count_only() {

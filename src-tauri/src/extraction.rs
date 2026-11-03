@@ -7,7 +7,7 @@ pub trait SourceExtractor: Send + Sync {
 }
 
 pub fn is_structured_format(format: &str) -> bool {
-    matches!(format, "docx" | "pptx" | "pdf") || crate::photo::is_photo(format)
+    matches!(format, "docx" | "pptx" | "xlsx" | "pdf") || crate::photo::is_photo(format)
 }
 
 pub fn is_structured_source(path: &Path, format: &str) -> bool {

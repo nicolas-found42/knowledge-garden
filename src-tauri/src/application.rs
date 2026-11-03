@@ -130,6 +130,7 @@ pub enum ExtractionState {
     StructuredText,
     PartialText,
     InvalidContainer,
+    Encrypted,
     Unsupported,
     InvalidUtf8,
     TooLarge,
@@ -1881,13 +1882,22 @@ impl Application {
                             CoverageScope::ConversationMessages
                         } else if format == "pdf" {
                             CoverageScope::PdfPages
+                        } else if format == "xlsx" {
+                            CoverageScope::SpreadsheetCells
                         } else if format == "docx" {
                             CoverageScope::MainDocument
                         } else {
                             CoverageScope::SlideText
                         };
                         (
-                            ExtractionState::InvalidContainer,
+                            if format == "xlsx"
+                                && crate::office::detect_xlsx_container(&destination.join(&asset))
+                                    == crate::office::OfficeContainer::Encrypted
+                            {
+                                ExtractionState::Encrypted
+                            } else {
+                                ExtractionState::InvalidContainer
+                            },
                             format!("Source container could not be read. {detail}"),
                             String::new(),
                             None,
@@ -2920,12 +2930,21 @@ impl Application {
                             CoverageScope::ConversationMessages
                         } else if version.format == "pdf" {
                             CoverageScope::PdfPages
+                        } else if version.format == "xlsx" {
+                            CoverageScope::SpreadsheetCells
                         } else if version.format == "docx" {
                             CoverageScope::MainDocument
                         } else {
                             CoverageScope::SlideText
                         };
-                        page.info.extraction = ExtractionState::InvalidContainer;
+                        page.info.extraction = if version.format == "xlsx"
+                            && crate::office::detect_xlsx_container(&candidate_path)
+                                == crate::office::OfficeContainer::Encrypted
+                        {
+                            ExtractionState::Encrypted
+                        } else {
+                            ExtractionState::InvalidContainer
+                        };
                         page.info.extraction_detail =
                             format!("Source container could not be read. {detail}");
                         page.info.extraction_version_id = Some(source_version_id.clone());
@@ -3633,7 +3652,8 @@ impl Application {
                     if version_audio {
                         qualify_audio_evidence(&mut draft, &job.source_text);
                     }
-                    let is_office = matches!(page.info.format.as_str(), "docx" | "pptx" | "pdf");
+                    let is_office =
+                        matches!(page.info.format.as_str(), "docx" | "pptx" | "xlsx" | "pdf");
                     let office_facts = draft
                         .facts
                         .iter()
@@ -8006,6 +8026,7 @@ fn extraction_string(value: ExtractionState) -> String {
         ExtractionState::StructuredText => "structured_text",
         ExtractionState::PartialText => "partial_text",
         ExtractionState::InvalidContainer => "invalid_container",
+        ExtractionState::Encrypted => "encrypted",
         ExtractionState::Unsupported => "unsupported",
         ExtractionState::InvalidUtf8 => "invalid_utf8",
         ExtractionState::TooLarge => "too_large",
@@ -8019,6 +8040,7 @@ fn parse_extraction(value: &str) -> Result<ExtractionState> {
         "structured_text" => Ok(ExtractionState::StructuredText),
         "partial_text" => Ok(ExtractionState::PartialText),
         "invalid_container" => Ok(ExtractionState::InvalidContainer),
+        "encrypted" => Ok(ExtractionState::Encrypted),
         "unsupported" => Ok(ExtractionState::Unsupported),
         "invalid_utf8" => Ok(ExtractionState::InvalidUtf8),
         "too_large" => Ok(ExtractionState::TooLarge),
@@ -8661,7 +8683,9 @@ fn validate_evidence(source: &str, evidence: &EvidenceDraft) -> Result<EvidenceL
         .or(inferred_location.clone());
     let offset_basis = match evidence.offset_basis.as_deref() {
         None if inferred_location.as_deref().is_some_and(|locator| {
-            locator.starts_with("DOCX ") || locator.starts_with("PPTX ")
+            locator.starts_with("DOCX ")
+                || locator.starts_with("PPTX ")
+                || locator.starts_with("XLSX ")
         }) =>
         {
             EvidenceOffsetBasis::ExtractedOfficeProjection
@@ -9596,7 +9620,9 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
         .replace(['\n', '\r'], " ")
         .replace(['[', ']', '<', '>'], "");
     if let Some(projection) = office {
-        return projection.markdown.replace("ORIGINAL_ASSET", &info.asset);
+        return projection
+            .markdown
+            .replacen("ORIGINAL_ASSET", &info.asset, 1);
     }
     let published_audio = info.audio_processing.as_ref().filter(|audio| {
         info.current_version_id.as_deref() == audio.source_version_id.as_deref()
@@ -9888,6 +9914,7 @@ fn url_name_and_format(
         "text/markdown" => Some("md"),
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => Some("docx"),
         "application/vnd.openxmlformats-officedocument.presentationml.presentation" => Some("pptx"),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => Some("xlsx"),
         _ => None,
     };
     let format = mime_format.map(str::to_owned).unwrap_or(ext);
@@ -10790,6 +10817,30 @@ mod page_lookup_stage_tests {
             .unwrap();
         }
         (temp, app, root)
+    }
+
+    #[test]
+    fn xlsx_evidence_infers_sheet_cell_locator_and_office_basis() {
+        let text = "[XLSX sheet \"Field notes\" cell B1; channel=cell] River Delta";
+        let start = text.find("River Delta").unwrap();
+        let draft = EvidenceDraft {
+            quote: "River Delta".into(),
+            byte_start: start,
+            byte_end: start + "River Delta".len(),
+            origin: "table_cell".into(),
+            qualifier: None,
+            offset_basis: None,
+            source_location: None,
+        };
+        let location = validate_evidence(text, &draft).unwrap();
+        assert_eq!(
+            location.source_location.as_deref(),
+            Some("XLSX sheet \"Field notes\" cell B1; channel=cell")
+        );
+        assert!(matches!(
+            location.offset_basis,
+            EvidenceOffsetBasis::ExtractedOfficeProjection
+        ));
     }
 
     #[test]

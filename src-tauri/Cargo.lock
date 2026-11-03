@@ -2243,6 +2243,7 @@ dependencies = [
 name = "knowledge-garden"
 version = "0.1.0"
 dependencies = [
+ "cfb",
  "chrono",
  "fs2",
  "hex",
