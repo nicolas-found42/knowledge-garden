@@ -110,6 +110,8 @@ fn main() {
         println!("cargo:rerun-if-changed=container-helper/gmime_unit.c");
         println!("cargo:rerun-if-changed=container-helper/provision_gmime.py");
         println!("cargo:rerun-if-changed=container-helper/gmime-runtime-lock.json");
+        println!("cargo:rerun-if-changed=vendor/gmime/manifest.json");
+        println!("cargo:rerun-if-changed=vendor/gmime/gmime-3.2.15-arm64.tar.gz");
         let generated = helper.join("generated-gmime");
         assert!(
             Command::new("python3")

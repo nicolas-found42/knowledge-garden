@@ -509,7 +509,7 @@ fn repository_binary_oversized_and_generated_members_remain_visible_with_origina
     let large_page = app.open_source(&large_source.source_id).unwrap();
     assert_eq!(
         large_page.info.extraction,
-        knowledge_garden::application::ExtractionState::TooLarge
+        knowledge_garden::application::ExtractionState::PartialText
     );
     assert_eq!(
         fs::read(app.original_path(&large_source.source_id).unwrap()).unwrap(),

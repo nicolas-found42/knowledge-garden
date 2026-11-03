@@ -378,3 +378,56 @@ fn complete_long_replacement_publishes_atomically_and_preserves_the_prior_origin
         .iter()
         .any(|page| page.page_id == page_id));
 }
+
+#[test]
+fn withdrawing_a_long_replacement_reprocesses_the_remaining_supported_version() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("collection");
+    let incoming = temp.path().join("incoming");
+    fs::create_dir(&incoming).unwrap();
+    let first = format!("{}\nLongTextMarker count 1", "x".repeat(2 * 1024 * 1024));
+    let second = format!(
+        "Complete replacement.\n{}\nLongTextMarker count 2",
+        "y".repeat(2 * 1024 * 1024)
+    );
+    let stable = incoming.join("stable.txt");
+    let changing = incoming.join("changing.txt");
+    fs::write(&stable, &first).unwrap();
+    fs::write(&changing, &first).unwrap();
+    let mut app =
+        Application::open_with_semantic_provider(&root, Arc::new(RevisionProvider)).unwrap();
+    app.watch_directory(&incoming).unwrap();
+    app.reconcile_watched_directories(1000).unwrap();
+    finish(&mut app);
+    let source_id = app.list_sources(0).unwrap().sources[0].source_id.clone();
+    let page_id = app.open_source(&source_id).unwrap().knowledge_pages[0]
+        .page_id
+        .clone();
+    fs::write(&changing, &second).unwrap();
+    app.reconcile_watched_directories(1000).unwrap();
+    finish(&mut app);
+    assert!(app
+        .open_knowledge_page(&page_id)
+        .unwrap()
+        .markdown
+        .contains("- **count:** 2"));
+    fs::remove_file(&changing).unwrap();
+    app.reconcile_watched_directories(1000).unwrap();
+    app.reconcile_watched_directories(1000).unwrap();
+    finish(&mut app);
+    let source = app.open_source(&source_id).unwrap();
+    assert_eq!(
+        source.info.semantic_state, "complete",
+        "{:?}",
+        source.info.semantic_error
+    );
+    assert!(app
+        .open_knowledge_page(&page_id)
+        .unwrap()
+        .markdown
+        .contains("- **count:** 1"));
+    assert_eq!(
+        fs::read(app.original_path(&source_id).unwrap()).unwrap(),
+        first.as_bytes()
+    );
+}

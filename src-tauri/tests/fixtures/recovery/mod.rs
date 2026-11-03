@@ -1,5 +1,6 @@
 use std::{fs, path::Path};
 
+#[allow(dead_code)]
 pub fn assert_retains(root: &Path, expected: &[u8]) {
     fn find(directory: &Path, expected: &[u8]) -> bool {
         let Ok(entries) = fs::read_dir(directory) else {
@@ -38,7 +39,7 @@ pub fn seed_metadata(path: &Path, bytes: &[u8]) {
     use sha2::{Digest, Sha256};
     let root = path
         .ancestors()
-        .find(|p| p.join(".recovery/trusted-pages").is_dir())
+        .find(|p| p.join(".recovery/migration/state.json").is_file())
         .unwrap();
     let relative = path.strip_prefix(root).unwrap();
     let digest = hex::encode(Sha256::digest(bytes));
@@ -52,6 +53,7 @@ pub fn seed_metadata(path: &Path, bytes: &[u8]) {
         .unwrap_or_else(|| serde_json::json!({"path": relative, "sha256": digest}));
     record["sha256"] = digest.clone().into();
     fs::create_dir_all(&records).unwrap();
+    fs::create_dir_all(root.join(".recovery/trusted-pages/blobs")).unwrap();
     fs::write(
         root.join(".recovery/trusted-pages/blobs").join(digest),
         bytes,
@@ -68,4 +70,19 @@ pub fn seed_metadata(path: &Path, bytes: &[u8]) {
         }
     }
     fs::write(path, bytes).unwrap();
+}
+
+/// Simulate maintained fixture removal. A visible file deletion alone cannot
+/// withdraw a verified page under the source-authority contract.
+#[allow(dead_code)]
+pub fn remove_generated_fixture(root: &Path, path: &Path) {
+    use sha2::{Digest, Sha256};
+    let relative = path.strip_prefix(root).unwrap();
+    let record = root
+        .join(".recovery/trusted-pages/records")
+        .join(hex::encode(Sha256::digest(
+            relative.to_string_lossy().as_bytes(),
+        )));
+    fs::remove_file(record).unwrap();
+    fs::remove_file(path).unwrap();
 }

@@ -11,10 +11,16 @@ fn run(input: &Path, allowed: &Path, part: usize, offset: usize) -> std::process
         .join("kg-mime-unit")
         .canonicalize()
         .unwrap();
-    let runtime = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("resources/container-runtime")
-        .canonicalize()
-        .unwrap();
+    // Match the helper's actual loader paths, including a shared Cargo target
+    // outside this checkout. The sandbox grants only that exact runtime tree.
+    let directory = exe.parent().unwrap();
+    let runtime = [
+        directory.join("../Resources/container-runtime"),
+        directory.join("../../resources/container-runtime"),
+    ]
+    .into_iter()
+    .find_map(|path| path.canonicalize().ok())
+    .unwrap();
     let profile = "(version 1) (deny default) (allow process-exec (literal (param \"EXECUTABLE\"))) (allow file-read* (literal \"/\") (literal (param \"INPUT\")) (subpath (param \"RUNTIME\")) (subpath \"/usr/lib\") (subpath \"/System/Library\")) (allow sysctl-read) (allow mach-lookup)";
     Command::new("/usr/bin/sandbox-exec")
         .arg("-D")

@@ -1,4 +1,6 @@
 #![cfg(target_os = "macos")]
+#[path = "fixtures/recovery/mod.rs"]
+mod recovery;
 use knowledge_garden::application::{AcquisitionMethod, Application};
 use std::{fs, path::Path};
 
@@ -304,11 +306,12 @@ fn interrupted_long_video_resumes_without_duplicate_frames_or_facts() {
     assert_eq!(first.next_start_ms, 30_000);
     let path = app.page_path(&page.info.source_id).unwrap();
     let markdown = fs::read_to_string(&path).unwrap();
-    fs::write(
-        path,
-        markdown.replace("state: pending", "state: processing"),
-    )
-    .unwrap();
+    recovery::seed_metadata(
+        &path,
+        markdown
+            .replace("state: pending", "state: processing")
+            .as_bytes(),
+    );
     drop(app);
     let mut app = recorded_app(collection.path(), true, false);
     assert_eq!(
@@ -396,7 +399,7 @@ fn damaged_window_discloses_both_track_gaps_and_continues_without_losing_prior_e
         let path = app.page_path(&page.info.source_id).unwrap();
         let content = fs::read_to_string(&path).unwrap();
         let reset = retry_pattern.replace_all(&content, "$1 0");
-        fs::write(path, reset.as_bytes()).unwrap();
+        recovery::seed_metadata(&path, reset.as_bytes());
     }
     let partial = app.open_source(&page.info.source_id).unwrap();
     assert_eq!(
@@ -581,7 +584,7 @@ fn successful_video_window_resets_failures_before_the_next_interval() {
         app.resume_due_audio_jobs().unwrap();
         let path = app.page_path(&page.info.source_id).unwrap();
         let content = fs::read_to_string(&path).unwrap();
-        fs::write(path, pattern.replace_all(&content, "$1 0").as_bytes()).unwrap();
+        recovery::seed_metadata(&path, pattern.replace_all(&content, "$1 0").as_bytes());
     }
     let first = app.open_source(&page.info.source_id).unwrap();
     let media = first.info.audio_processing.as_ref().unwrap();

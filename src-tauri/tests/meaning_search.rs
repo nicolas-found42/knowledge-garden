@@ -60,6 +60,39 @@ fn meaning_request(query: &str) -> PageSearchRequest {
 
 struct UnusedProvider;
 
+#[test]
+fn native_runtime_requires_telemetry_opt_out_before_loading() {
+    const CHILD: &str = "KG_TEST_ORT_OPT_OUT_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        let assets = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/meaning");
+        let collection = tempdir().unwrap();
+        let mut app =
+            Application::open_with_meaning_assets(collection.path(), Some(assets)).unwrap();
+        let result = app.search_pages(meaning_request("anything")).unwrap();
+        assert!(
+            result.meaning_search_status.contains("telemetry disabled"),
+            "{}",
+            result.meaning_search_status
+        );
+        return;
+    }
+    let result = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "native_runtime_requires_telemetry_opt_out_before_loading",
+            "--nocapture",
+        ])
+        .env(CHILD, "1")
+        .env_remove("ORT_DISABLE_TELEMETRY")
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stdout)
+    );
+}
+
 impl SemanticProvider for UnusedProvider {
     fn form_knowledge(&self, _source_text: &str) -> Result<KnowledgeDraft, ProviderError> {
         Ok(KnowledgeDraft::default())

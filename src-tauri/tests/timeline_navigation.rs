@@ -1,3 +1,5 @@
+#[path = "fixtures/recovery/mod.rs"]
+mod recovery;
 use knowledge_garden::application::{AcquisitionMethod, Application};
 use knowledge_garden::providers::{JevSemanticProvider, SystemOneTransport};
 use knowledge_garden::semantic::{
@@ -534,15 +536,15 @@ fn removing_a_representative_source_keeps_a_retained_pages_selected_alternate_su
     let b_header: serde_yaml_ng::Value =
         serde_yaml_ng::from_str(b_bytes.split("---").nth(1).unwrap()).unwrap();
     header["facts"][0] = b_header["facts"][0].clone();
-    fs::write(
+    recovery::seed_metadata(
         &a_path,
         format!(
             "---\n{}---{}",
             serde_yaml_ng::to_string(&header).unwrap(),
             body
-        ),
-    )
-    .unwrap();
+        )
+        .as_bytes(),
+    );
     fs::remove_dir_all(
         root.join("sources")
             .join(a.info.source_id.trim_start_matches("source-")),

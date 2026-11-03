@@ -1327,10 +1327,9 @@ fn apply_publication(
     let relative = transaction.strip_prefix(root).map_err(|_| {
         GardenError::Recovery("Publication transaction escaped the collection.".into())
     })?;
-    let manifest: PublicationManifest = serde_json::from_reader(migration_backup::open_nofollow(
-        root,
-        &relative.join("manifest.json"),
-    )?)?;
+    let manifest: PublicationManifest = serde_json::from_reader(std::io::BufReader::new(
+        migration_backup::open_nofollow(root, &relative.join("manifest.json"))?,
+    ))?;
     if fail_after_files == Some(0) {
         return interrupted();
     }

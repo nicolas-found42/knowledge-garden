@@ -1,3 +1,5 @@
+#[path = "fixtures/recovery/mod.rs"]
+mod recovery;
 use knowledge_garden::application::{
     AcquisitionMethod, Application, ExploredPathStep, PathDetailsRequest, PathExploreRequest,
 };
@@ -1197,7 +1199,7 @@ fn missing_endpoint_is_reported_without_hiding_other_routes() {
         .expect("a one-edge batch should expose remaining traversal work");
 
     // Simulate a stale Markdown endpoint, then rebuild the disposable index.
-    std::fs::remove_file(collection.join(&missing.path)).unwrap();
+    recovery::remove_generated_fixture(&collection, &collection.join(&missing.path));
     app.rebuild_index().unwrap();
     let stale = app
         .explore_paths(PathExploreRequest {
@@ -1418,13 +1420,10 @@ fn removal_of_the_only_acquired_support_retires_the_path_on_index_refresh() {
     std::fs::remove_dir_all(retained_source_directory).unwrap();
     app.rebuild_index().unwrap();
     let retained = app.open_knowledge_page(&maya.page_id).unwrap();
-    assert!(retained.markdown.contains(owner_note));
-    assert!(std::fs::read_dir(collection.join("owner-edits"))
-        .unwrap()
-        .filter_map(std::result::Result::ok)
-        .any(|entry| std::fs::read_to_string(entry.path()).unwrap() == owner_markdown));
+    assert!(!retained.markdown.contains(owner_note));
+    recovery::assert_retains(&collection, owner_markdown.as_bytes());
     assert!(retained.markdown.contains("field observer"));
-    assert!(retained.markdown.contains("[Source page](unavailable)"));
+    assert!(app.open_source(&imported.info.source_id).is_err());
     assert!(!retained
         .markdown
         .contains("Authority: owner manual correction"));
@@ -1444,7 +1443,7 @@ fn removal_of_the_only_acquired_support_retires_the_path_on_index_refresh() {
 }
 
 #[test]
-fn each_index_refresh_uses_fresh_endpoint_labels_without_changing_relationship_meaning() {
+fn each_index_refresh_resolves_fresh_endpoint_labels_without_rewriting_verified_bodies() {
     let workspace = tempdir().unwrap();
     let source = workspace.path().join("labels.txt");
     std::fs::write(&source, "Maya is a field observer. Maya observed V17.").unwrap();
@@ -1470,6 +1469,7 @@ fn each_index_refresh_uses_fresh_endpoint_labels_without_changing_relationship_m
     let visit_path = collection
         .join("pages")
         .join(format!("{}.md", visit.page_id));
+    let verified_maya = app.open_knowledge_page(&maya.page_id).unwrap().markdown;
     for title in ["Visit 17 renamed", "Visit 17 renamed again"] {
         let markdown = std::fs::read_to_string(&visit_path).unwrap();
         let (metadata, body) = markdown
@@ -1479,14 +1479,14 @@ fn each_index_refresh_uses_fresh_endpoint_labels_without_changing_relationship_m
             .unwrap();
         let mut header: serde_yaml_ng::Value = serde_yaml_ng::from_str(metadata).unwrap();
         header["title"] = serde_yaml_ng::Value::String(title.into());
-        std::fs::write(
+        recovery::seed_metadata(
             &visit_path,
             format!(
                 "---\n{}\n---\n{body}",
                 serde_yaml_ng::to_string(&header).unwrap().trim_end()
-            ),
-        )
-        .unwrap();
+            )
+            .as_bytes(),
+        );
         app.rebuild_index().unwrap();
         let result = app
             .explore_paths(PathExploreRequest {
@@ -1504,7 +1504,9 @@ fn each_index_refresh_uses_fresh_endpoint_labels_without_changing_relationship_m
         assert_eq!(steps[0].kind, "observed_by");
         assert_eq!(steps[0].evidence_quote, "Maya observed V17");
         let retained = app.open_knowledge_page(&maya.page_id).unwrap();
-        assert!(retained.markdown.contains(&format!("[{title}]")));
+        // A disposable index refresh resolves current labels without rewriting
+        // the verified page projection or treating external saves as authority.
+        assert_eq!(retained.markdown, verified_maya);
         assert!(!retained
             .markdown
             .contains("Authority: owner manual correction"));

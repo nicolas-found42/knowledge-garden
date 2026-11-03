@@ -801,7 +801,7 @@ it("uses the mounted Boolean builder with the real native collection and retains
   );
 });
 
-it("navigates repaired ordinary links and exposes duplicate files through the real Application", async () => {
+it("navigates verified pages after external moves and discloses retained duplicate saves", async () => {
   workspace = mkdtempSync(join(tmpdir(), "knowledge-garden-edit-test-"));
   const collection = join(workspace, "collection");
   const source = join(workspace, "notes.txt");
@@ -820,6 +820,7 @@ it("navigates repaired ordinary links and exposes duplicate files through the re
   const event = imported.knowledge_pages.find((p) => p.title === "V17")!;
   mkdirSync(join(collection, "pages/Owner folder"), { recursive: true });
   const renamed = join(collection, "pages/Owner folder/Renamed observation.md");
+  const generatedBytes = readFileSync(join(collection, event.path), "utf8");
   renameSync(join(collection, event.path), renamed);
   const api: GardenApi = {
     chooseFile: async () => source,
@@ -863,12 +864,27 @@ it("navigates repaired ordinary links and exposes duplicate files through the re
   expect(
     await screen.findByRole("article", { name: "Riverside" }),
   ).toBeTruthy();
-  const repaired = readFileSync(renamed, "utf8");
-  expect(repaired).toContain("../../sources/");
+  expect(readFileSync(renamed, "utf8")).toBe(generatedBytes);
   dispose();
   copyFileSync(renamed, join(collection, "pages/Duplicate.md"));
   dispose = await mountReader(root, api);
-  expect(await screen.findByText(/Neither file is selected/)).toBeTruthy();
+  expect(
+    (await screen.findAllByText(/Markdown could not be read/)).length,
+  ).toBeGreaterThan(0);
+  const status = call<{ diagnostics: { paths: string[] }[] }>(
+    "collection-status",
+  );
+  expect(
+    status.diagnostics.some((item) =>
+      item.paths.includes("pages/Duplicate.md"),
+    ),
+  ).toBe(true);
+  expect(call<KnowledgePage>("knowledge", event.page_id).page_id).toBe(
+    event.page_id,
+  );
+  expect(readFileSync(join(collection, "pages/Duplicate.md"), "utf8")).toBe(
+    generatedBytes,
+  );
 });
 
 it("browses a native collection group, reads its source and restores the canvas with Back", async () => {

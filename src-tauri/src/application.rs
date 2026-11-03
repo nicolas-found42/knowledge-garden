@@ -3783,6 +3783,10 @@ impl Application {
                                 .extract(snapshot.path(), &version.format, &page.info.title)
                                 .ok()
                                 .map(|projection| projection.semantic_text)
+                        } else if version.bytes > PROVIDER_CHUNK_BYTES as u64 {
+                            // Prior context is a bounded provider input, not another
+                            // whole-source reconciliation buffer (including legacy sources).
+                            None
                         } else {
                             self.verified_original_bytes(&path, &version.sha256)
                                 .ok()
@@ -11083,8 +11087,11 @@ fn escape_markdown(value: &str) -> String {
 }
 
 fn read_knowledge_page(path: &Path) -> Result<KnowledgePage> {
-    let markdown = String::from_utf8(trusted_pages::read_active_or_original(path, 256 * 1024)?)
-        .map_err(|_| GardenError::Invalid("Knowledge page metadata is unreadable.".into()))?;
+    let markdown = String::from_utf8(trusted_pages::read_active_or_original(
+        path,
+        MAX_PAGE_BYTES,
+    )?)
+    .map_err(|_| GardenError::Invalid("Knowledge page metadata is unreadable.".into()))?;
     let header = markdown
         .strip_prefix("---\n")
         .and_then(|rest| rest.split_once("\n---\n").map(|(yaml, _)| yaml))
@@ -11109,12 +11116,17 @@ fn parse_knowledge_header(markdown: &str) -> Result<KnowledgePageHeader> {
 }
 
 fn read_knowledge_header(path: &Path) -> Result<KnowledgePageHeader> {
-    let markdown = trusted_pages::read_active_or_original(path, 256 * 1024)?;
+    let markdown = trusted_pages::read_active_or_original(path, MAX_PAGE_BYTES)?;
     let end = markdown
         .windows(5)
         .position(|bytes| bytes == b"\n---\n")
         .ok_or_else(|| GardenError::Invalid("Knowledge page metadata is unreadable.".into()))?
         + 5;
+    if end > 256 * 1024 {
+        return Err(GardenError::Invalid(
+            "Knowledge page header exceeds its supported size limit.".into(),
+        ));
+    }
     let header = std::str::from_utf8(&markdown[..end])
         .map_err(|_| GardenError::Invalid("Knowledge page metadata is unreadable.".into()))?;
     parse_knowledge_header(header)

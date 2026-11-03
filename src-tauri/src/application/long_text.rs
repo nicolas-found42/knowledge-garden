@@ -204,8 +204,8 @@ impl Application {
             GardenError::Invalid("The complete retained source is not UTF-8.".into())
         })?;
         job.text_chunk = None;
-        page.info.line_count = job.source_text.lines().count();
         if page.info.current_version_id.is_none() {
+            page.info.line_count = job.source_text.lines().count();
             page.info.extraction = ExtractionState::TextPreserved;
             page.info.extraction_detail = "The complete retained UTF-8 text was processed in resumable chunks; the readable source preview is limited to 2 MiB.".into();
             page.body = source_body(&page.info, &job.source_text, None);
@@ -217,6 +217,69 @@ impl Application {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn completing_a_candidate_chain_preserves_current_line_count_until_promotion() {
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("text.txt");
+        fs::write(&input, "current one-line source").unwrap();
+        let mut app = Application::open_with_semantic_provider(
+            temp.path().join("collection"),
+            Arc::new(NoProvider),
+        )
+        .unwrap();
+        let source = app
+            .import_source(&input, AcquisitionMethod::Picker)
+            .unwrap();
+        let initial = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+        app.finish_semantic_job(initial, Ok(KnowledgeDraft::default()))
+            .unwrap();
+        let current = app.open_source(&source.info.source_id).unwrap();
+        assert!(current.info.current_version_id.is_some());
+        let candidate = "candidate line\n".repeat(PROVIDER_CHUNK_BYTES / 8);
+        fs::write(&input, &candidate).unwrap();
+        app.import_source(&input, AcquisitionMethod::Picker)
+            .unwrap();
+        let mut job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+        let total = candidate.len() as u64;
+        let directory = app
+            .text_chunk_directory(&job.source_id, &job.source_version_id, &job.generation)
+            .unwrap();
+        let mut store =
+            ChunkStore::open(&directory, &job.source_version_id, &job.generation, total).unwrap();
+        while store.offset() < total {
+            let start = store.offset();
+            let chunk = text_chunks::read_window(&input, start, PROVIDER_CHUNK_BYTES, 1024)
+                .unwrap()
+                .unwrap();
+            store
+                .commit(&StagedChunk {
+                    source_version_id: job.source_version_id.clone(),
+                    generation: job.generation.clone(),
+                    start,
+                    end: chunk.end,
+                    draft: KnowledgeDraft::default(),
+                })
+                .unwrap();
+        }
+        drop(store);
+        job.text_chunk = Some(TextChunkJob {
+            start: total,
+            context_start: total,
+            end: total,
+            total,
+        });
+        let mut page = app.open_source(&source.info.source_id).unwrap();
+        assert!(app
+            .stage_text_chunk(&mut page, &mut job, KnowledgeDraft::default())
+            .unwrap()
+            .is_some());
+        assert_eq!(
+            page.info.current_version_id,
+            current.info.current_version_id
+        );
+        assert_eq!(page.info.line_count, current.info.line_count);
+    }
+
     struct NoProvider;
     impl SemanticProvider for NoProvider {
         fn form_knowledge(&self, _: &str) -> std::result::Result<KnowledgeDraft, ProviderError> {

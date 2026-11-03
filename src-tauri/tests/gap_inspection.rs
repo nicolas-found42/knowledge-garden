@@ -1,3 +1,5 @@
+#[path = "fixtures/recovery/mod.rs"]
+mod recovery;
 use knowledge_garden::{
     application::{AcquisitionMethod, Application, PageSearchRequest},
     semantic::{
@@ -130,7 +132,7 @@ fn recovery_removes_only_the_resolved_gap_while_qualified_and_missing_support_st
         .any(|p| p.source_id == complete.info.source_id));
 }
 #[test]
-fn duplicate_page_identity_is_explained_from_source_without_selecting_an_owner_file() {
+fn duplicate_verified_fixture_identity_is_explained_without_selecting_a_copy() {
     let temp = tempdir().unwrap();
     let root = temp.path().join("collection");
     let source = temp.path().join("report.txt");
@@ -147,7 +149,8 @@ fn duplicate_page_identity_is_explained_from_source_without_selecting_an_owner_f
     let source = app.open_source(&source.info.source_id).unwrap();
     let path = root.join(&source.info.knowledge_pages[0].path);
     let duplicate = root.join("pages/duplicate-owner-save.md");
-    fs::copy(&path, &duplicate).unwrap();
+    recovery::seed_metadata(&duplicate, &fs::read(&path).unwrap());
+    app.rebuild_index().unwrap();
     assert!(categories(&app, &source.info.source_id)
         .iter()
         .any(|s| s == "identity_ambiguous"));
@@ -188,15 +191,15 @@ fn persisted_partial_failed_and_ambiguous_update_states_keep_separate_scope_and_
         header["semantic_error"] = error.into();
         header["extraction"] = "partial_text".into();
         header["extraction_detail"] = "Pages 3–4 unavailable; pages 1–2 preserved".into();
-        fs::write(
+        recovery::seed_metadata(
             &path,
             format!(
                 "---\n{}---{}",
                 serde_yaml_ng::to_string(&header).unwrap(),
                 body
-            ),
-        )
-        .unwrap();
+            )
+            .as_bytes(),
+        );
         app.rebuild_index().unwrap();
         let query: knowledge_garden::application::boolean::BooleanQueryRequest = serde_json::from_value(serde_json::json!({"expression":{"op":"constraint","constraint":{"processing_status":category}},"returned":{},"continuation":null,"work_budget":50,"page_size":50})).unwrap();
         assert!(app
@@ -299,19 +302,21 @@ fn different_relationship_support_keeps_quote_qualification_and_original_togethe
     support["source_version_id"] = source_b.info.current_version_id.clone().unwrap().into();
     support["qualifier"] = "Second witness, tentative".into();
     support["evidence"]["quote"] = text_b.into();
+    support["evidence"]["byte_start"] = 0.into();
+    support["evidence"]["byte_end"] = text_b.len().into();
     header["relationships"][0]["supports"]
         .as_sequence_mut()
         .unwrap()
         .push(support);
-    fs::write(
+    recovery::seed_metadata(
         &path,
         format!(
             "---\n{}---{}",
             serde_yaml_ng::to_string(&header).unwrap(),
             body
-        ),
-    )
-    .unwrap();
+        )
+        .as_bytes(),
+    );
     let item = app
         .inspect_gaps(&page.page_id)
         .unwrap()
