@@ -4100,14 +4100,14 @@ fn deleting_the_lookup_index_reconstructs_the_same_page_and_asset() {
 }
 
 #[test]
-fn oversized_text_retains_the_entire_original_without_claiming_complete_extraction() {
+fn long_text_is_queued_without_claiming_complete_extraction() {
     let workspace = tempdir().unwrap();
     let source = workspace.path().join("large.txt");
     let bytes = vec![b'x'; knowledge_garden::application::MAX_TEXT_BYTES + 1];
     fs::write(&source, &bytes).unwrap();
     let mut app = Application::open(workspace.path().join("collection")).unwrap();
     let page = app.import_source(&source, AcquisitionMethod::Drop).unwrap();
-    assert_eq!(page.info.extraction, ExtractionState::TooLarge);
+    assert_eq!(page.info.extraction, ExtractionState::PartialText);
     assert_eq!(page.info.bytes, bytes.len() as u64);
     assert!(page.body.contains("Text is unavailable"));
     assert_eq!(
@@ -6300,13 +6300,20 @@ fn unreadable_page_body_does_not_block_healthy_rebuild() {
         .unwrap();
     let original = fs::read(&path).unwrap();
     let mut status = app.reconcile_collection(100).unwrap();
-    while !status.complete {
+    for _ in 0..100 {
+        if status.complete {
+            break;
+        }
         status = app.reconcile_collection(100).unwrap();
     }
+    assert!(
+        status.complete,
+        "A damaged visible page must not keep reconciliation pending indefinitely"
+    );
     assert!(status
         .diagnostics
         .iter()
-        .any(|d| d.kind == "unreadable_markdown" && d.paths == [page.path.as_str()]));
+        .any(|d| d.kind == "unreadable_visible_markdown" && d.paths == [page.path.as_str()]));
     assert_eq!(fs::read(path).unwrap(), original);
     recovery::assert_retains(&collection, &original);
     assert!(app

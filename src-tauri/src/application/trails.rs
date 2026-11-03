@@ -219,11 +219,13 @@ fn superseded(source: &super::SourcePage) -> bool {
 }
 impl Application {
     fn trail_projection(&self, source: &super::SourcePage, basis: &str) -> Result<String> {
+        let snapshot = self.verified_asset_snapshot(
+            &self.original_path(&source.info.source_id)?,
+            &source.info.sha256,
+            &source.info.format,
+        )?;
         if basis == "retained_original_text" {
-            return read_bounded_text(
-                &self.original_path(&source.info.source_id)?,
-                MAX_TEXT_BYTES as u64,
-            );
+            return read_bounded_text(snapshot.path(), MAX_TEXT_BYTES as u64);
         }
         if !matches!(
             source.info.extraction,

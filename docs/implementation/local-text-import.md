@@ -7,7 +7,9 @@
 - **Add source** uses the native macOS file picker. A file dropped on the app window enters the same import operation with `drop` as its acquisition method.
 - The Rust application streams the supplied file into a staging bundle, hashes its bytes, writes a Markdown source page, then publishes the bundle. Reimporting the same bytes with the same normalized extension reopens the same source and page. Another acquisition context gets its own Markdown record without rewriting the source page.
 - The reader shows the source page, opens its retained original with macOS file handling, and reveals processing state and acquisition context on demand. It restores the last opened page after restart. The lookup index can be rebuilt from committed Markdown.
-- Unsupported formats, invalid UTF-8, binary control characters, and text beyond the 2 MiB preview limit keep their complete originals and show explicit coverage states.
+- Unsupported formats, invalid UTF-8, binary control characters, and text beyond the 32 MiB reconciliation limit keep their complete originals and show explicit coverage states.
+
+Plain text above the 2 MiB reader preview is processed in resumable provider windows up to a separate 32 MiB reconciliation limit. See [long-text processing](long-text.md) for budgets and failure behavior.
 
 ## Checks performed on the 16 GB Apple Silicon Mac
 

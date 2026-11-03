@@ -62,6 +62,14 @@ pub struct SourceUpdateDraft {
 }
 
 #[derive(Debug, Clone)]
+pub struct TextChunkJob {
+    pub start: u64,
+    pub context_start: u64,
+    pub end: u64,
+    pub total: u64,
+}
+
+#[derive(Debug, Clone)]
 pub struct SemanticJob {
     pub source_id: String,
     pub source_version_id: String,
@@ -70,6 +78,16 @@ pub struct SemanticJob {
     pub generation: String,
     pub source_text: String,
     pub prior_source_text: Option<String>,
+    pub text_chunk: Option<TextChunkJob>,
+}
+
+impl SemanticJob {
+    pub fn needs_provider(&self) -> bool {
+        !self
+            .text_chunk
+            .as_ref()
+            .is_some_and(|range| range.start == range.total)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

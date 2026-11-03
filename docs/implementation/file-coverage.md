@@ -4,7 +4,7 @@ Knowledge Garden retains accepted original bytes even when it cannot interpret t
 
 | Family | Current processing | Important limits |
 | --- | --- | --- |
-| Plain text, Markdown, code, CSV, JSON, XML and other configured text extensions | UTF-8 text is retained and projected as text. Code and structured data are not executed. | The current primary checkout has a 2 MiB text limit; larger-source processing is under development. Structured formats are not necessarily semantically parsed. |
+| Plain text, Markdown, code, CSV, JSON, XML and other configured text extensions | UTF-8 text is retained and projected as text. Code and structured data are not executed. | Plain UTF-8 semantic processing supports sources up to 32 MiB in resumable provider windows; the reader preview remains 2 MiB. Output and reconciliation limits can leave coverage incomplete. See [long-text processing](long-text.md). Structured formats are not necessarily semantically parsed. |
 | PDF | macOS PDFKit text extraction and Vision OCR provide page-located text. | OCR is fallible. Missing page coverage must not be interpreted as absence of content. |
 | DOCX and PPTX | OOXML paragraphs, tables, slide text and available notes are projected with locations. | Embedded content and unsupported package parts may be omitted and reported as gaps. |
 | XLSX | Supported cell values and cached formula results are projected with sheet and cell locations. | Formulas are not run and cached values may be stale. Workbook, part, sheet and cell limits apply. Supported Agile encryption is identified but not decrypted. |

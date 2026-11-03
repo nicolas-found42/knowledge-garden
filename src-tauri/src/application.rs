@@ -4,6 +4,7 @@ pub mod collection;
 pub mod comparison;
 pub mod gaps;
 mod index_stage;
+mod long_text;
 pub(crate) mod migration_backup;
 mod publication;
 pub mod reconciliation;
@@ -28,6 +29,7 @@ use crate::semantic::{
     SourceUpdateRole,
 };
 use fs2::FileExt;
+use long_text::{MAX_RECONCILIATION_BYTES, PROVIDER_CHUNK_BYTES};
 use publication::{
     commit_publication, commit_publication_with_originals, commit_publication_with_removals,
     recover_publications, retain_version_original, validate_real_collection_ancestors,
@@ -2535,9 +2537,8 @@ impl Application {
                 )
             } else if count > MAX_TEXT_BYTES as u64 {
                 (
-                    ExtractionState::TooLarge,
-                    "Text exceeds the 2 MiB preview limit. The complete original is retained."
-                        .into(),
+                    if count <= MAX_RECONCILIATION_BYTES { ExtractionState::PartialText } else { ExtractionState::TooLarge },
+                    if count <= MAX_RECONCILIATION_BYTES { "The complete original is retained. Resumable UTF-8 semantic processing is queued; the readable preview is limited to 2 MiB." } else { "Text exceeds the 32 MiB reconciliation limit. The complete original is retained; semantic coverage is incomplete." }.into(),
                     String::new(),
                     None,
                     None,
@@ -3496,6 +3497,7 @@ impl Application {
             } else {
                 page.info.acquisitions.clone()
             };
+            let mut text_chunk = None;
             let text = if is_timed_media_format(&version.format) {
                 let Some(audio) = candidate_audio_processing(&page.info, &source_version_id) else {
                     continue;
@@ -3717,6 +3719,23 @@ impl Application {
                     };
                 }
                 projection.semantic_text
+            } else if version.bytes > PROVIDER_CHUNK_BYTES as u64 && is_text_format(&version.format)
+            {
+                match self.claim_text_chunk(&page, &version, &candidate_path) {
+                    Ok((text, range)) => {
+                        text_chunk = Some(range);
+                        text
+                    }
+                    Err(error) => {
+                        if matches!(error, GardenError::Recovery(_)) {
+                            return Err(error);
+                        }
+                        self.record_semantic_failure(&mut page, error.to_string(), false, true)?;
+                        self.write_source_page(&mut page)?;
+                        self.index_page(&page.info)?;
+                        continue;
+                    }
+                }
             } else {
                 let bytes = match self.verified_original_bytes(&candidate_path, &version.sha256) {
                     Ok(bytes) => bytes,
@@ -3733,7 +3752,9 @@ impl Application {
                     GardenError::Invalid("The retained text source is no longer UTF-8.".into())
                 })?
             };
-            let prior_source_text = if initial {
+            let prior_source_text = if text_chunk.is_some() {
+                None
+            } else if initial {
                 if text.starts_with("[PHOTO ") {
                     None
                 } else {
@@ -3802,7 +3823,9 @@ impl Application {
                 claim,
                 generation,
                 source_text: text,
-                prior_source_text,
+                prior_source_text: prior_source_text
+                    .filter(|text| text.len() <= PROVIDER_CHUNK_BYTES),
+                text_chunk,
             });
         }
         Ok(jobs)
@@ -4269,8 +4292,8 @@ impl Application {
 
     fn finish_semantic_job_inner(
         &mut self,
-        job: SemanticJob,
-        result: std::result::Result<KnowledgeDraft, ProviderError>,
+        mut job: SemanticJob,
+        mut result: std::result::Result<KnowledgeDraft, ProviderError>,
     ) -> Result<()> {
         recover_publications(&self.root)?;
         self.recover_source_removals()?;
@@ -4299,6 +4322,24 @@ impl Application {
             return Err(GardenError::Invalid(
                 "The semantic job is no longer the active source attempt.".into(),
             ));
+        }
+        if job.text_chunk.is_some() {
+            result = match result {
+                Ok(draft) => match self.stage_text_chunk(&mut page, &mut job, draft) {
+                    Ok(Some(complete)) => Ok(complete),
+                    Ok(None) => return Ok(()),
+                    Err(error) => {
+                        if matches!(error, GardenError::Recovery(_)) {
+                            return Err(error);
+                        }
+                        self.record_semantic_failure(&mut page, error.to_string(), true, true)?;
+                        self.write_source_page(&mut page)?;
+                        self.index_page(&page.info)?;
+                        return Ok(());
+                    }
+                },
+                Err(error) => Err(error),
+            };
         }
         let web_projection = page.info.format == "html"
             && page
@@ -4744,9 +4785,12 @@ impl Application {
         self.require_integrity_recovered()?;
         let jobs = self.claim_due_semantic_jobs_at(4, now)?;
         for job in jobs {
-            let result = self
-                .semantic_provider
-                .form_knowledge_with_prior(&job.source_text, job.prior_source_text.as_deref());
+            let result = if job.needs_provider() {
+                self.semantic_provider
+                    .form_knowledge_with_prior(&job.source_text, job.prior_source_text.as_deref())
+            } else {
+                Ok(KnowledgeDraft::default())
+            };
             self.finish_semantic_job(job, result)?;
         }
         Ok(())
@@ -7924,7 +7968,9 @@ impl Application {
             .ok_or_else(|| {
                 GardenError::Invalid("The retained source version is unknown.".into())
             })?;
-        if asset != version.asset
+        let current_asset =
+            version.source_version_id == page.info.sha256 && asset == page.info.asset;
+        if (asset != version.asset && !current_asset)
             || !asset.starts_with("original")
             || Path::new(asset).components().count() != 1
         {
@@ -8083,7 +8129,9 @@ impl Application {
             .ok_or_else(|| {
                 GardenError::Invalid("The retained source version is unknown.".into())
             })?;
-        if asset != version.asset
+        let current_asset =
+            version.source_version_id == page.info.sha256 && asset == page.info.asset;
+        if (asset != version.asset && !current_asset)
             || !asset.starts_with("original")
             || Path::new(asset).components().count() != 1
         {
@@ -8133,7 +8181,9 @@ impl Application {
             .ok_or_else(|| {
                 GardenError::Invalid("The retained source version is no longer available.".into())
             })?;
-        if version.asset != snapshot.asset
+        let current_asset =
+            version.source_version_id == page.info.sha256 && snapshot.asset == page.info.asset;
+        if (version.asset != snapshot.asset && !current_asset)
             || version.sha256 != snapshot.digest
             || version.format != snapshot.format
         {
@@ -8282,7 +8332,9 @@ impl Application {
             .ok_or_else(|| {
                 GardenError::Invalid("The retained source version is unknown.".into())
             })?;
-        if asset != version.asset
+        let current_asset =
+            version.source_version_id == page.info.sha256 && asset == page.info.asset;
+        if (asset != version.asset && !current_asset)
             || !asset.starts_with("original")
             || Path::new(asset).components().count() != 1
         {
@@ -8380,7 +8432,9 @@ impl Application {
                 "This source version is no longer supported by an active origin.".into(),
             ));
         }
-        if asset != version.asset
+        let current_asset =
+            version.source_version_id == page.info.sha256 && asset == page.info.asset;
+        if (asset != version.asset && !current_asset)
             || !asset.starts_with("original")
             || Path::new(asset).components().count() != 1
         {
@@ -8391,7 +8445,7 @@ impl Application {
         // The first acquisition lives at the source root until a replacement
         // archives it. Resolve that exact identity through the same containment
         // checks as ordinary original opening; never substitute another version.
-        if source_version_id == page.info.sha256 && asset == page.info.asset {
+        if source_version_id == page.info.sha256 {
             return self.original_path(source_id);
         }
         let source_bundle = fs::canonicalize(self.source_dir(source_id)?)?;
@@ -9679,8 +9733,16 @@ fn classify_source(
     }
     if count > MAX_TEXT_BYTES as u64 {
         return (
-            ExtractionState::TooLarge,
-            "Text exceeds the 2 MiB preview limit. The complete original is retained.",
+            if count <= MAX_RECONCILIATION_BYTES {
+                ExtractionState::PartialText
+            } else {
+                ExtractionState::TooLarge
+            },
+            if count <= MAX_RECONCILIATION_BYTES {
+                "The complete original is retained. Resumable UTF-8 semantic processing is queued; the readable preview is limited to 2 MiB."
+            } else {
+                "Text exceeds the 32 MiB reconciliation limit. The complete original is retained; semantic coverage is incomplete."
+            },
             String::new(),
         );
     }
@@ -11718,11 +11780,22 @@ fn source_body(info: &SourceInfo, text: &str, office: Option<&OfficeProjection>)
             info.asset
         );
     }
+    let mut preview_end = text.len().min(MAX_TEXT_BYTES);
+    while !text.is_char_boundary(preview_end) {
+        preview_end -= 1;
+    }
+    let clipped = preview_end < text.len();
+    let text = &text[..preview_end];
+    let preview_detail = if clipped {
+        "\nOnly the first 2 MiB are shown below. Semantic processing examines the retained original in resumable chunks; use the original for later byte ranges.\n"
+    } else {
+        ""
+    };
     let longest_run = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
     let fence = "`".repeat(3.max(longest_run + 1));
     format!(
-        "# {title}\n\n[Open original]({})\n\n## Source text · lines 1–{}\n\n{fence}text\n{text}\n{fence}\n",
-        info.asset, info.line_count
+        "# {title}\n\n[Open original]({})\n\n## Source text · lines 1–{}\n{preview_detail}\n{fence}text\n{text}\n{fence}\n",
+        info.asset, text.lines().count()
     )
 }
 

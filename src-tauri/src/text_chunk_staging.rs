@@ -29,8 +29,12 @@ fn invalid(message: &str) -> io::Error {
 }
 
 fn read_record(path: &Path) -> io::Result<StagedChunk> {
-    let mut file = File::open(path)?;
-    if file.metadata()?.len() > MAX_RECORD_BYTES {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)?;
+    if !file.metadata()?.is_file() || file.metadata()?.len() > MAX_RECORD_BYTES {
         return Err(invalid("staged chunk exceeds its size limit"));
     }
     let mut bytes = Vec::new();
@@ -138,18 +142,32 @@ pub struct ChunkStore {
     generation: String,
     total: u64,
     offset: u64,
+    staged_bytes: u64,
 }
 
 impl ChunkStore {
     pub fn open(dir: &Path, version: &str, generation: &str, total: u64) -> io::Result<Self> {
         fs::create_dir_all(dir)?;
         let offset = checkpoint(dir, version, generation, total)?;
+        let mut start = 0;
+        let mut staged_bytes = 0u64;
+        while start < offset {
+            let chunk = read_committed(dir, start, version, generation, total)?;
+            staged_bytes = staged_bytes
+                .checked_add(fs::symlink_metadata(record_path(dir, start))?.len())
+                .ok_or_else(|| invalid("staging size overflow"))?;
+            if staged_bytes > MAX_RECORD_BYTES {
+                return Err(invalid("staged semantic results exceed the 8 MiB budget"));
+            }
+            start = chunk.end;
+        }
         let store = Self {
             dir: dir.to_owned(),
             version: version.into(),
             generation: generation.into(),
             total,
             offset,
+            staged_bytes,
         };
         store.write_cursor()?;
         Ok(store)
@@ -198,6 +216,13 @@ impl ChunkStore {
         if bytes.len() as u64 > MAX_RECORD_BYTES {
             return Err(invalid("staged chunk exceeds its size limit"));
         }
+        let new_size = self
+            .staged_bytes
+            .checked_add(bytes.len() as u64)
+            .ok_or_else(|| invalid("staging size overflow"))?;
+        if new_size > MAX_RECORD_BYTES {
+            return Err(invalid("staged semantic results exceed the 8 MiB budget"));
+        }
         let path = record_path(&self.dir, chunk.start);
         let mut tmp = tempfile::NamedTempFile::new_in(&self.dir)?;
         tmp.write_all(&bytes)?;
@@ -212,6 +237,7 @@ impl ChunkStore {
             Err(e) => return Err(e.error),
         }
         self.offset = chunk.end;
+        self.staged_bytes = new_size;
         self.write_cursor()
     }
 }
@@ -332,5 +358,9 @@ pub fn aggregate(
         }
         offset = chunk.end;
     }
+    let mut seen = std::collections::HashSet::new();
+    result
+        .entities
+        .retain(|entity| seen.insert((entity.kind.clone(), entity.label.clone())));
     Ok(result)
 }

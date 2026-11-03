@@ -212,7 +212,7 @@ impl Application {
                                     .as_ref()
                                     .map_or(true, |bytes| std::str::from_utf8(bytes).is_err())
                                 {
-                                    scan.unreadable.push(CollectionDiagnostic { kind: "unreadable_markdown".into(), paths: vec![relative.clone()], detail: "Visible Markdown exceeds the supported size or encoding bounds. Its bytes remain retained; verified knowledge stays available.".into() });
+                                    scan.unreadable.push(CollectionDiagnostic { kind: "unreadable_visible_markdown".into(), paths: vec![relative.clone()], detail: "Visible Markdown exceeds the supported size or encoding bounds. Its bytes remain retained; verified knowledge stays available.".into() });
                                 }
                             }
                         }

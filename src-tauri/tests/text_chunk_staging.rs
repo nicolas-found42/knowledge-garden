@@ -216,3 +216,53 @@ fn incomplete_chain_and_excessive_output_are_never_publishable() {
         .to_string()
         .contains("record budget"));
 }
+
+#[test]
+fn aggregate_staging_budget_stops_before_advancing_the_checkpoint() {
+    use knowledge_garden::semantic::{EntityDraft, EvidenceDraft};
+    use knowledge_garden::text_chunk_staging::ChunkStore;
+    let temp = tempfile::tempdir().unwrap();
+    let evidence = EvidenceDraft {
+        quote: "x".into(),
+        byte_start: 0,
+        byte_end: 1,
+        origin: "source".into(),
+        qualifier: None,
+        offset_basis: None,
+        source_location: None,
+    };
+    let draft = KnowledgeDraft {
+        entities: vec![EntityDraft {
+            kind: "topic".into(),
+            label: "x".repeat(4 * 1024 * 1024 + 1),
+            evidence,
+        }],
+        ..Default::default()
+    };
+    let mut store = ChunkStore::open(temp.path(), "v", "g", 20).unwrap();
+    store
+        .commit(&StagedChunk {
+            source_version_id: "v".into(),
+            generation: "g".into(),
+            start: 0,
+            end: 10,
+            draft: draft.clone(),
+        })
+        .unwrap();
+    assert!(store
+        .commit(&StagedChunk {
+            source_version_id: "v".into(),
+            generation: "g".into(),
+            start: 10,
+            end: 20,
+            draft
+        })
+        .is_err());
+    assert_eq!(store.offset(), 10);
+    assert_eq!(
+        ChunkStore::open(temp.path(), "v", "g", 20)
+            .unwrap()
+            .offset(),
+        10
+    );
+}

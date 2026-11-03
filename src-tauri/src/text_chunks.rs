@@ -100,3 +100,43 @@ pub fn contains_bytes(path: &Path, needle: &[u8]) -> io::Result<bool> {
         }
     }
 }
+
+/// Include a small preceding UTF-8 context without exceeding the provider limit.
+/// The caller commits the new range starting at `offset`, not the overlap.
+pub fn read_window(
+    path: &Path,
+    offset: u64,
+    limit: usize,
+    overlap: u64,
+) -> io::Result<Option<TextChunk>> {
+    if overlap >= limit as u64 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "overlap must be smaller than the window",
+        ));
+    }
+    let mut file = File::open(path)?;
+    if offset == file.metadata()?.len() {
+        return Ok(None);
+    }
+    if offset > file.metadata()?.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "window offset exceeds the source",
+        ));
+    }
+    let mut start = offset.saturating_sub(overlap);
+    file.seek(SeekFrom::Start(start))?;
+    let mut byte = [0];
+    while start < offset && file.read(&mut byte)? == 1 && byte[0] & 0xc0 == 0x80 {
+        start += 1;
+    }
+    let chunk = read_chunk(path, start, limit)?;
+    if chunk.as_ref().is_some_and(|chunk| chunk.end <= offset) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "text window made no progress",
+        ));
+    }
+    Ok(chunk)
+}
