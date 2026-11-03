@@ -269,3 +269,68 @@ pub fn validate_and_rebase(draft: &mut KnowledgeDraft, text: &str, start: u64) -
     *draft = validated;
     Ok(())
 }
+
+/// Reconcile a fully contiguous chain under a fixed output budget. No partial
+/// chain is publishable. Context-dependent corrections need a single complete
+/// source judgment and are intentionally rejected across independent chunks.
+pub fn aggregate(
+    dir: &Path,
+    version: &str,
+    generation: &str,
+    total: u64,
+) -> io::Result<KnowledgeDraft> {
+    let mut result = KnowledgeDraft::default();
+    let mut offset = 0;
+    let mut encoded_bytes = 0usize;
+    while offset < total {
+        let chunk = read_committed(dir, offset, version, generation, total)?;
+        encoded_bytes = encoded_bytes
+            .checked_add(
+                serde_json::to_vec(&chunk.draft)
+                    .map_err(|e| invalid(&e.to_string()))?
+                    .len(),
+            )
+            .ok_or_else(|| invalid("semantic result size overflow"))?;
+        if encoded_bytes > MAX_RECORD_BYTES as usize {
+            return Err(invalid(
+                "complete semantic result exceeds the 8 MiB reconciliation budget",
+            ));
+        }
+        let mut draft = chunk.draft;
+        if !draft.correction_candidates.is_empty() || !draft.correction_alignments.is_empty() {
+            return Err(invalid("cross-chunk targeted corrections require complete context; prior knowledge is retained"));
+        }
+        result.entities.append(&mut draft.entities);
+        result.facts.append(&mut draft.facts);
+        result.relationships.append(&mut draft.relationships);
+        result.tags.append(&mut draft.tags);
+        result.decisions.append(&mut draft.decisions);
+        if result.entities.len() > 500
+            || result.facts.len() > 2000
+            || result.relationships.len() > 2000
+            || result.tags.len() > 2000
+            || result.decisions.len() > 4096
+        {
+            return Err(invalid(
+                "complete semantic result exceeds the safe record budget",
+            ));
+        }
+        if let Some(update) = draft.source_update {
+            if let Some(previous) = &result.source_update {
+                // Offset-specific duplicate statements are not an independent
+                // source-wide coverage judgment. Refuse conflicting metadata.
+                if serde_json::to_value(previous).map_err(|e| invalid(&e.to_string()))?
+                    != serde_json::to_value(&update).map_err(|e| invalid(&e.to_string()))?
+                {
+                    return Err(invalid(
+                        "chunk source-update judgments disagree; prior knowledge is retained",
+                    ));
+                }
+            } else {
+                result.source_update = Some(update);
+            }
+        }
+        offset = chunk.end;
+    }
+    Ok(result)
+}

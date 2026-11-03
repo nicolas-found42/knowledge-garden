@@ -173,3 +173,46 @@ fn validates_and_rebases_chunk_evidence() {
     invalid.entities[0].evidence.byte_end = 4;
     assert!(validate_and_rebase(&mut invalid, "x終", 0).is_err());
 }
+
+#[test]
+fn incomplete_chain_and_excessive_output_are_never_publishable() {
+    use knowledge_garden::{
+        semantic::{EntityDraft, EvidenceDraft},
+        text_chunk_staging::aggregate,
+    };
+    let temp = tempfile::tempdir().unwrap();
+    assert!(aggregate(temp.path(), "v", "g", 10).is_err());
+    let evidence = EvidenceDraft {
+        quote: "x".into(),
+        byte_start: 0,
+        byte_end: 1,
+        origin: "source".into(),
+        qualifier: None,
+        offset_basis: None,
+        source_location: None,
+    };
+    let mut draft = KnowledgeDraft::default();
+    draft.entities = (0..501)
+        .map(|i| EntityDraft {
+            kind: "topic".into(),
+            label: format!("topic{i}"),
+            evidence: evidence.clone(),
+        })
+        .collect();
+    knowledge_garden::text_chunk_staging::commit(
+        temp.path(),
+        &StagedChunk {
+            source_version_id: "v".into(),
+            generation: "g".into(),
+            start: 0,
+            end: 10,
+            draft,
+        },
+        10,
+    )
+    .unwrap();
+    assert!(aggregate(temp.path(), "v", "g", 10)
+        .unwrap_err()
+        .to_string()
+        .contains("record budget"));
+}
