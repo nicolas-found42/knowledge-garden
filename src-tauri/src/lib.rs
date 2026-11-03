@@ -11,5 +11,7 @@ pub mod photo;
 pub mod processes;
 pub mod providers;
 pub mod semantic;
+pub mod text_chunk_staging;
+pub mod text_chunks;
 pub mod timeline;
 pub mod web;

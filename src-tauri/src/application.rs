@@ -24,8 +24,9 @@ use crate::semantic::{
 };
 use fs2::FileExt;
 use publication::{
-    commit_publication, commit_publication_with_removals, recover_publications,
-    validate_real_collection_ancestors,
+    commit_publication, commit_publication_with_originals, commit_publication_with_removals,
+    recover_publications, retain_version_original, validate_real_collection_ancestors,
+    OriginalPublication,
 };
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -540,6 +541,7 @@ pub struct Application {
     extractor: Arc<dyn SourceExtractor>,
     audio_processor: Arc<dyn AudioProcessor>,
     staged_publication: Vec<(PathBuf, Vec<u8>)>,
+    staged_originals: Vec<OriginalPublication>,
     publication_bases: std::cell::RefCell<Option<HashMap<PathBuf, Vec<u8>>>>,
     fail_after_publication_files: Option<usize>,
     meaning_search: Option<MeaningSearch>,
@@ -986,6 +988,7 @@ impl Application {
             collection_revision: 0,
             collection_diagnostics: Vec::new(),
             staged_publication: Vec::new(),
+            staged_originals: Vec::new(),
             publication_bases: Default::default(),
             fail_after_publication_files: None,
             meaning_search,
@@ -3024,7 +3027,7 @@ impl Application {
                     .iter()
                     .find(|version| version.source_version_id == current_id)
                     .and_then(|version| {
-                        let root_path = self.source_dir(&source_id).ok()?.join(&version.asset);
+                        let root_path = self.source_dir(&source_id).ok()?.join(&page.info.asset);
                         let version_path = self.version_original_path(&source_id, version).ok()?;
                         let path = if root_path.is_file() {
                             root_path
@@ -3508,7 +3511,8 @@ impl Application {
                 let path = if source.info.current_version_id.as_deref()
                     == Some(version.source_version_id.as_str())
                 {
-                    self.source_dir(&support.source_id)?.join(&version.asset)
+                    self.source_dir(&support.source_id)?
+                        .join(&source.info.asset)
                 } else {
                     self.version_original_path(&support.source_id, version)?
                 };
@@ -3540,6 +3544,7 @@ impl Application {
     ) -> Result<()> {
         recover_publications(&self.root)?;
         self.staged_publication.clear();
+        self.staged_originals.clear();
         *self.publication_bases.borrow_mut() = Some(HashMap::new());
         let source_path = self.page_path(&job.source_id)?;
         let mut page = read_page(&source_path)?;
@@ -3792,6 +3797,7 @@ impl Application {
                                 // Leave the processing lease for controlled-exit recovery.
                                 self.ensure_running()?;
                                 self.staged_publication.clear();
+                                self.staged_originals.clear();
                                 page = prior_page;
                                 self.record_semantic_failure(
                                     &mut page,
@@ -3808,7 +3814,7 @@ impl Application {
                 self.record_provider_failure(&mut page, error)?;
             }
         }
-        if self.staged_publication.is_empty() {
+        if self.staged_publication.is_empty() && self.staged_originals.is_empty() {
             self.write_source_page(&mut page)?;
         } else {
             let markdown = serialize_page(&page.info, &page.body)?;
@@ -3836,7 +3842,8 @@ impl Application {
                 .borrow_mut()
                 .take()
                 .unwrap_or_default();
-            commit_publication(&self.root, files, &bases, fail_after)?;
+            let originals = std::mem::take(&mut self.staged_originals);
+            commit_publication_with_originals(&self.root, files, originals, &bases, fail_after)?;
             for source_id in changed_source_ids {
                 let indexed = read_page(&self.page_path(&source_id)?)?;
                 self.index_page(&indexed.info)?;
@@ -4457,13 +4464,15 @@ impl Application {
                 {
                     let candidate = self.version_original_path(&source.info.source_id, &version)?;
                     if candidate.exists() {
-                        self.staged_publication.push((
-                            self.source_dir(&source.info.source_id)?
-                                .join(&version.asset),
-                            fs::read(candidate)?,
-                        ));
+                        self.staged_originals.push(OriginalPublication {
+                            destination: self
+                                .source_dir(&source.info.source_id)?
+                                .join(generation_asset(&version.asset, &version.sha256)),
+                            source: candidate,
+                            proposed_digest: version.sha256.clone(),
+                        });
                         source.info.original_name = version.original_name.clone();
-                        source.info.asset = version.asset.clone();
+                        source.info.asset = generation_asset(&version.asset, &version.sha256);
                         source.info.sha256 = version.sha256.clone();
                         source.info.bytes = version.bytes;
                         source.info.format = version.format.clone();
@@ -5321,11 +5330,13 @@ impl Application {
             .source_dir(&source.info.source_id)?
             .join("versions")
             .join(&current_id)
-            .join(&current_asset);
-        if !previous_original.exists() {
-            self.staged_publication
-                .push((previous_original, fs::read(&current_original)?));
-        }
+            .join(&current_version.asset);
+        retain_version_original(
+            &self.root,
+            &previous_original,
+            &current_original,
+            &current_version.sha256,
+        )?;
         let candidate_path = self
             .source_dir(&source.info.source_id)?
             .join("versions")
@@ -5364,16 +5375,18 @@ impl Application {
                 ));
             }
         }
-        let candidate_bytes = fs::read(candidate_path)?;
         let destination_original = self
             .source_dir(&source.info.source_id)?
-            .join(&candidate.asset);
-        self.staged_publication
-            .push((destination_original, candidate_bytes));
+            .join(generation_asset(&candidate.asset, &candidate.sha256));
+        self.staged_originals.push(OriginalPublication {
+            destination: destination_original,
+            source: candidate_path,
+            proposed_digest: candidate.sha256.clone(),
+        });
 
         source.info.extraction_version_id = Some(source_version_id.into());
         source.info.original_name = candidate.original_name.clone();
-        source.info.asset = candidate.asset.clone();
+        source.info.asset = generation_asset(&candidate.asset, &candidate.sha256);
         source.info.sha256 = candidate.sha256.clone();
         source.info.bytes = candidate.bytes;
         source.info.format = candidate.format.clone();
@@ -8857,6 +8870,56 @@ fn stable_relationship_id(from_page_id: &str, to_page_id: &str, kind: &str) -> S
     digest.update([0]);
     digest.update(to_page_id.as_bytes());
     format!("relationship-{}", hex::encode(digest.finalize()))
+}
+
+#[cfg(test)]
+mod retained_version_tests {
+    use super::*;
+
+    #[test]
+    fn archive_refuses_a_symlinked_versions_directory() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("current");
+        fs::write(&source, b"original").unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        symlink(outside.path(), root.path().join("versions")).unwrap();
+        let archive = root.path().join("versions/v1/original.txt");
+        let digest = hex::encode(Sha256::digest(b"original"));
+        assert!(retain_version_original(root.path(), &archive, &source, &digest).is_err());
+        assert!(!outside.path().join("v1").exists());
+    }
+
+    #[test]
+    fn archive_retry_and_conflicts_preserve_both_generations() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("current");
+        let archive = root.path().join("versions/v1/original.txt");
+        let original = vec![b'x'; 4 * 1024 * 1024 + 7];
+        fs::write(&source, &original).unwrap();
+        let digest = hex::encode(Sha256::digest(&original));
+        retain_version_original(root.path(), &archive, &source, &digest).unwrap();
+        retain_version_original(root.path(), &archive, &source, &digest).unwrap();
+        assert_eq!(fs::read(&archive).unwrap(), original);
+        fs::write(&archive, b"different retained data").unwrap();
+        assert!(retain_version_original(root.path(), &archive, &source, &digest).is_err());
+        assert_eq!(fs::read(&archive).unwrap(), b"different retained data");
+        assert_eq!(fs::read(&source).unwrap(), original);
+        fs::remove_file(&archive).unwrap();
+        fs::write(&source, b"changed generation").unwrap();
+        assert!(retain_version_original(root.path(), &archive, &source, &digest).is_err());
+        assert!(!archive.exists());
+    }
+}
+
+fn generation_asset(asset: &str, digest: &str) -> String {
+    match Path::new(asset)
+        .extension()
+        .and_then(|value| value.to_str())
+    {
+        Some(extension) => format!("original-{digest}.{extension}"),
+        None => format!("original-{digest}"),
+    }
 }
 
 fn write_atomic_from_file(path: &Path, source: &Path) -> Result<()> {

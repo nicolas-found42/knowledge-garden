@@ -14,6 +14,19 @@ struct PublicationEntry {
     staged: String,
     #[serde(default)]
     expected: Option<Vec<u8>>,
+    #[serde(default)]
+    original: Option<OriginalGeneration>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct OriginalGeneration {
+    proposed_digest: String,
+}
+
+pub(super) struct OriginalPublication {
+    pub destination: PathBuf,
+    pub source: PathBuf,
+    pub proposed_digest: String,
 }
 
 pub(super) fn commit_publication(
@@ -32,7 +45,28 @@ pub(super) fn commit_publication_with_removals(
     bases: &HashMap<PathBuf, Vec<u8>>,
     fail_after_files: Option<usize>,
 ) -> Result<()> {
-    if files.is_empty() && removals.is_empty() {
+    commit_publication_inner(root, files, Vec::new(), removals, bases, fail_after_files)
+}
+
+pub(super) fn commit_publication_with_originals(
+    root: &Path,
+    files: Vec<(PathBuf, Vec<u8>)>,
+    originals: Vec<OriginalPublication>,
+    bases: &HashMap<PathBuf, Vec<u8>>,
+    fail_after_files: Option<usize>,
+) -> Result<()> {
+    commit_publication_inner(root, files, originals, Vec::new(), bases, fail_after_files)
+}
+
+fn commit_publication_inner(
+    root: &Path,
+    files: Vec<(PathBuf, Vec<u8>)>,
+    originals: Vec<OriginalPublication>,
+    removals: Vec<PathBuf>,
+    bases: &HashMap<PathBuf, Vec<u8>>,
+    fail_after_files: Option<usize>,
+) -> Result<()> {
+    if files.is_empty() && originals.is_empty() && removals.is_empty() {
         return Ok(());
     }
     let removals = removals
@@ -50,7 +84,36 @@ pub(super) fn commit_publication_with_removals(
     let staging = tempfile::tempdir_in(&transactions)?;
     fs::create_dir_all(staging.path().join("files"))?;
     let mut entries = Vec::new();
-    for (index, (destination, bytes)) in files.into_iter().enumerate() {
+    for original in originals {
+        let relative = original.destination.strip_prefix(root).map_err(|_| {
+            GardenError::Invalid("A publication path escaped the collection.".into())
+        })?;
+        validate_relative_collection_path(relative)?;
+        let staged = format!("files/{:04}", entries.len());
+        write_atomic_from_file(&staging.path().join(&staged), &original.source)?;
+        if file_digest(&staging.path().join(&staged))?.as_deref() != Some(&original.proposed_digest)
+        {
+            return Err(GardenError::Invalid(
+                "Candidate original changed before publication.".into(),
+            ));
+        }
+        write_atomic_from_file(
+            &staging
+                .path()
+                .join(format!("files/{:04}.publish", entries.len())),
+            &staging.path().join(&staged),
+        )?;
+        entries.push(PublicationEntry {
+            destination: relative.to_string_lossy().into_owned(),
+            staged,
+            expected: None,
+            original: Some(OriginalGeneration {
+                proposed_digest: original.proposed_digest,
+            }),
+        });
+    }
+    for (destination, bytes) in files {
+        let index = entries.len();
         let relative = destination.strip_prefix(root).map_err(|_| {
             GardenError::Invalid("A publication path escaped the collection.".into())
         })?;
@@ -64,6 +127,7 @@ pub(super) fn commit_publication_with_removals(
                 .get(&destination)
                 .cloned()
                 .or_else(|| fs::read(&destination).ok()),
+            original: None,
         });
     }
     write_atomic(
@@ -115,6 +179,17 @@ fn apply_publication(
         validate_relative_collection_path(Path::new(&entry.destination))?;
         validate_relative_staging_path(Path::new(&entry.staged))?;
         let done = transaction.join(format!("files/{index:04}.done"));
+        if let Some(generation) = &entry.original {
+            apply_immutable_original(
+                root,
+                transaction,
+                index,
+                &entry,
+                generation,
+                fail_after_files,
+            )?;
+            continue;
+        }
         let proposed = fs::read(transaction.join(&entry.staged))?;
         let Some(destination) = publication_destination(root, &entry, &proposed)? else {
             complete = false;
@@ -228,6 +303,224 @@ fn apply_publication(
         }
     }
     Ok(complete)
+}
+
+fn file_digest(path: &Path) -> Result<Option<String>> {
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if !fs::symlink_metadata(path)?.file_type().is_file() {
+        return Err(GardenError::Invalid(
+            "An original publication path is not a regular file.".into(),
+        ));
+    }
+    let mut digest = Sha256::new();
+    let mut buf = [0_u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        digest.update(&buf[..n]);
+    }
+    Ok(Some(hex::encode(digest.finalize())))
+}
+
+fn open_collection_directory(root: &Path, relative: &Path) -> Result<File> {
+    use rustix::fs::{openat, Mode, OFlags, CWD};
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let mut directory = openat(CWD, root, flags, Mode::empty()).map_err(std::io::Error::from)?;
+    for component in relative.components() {
+        let std::path::Component::Normal(name) = component else {
+            return Err(GardenError::Invalid(
+                "Invalid publication directory.".into(),
+            ));
+        };
+        directory = openat(&directory, name, flags, Mode::empty()).map_err(std::io::Error::from)?;
+    }
+    Ok(File::from(directory))
+}
+
+fn open_or_create_collection_directory(root: &Path, relative: &Path) -> Result<File> {
+    use rustix::fs::{mkdirat, openat, Mode, OFlags, CWD};
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let mut directory = openat(CWD, root, flags, Mode::empty()).map_err(std::io::Error::from)?;
+    for component in relative.components() {
+        let std::path::Component::Normal(name) = component else {
+            return Err(GardenError::Invalid("Invalid archive directory.".into()));
+        };
+        match mkdirat(&directory, name, Mode::from_bits_truncate(0o700)) {
+            Ok(()) => rustix::fs::fsync(&directory).map_err(std::io::Error::from)?,
+            Err(rustix::io::Errno::EXIST) => {}
+            Err(error) => return Err(GardenError::Io(error.into())),
+        }
+        directory = openat(&directory, name, flags, Mode::empty()).map_err(std::io::Error::from)?;
+    }
+    Ok(File::from(directory))
+}
+
+pub(super) fn retain_version_original(
+    root: &Path,
+    path: &Path,
+    source: &Path,
+    expected: &str,
+) -> Result<()> {
+    use rustix::fs::{linkat, openat, unlinkat, AtFlags, Mode, OFlags};
+    let relative = path
+        .strip_prefix(root)
+        .map_err(|_| GardenError::Invalid("Archive escaped collection.".into()))?;
+    let source_relative = source
+        .strip_prefix(root)
+        .map_err(|_| GardenError::Invalid("Original escaped collection.".into()))?;
+    validate_relative_collection_path(relative)?;
+    validate_relative_collection_path(source_relative)?;
+    let source_dir = open_collection_directory(root, source_relative.parent().unwrap())?;
+    let mut input = File::from(
+        openat(
+            &source_dir,
+            source_relative.file_name().unwrap(),
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(std::io::Error::from)?,
+    );
+    if !input.metadata()?.is_file() {
+        return Err(GardenError::Invalid(
+            "The current original is not a regular file.".into(),
+        ));
+    }
+    let dir = open_or_create_collection_directory(root, relative.parent().unwrap())?;
+    let temporary = format!(".archive-{}", uuid::Uuid::new_v4());
+    let output = openat(
+        &dir,
+        temporary.as_str(),
+        OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::from_bits_truncate(0o600),
+    )
+    .map_err(std::io::Error::from)?;
+    let mut output = File::from(output);
+    let result = (|| -> Result<()> {
+        let mut digest = Sha256::new();
+        let mut buffer = [0_u8; 64 * 1024];
+        loop {
+            let n = input.read(&mut buffer)?;
+            if n == 0 {
+                break;
+            }
+            digest.update(&buffer[..n]);
+            output.write_all(&buffer[..n])?;
+        }
+        if hex::encode(digest.finalize()) != expected {
+            return Err(GardenError::Invalid(
+                "The current original changed before its version could be retained.".into(),
+            ));
+        }
+        output.sync_all()?;
+        let target = relative.file_name().unwrap();
+        match linkat(&dir, temporary.as_str(), &dir, target, AtFlags::empty()) {
+            Ok(()) => dir.sync_all()?,
+            Err(rustix::io::Errno::EXIST) => {
+                if digest_at(&dir, target)?.as_deref() != Some(expected) {
+                    return Err(GardenError::Invalid("The retained version conflicts with the current generation; it was not overwritten.".into()));
+                }
+            }
+            Err(error) => return Err(GardenError::Io(error.into())),
+        }
+        Ok(())
+    })();
+    let cleanup = unlinkat(&dir, temporary.as_str(), AtFlags::empty());
+    if result.is_ok() {
+        cleanup.map_err(std::io::Error::from)?;
+        dir.sync_all()?;
+    }
+    result
+}
+
+fn digest_at(directory: &File, name: &std::ffi::OsStr) -> Result<Option<String>> {
+    use rustix::fs::{openat, Mode, OFlags};
+    let fd = match openat(
+        directory,
+        name,
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    ) {
+        Ok(fd) => fd,
+        Err(rustix::io::Errno::NOENT) => return Ok(None),
+        Err(error) => return Err(GardenError::Io(error.into())),
+    };
+    let mut file = File::from(fd);
+    if !file.metadata()?.is_file() {
+        return Err(GardenError::Invalid(
+            "An original publication path is not a regular file.".into(),
+        ));
+    }
+    let mut digest = Sha256::new();
+    let mut buf = [0_u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        digest.update(&buf[..n]);
+    }
+    Ok(Some(hex::encode(digest.finalize())))
+}
+
+fn apply_immutable_original(
+    root: &Path,
+    transaction: &Path,
+    index: usize,
+    entry: &PublicationEntry,
+    generation: &OriginalGeneration,
+    fail: Option<usize>,
+) -> Result<()> {
+    use rustix::fs::{linkat, AtFlags};
+    let relative_destination = Path::new(&entry.destination);
+    let destination_dir = open_collection_directory(root, relative_destination.parent().unwrap())?;
+    let transaction_relative = transaction
+        .strip_prefix(root)
+        .map_err(|_| GardenError::Invalid("Transaction escaped collection.".into()))?;
+    let staged_parent = transaction_relative.join(Path::new(&entry.staged).parent().unwrap());
+    let staged_dir = open_collection_directory(root, &staged_parent)?;
+    let staged_name = Path::new(&entry.staged).file_name().unwrap();
+    let name = relative_destination.file_name().unwrap();
+    let publish_name = format!("{index:04}.publish");
+    if digest_at(&staged_dir, staged_name)?.as_deref() != Some(&generation.proposed_digest) {
+        return Err(GardenError::Invalid(
+            "The staged original no longer matches its generation.".into(),
+        ));
+    }
+    if digest_at(&staged_dir, publish_name.as_ref())?.as_deref()
+        != Some(&generation.proposed_digest)
+    {
+        return Err(GardenError::Invalid(
+            "The publish copy no longer matches its generation.".into(),
+        ));
+    }
+    match linkat(
+        &staged_dir,
+        publish_name.as_str(),
+        &destination_dir,
+        name,
+        AtFlags::empty(),
+    ) {
+        Ok(()) => destination_dir.sync_all()?,
+        Err(rustix::io::Errno::EXIST) => {
+            if digest_at(&destination_dir, name)?.as_deref() != Some(&generation.proposed_digest) {
+                return Err(GardenError::Invalid(
+                    "An original already exists at this generation path; it was not overwritten."
+                        .into(),
+                ));
+            }
+        }
+        Err(error) => return Err(GardenError::Io(error.into())),
+    }
+    if fail == Some(usize::MAX) || fail == Some(index + 1) {
+        return interrupted();
+    }
+    Ok(())
 }
 
 fn publication_destination(
@@ -508,6 +801,74 @@ fn exchange(_left: &Path, _right: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn immutable_original_recovers_before_metadata_and_refuses_symlink_parent() {
+        use std::os::unix::fs::symlink;
+        let workspace = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(workspace.path()).unwrap();
+        let directory = root.join("sources/a");
+        fs::create_dir_all(&directory).unwrap();
+        let candidate = root.join("candidate");
+        let content = vec![b'x'; 3 * 1024 * 1024 + 1];
+        fs::write(&candidate, &content).unwrap();
+        let destination = directory.join("original-generation.txt");
+        let metadata = directory.join("index.md");
+        let make = || OriginalPublication {
+            destination: destination.clone(),
+            source: candidate.clone(),
+            proposed_digest: hex::encode(Sha256::digest(&content)),
+        };
+        assert!(commit_publication_with_originals(
+            &root,
+            vec![(metadata.clone(), b"new metadata".to_vec())],
+            vec![make()],
+            &HashMap::new(),
+            Some(usize::MAX)
+        )
+        .is_err());
+        assert!(!metadata.exists());
+        recover_publications(&root).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), content);
+        assert_eq!(fs::read(&metadata).unwrap(), b"new metadata");
+        fs::rename(&directory, root.join("sources/moved")).unwrap();
+        let outside = root.join("outside");
+        fs::create_dir(&outside).unwrap();
+        symlink(&outside, &directory).unwrap();
+        assert!(commit_publication_with_originals(
+            &root,
+            vec![],
+            vec![make()],
+            &HashMap::new(),
+            None
+        )
+        .is_err());
+        assert!(!outside.join("original-generation.txt").exists());
+    }
+
+    #[test]
+    fn original_new_destination_does_not_overwrite_existing_file() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("sources/a/original.txt");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"external").unwrap();
+        let candidate = root.path().join("candidate");
+        fs::write(&candidate, b"new").unwrap();
+        let original = OriginalPublication {
+            destination: path.clone(),
+            source: candidate,
+            proposed_digest: hex::encode(Sha256::digest(b"new")),
+        };
+        assert!(commit_publication_with_originals(
+            root.path(),
+            vec![],
+            vec![original],
+            &HashMap::new(),
+            None
+        )
+        .is_err());
+        assert_eq!(fs::read(path).unwrap(), b"external");
+    }
 
     #[test]
     fn concurrent_correction_updates_only_the_identified_complete_fact_row() {
