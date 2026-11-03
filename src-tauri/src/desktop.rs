@@ -45,12 +45,19 @@ async fn with_engine<T: Send + 'static>(
     operation: impl FnOnce(&mut Application) -> crate::application::Result<T> + Send + 'static,
 ) -> Result<T, String> {
     let control = Arc::clone(&engine.control);
+    if control.startup_pending() {
+        return Err("The library is recovering. Please wait for recovery to finish.".into());
+    }
     let engine = Arc::clone(&engine.app);
     tauri::async_runtime::spawn_blocking(move || {
         let _work = control.enter();
         let mut app = engine
             .lock()
             .map_err(|_| "The collection worker stopped unexpectedly.".to_owned())?;
+        app.require_integrity_recovered()
+            .map_err(|error| error.to_string())?;
+        app.recover_integrity_exclusions()
+            .map_err(|error| error.to_string())?;
         app.recover_source_removals()
             .map_err(|error| error.to_string())?;
         app.recover_registration_removals()
@@ -131,7 +138,7 @@ async fn open_comparison_original(
     request: crate::application::comparison::ComparisonRequest,
 ) -> Result<(), String> {
     with_engine(&engine, move |app| {
-        let original = app.comparison_original_path(request)?;
+        let original = app.verified_comparison_original_path(request)?;
         open_retained_original(&original)
     })
     .await
@@ -235,7 +242,18 @@ async fn timeline(
 async fn collection_status(
     engine: State<'_, Engine>,
 ) -> Result<crate::application::reconciliation::ReconciliationStatus, String> {
-    with_engine(&engine, |app| Ok(app.collection_status())).await
+    if engine.control.startup_pending() {
+        return Err("The library is recovering. Please wait for recovery to finish.".into());
+    }
+    let app = Arc::clone(&engine.app);
+    tauri::async_runtime::spawn_blocking(move || {
+        let app = app
+            .lock()
+            .map_err(|_| "The collection worker stopped unexpectedly.".to_owned())?;
+        Ok(app.collection_status())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -410,7 +428,7 @@ async fn explore_path_details(
 #[tauri::command]
 async fn open_original(engine: State<'_, Engine>, source_id: String) -> Result<(), String> {
     with_engine(&engine, move |app| {
-        let original = app.original_path(&source_id)?;
+        let original = app.verified_original_open_path(&source_id)?;
         open_retained_original(&original)
     })
     .await
@@ -457,7 +475,8 @@ async fn open_original_version(
     asset: String,
 ) -> Result<(), String> {
     with_engine(&engine, move |app| {
-        let original = app.original_version_path(&source_id, &source_version_id, &asset)?;
+        let original =
+            app.verified_original_version_open_path(&source_id, &source_version_id, &asset)?;
         open_retained_original(&original)
     })
     .await
@@ -470,7 +489,7 @@ async fn open_original_asset(
     asset: String,
 ) -> Result<(), String> {
     with_engine(&engine, move |app| {
-        let original = app.original_asset_path(&source_id, &asset)?;
+        let original = app.verified_original_asset_open_path(&source_id, &asset)?;
         open_retained_original(&original)
     })
     .await
@@ -511,7 +530,7 @@ pub fn run() {
                 app.path().resource_dir()?.join("audio"),
             ));
             let engine = Arc::new(Mutex::new(
-                Application::open_with_all_providers_and_meaning_assets(
+                Application::open_pending_with_all_providers_and_meaning_assets(
                     &root,
                     Arc::clone(&semantic_provider),
                     Arc::new(LocalExtractor),
@@ -521,6 +540,7 @@ pub fn run() {
             ));
             let background = std::env::args().any(|argument| argument == "--background");
             let control = crate::background::BackgroundControl::new(!background);
+            control.set_startup_pending(true);
             app.manage(Engine {
                 shutdown_root: root.canonicalize()?,
                 shutdown_recorded: AtomicBool::new(false),

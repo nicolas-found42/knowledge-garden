@@ -1,3 +1,5 @@
+#[path = "fixtures/recovery/mod.rs"]
+mod recovery;
 use knowledge_garden::application::AcquisitionMethod;
 use knowledge_garden::application::Application;
 use knowledge_garden::application::PageSearchRequest;
@@ -88,7 +90,7 @@ fn open(collection: &std::path::Path) -> Application {
 }
 
 #[test]
-fn actual_removal_withdraws_only_sole_support_and_preserves_external_manual_authority() {
+fn actual_removal_withdraws_sole_support_and_recovers_external_edits() {
     for corrected in [false, true] {
         let workspace = tempdir().unwrap();
         let incoming = workspace.path().join("incoming");
@@ -113,12 +115,14 @@ fn actual_removal_withdraws_only_sole_support_and_preserves_external_manual_auth
             .find(|page| page.title == "Riverside")
             .unwrap();
         let event_path = collection.join(&event.path);
+        let mut external_save = None;
         if corrected {
             let markdown = fs::read_to_string(&event_path)
                 .unwrap()
                 .replace("- **visits:** 12", "- **visits:** 99");
             assert!(markdown.contains("- **visits:** 99"));
-            fs::write(&event_path, markdown).unwrap();
+            fs::write(&event_path, &markdown).unwrap();
+            external_save = Some(markdown);
         }
         fs::write(incoming.join("independent.txt"), INDEPENDENT).unwrap();
         scan(&mut app);
@@ -151,12 +155,9 @@ fn actual_removal_withdraws_only_sole_support_and_preserves_external_manual_auth
         let retained_place = app.open_knowledge_page(&place.page_id).unwrap();
         assert!(retained_place.markdown.contains("10 minutes"));
         assert!(retained_place.markdown.contains("Source support count: 1"));
-        if corrected {
-            let retained = app.open_knowledge_page(&event.page_id).unwrap();
-            assert!(retained.markdown.contains("- **visits:** 99"));
-            assert!(retained.markdown.contains("manual_correction:"));
-        } else {
-            assert!(app.open_knowledge_page(&event.page_id).is_err());
+        assert!(app.open_knowledge_page(&event.page_id).is_err());
+        if let Some(save) = &external_save {
+            recovery::assert_retains(&collection, save.as_bytes());
         }
         let results = app
             .search_pages(PageSearchRequest {
@@ -169,7 +170,7 @@ fn actual_removal_withdraws_only_sole_support_and_preserves_external_manual_auth
                 .pages
                 .iter()
                 .any(|page| page.page_id == event.page_id),
-            corrected
+            false
         );
         assert_eq!(
             app.timeline(knowledge_garden::timeline::TimelineRequest::default())
@@ -177,7 +178,7 @@ fn actual_removal_withdraws_only_sole_support_and_preserves_external_manual_auth
                 .entries
                 .iter()
                 .any(|entry| entry.page_id == event.page_id),
-            corrected
+            false
         );
         assert!(app
             .search_pages(PageSearchRequest {
@@ -410,14 +411,14 @@ fn legacy_repository_origins_remain_raw_and_ambiguous_records_are_preserved() {
         } else {
             update(&mut value, raw_path, encoding);
         }
-        fs::write(
+        recovery::seed_metadata(
             path,
             format!(
                 "---\n{}---\n{body}",
                 serde_yaml_ng::to_string(&value).unwrap()
-            ),
-        )
-        .unwrap();
+            )
+            .as_bytes(),
+        );
     }
     for ambiguous in [false, true] {
         let workspace = tempdir().unwrap();
@@ -694,9 +695,10 @@ fn interrupted_withdrawal_recovers_markdown_and_asset_removal_together() {
             .replace("- **visits:** 12", "- **visits:** 99"),
     )
     .unwrap();
+    let external_save = fs::read(&path).unwrap();
     fs::remove_file(incoming.join("V17.txt")).unwrap();
     scan(&mut app);
-    app.set_publication_failpoint_for_test(1);
+    app.set_publication_failpoint_for_test(0);
     scan(&mut app);
     assert_eq!(
         app.list_watched_directories().unwrap()[0].state,
@@ -706,12 +708,9 @@ fn interrupted_withdrawal_recovers_markdown_and_asset_removal_together() {
     let mut app = open(&collection);
     assert!(!original.exists());
     assert!(app.list_sources(0).unwrap().sources.is_empty());
-    assert!(app
-        .open_knowledge_page(&event.page_id)
-        .unwrap()
-        .markdown
-        .contains("- **visits:** 99"));
-    assert!(app
+    assert!(app.open_knowledge_page(&event.page_id).is_err());
+    recovery::assert_retains(&collection, &external_save);
+    assert!(!app
         .search_pages(PageSearchRequest {
             query: "Observation V17".into(),
             ..Default::default()
@@ -750,9 +749,10 @@ fn failed_withdrawal_cannot_replay_over_a_later_reimport_in_the_same_process() {
             .replace("- **visits:** 12", "- **visits:** 99"),
     )
     .unwrap();
+    let external_save = fs::read(&page_path).unwrap();
     fs::remove_file(&path).unwrap();
     scan(&mut app);
-    app.set_publication_failpoint_for_test(1);
+    app.set_publication_failpoint_for_test(0);
     scan(&mut app);
     assert_eq!(
         app.list_watched_directories().unwrap()[0].state,
@@ -771,7 +771,8 @@ fn failed_withdrawal_cannot_replay_over_a_later_reimport_in_the_same_process() {
         .open_knowledge_page(&event.page_id)
         .unwrap()
         .markdown
-        .contains("- **visits:** 99"));
+        .contains("- **visits:** 12"));
+    recovery::assert_retains(&collection, &external_save);
 }
 
 #[cfg(target_os = "macos")]
@@ -1825,15 +1826,15 @@ fn legacy_version_ownership_remains_unknown_until_reacquired() {
             .unwrap()
             .remove(serde_yaml_ng::Value::String("withdrawn".into()));
     }
-    fs::write(
+    recovery::seed_metadata(
         &page_path,
         format!(
             "---\n{}---\n{}",
             serde_yaml_ng::to_string(&data).unwrap(),
             body
-        ),
-    )
-    .unwrap();
+        )
+        .as_bytes(),
+    );
     let mut app = open(&collection);
     assert!(app
         .open_source(&source.info.source_id)
@@ -2222,15 +2223,15 @@ fn explicit_legacy_repository_can_be_unregistered_without_deleting_originals() {
             .unwrap()
             .remove(serde_yaml_ng::Value::String("acquisition_owners".into()));
     }
-    fs::write(
+    recovery::seed_metadata(
         &page_path,
         format!(
             "---\n{}---\n{}",
             serde_yaml_ng::to_string(&data).unwrap(),
             body
-        ),
-    )
-    .unwrap();
+        )
+        .as_bytes(),
+    );
     let mut app = open(&collection);
     let listed = app.list_repositories().unwrap();
     assert_eq!(listed[0].state, "legacy_explicit");
@@ -2279,15 +2280,15 @@ fn ambiguous_legacy_repository_is_visible_and_cannot_be_unregistered() {
             .to_string_lossy()
             .into_owned(),
     );
-    fs::write(
+    recovery::seed_metadata(
         &page_path,
         format!(
             "---\n{}---\n{}",
             serde_yaml_ng::to_string(&data).unwrap(),
             body
-        ),
-    )
-    .unwrap();
+        )
+        .as_bytes(),
+    );
     let mut app = open(&collection);
     assert_eq!(
         app.list_repositories().unwrap()[0].state,

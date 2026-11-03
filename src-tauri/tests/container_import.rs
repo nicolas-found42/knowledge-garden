@@ -60,3 +60,30 @@ fn retained_zip_member_is_reopened_without_traversal() {
         )
         .is_err());
 }
+
+#[test]
+fn changed_retained_email_is_rejected_instead_of_previewed_as_original_evidence() {
+    let workspace = tempfile::tempdir().unwrap();
+    let input = workspace.path().join("letter.eml");
+    let original = b"From: Ada <ada@example.org>\r\nSubject: Notes\r\nContent-Type: text/plain\r\n\r\nOriginal retained evidence.\r\n";
+    std::fs::write(&input, original).unwrap();
+    let mut app = Application::open(workspace.path().join("collection")).unwrap();
+    let page = app
+        .import_source(&input, AcquisitionMethod::Picker)
+        .unwrap();
+    std::fs::write(
+        app.original_path(&page.info.source_id).unwrap(),
+        b"From: Ada <ada@example.org>\r\nSubject: Notes\r\nContent-Type: text/plain\r\n\r\nAn external replacement is not retained evidence.\r\n",
+    ).unwrap();
+    let preview = app.preview_container_part(
+        &page.info.source_id,
+        &page.info.sha256,
+        &page.info.asset,
+        "EMAIL part=1",
+    );
+    assert!(
+        preview.is_err(),
+        "Changed retained bytes were accepted: {preview:?}"
+    );
+    assert_eq!(std::fs::read(input).unwrap(), original);
+}

@@ -5,7 +5,7 @@ use std::io::Read;
 pub struct VisualClaim {
     source_id: String,
     job: VisualJob,
-    original: PathBuf,
+    original: VerifiedVersionSnapshot,
     attempt: u32,
     audio_processor: Arc<dyn AudioProcessor>,
 }
@@ -25,7 +25,7 @@ impl VisualClaim {
             let workspace = tempfile::tempdir().map_err(|e| e.to_string())?;
             let frame = workspace.path().join("frame.jpg");
             self.audio_processor
-                .extract_frame(&self.original, at, &frame)?;
+                .extract_frame(self.original.path(), at, &frame)?;
             let mut bytes = Vec::new();
             fs::File::open(frame)
                 .map_err(|e| e.to_string())?
@@ -34,7 +34,7 @@ impl VisualClaim {
                 .map_err(|e| e.to_string())?;
             bytes
         } else {
-            let data = crate::photo::preview(&self.original)?;
+            let data = crate::photo::preview(self.original.path())?;
             let encoded = data
                 .strip_prefix("data:image/jpeg;base64,")
                 .ok_or("Photo preview is unavailable")?;
@@ -163,6 +163,7 @@ impl Application {
 
     /// Reserve an attempt durably; callers must run the returned job outside the collection lock.
     pub fn claim_due_visual_job_at(&mut self, now: u64) -> Result<Option<VisualClaim>> {
+        self.require_integrity_recovered()?;
         self.recover_source_removals()?;
         self.discover_visual_jobs()?;
         let mut selected = None;
@@ -199,12 +200,8 @@ impl Application {
         else {
             return Ok(None);
         };
-        let version_path = self.version_original_path(&source_id, &version)?;
-        let original = if version_path.exists() {
-            version_path
-        } else {
-            self.source_dir(&source_id)?.join(&version.asset)
-        };
+        let original =
+            self.verified_version_snapshot(&source_id, &version.source_version_id, &version.asset)?;
         if job.attempts >= 5 {
             let record = page
                 .info
@@ -266,6 +263,7 @@ impl Application {
         let VisualClaim {
             source_id,
             job,
+            original,
             attempt,
             ..
         } = claim;
@@ -273,6 +271,7 @@ impl Application {
         if self.source_generation(&source_id)? != job.generation {
             return Ok(());
         }
+        self.verify_version_snapshot_current(&original)?;
         let mut page = self.open_source(&source_id)?;
         if page.info.pending_version_id.as_deref() != Some(job.source_version_id.as_str()) {
             return Ok(());

@@ -179,3 +179,27 @@ fn removed_and_readded_source_rejects_stale_visual_result() {
         .body
         .contains("A river is visible"));
 }
+
+#[test]
+fn changed_retained_visual_bytes_cannot_replace_a_claimed_snapshot_or_publish() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = Application::open(dir.path()).unwrap();
+    let source = app
+        .import_source(fixture(), AcquisitionMethod::Picker)
+        .unwrap();
+    let claim = app.claim_due_visual_job_at(1_000).unwrap().unwrap();
+    std::fs::write(
+        app.original_path(&source.info.source_id).unwrap(),
+        b"changed after claim",
+    )
+    .unwrap();
+    let result = claim.run_with(|bytes| {
+        assert!(!bytes.is_empty());
+        Ok(observation())
+    });
+    assert!(
+        result.is_ok(),
+        "Inference did not retain its verified snapshot: {result:?}"
+    );
+    assert!(app.finish_visual_job_at(claim, result, 2_000).is_err());
+}

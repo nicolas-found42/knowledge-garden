@@ -75,6 +75,7 @@ fn installed_bundle(app: &AppHandle) -> bool {
 fn status_text(status: &BackgroundStatus) -> String {
     let label = match status.phase.as_str() {
         "working" => "Working",
+        "recovering" => "Recovering library",
         "stopping" => "Stopping",
         "stopped" => "Stopped",
         _ => "Watching · waiting for work or retry",

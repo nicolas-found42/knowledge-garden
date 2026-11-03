@@ -444,6 +444,7 @@ impl Application {
         Ok((path, record, body, text.into_bytes()))
     }
     pub fn list_saved_views(&self, query: &str, offset: usize) -> Result<SavedViews> {
+        self.require_integrity_recovered()?;
         if query.len() > 512 {
             return invalid("Saved view name filter is too long.");
         }
@@ -466,6 +467,7 @@ impl Application {
         })
     }
     pub fn open_saved_view(&self, id: &str) -> Result<SavedView> {
+        self.require_integrity_recovered()?;
         let (_, record, _, _) = self.read_saved_view(id)?;
         self.saved_view_dto(record)
     }

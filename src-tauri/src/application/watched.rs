@@ -40,6 +40,7 @@ struct DirectoryVolume {
 impl Application {
     /// Registers a directory without enumerating it or waiting for semantic work.
     pub fn watch_directory(&mut self, path: impl AsRef<Path>) -> Result<WatchedDirectory> {
+        self.require_integrity_recovered()?;
         self.recover_unregistering_watches()?;
         let path = fs::canonicalize(path)?;
         readable_directory(&path)?;
@@ -86,6 +87,7 @@ impl Application {
     }
 
     pub fn unregister_watched_directory(&mut self, watch_id: &str) -> Result<()> {
+        self.require_integrity_recovered()?;
         self.recover_source_removals()?;
         let mut watch = self
             .list_watched_directories()?
@@ -139,6 +141,7 @@ impl Application {
     }
 
     pub fn list_watched_directories(&self) -> Result<Vec<WatchedDirectory>> {
+        self.require_integrity_recovered()?;
         let root = self.root.join("watches");
         if !root.exists() {
             return Ok(Vec::new());
@@ -186,6 +189,7 @@ impl Application {
     /// A stream is held only for the active directory. Restart replays that directory
     /// using durable receipts, then continues the saved frontier.
     pub fn reconcile_watched_directories(&mut self, work_budget: usize) -> Result<()> {
+        self.require_integrity_recovered()?;
         self.recover_pending_publications()?;
         self.recover_source_removals()?;
         self.recover_unregistering_watches()?;
@@ -544,6 +548,7 @@ impl Application {
     }
 
     pub fn remove_source(&mut self, source_id: &str) -> Result<()> {
+        self.require_integrity_recovered()?;
         self.recover_pending_publications()?;
         self.prepare_source_removal(source_id, None, None, None, None)
     }
@@ -716,6 +721,7 @@ impl Application {
     }
 
     pub fn restore_removed_source(&mut self, recovery_id: &str) -> Result<SourcePage> {
+        self.require_integrity_recovered()?;
         self.recover_source_removals()?;
         let id = Uuid::parse_str(recovery_id)
             .map_err(|_| GardenError::Invalid("Invalid recovery identity.".into()))?;
@@ -788,13 +794,29 @@ impl Application {
                     }
                 }
             }
-            write_atomic(
-                &staging.join("index.md"),
-                serialize_page(&page.info, &page.body)?.as_bytes(),
+            let bytes = serialize_page(&page.info, &page.body)?.into_bytes();
+            write_atomic(&staging.join("index.md"), &bytes)?;
+            trusted_pages::record_restored_source(
+                &self.root,
+                &destination
+                    .join("index.md")
+                    .strip_prefix(&self.root)
+                    .map_err(|_| {
+                        GardenError::Invalid("Restored source escaped its collection.".into())
+                    })?,
+                &bytes,
+                &staging,
             )?;
             sync_directory(&staging)?;
             self.source_recovery_checkpoint("restore-staged")?;
-            fs::rename(&staging, &destination)?;
+            rustix::fs::renameat_with(
+                rustix::fs::CWD,
+                &staging,
+                rustix::fs::CWD,
+                &destination,
+                rustix::fs::RenameFlags::NOREPLACE,
+            )
+            .map_err(std::io::Error::from)?;
             sync_directory(destination.parent().unwrap())?;
             self.source_recovery_checkpoint("restore-published")?;
         }

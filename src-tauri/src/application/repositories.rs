@@ -144,6 +144,7 @@ impl Application {
     }
 
     pub fn unregister_repository(&mut self, id: &str) -> Result<()> {
+        self.require_integrity_recovered()?;
         self.recover_source_removals()?;
         self.recover_registration_removals()?;
         let path = self.repository_registration_path(id)?;
