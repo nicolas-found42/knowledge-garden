@@ -51,6 +51,10 @@ async fn with_engine<T: Send + 'static>(
         let mut app = engine
             .lock()
             .map_err(|_| "The collection worker stopped unexpectedly.".to_owned())?;
+        app.recover_source_removals()
+            .map_err(|error| error.to_string())?;
+        app.recover_registration_removals()
+            .map_err(|error| error.to_string())?;
         operation(&mut app).map_err(|error| error.to_string())
     })
     .await
@@ -231,6 +235,26 @@ async fn import_source(
 }
 
 #[tauri::command]
+async fn remove_source(engine: State<'_, Engine>, source_id: String) -> Result<(), String> {
+    with_engine(&engine, move |app| app.remove_source(&source_id)).await
+}
+
+#[tauri::command]
+async fn list_removed_sources(
+    engine: State<'_, Engine>,
+) -> Result<Vec<crate::application::watched::RemovedSource>, String> {
+    with_engine(&engine, |app| app.list_removed_sources()).await
+}
+
+#[tauri::command]
+async fn restore_removed_source(
+    engine: State<'_, Engine>,
+    recovery_id: String,
+) -> Result<SourcePage, String> {
+    with_engine(&engine, move |app| app.restore_removed_source(&recovery_id)).await
+}
+
+#[tauri::command]
 async fn import_repository(
     engine: State<'_, Engine>,
     path: String,
@@ -251,6 +275,35 @@ async fn list_watched_directories(
     engine: State<'_, Engine>,
 ) -> Result<Vec<crate::application::watched::WatchedDirectory>, String> {
     with_engine(&engine, |app| app.list_watched_directories()).await
+}
+
+#[tauri::command]
+async fn unregister_watched_directory(
+    engine: State<'_, Engine>,
+    watch_id: String,
+) -> Result<(), String> {
+    with_engine(&engine, move |app| {
+        app.unregister_watched_directory(&watch_id)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn list_repositories(
+    engine: State<'_, Engine>,
+) -> Result<Vec<crate::application::repositories::RepositoryRegistration>, String> {
+    with_engine(&engine, |app| app.list_repositories()).await
+}
+
+#[tauri::command]
+async fn unregister_repository(
+    engine: State<'_, Engine>,
+    repository_id: String,
+) -> Result<(), String> {
+    with_engine(&engine, move |app| {
+        app.unregister_repository(&repository_id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -486,9 +539,15 @@ pub fn run() {
             collection_members,
             resolve_page_link,
             import_source,
+            remove_source,
+            list_removed_sources,
+            restore_removed_source,
             import_repository,
             watch_directory,
             list_watched_directories,
+            unregister_watched_directory,
+            list_repositories,
+            unregister_repository,
             import_url,
             list_url_acquisitions,
             open_source,

@@ -1427,6 +1427,33 @@ export async function mountReader(
       next.info.asset,
     );
     if (!article) return;
+    if (api.removeSource) {
+      const removal = element("details");
+      removal.append(element("summary", "Remove source"));
+      removal.append(
+        element(
+          "p",
+          "Removing this source stops processing and removes its evidence. Knowledge supported only by this source will be removed. A recovery copy is kept, and the original file is not deleted.",
+        ),
+      );
+      const confirm = element("button", "Confirm removal");
+      confirm.addEventListener("click", async () => {
+        confirm.disabled = true;
+        try {
+          await api.removeSource!(next.info.source_id);
+          if (!disposed) {
+            clearRemovedPage();
+            sourcesFingerprint = "";
+            if (!sources.hidden) await loadSources(0, false);
+          }
+        } catch (error) {
+          confirm.disabled = false;
+          report(error);
+        }
+      });
+      removal.append(confirm);
+      article.prepend(removal);
+    }
     if (api.comparisonSide) {
       const compare = element("button", "Compare this source");
       compare.dataset.focusId = "compare-source";
@@ -2920,7 +2947,7 @@ export async function mountReader(
       return;
     const fingerprint = JSON.stringify([offset, listing]);
     if (!focus && fingerprint === sourcesFingerprint) {
-      await refreshWatches();
+      await refreshWatches(false);
       return;
     }
     sourcesOffset = offset;
@@ -2929,9 +2956,50 @@ export async function mountReader(
       .sourceId;
     const heading = element("h2", "Sources");
     sources.replaceChildren(heading);
+    if (api.listRemovedSources && api.restoreRemovedSource) {
+      const recovery = element("details");
+      recovery.append(element("summary", "Recover removed sources"));
+      recovery.addEventListener("toggle", async () => {
+        if (!recovery.open) return;
+        try {
+          const removed = await api.listRemovedSources!();
+          recovery.replaceChildren(
+            element("summary", "Recover removed sources"),
+          );
+          recovery.append(
+            element(
+              "p",
+              "Restore the source and its retained version history. Knowledge will be rebuilt from the restored source.",
+            ),
+          );
+          if (!removed.length)
+            recovery.append(element("p", "No recovery copies."));
+          for (const item of removed) {
+            const restore = element("button", `Restore ${item.title}`);
+            restore.addEventListener("click", async () => {
+              restore.disabled = true;
+              try {
+                showPage(await api.restoreRemovedSource!(item.recovery_id));
+                message("Source restored.");
+              } catch (error) {
+                restore.disabled = false;
+                report(error);
+              }
+            });
+            recovery.append(restore);
+          }
+        } catch (error) {
+          report(error);
+        }
+      });
+      sources.append(recovery);
+    }
     const watched = element("section");
     watched.setAttribute("aria-label", "Watched directories");
     sources.append(watched);
+    const repositories = element("section");
+    repositories.setAttribute("aria-label", "Repositories");
+    sources.append(repositories);
     void refreshWatches().catch(report);
     if (listing.sources.length === 0)
       sources.append(element("p", "No sources yet."));
@@ -2960,19 +3028,93 @@ export async function mountReader(
         )
         ?.focus();
   }
-  async function refreshWatches() {
-    if (!api.listWatchedDirectories) return;
-    const watches = await api.listWatchedDirectories();
-    if (disposed) return;
-    const section = sources.querySelector('[aria-label="Watched directories"]');
-    section?.replaceChildren(
-      ...watches.map((watch) =>
-        element(
-          "p",
-          `${watch.path} · ${watch.state}${watch.state === "scanning" ? ` · ${watch.processed_files} files processed` : ""}${watch.detail ? ` · ${watch.detail}` : ""}${watch.state === "unavailable" ? " · Retained originals and knowledge remain available." : ""}`,
-        ),
-      ),
-    );
+  async function refreshWatches(includeRepositories = true) {
+    if (api.listWatchedDirectories) {
+      const watches = await api.listWatchedDirectories();
+      if (disposed) return;
+      const section = sources.querySelector(
+        '[aria-label="Watched directories"]',
+      );
+      section?.replaceChildren();
+      for (const watch of watches) {
+        const row = element("div");
+        row.append(
+          element(
+            "p",
+            `${watch.path} · ${watch.state}${watch.state === "scanning" ? ` · ${watch.processed_files} files processed` : ""}${watch.detail ? ` · ${watch.detail}` : ""}`,
+          ),
+        );
+        if (api.unregisterWatchedDirectory) {
+          const removal = element("details");
+          removal.append(element("summary", "Remove watched directory"));
+          removal.append(
+            element(
+              "p",
+              "This stops watching the directory and withdraws evidence acquired only through this registration. The original files remain in place and recovery copies are kept.",
+            ),
+          );
+          const confirm = element("button", "Confirm directory removal");
+          confirm.addEventListener("click", async () => {
+            confirm.disabled = true;
+            try {
+              await api.unregisterWatchedDirectory!(watch.watch_id);
+              sourcesFingerprint = "";
+              await loadSources(0, false);
+              message("Watched directory removed.");
+            } catch (error) {
+              confirm.disabled = false;
+              report(error);
+            }
+          });
+          removal.append(confirm);
+          row.append(removal);
+        }
+        section?.append(row);
+      }
+    }
+    if (includeRepositories && api.listRepositories) {
+      const records = await api.listRepositories();
+      if (disposed) return;
+      const section = sources.querySelector('[aria-label="Repositories"]');
+      section?.replaceChildren();
+      for (const repository of records) {
+        const row = element("div");
+        row.append(element("p", `${repository.path} · ${repository.state}`));
+        if (repository.state === "legacy_ambiguous") {
+          row.append(
+            element(
+              "p",
+              "This older repository's ownership is ambiguous. Its sources are retained and cannot be removed automatically.",
+            ),
+          );
+        } else if (api.unregisterRepository) {
+          const removal = element("details");
+          removal.append(element("summary", "Remove repository"));
+          removal.append(
+            element(
+              "p",
+              "This withdraws evidence acquired only through this registration. The original repository remains in place and recovery copies are kept.",
+            ),
+          );
+          const confirm = element("button", "Confirm repository removal");
+          confirm.addEventListener("click", async () => {
+            confirm.disabled = true;
+            try {
+              await api.unregisterRepository!(repository.repository_id);
+              sourcesFingerprint = "";
+              await loadSources(0, false);
+              message("Repository removed.");
+            } catch (error) {
+              confirm.disabled = false;
+              report(error);
+            }
+          });
+          removal.append(confirm);
+          row.append(removal);
+        }
+        section?.append(row);
+      }
+    }
   }
   watchButton.addEventListener("click", () => {
     if (watchButton.disabled) return;
@@ -3267,10 +3409,10 @@ export async function mountReader(
     main.replaceChildren(
       element(
         "p",
-        "This source was removed from its watched directory. Its solely supported knowledge has been removed.",
+        "This source was removed. Knowledge supported only by this source has been removed.",
       ),
     );
-    message("Source removed after confirmed directory reconciliation.");
+    message("Source removed.");
   }
   return () => {
     disposed = true;

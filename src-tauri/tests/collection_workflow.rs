@@ -7028,3 +7028,74 @@ fn structured_update_does_not_invent_a_concurrent_owner_save() {
         "the update retained no competing owner bytes"
     );
 }
+
+#[test]
+fn stale_semantic_claim_cannot_publish_after_same_source_is_readded() {
+    let workspace = tempdir().unwrap();
+    let collection = workspace.path().join("collection");
+    let source = workspace.path().join("source.txt");
+    fs::write(&source, "A source with a stable observation.").unwrap();
+    let mut app = Application::open_with_semantic_provider(
+        &collection,
+        Arc::new(RecordedProvider::once(Ok(KnowledgeDraft::default()))),
+    )
+    .unwrap();
+    let imported = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    let old_job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    let bundle = app
+        .page_path(&imported.info.source_id)
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_owned();
+    fs::remove_dir_all(bundle).unwrap();
+    let readded = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    assert_eq!(imported.info.source_id, readded.info.source_id);
+    let new_job = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    assert_eq!(old_job.attempt, new_job.attempt);
+    assert_ne!(old_job.claim, new_job.claim);
+    assert!(app
+        .finish_semantic_job(old_job, Ok(KnowledgeDraft::default()))
+        .is_err());
+    assert_eq!(
+        app.open_source(&readded.info.source_id)
+            .unwrap()
+            .info
+            .semantic_state,
+        "processing"
+    );
+    app.finish_semantic_job(new_job, Ok(KnowledgeDraft::default()))
+        .unwrap();
+}
+
+#[test]
+fn removed_and_readded_source_rejects_old_semantic_generation() {
+    let workspace = tempdir().unwrap();
+    let source = workspace.path().join("source.txt");
+    fs::write(&source, "A source with a stable observation.").unwrap();
+    let mut app = Application::open_with_semantic_provider(
+        workspace.path().join("collection"),
+        Arc::new(RecordedProvider::once(Ok(KnowledgeDraft::default()))),
+    )
+    .unwrap();
+    let first = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    let old = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    app.remove_source(&first.info.source_id).unwrap();
+    let readded = app
+        .import_source(&source, AcquisitionMethod::Picker)
+        .unwrap();
+    assert_eq!(first.info.source_id, readded.info.source_id);
+    let new = app.claim_due_semantic_jobs(1).unwrap().remove(0);
+    assert_ne!(old.generation, new.generation);
+    assert!(app
+        .finish_semantic_job(old, Ok(KnowledgeDraft::default()))
+        .is_err());
+    app.finish_semantic_job(new, Ok(KnowledgeDraft::default()))
+        .unwrap();
+}

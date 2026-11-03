@@ -134,6 +134,92 @@ it("selects a watched directory once and shows unavailability without hiding ret
   expect(screen.getByRole("article").textContent).toContain("Observation V17");
 });
 
+it("confirms source removal and offers recovery copies", async () => {
+  const api = testApi();
+  api.listSources = vi
+    .fn()
+    .mockResolvedValue({ sources: [riverside.info], next_offset: null });
+  api.openSource = vi.fn().mockResolvedValue(riverside);
+  api.removeSource = vi.fn().mockResolvedValue(undefined);
+  api.listRemovedSources = vi.fn().mockResolvedValue([
+    {
+      recovery_id: "backup-id",
+      source_id: riverside.info.source_id,
+      title: riverside.info.title,
+    },
+  ]);
+  api.restoreRemovedSource = vi.fn().mockResolvedValue(riverside);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Sources" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Riverside notes" }),
+  );
+  expect(api.removeSource).not.toHaveBeenCalled();
+  await user.click(screen.getByText("Remove source"));
+  expect(
+    screen.getByText(/Knowledge supported only by this source/),
+  ).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Confirm removal" }));
+  await waitFor(() =>
+    expect(api.removeSource).toHaveBeenCalledWith(riverside.info.source_id),
+  );
+  await user.click(screen.getByRole("button", { name: "Sources" }));
+  await user.click(screen.getByText("Recover removed sources"));
+  await user.click(
+    await screen.findByRole("button", { name: "Restore Riverside notes" }),
+  );
+  await waitFor(() =>
+    expect(api.restoreRemovedSource).toHaveBeenCalledWith("backup-id"),
+  );
+  expect(screen.getByText("Source restored.")).toBeTruthy();
+});
+
+it("confirms removal of watched directories and repositories", async () => {
+  const api = testApi();
+  api.listWatchedDirectories = vi
+    .fn()
+    .mockResolvedValue([
+      {
+        watch_id: "watch-1",
+        path: "/fixture/watch",
+        state: "watching",
+        processed_files: 1,
+        detail: null,
+      },
+    ]);
+  api.unregisterWatchedDirectory = vi.fn().mockResolvedValue(undefined);
+  api.listRepositories = vi
+    .fn()
+    .mockResolvedValue([
+      { repository_id: "repo-1", path: "/fixture/repository", state: "active" },
+    ]);
+  api.unregisterRepository = vi.fn().mockResolvedValue(undefined);
+  const root = document.createElement("div");
+  document.body.append(root);
+  dispose = await mountReader(root, api);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Sources" }));
+  await user.click(await screen.findByText("Remove watched directory"));
+  expect(api.unregisterWatchedDirectory).not.toHaveBeenCalled();
+  await user.click(
+    screen.getByRole("button", { name: "Confirm directory removal" }),
+  );
+  await waitFor(() =>
+    expect(api.unregisterWatchedDirectory).toHaveBeenCalledWith("watch-1"),
+  );
+  await user.click(await screen.findByText("Remove repository"));
+  expect(api.unregisterRepository).not.toHaveBeenCalled();
+  await user.click(
+    screen.getByRole("button", { name: "Confirm repository removal" }),
+  );
+  await waitFor(() =>
+    expect(api.unregisterRepository).toHaveBeenCalledWith("repo-1"),
+  );
+});
+
 it("refreshes watched source discovery, completed pages, and confirmed removal while open", async () => {
   const interval = vi.spyOn(window, "setInterval");
   const api = testApi();
@@ -176,11 +262,7 @@ it("refreshes watched source discovery, completed pages, and confirmed removal w
   api.openSource = vi.fn().mockRejectedValue(new Error("Source removed"));
   api.retainedSourceExists = vi.fn().mockResolvedValue(false);
   refresh!();
-  expect(
-    await screen.findByText(
-      /This source was removed from its watched directory/,
-    ),
-  ).toBeTruthy();
+  expect(await screen.findByText(/This source was removed/)).toBeTruthy();
 });
 
 it("keeps explicit source pagination when an older background refresh finishes later", async () => {

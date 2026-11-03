@@ -6,6 +6,7 @@ pub mod gaps;
 mod index_stage;
 mod publication;
 pub mod reconciliation;
+pub mod repositories;
 mod source_version_stage;
 pub mod trails;
 pub mod views;
@@ -140,6 +141,8 @@ pub struct Acquisition {
     pub path: String,
     pub method: AcquisitionMethod,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registration_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path_encoding: Option<AcquisitionPathEncoding>,
     /// Milliseconds since the Unix epoch, stored as a string to avoid JS precision loss.
     pub received_at: String,
@@ -170,9 +173,20 @@ pub struct UrlAcquisitionStatus {
     pub previous_source_available: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AcquisitionOwner {
+    pub origin: PathBuf,
+    pub method: AcquisitionMethod,
+    pub registration_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceVersion {
     pub source_version_id: String,
+    #[serde(default)]
+    pub acquisition_owners: Vec<AcquisitionOwner>,
+    #[serde(default)]
+    pub withdrawn: bool,
     pub sha256: String,
     pub bytes: u64,
     pub original_name: String,
@@ -258,6 +272,8 @@ pub struct SourceInfo {
     pub semantic_error: Option<String>,
     #[serde(default)]
     pub semantic_attempts: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_claim: Option<String>,
     #[serde(default)]
     pub semantic_retry_at: Option<String>,
     #[serde(default)]
@@ -542,6 +558,7 @@ pub struct Application {
     staged_publication: Vec<(PathBuf, Vec<u8>)>,
     publication_bases: std::cell::RefCell<Option<HashMap<PathBuf, Vec<u8>>>>,
     fail_after_publication_files: Option<usize>,
+    source_recovery_failpoint: Option<String>,
     meaning_search: Option<MeaningSearch>,
     meaning_search_status: String,
     watch_readers: HashMap<String, fs::ReadDir>,
@@ -679,6 +696,20 @@ impl Application {
     /// recovery verification.
     pub fn set_publication_failpoint_for_test(&mut self, after_files: usize) {
         self.fail_after_publication_files = Some(after_files);
+    }
+
+    pub fn set_source_recovery_failpoint_for_test(&mut self, point: &str) {
+        self.source_recovery_failpoint = Some(point.to_owned());
+    }
+
+    fn source_recovery_checkpoint(&mut self, point: &str) -> Result<()> {
+        if self.source_recovery_failpoint.as_deref() == Some(point) {
+            self.source_recovery_failpoint = None;
+            return Err(GardenError::Invalid(format!(
+                "Injected source recovery interruption at {point}."
+            )));
+        }
+        Ok(())
     }
 
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
@@ -988,12 +1019,16 @@ impl Application {
             staged_publication: Vec::new(),
             publication_bases: Default::default(),
             fail_after_publication_files: None,
+            source_recovery_failpoint: None,
             meaning_search,
             meaning_search_status,
             watch_readers: HashMap::new(),
             watch_cursor: 0,
             _lock: CollectionLock(lock),
         };
+        app.recover_source_removals()?;
+        app.recover_unregistering_watches()?;
+        app.recover_unregistering_repositories()?;
         while !app.reconcile_collection(1000)?.complete {}
         let receipt = app.root.join(".runtime/controlled-exit");
         let orderly = validate_real_collection_ancestors(&app.root, &receipt).is_ok()
@@ -1017,7 +1052,17 @@ impl Application {
         path: impl AsRef<Path>,
         method: AcquisitionMethod,
     ) -> Result<SourcePage> {
-        self.import_source_with_acquisition(path, method, None, None)
+        self.recover_source_removals()?;
+        let path = path.as_ref();
+        let readd = self.origin_is_suppressed(path);
+        let page = self.import_source_with_acquisition(path, method.clone(), None, None)?;
+        if method != AcquisitionMethod::Watch {
+            if readd {
+                self.set_source_generation(&page.info.source_id, &Uuid::new_v4().to_string())?;
+            }
+            self.clear_origin_suppression(path)?;
+        }
+        Ok(page)
     }
 
     /// Imports files from an owner-supplied directory through the ordinary source pipeline.
@@ -1026,6 +1071,8 @@ impl Application {
         &mut self,
         supplied_path: impl AsRef<Path>,
     ) -> Result<RepositoryImportResult> {
+        self.recover_source_removals()?;
+        self.recover_registration_removals()?;
         let root = fs::canonicalize(supplied_path)?;
         if !root.is_dir() {
             return Err(GardenError::Invalid("Choose a repository folder.".into()));
@@ -1034,6 +1081,7 @@ impl Application {
             "repository-{}",
             hex::encode(Sha256::digest(root.as_os_str().as_encoded_bytes()))
         );
+        self.register_repository(&repository_id, &root)?;
         let mut paths = Vec::new();
         let mut exclusions = Vec::new();
         fn collect(
@@ -1130,6 +1178,7 @@ impl Application {
                 None,
                 None,
                 Some(format!("repository-file:{repository_id}:{relative_path}")),
+                Some(repository_id.clone()),
             )?;
             page.info.repository = Some(RepositorySourceContext {
                 repository_id: repository_id.clone(),
@@ -1306,6 +1355,7 @@ impl Application {
         let acquisition = Acquisition {
             path: requested.clone(),
             method: AcquisitionMethod::Url,
+            registration_id: None,
             path_encoding: None,
             received_at: received_at.to_string(),
             requested_url: Some(requested),
@@ -1426,7 +1476,14 @@ impl Application {
         acquisition_override: Option<Acquisition>,
         format_override: Option<String>,
     ) -> Result<SourcePage> {
-        self.import_source_with_identity(path, method, acquisition_override, format_override, None)
+        self.import_source_with_identity(
+            path,
+            method,
+            acquisition_override,
+            format_override,
+            None,
+            None,
+        )
     }
 
     fn import_source_with_identity(
@@ -1436,6 +1493,7 @@ impl Application {
         acquisition_override: Option<Acquisition>,
         format_override: Option<String>,
         source_identity_scope: Option<String>,
+        registration_id: Option<String>,
     ) -> Result<SourcePage> {
         self.recover_pending_publications()?;
         let supplied_path = if path.as_ref().is_absolute() {
@@ -1500,6 +1558,7 @@ impl Application {
                 supplied_path.to_string_lossy().into_owned()
             },
             method,
+            registration_id,
             path_encoding: (method == AcquisitionMethod::Repository)
                 .then_some(AcquisitionPathEncoding::PercentEncoded),
             received_at,
@@ -1514,7 +1573,13 @@ impl Application {
         identity.update([0]);
         identity.update(digest.as_bytes());
         let content_source_id = format!("source-{}", hex::encode(identity.finalize()));
-        let existing_origin = self.source_for_origin(acquisition_origin(&acquisition)?)?;
+        let source_origin = acquisition_origin(&acquisition)?;
+        let source_owner = AcquisitionOwner {
+            origin: source_origin.clone(),
+            method: acquisition.method,
+            registration_id: acquisition.registration_id.clone(),
+        };
+        let existing_origin = self.source_for_origin(source_origin.clone())?;
         let source_id = if method == AcquisitionMethod::Url {
             existing_origin.unwrap_or_else(|| {
                 let identity = format!("url-origin:{path_key}");
@@ -1543,6 +1608,7 @@ impl Application {
             let acquisition_exists = existing.info.acquisitions.iter().any(|old| {
                 old.path == acquisition.path
                     && old.method == acquisition.method
+                    && old.registration_id == acquisition.registration_id
                     && old.path_encoding == acquisition.path_encoding
                     && old.requested_url == acquisition.requested_url
                     && old.final_url == acquisition.final_url
@@ -1553,6 +1619,45 @@ impl Application {
                 .iter()
                 .any(|version| version.source_version_id == digest)
             {
+                let mut ownership_changed = false;
+                for version in &mut existing.info.versions_seen {
+                    if version.source_version_id == digest {
+                        if !version.acquisition_owners.contains(&source_owner) {
+                            version.acquisition_owners.push(source_owner.clone());
+                            version.withdrawn = false;
+                            ownership_changed = true;
+                        }
+                    } else {
+                        let previous = version.acquisition_owners.len();
+                        version
+                            .acquisition_owners
+                            .retain(|owner| owner != &source_owner);
+                        ownership_changed |= previous != version.acquisition_owners.len();
+                    }
+                }
+                if ownership_changed {
+                    let has_owner = |id: &str| {
+                        existing.info.versions_seen.iter().any(|version| {
+                            version.source_version_id == id
+                                && !version.acquisition_owners.is_empty()
+                        })
+                    };
+                    let unsupported_current = existing
+                        .info
+                        .current_version_id
+                        .as_deref()
+                        .is_some_and(|id| !has_owner(id));
+                    let unsupported_pending = existing
+                        .info
+                        .pending_version_id
+                        .as_deref()
+                        .is_some_and(|id| !has_owner(id));
+                    if unsupported_current || unsupported_pending {
+                        self.reconcile_reacquired_version(&source_id, &source_owner, &digest)?;
+                    } else {
+                        self.write_source_page(&mut existing)?;
+                    }
+                }
                 if !acquisition_exists {
                     write_acquisition(&destination, &acquisition)?;
                 }
@@ -1567,7 +1672,13 @@ impl Application {
                 &format,
                 &acquisition.received_at,
                 "pending",
+                Some(&source_owner),
             );
+            for previous in &mut existing.info.versions_seen {
+                previous
+                    .acquisition_owners
+                    .retain(|owner| owner != &source_owner);
+            }
             let previous_original = destination.join(&existing.info.asset);
             if let Some(previous) = existing
                 .info
@@ -1827,12 +1938,14 @@ impl Application {
                         &format,
                         &acquisition.received_at,
                         "pending",
+                        Some(&source_owner),
                     )],
                     update_status: Some("pending".into()),
                     ordering_uncertain: false,
                     semantic_state: "pending".into(),
                     semantic_error: None,
                     semantic_attempts: 0,
+                    semantic_claim: None,
                     semantic_retry_at: None,
                     provider_availability: None,
                     knowledge_pages: Vec::new(),
@@ -1995,6 +2108,7 @@ impl Application {
                 } else {
                     "unavailable"
                 },
+                Some(&source_owner),
             )],
             update_status: matches!(
                 extraction,
@@ -2016,6 +2130,7 @@ impl Application {
             },
             semantic_error: None,
             semantic_attempts: 0,
+            semantic_claim: None,
             semantic_retry_at: None,
             provider_availability: None,
             knowledge_pages: Vec::new(),
@@ -2091,6 +2206,7 @@ impl Application {
                 if !page.info.acquisitions.iter().any(|old| {
                     old.path == acquisition.path
                         && old.method == acquisition.method
+                        && old.registration_id == acquisition.registration_id
                         && old.path_encoding == acquisition.path_encoding
                         && old.requested_url == acquisition.requested_url
                         && old.final_url == acquisition.final_url
@@ -2716,6 +2832,7 @@ impl Application {
         now: u128,
     ) -> Result<Vec<SemanticJob>> {
         self.recover_pending_publications()?;
+        self.recover_source_removals()?;
         let mut due = Vec::new();
         for entry in fs::read_dir(self.root.join("sources"))? {
             if due.len() >= max_jobs {
@@ -3056,6 +3173,9 @@ impl Application {
             page.info.semantic_error = None;
             page.info.semantic_retry_at = None;
             let attempt = page.info.semantic_attempts;
+            let generation = self.source_generation(&source_id)?;
+            let claim = Uuid::new_v4().to_string();
+            page.info.semantic_claim = Some(claim.clone());
             if let Some(version) = page
                 .info
                 .versions_seen
@@ -3070,6 +3190,8 @@ impl Application {
                 source_id,
                 source_version_id,
                 attempt,
+                claim,
+                generation,
                 source_text: text,
                 prior_source_text,
             });
@@ -3539,6 +3661,12 @@ impl Application {
         result: std::result::Result<KnowledgeDraft, ProviderError>,
     ) -> Result<()> {
         recover_publications(&self.root)?;
+        self.recover_source_removals()?;
+        if self.source_generation(&job.source_id)? != job.generation {
+            return Err(GardenError::Invalid(
+                "The source generation changed while semantic work was running.".into(),
+            ));
+        }
         self.staged_publication.clear();
         *self.publication_bases.borrow_mut() = Some(HashMap::new());
         let source_path = self.page_path(&job.source_id)?;
@@ -3553,6 +3681,7 @@ impl Application {
         if !active
             || page.info.pending_version_id.as_deref() != Some(&job.source_version_id)
             || page.info.semantic_attempts != job.attempt
+            || page.info.semantic_claim.as_deref() != Some(&job.claim)
         {
             return Err(GardenError::Invalid(
                 "The semantic job is no longer the active source attempt.".into(),
@@ -4147,6 +4276,7 @@ impl Application {
     /// deliberately performed after persisting `processing`; opening the collection
     /// converts an interrupted window back to pending and retries its stable range.
     pub fn resume_due_audio_jobs(&mut self) -> Result<()> {
+        self.recover_source_removals()?;
         self.recover_pending_publications()?;
         let now = now_millis()? as u64;
         let mut candidate = None;
@@ -6466,6 +6596,11 @@ impl Application {
             .ok_or_else(|| {
                 GardenError::Invalid("The retained source version is unknown.".into())
             })?;
+        if version.withdrawn {
+            return Err(GardenError::Invalid(
+                "This source version is no longer supported by an active origin.".into(),
+            ));
+        }
         if asset != version.asset
             || !asset.starts_with("original")
             || Path::new(asset).components().count() != 1
@@ -7861,9 +7996,12 @@ fn source_version(
     format: &str,
     received_at: &str,
     state: &str,
+    owner: Option<&AcquisitionOwner>,
 ) -> SourceVersion {
     SourceVersion {
         source_version_id: digest.to_owned(),
+        acquisition_owners: owner.cloned().into_iter().collect(),
+        withdrawn: false,
         sha256: digest.to_owned(),
         bytes,
         original_name: original_name.to_owned(),
@@ -9941,6 +10079,7 @@ fn read_page(path: &Path) -> Result<SourcePage> {
             } else {
                 "pending"
             },
+            None,
         );
         legacy.coverage = if info.extraction == ExtractionState::TextPreserved
             && info.semantic_state == "complete"

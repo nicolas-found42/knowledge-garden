@@ -66,6 +66,8 @@ pub struct SemanticJob {
     pub source_id: String,
     pub source_version_id: String,
     pub attempt: u32,
+    pub claim: String,
+    pub generation: String,
     pub source_text: String,
     pub prior_source_text: Option<String>,
 }

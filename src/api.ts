@@ -602,6 +602,11 @@ export interface GardenApi {
   chooseDirectory?(): Promise<string | null>;
   watchDirectory?(path: string): Promise<WatchedDirectory>;
   listWatchedDirectories?(): Promise<WatchedDirectory[]>;
+  unregisterWatchedDirectory?(watchId: string): Promise<void>;
+  listRepositories?(): Promise<
+    Array<{ repository_id: string; path: string; state: string }>
+  >;
+  unregisterRepository?(repositoryId: string): Promise<void>;
   openCollectionFile?(path: string): Promise<void>;
   collectionStatus?(): Promise<CollectionStatus>;
   resolvePageLink?(pageId: string, href: string): Promise<string>;
@@ -609,6 +614,11 @@ export interface GardenApi {
   chooseFile(): Promise<string | null>;
   chooseRepositoryDirectory(): Promise<string | null>;
   importSource(path: string, method: AcquisitionMethod): Promise<SourcePage>;
+  removeSource?(sourceId: string): Promise<void>;
+  listRemovedSources?(): Promise<
+    { recovery_id: string; source_id: string; title: string }[]
+  >;
+  restoreRemovedSource?(recoveryId: string): Promise<SourcePage>;
   importRepository(path: string): Promise<RepositoryImportResult>;
   importUrl(url: string): Promise<SourcePage>;
   listUrlAcquisitions(): Promise<UrlAcquisitionStatus[]>;
@@ -688,6 +698,11 @@ export const desktopApi: GardenApi = {
   },
   watchDirectory: (path) => invoke("watch_directory", { path }),
   listWatchedDirectories: () => invoke("list_watched_directories"),
+  unregisterWatchedDirectory: (watchId) =>
+    invoke("unregister_watched_directory", { watchId }),
+  listRepositories: () => invoke("list_repositories"),
+  unregisterRepository: (repositoryId) =>
+    invoke("unregister_repository", { repositoryId }),
   openCollectionFile: (path) => invoke("open_collection_file", { path }),
   collectionStatus: () => invoke("collection_status"),
   resolvePageLink: (pageId, href) =>
@@ -709,6 +724,10 @@ export const desktopApi: GardenApi = {
     return typeof selected === "string" ? selected : null;
   },
   importSource: (path, method) => invoke("import_source", { path, method }),
+  removeSource: (sourceId) => invoke("remove_source", { sourceId }),
+  listRemovedSources: () => invoke("list_removed_sources"),
+  restoreRemovedSource: (recoveryId) =>
+    invoke("restore_removed_source", { recoveryId }),
   importRepository: (path) => invoke("import_repository", { path }),
   importUrl: (url) => invoke("import_url", { url }),
   listUrlAcquisitions: () => invoke("list_url_acquisitions"),
