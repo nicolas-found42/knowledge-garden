@@ -53,7 +53,7 @@ fn actual_http_quota_response_remains_distinct_and_recoverable() {
     let error = transport
         .complete(
             "synthetic-test-credential",
-            &json!({"model":"jev-1.13","state":"synthetic","questions":{}}),
+            &json!({"model":"typesafe/jev-1.14","state":"synthetic","questions":{}}),
         )
         .unwrap_err();
     assert!(error.retryable);
@@ -85,7 +85,10 @@ fn real_http_service_outages_do_not_become_exhausted_semantic_failures() {
     ] {
         let transport = response(status, "", r#"{"error":{"message":"fixture only"}}"#);
         let error = transport
-            .complete("synthetic-test-credential", &json!({"model":"jev-1.13"}))
+            .complete(
+                "synthetic-test-credential",
+                &json!({"model":"typesafe/jev-1.14"}),
+            )
             .unwrap_err();
         assert!(error.retryable, "{status} must remain queued");
         assert_eq!(
@@ -104,7 +107,10 @@ fn successful_http_envelope_with_provider_error_is_not_a_malformed_knowledge_dra
         r#"{"error":{"code":503,"message":"fixture only","metadata":{"error_type":"provider_overloaded"}}}"#,
     );
     let error = transport
-        .complete("synthetic-test-credential", &json!({"model":"jev-1.13"}))
+        .complete(
+            "synthetic-test-credential",
+            &json!({"model":"typesafe/jev-1.14"}),
+        )
         .unwrap_err();
     assert!(error.retryable);
     assert_eq!(
@@ -124,7 +130,10 @@ fn service_retry_deadline_survives_restart_and_disposable_cache_loss() {
     impl SemanticProvider for HttpOutage {
         fn form_knowledge(&self, _: &str) -> Result<KnowledgeDraft, ProviderError> {
             self.0
-                .complete("synthetic-test-credential", &json!({"model":"jev-1.13"}))
+                .complete(
+                    "synthetic-test-credential",
+                    &json!({"model":"typesafe/jev-1.14"}),
+                )
                 .map(|_| unreachable!("outage fixture cannot form knowledge"))
         }
     }
@@ -175,7 +184,10 @@ fn service_retry_deadline_survives_restart_and_disposable_cache_loss() {
             "Retry-After: 120\r\n",
             r#"{"error":{"message":"fixture"}}"#,
         )
-        .complete("synthetic-test-credential", &json!({"model":"jev-1.13"}))
+        .complete(
+            "synthetic-test-credential",
+            &json!({"model":"typesafe/jev-1.14"}),
+        )
         .unwrap_err();
         app.finish_semantic_job(job, Err(error)).unwrap();
         let pending = app.open_source(&source.info.source_id).unwrap();
@@ -210,7 +222,37 @@ fn service_retry_deadline_survives_restart_and_disposable_cache_loss() {
 fn null_error_field_in_a_successful_response_does_not_mask_data() {
     let transport = response("200 OK", "", r#"{"error":null,"data":{"result":true}}"#);
     let body = transport
-        .complete("synthetic-test-credential", &json!({"model":"jev-1.13"}))
+        .complete(
+            "synthetic-test-credential",
+            &json!({"model":"typesafe/jev-1.14"}),
+        )
         .unwrap();
     assert_eq!(body["data"]["result"], true);
+}
+
+#[test]
+fn openrouter_rejects_other_models_and_fallbacks_before_connecting() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let transport = OpenRouterSystemOneTransport::with_endpoint(format!(
+        "http://{}/api/v1/systemone",
+        listener.local_addr().unwrap()
+    ));
+    for request in [
+        json!({"model":"openai/gpt-4o"}),
+        json!({"model":"jev-1.14"}),
+        json!({"model":"typesafe/jev-1.13"}),
+        json!({"model":"typesafe/jev-1.14", "models":["openai/gpt-4o"]}),
+        json!({"model":"typesafe/jev-1.14", "route":"fallback"}),
+        json!({}),
+    ] {
+        let error = transport
+            .complete("synthetic-test-credential", &request)
+            .unwrap_err();
+        assert!(!error.retryable);
+        assert!(
+            listener.accept().is_err(),
+            "rejected request opened a connection: {request}"
+        );
+    }
 }

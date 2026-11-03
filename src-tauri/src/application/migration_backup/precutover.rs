@@ -587,7 +587,9 @@ mod tests {
         let sources: Vec<_> = fs::read_dir(root.join("sources")).unwrap().collect();
         assert_eq!(sources.len(), 1);
         let original = sources[0].as_ref().unwrap().path().join("original.txt");
-        assert!(fs::read_to_string(original).unwrap().contains("owner statement"));
+        assert!(fs::read_to_string(original)
+            .unwrap()
+            .contains("owner statement"));
         let final_state: MigrationState =
             serde_json::from_slice(&fs::read(state_path).unwrap()).unwrap();
         assert_eq!(final_state.phase, "authority_retired");

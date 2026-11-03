@@ -1,14 +1,12 @@
 //! Explicitly saved criteria; result sets and transient query cursors are never durable views.
 use super::{
-    boolean,
-    collection::CollectionAxis,
-    publication::{commit_publication_with_removals, validate_real_collection_ancestors},
+    boolean, collection::CollectionAxis, publication::validate_real_collection_ancestors,
     read_bounded_text, Application, GardenError, PageSearchRequest, Result,
 };
 use crate::timeline::TimelineRequest;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -287,14 +285,6 @@ impl ViewDefinition {
         refs.dedup();
         Ok(refs)
     }
-    fn reset_positions(&mut self) {
-        if let Some(search) = &mut self.search {
-            search.offset = 0;
-        }
-        if let Some(timeline) = &mut self.timeline {
-            timeline.offset = 0;
-        }
-    }
 }
 fn invalid<T>(message: &str) -> Result<T> {
     Err(GardenError::Invalid(message.into()))
@@ -374,13 +364,6 @@ fn parse_view(text: &str) -> Result<(StoredView, String)> {
     view_name(&record.name)?;
     record.definition.validate()?;
     Ok((record, body.into()))
-}
-fn serialize_view(record: &StoredView, body: &str) -> Result<Vec<u8>> {
-    let text = format!("---\n{}---\n{}", serde_yaml_ng::to_string(record)?, body);
-    if text.len() as u64 > MAX_VIEW_BYTES {
-        return invalid("Saved view definition exceeds 256 KiB.");
-    }
-    Ok(text.into_bytes())
 }
 impl Application {
     fn view_catalog(&self) -> Result<Catalog> {
@@ -626,146 +609,6 @@ impl Application {
             resolved_groups,
             resolved_references,
         })
-    }
-    pub fn create_saved_view(
-        &mut self,
-        name: &str,
-        mut definition: ViewDefinition,
-    ) -> Result<SavedView> {
-        self.require_integrity_recovered()?;
-        definition.validate()?;
-        definition.reset_positions();
-        let name = view_name(name)?;
-        if self
-            .view_catalog()?
-            .rows
-            .iter()
-            .any(|(_, r)| r.name.to_lowercase() == name.to_lowercase())
-        {
-            return invalid("A saved view already has that name.");
-        }
-        let record = StoredView {
-            schema: 1,
-            view_id: format!("view-{}", Uuid::new_v4()),
-            name,
-            definition,
-            extra: BTreeMap::new(),
-        };
-        let path = self
-            .root
-            .join("views")
-            .join(format!("{}.md", record.view_id));
-        validate_real_collection_ancestors(&self.root, &path)?;
-        fs::create_dir_all(self.root.join("views"))?;
-        let mut body = format!("# {}\n\nThis named view evaluates its YAML criteria against current knowledge whenever opened. No old result set is stored. Unsaved exploration and automatic session position are separate.\n\n## Referenced material\n\n", super::escape_markdown(&record.name));
-        for (source, id) in record.definition.references()? {
-            let target = if source {
-                self.open_source(&id)
-                    .ok()
-                    .and_then(|p| self.page_path(&id).ok().map(|path| (p.info.title, path)))
-            } else {
-                self.open_knowledge_page(&id)
-                    .ok()
-                    .and_then(|p| self.knowledge_path(&id).ok().map(|path| (p.title, path)))
-            };
-            if let Some((title, path)) = target {
-                let relative = relative(&self.root, &path);
-                const LINK_CHARS: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
-                    .remove(b'/')
-                    .remove(b'-')
-                    .remove(b'_')
-                    .remove(b'.')
-                    .remove(b'~');
-                let encoded =
-                    percent_encoding::utf8_percent_encode(&relative, LINK_CHARS).to_string();
-                body.push_str(&format!(
-                    "- [{}](../{}) — `{id}`\n",
-                    super::escape_markdown(&title),
-                    encoded
-                ));
-            } else {
-                body.push_str(&format!(
-                    "- Unavailable reference `{id}`; its stored scope is unchanged.\n"
-                ));
-            }
-        }
-        if !record.definition.trail.is_empty() {
-            body.push_str("\n## Ordered trail\n\n");
-            for (index, stop) in record.definition.trail.iter().enumerate() {
-                body.push_str(&format!(
-                    "{}. {} — stable stop `{}`\n",
-                    index + 1,
-                    super::escape_markdown(&stop.label),
-                    stop.stop_id
-                ));
-                if let Some(context) = &stop.context {
-                    let location = match context {
-                        super::trails::TrailContext::Span {
-                            basis,
-                            byte_start,
-                            byte_end,
-                            ..
-                        } => format!("{basis}, bytes {byte_start}–{byte_end}"),
-                        super::trails::TrailContext::Message { message_id, .. } => {
-                            format!("Message {message_id}")
-                        }
-                        super::trails::TrailContext::Media { at_ms, .. } => {
-                            format!("Media {at_ms} ms")
-                        }
-                    };
-                    body.push_str(&format!("   Context: {}. Open in the app to validate its current availability; source-version identity and exact criteria are retained in YAML.\n",super::escape_markdown(&location)));
-                }
-            }
-        }
-        super::commit_publication(
-            &self.root,
-            vec![(path, serialize_view(&record, &body)?)],
-            &HashMap::new(),
-            None,
-        )?;
-        self.saved_view_dto(record)
-    }
-    pub fn rename_saved_view(&mut self, id: &str, name: &str) -> Result<SavedView> {
-        self.require_integrity_recovered()?;
-        let (path, mut record, body, expected) = self.read_saved_view(id)?;
-        let name = view_name(name)?;
-        if self
-            .view_catalog()?
-            .rows
-            .iter()
-            .any(|(_, r)| r.view_id != id && r.name.to_lowercase() == name.to_lowercase())
-        {
-            return invalid("A saved view already has that name.");
-        }
-        let body = body
-            .strip_prefix(&format!("# {}\n", super::escape_markdown(&record.name)))
-            .map(|rest| format!("# {}\n{rest}", super::escape_markdown(&name)))
-            .unwrap_or(body);
-        record.name = name;
-        super::commit_publication(
-            &self.root,
-            vec![(path.clone(), serialize_view(&record, &body)?)],
-            &HashMap::from([(path, expected)]),
-            None,
-        )?;
-        self.saved_view_dto(record)
-    }
-    pub fn remove_saved_view(&mut self, id: &str) -> Result<()> {
-        self.require_integrity_recovered()?;
-        let (path, _, _, expected) = self.read_saved_view(id)?;
-        let trash = self
-            .root
-            .join(".trash/views")
-            .join(format!("{id}-{}.md", Uuid::new_v4()));
-        validate_real_collection_ancestors(&self.root, &trash)?;
-        fs::create_dir_all(self.root.join(".trash/views"))?;
-        commit_publication_with_removals(
-            &self.root,
-            vec![(trash, expected.clone())],
-            vec![path.clone()],
-            &HashMap::from([(path, expected)]),
-            None,
-        )
     }
 }
 fn relative(root: &Path, path: &Path) -> String {

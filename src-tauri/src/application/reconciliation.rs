@@ -49,12 +49,28 @@ fn is_source_acquisition(path: &str) -> bool {
 // Read untrusted bytes only to describe a diagnostic; they never become
 // source authority or enter the derived index through this check.
 fn raw_source_record_valid(root: &Path, relative: &str, acquisition: bool) -> Option<bool> {
-    let limit = if acquisition { 64 * 1024 } else { MAX_PAGE_BYTES };
+    let limit = if acquisition {
+        64 * 1024
+    } else {
+        MAX_PAGE_BYTES
+    };
     let bytes = migration_backup::read_bounded_nofollow(root, Path::new(relative), limit).ok()?;
-    let text = match std::str::from_utf8(&bytes) { Ok(text) => text, Err(_) => return Some(false) };
-    let Some(header) = text.strip_prefix("---\n").and_then(|text| text.split_once("\n---\n")).map(|(header, _)| header) else { return Some(false); };
-    if acquisition { Some(serde_yaml_ng::from_str::<Acquisition>(header).is_ok()) }
-    else { Some(serde_yaml_ng::from_str::<SourceInfo>(header).is_ok()) }
+    let text = match std::str::from_utf8(&bytes) {
+        Ok(text) => text,
+        Err(_) => return Some(false),
+    };
+    let Some(header) = text
+        .strip_prefix("---\n")
+        .and_then(|text| text.split_once("\n---\n"))
+        .map(|(header, _)| header)
+    else {
+        return Some(false);
+    };
+    if acquisition {
+        Some(serde_yaml_ng::from_str::<Acquisition>(header).is_ok())
+    } else {
+        Some(serde_yaml_ng::from_str::<SourceInfo>(header).is_ok())
+    }
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -87,7 +103,10 @@ impl Application {
     /// Visit at most `budget` directory entries. Complete generations repair links
     /// and refresh derived navigation; incomplete scans never infer deletions.
     pub fn reconcile_collection(&mut self, budget: usize) -> Result<ReconciliationStatus> {
-        if !self.startup_recovering.load(std::sync::atomic::Ordering::Acquire) {
+        if !self
+            .startup_recovering
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
             self.resume_pending_startup()?;
             self.recover_integrity_exclusions()?;
         }
@@ -174,9 +193,18 @@ impl Application {
                     .into_owned();
                 match read_bounded_text(&path, MAX_PAGE_BYTES) {
                     Ok(text) => {
-                        if (is_source_index(&relative) || is_source_acquisition(&relative)) && trusted_pages::active(&self.root)? {
-                            let visible = migration_backup::read_bounded_nofollow(&self.root, Path::new(&relative), MAX_PAGE_BYTES);
-                            if visible.as_ref().map_or(true, |bytes| bytes.as_slice() != text.as_bytes()) {
+                        if (is_source_index(&relative) || is_source_acquisition(&relative))
+                            && trusted_pages::active(&self.root)?
+                        {
+                            let visible = migration_backup::read_bounded_nofollow(
+                                &self.root,
+                                Path::new(&relative),
+                                MAX_PAGE_BYTES,
+                            );
+                            if visible
+                                .as_ref()
+                                .map_or(true, |bytes| bytes.as_slice() != text.as_bytes())
+                            {
                                 scan.unreadable.push(CollectionDiagnostic { kind: "external_edit_retained".into(), paths: vec![relative.clone()], detail: "An external edit was retained for recovery; the previously verified source record remains authoritative.".into() });
                             }
                         }
@@ -208,8 +236,14 @@ impl Application {
                                 Some(true) => ("untrusted_source_metadata", "This source record is not verified and remains preserved without becoming authoritative."),
                                 None => ("unreadable_markdown", "Source metadata could not be read safely; its original content remains preserved."),
                             }
-                        } else { ("unreadable_markdown", "Markdown could not be read within the supported size or encoding bounds; its original contents remain preserved.") };
-                        scan.unreadable.push(CollectionDiagnostic { kind: kind.into(), paths: vec![relative], detail: detail.into() });
+                        } else {
+                            ("unreadable_markdown", "Markdown could not be read within the supported size or encoding bounds; its original contents remain preserved.")
+                        };
+                        scan.unreadable.push(CollectionDiagnostic {
+                            kind: kind.into(),
+                            paths: vec![relative],
+                            detail: detail.into(),
+                        });
                     }
                 }
             }
@@ -343,7 +377,9 @@ impl Application {
 
     fn reconciliation_status(&self, complete: bool) -> ReconciliationStatus {
         let mut diagnostics = self.collection_diagnostics.clone();
-        let recovering = self.startup_recovering.load(std::sync::atomic::Ordering::Acquire);
+        let recovering = self
+            .startup_recovering
+            .load(std::sync::atomic::Ordering::Acquire);
         if self.startup_recovery_pending && !recovering {
             diagnostics.push(CollectionDiagnostic {
                 kind: "startup_recovery_pending".into(),
@@ -391,7 +427,8 @@ impl Application {
                 });
             }
         }
-        let integrity_pending = !recovering && self.has_pending_integrity_exclusions().unwrap_or(true);
+        let integrity_pending =
+            !recovering && self.has_pending_integrity_exclusions().unwrap_or(true);
         if integrity_pending {
             diagnostics.push(CollectionDiagnostic {
                 kind: "integrity_recovery_pending".into(),

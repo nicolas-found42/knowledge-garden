@@ -14,10 +14,9 @@ type Callbacks = {
   follow: (stop: ResolvedTrailStop, intent: number) => Promise<boolean>;
   origin: () => void;
   returnOrigin: () => Promise<void>;
-  save: (name: string, stops: TrailStop[]) => Promise<void>;
   error: (error: unknown) => void;
 };
-/** The route and its position stay temporary until the owner explicitly saves. */
+/** Route edits and navigation position remain temporary. */
 export function trailPanel(
   host: HTMLElement,
   api: GardenApi,
@@ -43,15 +42,6 @@ export function trailPanel(
   const list = node("ol"),
     choices = node("section"),
     suggestions = node("section");
-  const name = node("input");
-  name.required = true;
-  name.maxLength = 120;
-  const nameLabel = node("label", "Trail name ");
-  nameLabel.append(name);
-  const save = node("form");
-  const submit = node("button", "Save this trail");
-  submit.type = "submit";
-  save.append(nameLabel, submit);
   const goal = node("input");
   goal.required = true;
   goal.maxLength = 1024;
@@ -144,7 +134,6 @@ export function trailPanel(
     back,
     forward,
     returnButton,
-    save,
     suggest,
     suggestions,
     list,
@@ -157,7 +146,7 @@ export function trailPanel(
     }
     invalidate();
     stops.push({ ...structuredClone(stop), stop_id: crypto.randomUUID() });
-    status.textContent = `Added ${stop.label}. The trail is temporary until saved.`;
+    status.textContent = `Added ${stop.label}. The trail is temporary.`;
     draw();
   }
   function draw(focusId?: string) {
@@ -226,7 +215,6 @@ export function trailPanel(
     back.disabled = position <= 0;
     forward.disabled = stops.length === 0 || position >= stops.length - 1;
     returnButton.disabled = !hasOrigin;
-    submit.disabled = stops.length === 0;
     if (focusId)
       host
         .querySelector<HTMLElement>(`[data-focus-id="${CSS.escape(focusId)}"]`)
@@ -323,23 +311,6 @@ export function trailPanel(
       if (token === generation) error(reason);
     }
   }
-  save.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (!stops.length) return;
-    submit.disabled = true;
-    const snapshot = structuredClone(stops);
-    const submittedName = name.value;
-    void callbacks
-      .save(submittedName, snapshot)
-      .then(() => {
-        status.textContent = `Saved trail “${submittedName}”. Find and manage it in Saved views.`;
-        if (name.value === submittedName) name.value = "";
-      })
-      .catch(error)
-      .finally(() => {
-        submit.disabled = stops.length === 0;
-      });
-  });
   suggest.addEventListener("submit", (event) => {
     event.preventDefault();
     const token = invalidate();

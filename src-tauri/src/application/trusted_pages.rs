@@ -186,7 +186,11 @@ pub(super) fn read_active_or_original(path: &Path, max: u64) -> Result<Vec<u8>> 
                     .parent()
                     .and_then(Path::file_name)
                     .is_some_and(|name| name == "acquisitions")
-                    && relative.parent().and_then(Path::parent).and_then(Path::parent) == Some(Path::new("sources"))
+                    && relative
+                        .parent()
+                        .and_then(Path::parent)
+                        .and_then(Path::parent)
+                        == Some(Path::new("sources"))
                     && relative
                         .extension()
                         .is_some_and(|extension| extension == "md")));

@@ -254,21 +254,57 @@ fn unchanged_background_reopen_reuses_the_retained_snapshot() {
     fs::create_dir(&root).unwrap();
     fs::write(root.join("owner"), b"preserved").unwrap();
     for run in 0..3 {
-        let app = Arc::new(Mutex::new(Application::open_pending_with_all_providers_and_meaning_assets(
-            &root, Arc::new(Offline), Arc::new(LocalExtractor), Arc::new(NativeAudioProcessor), None::<&std::path::Path>,
-        ).unwrap()));
+        let app = Arc::new(Mutex::new(
+            Application::open_pending_with_all_providers_and_meaning_assets(
+                &root,
+                Arc::new(Offline),
+                Arc::new(LocalExtractor),
+                Arc::new(NativeAudioProcessor),
+                None::<&std::path::Path>,
+            )
+            .unwrap(),
+        ));
         let control = BackgroundControl::new(true);
         control.set_startup_pending(true);
-        let worker = spawn_worker(Arc::clone(&app), Arc::new(Offline), Arc::clone(&control), Duration::from_millis(20)).unwrap();
+        let worker = spawn_worker(
+            Arc::clone(&app),
+            Arc::new(Offline),
+            Arc::clone(&control),
+            Duration::from_millis(20),
+        )
+        .unwrap();
         let deadline = Instant::now() + Duration::from_secs(60);
-        while control.startup_pending() && Instant::now() < deadline { std::thread::sleep(Duration::from_millis(10)); }
-        assert!(!control.startup_pending(), "run {run}: {:?}", control.status());
+        while control.startup_pending() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            !control.startup_pending(),
+            "run {run}: {:?}",
+            control.status()
+        );
         control.stop();
         worker.join().unwrap();
         drop(app);
-        let count = fs::read_dir(root.join(".recovery/migration")).unwrap().filter(|entry| entry.as_ref().is_ok_and(|entry| entry.file_name().to_string_lossy().starts_with("backup-"))).count();
-        if run == 1 { fs::write(temp.path().join("count"), count.to_string()).unwrap(); }
-        if run == 2 { assert_eq!(count, fs::read_to_string(temp.path().join("count")).unwrap().parse::<usize>().unwrap()); }
+        let count = fs::read_dir(root.join(".recovery/migration"))
+            .unwrap()
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .is_ok_and(|entry| entry.file_name().to_string_lossy().starts_with("backup-"))
+            })
+            .count();
+        if run == 1 {
+            fs::write(temp.path().join("count"), count.to_string()).unwrap();
+        }
+        if run == 2 {
+            assert_eq!(
+                count,
+                fs::read_to_string(temp.path().join("count"))
+                    .unwrap()
+                    .parse::<usize>()
+                    .unwrap()
+            );
+        }
     }
     assert_eq!(fs::read(root.join("owner")).unwrap(), b"preserved");
 }

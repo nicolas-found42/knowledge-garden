@@ -456,6 +456,38 @@ pub fn spawn_worker(
                 run_local(|app| app.reconcile_watched_directories(8));
                 run_local(|app| app.resume_due_url_acquisitions());
                 run_local(|app| app.resume_due_audio_jobs());
+                let visual = if control.stopping() {
+                    None
+                } else {
+                    match app.lock() {
+                        Ok(mut app) => match app.claim_due_visual_job() {
+                            Ok(job) => job,
+                            Err(error) => {
+                                issue = Some(error.to_string());
+                                None
+                            }
+                        },
+                        Err(_) => {
+                            issue =
+                                Some("The visual queue could not access the collection.".into());
+                            None
+                        }
+                    }
+                };
+                if let Some(visual) = visual {
+                    let result = visual.run();
+                    match app.lock() {
+                        Ok(mut app) => {
+                            if let Err(error) = app.finish_visual_job(visual, result) {
+                                issue = Some(error.to_string());
+                            }
+                        }
+                        Err(_) => {
+                            issue =
+                                Some("The visual result could not access the collection.".into())
+                        }
+                    }
+                }
                 let jobs = if control.stopping() {
                     Vec::new()
                 } else {

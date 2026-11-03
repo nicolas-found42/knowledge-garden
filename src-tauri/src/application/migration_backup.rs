@@ -1,34 +1,38 @@
 pub(crate) mod verified_index;
 use super::*;
 
+mod archive_prune;
+mod authored_stage;
 mod bounded_copy;
-mod traversal;
-mod manifest_cursor;
-mod manifest_records;
+mod cutover_plan;
+pub(crate) mod final_verify;
 mod incremental_verify;
-mod snapshot_worker;
-pub(crate) mod startup_coordinator;
+mod label_catalog;
+pub(crate) mod legacy_adopt;
 mod legacy_hash;
 mod legacy_manifest;
 mod legacy_verify;
-mod authored_stage;
-mod cutover_plan;
-mod retirement;
-mod retirement_verify;
-mod label_catalog;
-mod trusted_retirement;
-mod retirement_flow;
-mod archive_prune;
-pub(super) mod replay_authority;
-pub(crate) mod final_verify;
-pub(crate) mod legacy_adopt;
+mod manifest_cursor;
+mod manifest_records;
 pub(crate) mod precutover;
+pub(super) mod replay_authority;
+mod retirement;
+mod retirement_flow;
+mod retirement_verify;
+mod snapshot_worker;
+pub(crate) mod startup_coordinator;
+mod traversal;
+mod trusted_retirement;
 
 pub(super) fn read_bounded_nofollow(root: &Path, relative: &Path, limit: u64) -> Result<Vec<u8>> {
     let mut data = Vec::new();
-    bounded_copy::source_file(root, relative)?.take(limit + 1).read_to_end(&mut data)?;
+    bounded_copy::source_file(root, relative)?
+        .take(limit + 1)
+        .read_to_end(&mut data)?;
     if data.len() as u64 > limit {
-        return Err(GardenError::Recovery("Recovery record exceeds its size limit.".into()));
+        return Err(GardenError::Recovery(
+            "Recovery record exceeds its size limit.".into(),
+        ));
     }
     Ok(data)
 }
@@ -40,15 +44,30 @@ fn replay_copy_directories(root: &Path, journal: &Path, create: bool) -> Result<
     use rustix::fs::{mkdirat, openat, Mode, OFlags, CWD};
     use rustix::io::Errno;
     use std::os::unix::fs::MetadataExt;
-    let generation = journal.parent().and_then(|path| path.strip_prefix(".recovery/migration/replay-large").ok()).ok_or_else(|| GardenError::Recovery("Replay copy path is invalid.".into()))?;
-    if generation.components().count()!=1 || !generation.to_str().is_some_and(|value| value.starts_with("pre-work-") && value.len()<=128) {
-        return Err(GardenError::Recovery("Replay copy generation is invalid.".into()));
+    let generation = journal
+        .parent()
+        .and_then(|path| path.strip_prefix(".recovery/migration/replay-large").ok())
+        .ok_or_else(|| GardenError::Recovery("Replay copy path is invalid.".into()))?;
+    if generation.components().count() != 1
+        || !generation
+            .to_str()
+            .is_some_and(|value| value.starts_with("pre-work-") && value.len() <= 128)
+    {
+        return Err(GardenError::Recovery(
+            "Replay copy generation is invalid.".into(),
+        ));
     }
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
     let root_fd = openat(CWD, root, flags, Mode::empty()).map_err(std::io::Error::from)?;
-    let recovery = openat(&root_fd, ".recovery", flags, Mode::empty()).map_err(std::io::Error::from)?;
-    let mut parent = openat(&recovery, "migration", flags, Mode::empty()).map_err(std::io::Error::from)?;
-    for part in [std::ffi::OsStr::new("replay-large"), generation.as_os_str(), std::ffi::OsStr::new("temps")] {
+    let recovery =
+        openat(&root_fd, ".recovery", flags, Mode::empty()).map_err(std::io::Error::from)?;
+    let mut parent =
+        openat(&recovery, "migration", flags, Mode::empty()).map_err(std::io::Error::from)?;
+    for part in [
+        std::ffi::OsStr::new("replay-large"),
+        generation.as_os_str(),
+        std::ffi::OsStr::new("temps"),
+    ] {
         if create {
             match mkdirat(&parent, part, Mode::from_bits_truncate(0o700)) {
                 Ok(()) | Err(Errno::EXIST) => (),
@@ -58,39 +77,67 @@ fn replay_copy_directories(root: &Path, journal: &Path, create: bool) -> Result<
         let child = openat(&parent, part, flags, Mode::empty()).map_err(std::io::Error::from)?;
         let metadata = File::from(child.try_clone().map_err(std::io::Error::from)?).metadata()?;
         if metadata.mode() & 0o077 != 0 || metadata.uid() != unsafe { libc::geteuid() } {
-            return Err(GardenError::Recovery("Replay copy work directory is not private.".into()));
+            return Err(GardenError::Recovery(
+                "Replay copy work directory is not private.".into(),
+            ));
         }
-        if create { File::from(parent).sync_all()?; } else { drop(parent); }
+        if create {
+            File::from(parent).sync_all()?;
+        } else {
+            drop(parent);
+        }
         parent = child;
     }
-    if create { File::from(parent).sync_all()?; }
+    if create {
+        File::from(parent).sync_all()?;
+    }
     Ok(())
 }
 pub(super) fn begin_replay_copy(root: &Path, journal: &Path, source: &Path) -> Result<()> {
     replay_copy_directories(root, journal, true)?;
-    let temp = journal.parent().ok_or_else(|| GardenError::Recovery("Replay copy journal has no parent.".into()))?.join("temps").join(Uuid::new_v4().to_string());
+    let temp = journal
+        .parent()
+        .ok_or_else(|| GardenError::Recovery("Replay copy journal has no parent.".into()))?
+        .join("temps")
+        .join(Uuid::new_v4().to_string());
     bounded_copy::begin(root, journal, source, &temp)
 }
 pub(super) fn step_replay_copy(root: &Path, journal: &Path, source: &Path) -> Result<bool> {
     replay_copy_destination(root, journal)?;
     if bounded_copy::source(root, journal)? != source {
-        return Err(GardenError::Recovery("Replay copy source identity changed.".into()));
+        return Err(GardenError::Recovery(
+            "Replay copy source identity changed.".into(),
+        ));
     }
     bounded_copy::step(root, journal, 4 * 1024 * 1024)
 }
 pub(super) fn replay_copy_destination(root: &Path, journal: &Path) -> Result<PathBuf> {
     replay_copy_directories(root, journal, false)?;
     let destination = bounded_copy::destination(root, journal)?;
-    let directory = journal.parent().ok_or_else(|| GardenError::Recovery("Replay copy journal has no parent.".into()))?.join("temps");
-    let name = destination.strip_prefix(&directory).map_err(|_| GardenError::Recovery("Replay copy escaped its private work directory.".into()))?;
-    if name.components().count()!=1 || name.to_str().and_then(|name| Uuid::parse_str(name).ok()).is_none() {
-        return Err(GardenError::Recovery("Replay copy identity is invalid.".into()));
+    let directory = journal
+        .parent()
+        .ok_or_else(|| GardenError::Recovery("Replay copy journal has no parent.".into()))?
+        .join("temps");
+    let name = destination.strip_prefix(&directory).map_err(|_| {
+        GardenError::Recovery("Replay copy escaped its private work directory.".into())
+    })?;
+    if name.components().count() != 1
+        || name
+            .to_str()
+            .and_then(|name| Uuid::parse_str(name).ok())
+            .is_none()
+    {
+        return Err(GardenError::Recovery(
+            "Replay copy identity is invalid.".into(),
+        ));
     }
     Ok(destination)
 }
 
 #[cfg(test)]
-static PAUSE_PRE_RECOVERY: std::sync::Mutex<Option<(PathBuf, Arc<std::sync::Barrier>, Arc<std::sync::Barrier>)>> = std::sync::Mutex::new(None);
+static PAUSE_PRE_RECOVERY: std::sync::Mutex<
+    Option<(PathBuf, Arc<std::sync::Barrier>, Arc<std::sync::Barrier>)>,
+> = std::sync::Mutex::new(None);
 
 #[derive(Serialize, Deserialize)]
 struct MigrationState {
@@ -153,8 +200,14 @@ pub(super) fn backup(root: &Path) -> Result<PathBuf> {
 pub(super) fn prepare_pre_recovery(root: &Path) -> Result<()> {
     #[cfg(test)]
     {
-        let pause = PAUSE_PRE_RECOVERY.lock().unwrap().as_ref().and_then(|(path, entered, release)|
-            (path == root).then(|| (Arc::clone(entered), Arc::clone(release))));
+        let pause =
+            PAUSE_PRE_RECOVERY
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(|(path, entered, release)| {
+                    (path == root).then(|| (Arc::clone(entered), Arc::clone(release)))
+                });
         if let Some((entered, release)) = pause {
             entered.wait();
             release.wait();
@@ -208,12 +261,23 @@ pub(super) fn pre_recovery_has_integrity_intents(root: &Path) -> Result<bool> {
     match fs::symlink_metadata(&journal) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Ok(metadata) if metadata.is_file() => (),
-        Ok(_) => return Err(GardenError::Recovery("Pre-recovery journal is not a regular file.".into())),
+        Ok(_) => {
+            return Err(GardenError::Recovery(
+                "Pre-recovery journal is not a regular file.".into(),
+            ))
+        }
         Err(error) => return Err(error.into()),
     }
     let name: String = serde_json::from_str(&read_bounded_text(&journal, 4096)?)?;
-    if !name.starts_with("backup-") || Path::new(&name).components().count() != 1 { return Err(GardenError::Recovery("Pre-recovery backup identity is invalid.".into())); }
-    let saved = root.join(".recovery/migration").join(name).join("files/.recovery/integrity-exclusions");
+    if !name.starts_with("backup-") || Path::new(&name).components().count() != 1 {
+        return Err(GardenError::Recovery(
+            "Pre-recovery backup identity is invalid.".into(),
+        ));
+    }
+    let saved = root
+        .join(".recovery/migration")
+        .join(name)
+        .join("files/.recovery/integrity-exclusions");
     validate_real_collection_ancestors(root, &saved.join("entry"))?;
     match fs::read_dir(saved) {
         Ok(mut entries) => Ok(entries.next().transpose()?.is_some()),
@@ -232,35 +296,67 @@ pub(super) fn missing_integrity_intents(root: &Path) -> Result<Vec<(String, Vec<
         };
         for item in items {
             let item = item?;
-            if !item.file_type()?.is_file() { return Err(GardenError::Recovery("Integrity intent storage contains a non-regular entry; it remains preserved.".into())); }
-            let name = item.file_name().into_string().map_err(|_| GardenError::Recovery("Integrity intent name is not readable; it remains preserved.".into()))?;
+            if !item.file_type()?.is_file() {
+                return Err(GardenError::Recovery(
+                    "Integrity intent storage contains a non-regular entry; it remains preserved."
+                        .into(),
+                ));
+            }
+            let name = item.file_name().into_string().map_err(|_| {
+                GardenError::Recovery(
+                    "Integrity intent name is not readable; it remains preserved.".into(),
+                )
+            })?;
             let mut bytes = Vec::new();
-            File::open(item.path())?.take(4097).read_to_end(&mut bytes)?;
-            if bytes.len() > 4096 { return Err(GardenError::Recovery("Integrity intent is too large; it remains preserved.".into())); }
+            File::open(item.path())?
+                .take(4097)
+                .read_to_end(&mut bytes)?;
+            if bytes.len() > 4096 {
+                return Err(GardenError::Recovery(
+                    "Integrity intent is too large; it remains preserved.".into(),
+                ));
+            }
             result.insert(name, bytes);
         }
         Ok(result)
     }
     let journal = root.join(".recovery/migration/pre-recovery.json");
     let name: String = serde_json::from_str(&read_bounded_text(&journal, 4096)?)?;
-    if !name.starts_with("backup-") || Path::new(&name).components().count() != 1 { return Err(GardenError::Recovery("Pre-recovery backup identity is invalid.".into())); }
-    let saved = root.join(".recovery/migration").join(name).join("files/.recovery/integrity-exclusions");
+    if !name.starts_with("backup-") || Path::new(&name).components().count() != 1 {
+        return Err(GardenError::Recovery(
+            "Pre-recovery backup identity is invalid.".into(),
+        ));
+    }
+    let saved = root
+        .join(".recovery/migration")
+        .join(name)
+        .join("files/.recovery/integrity-exclusions");
     let live = root.join(".recovery/integrity-exclusions");
     validate_real_collection_ancestors(root, &saved.join("entry"))?;
     validate_real_collection_ancestors(root, &live.join("entry"))?;
     let saved = entries(&saved)?;
     let live = entries(&live)?;
-    if live.iter().any(|(name, bytes)| saved.get(name) != Some(bytes)) {
+    if live
+        .iter()
+        .any(|(name, bytes)| saved.get(name) != Some(bytes))
+    {
         return Err(GardenError::Recovery("Integrity intents changed since the verified backup; inspect the retained snapshot before retrying.".into()));
     }
-    Ok(saved.into_iter().filter(|(name, _)| !live.contains_key(name)).collect())
+    Ok(saved
+        .into_iter()
+        .filter(|(name, _)| !live.contains_key(name))
+        .collect())
 }
 
 fn consumed_integrity_name(root: &Path, name: &str, bytes: &[u8]) -> Result<String> {
-    let generation: String = serde_json::from_str(&read_bounded_text(&root.join(".recovery/migration/pre-recovery.json"), 4096)?)?;
+    let generation: String = serde_json::from_str(&read_bounded_text(
+        &root.join(".recovery/migration/pre-recovery.json"),
+        4096,
+    )?)?;
     let mut hash = Sha256::new();
     for part in [generation.as_bytes(), name.as_bytes(), bytes] {
-        hash.update((part.len() as u64).to_be_bytes()); hash.update(part);
+        hash.update((part.len() as u64).to_be_bytes());
+        hash.update(part);
     }
     Ok(format!("{}.json", hex::encode(hash.finalize())))
 }
@@ -270,17 +366,32 @@ pub(super) fn consumed_integrity_matches(root: &Path, name: &str, expected: &[u8
     use rustix::io::Errno;
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
     let root_fd = openat(CWD, root, flags, Mode::empty()).map_err(std::io::Error::from)?;
-    let recovery = openat(&root_fd, ".recovery", flags, Mode::empty()).map_err(std::io::Error::from)?;
+    let recovery =
+        openat(&root_fd, ".recovery", flags, Mode::empty()).map_err(std::io::Error::from)?;
     let consumed = match openat(&recovery, "integrity-consumed", flags, Mode::empty()) {
-        Ok(fd) => fd, Err(Errno::NOENT) => return Ok(false), Err(error) => return Err(std::io::Error::from(error).into()),
+        Ok(fd) => fd,
+        Err(Errno::NOENT) => return Ok(false),
+        Err(error) => return Err(std::io::Error::from(error).into()),
     };
     let id = consumed_integrity_name(root, name, expected)?;
-    let fd = match openat(&consumed, id.as_str(), OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC, Mode::empty()) {
-        Ok(fd) => fd, Err(Errno::NOENT) => return Ok(false), Err(error) => return Err(std::io::Error::from(error).into()),
+    let fd = match openat(
+        &consumed,
+        id.as_str(),
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    ) {
+        Ok(fd) => fd,
+        Err(Errno::NOENT) => return Ok(false),
+        Err(error) => return Err(std::io::Error::from(error).into()),
     };
     let file = File::from(fd);
-    if !file.metadata()?.is_file() { return Err(GardenError::Recovery("Consumed integrity record is not a regular file.".into())); }
-    let mut actual = Vec::new(); file.take(4097).read_to_end(&mut actual)?;
+    if !file.metadata()?.is_file() {
+        return Err(GardenError::Recovery(
+            "Consumed integrity record is not a regular file.".into(),
+        ));
+    }
+    let mut actual = Vec::new();
+    file.take(4097).read_to_end(&mut actual)?;
     Ok(actual == expected)
 }
 
@@ -289,18 +400,35 @@ pub(super) fn consume_integrity_intent(root: &Path, name: &str, expected: &[u8])
     use rustix::io::Errno;
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
     let root_fd = openat(CWD, root, flags, Mode::empty()).map_err(std::io::Error::from)?;
-    let recovery = openat(&root_fd, ".recovery", flags, Mode::empty()).map_err(std::io::Error::from)?;
-    let intents = openat(&recovery, "integrity-exclusions", flags, Mode::empty()).map_err(std::io::Error::from)?;
-    match mkdirat(&recovery, "integrity-consumed", Mode::from_bits_truncate(0o700)) {
-        Ok(()) | Err(Errno::EXIST) => (), Err(error) => return Err(std::io::Error::from(error).into()),
+    let recovery =
+        openat(&root_fd, ".recovery", flags, Mode::empty()).map_err(std::io::Error::from)?;
+    let intents = openat(&recovery, "integrity-exclusions", flags, Mode::empty())
+        .map_err(std::io::Error::from)?;
+    match mkdirat(
+        &recovery,
+        "integrity-consumed",
+        Mode::from_bits_truncate(0o700),
+    ) {
+        Ok(()) | Err(Errno::EXIST) => (),
+        Err(error) => return Err(std::io::Error::from(error).into()),
     }
-    let consumed = openat(&recovery, "integrity-consumed", flags, Mode::empty()).map_err(std::io::Error::from)?;
+    let consumed = openat(&recovery, "integrity-consumed", flags, Mode::empty())
+        .map_err(std::io::Error::from)?;
     let id = consumed_integrity_name(root, name, expected)?;
-    renameat_with(&intents, name, &consumed, id.as_str(), RenameFlags::NOREPLACE).map_err(std::io::Error::from)?;
+    renameat_with(
+        &intents,
+        name,
+        &consumed,
+        id.as_str(),
+        RenameFlags::NOREPLACE,
+    )
+    .map_err(std::io::Error::from)?;
     File::from(intents).sync_all()?;
     File::from(consumed).sync_all()?;
     if !consumed_integrity_matches(root, name, expected)? {
-        return Err(GardenError::Recovery("Integrity intent changed during consumption; its bytes remain preserved.".into()));
+        return Err(GardenError::Recovery(
+            "Integrity intent changed during consumption; its bytes remain preserved.".into(),
+        ));
     }
     Ok(())
 }
@@ -311,7 +439,11 @@ pub(super) fn finish_pre_recovery(root: &Path) -> Result<()> {
 pub(super) fn finish_pre_recovery_verified(root: &Path, proof: &final_verify::Proof) -> Result<()> {
     finish_pre_recovery_with_hook(root, Some(proof.pre()), || {})
 }
-fn finish_pre_recovery_with_hook(root: &Path, verified: Option<&str>, before_rename: impl FnOnce()) -> Result<()> {
+fn finish_pre_recovery_with_hook(
+    root: &Path,
+    verified: Option<&str>,
+    before_rename: impl FnOnce(),
+) -> Result<()> {
     use rustix::fs::{mkdirat, openat, renameat_with, Mode, OFlags, RenameFlags, CWD};
     use rustix::io::Errno;
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
@@ -348,7 +480,11 @@ fn finish_pre_recovery_with_hook(root: &Path, verified: Option<&str>, before_ren
     }
     match verified {
         Some(id) if id == name => (),
-        Some(_) => return Err(GardenError::Recovery("Verified pre-recovery identity changed.".into())),
+        Some(_) => {
+            return Err(GardenError::Recovery(
+                "Verified pre-recovery identity changed.".into(),
+            ))
+        }
         None => verify_backup(&root.join(".recovery/migration").join(&name))?,
     }
     match mkdirat(
@@ -371,25 +507,69 @@ fn finish_pre_recovery_with_hook(root: &Path, verified: Option<&str>, before_ren
         RenameFlags::NOREPLACE,
     );
     if result == Err(Errno::EXIST) && verified.is_some() {
-        let previous = openat(&history, completed.as_str(), OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOFOLLOW | OFlags::CLOEXEC, Mode::empty()).map_err(std::io::Error::from)?;
+        let previous = openat(
+            &history,
+            completed.as_str(),
+            OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(std::io::Error::from)?;
         let previous = File::from(previous);
-        if !previous.metadata()?.is_file() { return Err(GardenError::Recovery("Completed recovery history is not a regular file.".into())); }
+        if !previous.metadata()?.is_file() {
+            return Err(GardenError::Recovery(
+                "Completed recovery history is not a regular file.".into(),
+            ));
+        }
         let mut previous_bytes = Vec::new();
         previous.take(4097).read_to_end(&mut previous_bytes)?;
-        if previous_bytes != bytes { return Err(GardenError::Recovery("Completed recovery history conflicts with the active journal.".into())); }
-        let coordinator: serde_json::Value = serde_json::from_slice(&read_bounded_nofollow(root, Path::new(".recovery/migration/startup-coordinator.json"), 16384)?)?;
-        if coordinator.get("reused").and_then(|value| value.as_bool()) != Some(true) || coordinator.get("phase").and_then(|value| value.as_str()) != Some("complete") || coordinator.get("pre_backup").and_then(|value| value.as_str()) != Some(name.as_str()) {
-            return Err(GardenError::Recovery("Reused recovery completion is ambiguous.".into()));
+        if previous_bytes != bytes {
+            return Err(GardenError::Recovery(
+                "Completed recovery history conflicts with the active journal.".into(),
+            ));
         }
-        let work = coordinator.get("pre_work").and_then(|value| value.as_str()).ok_or_else(|| GardenError::Recovery("Recovery generation is missing.".into()))?;
+        let coordinator: serde_json::Value = serde_json::from_slice(&read_bounded_nofollow(
+            root,
+            Path::new(".recovery/migration/startup-coordinator.json"),
+            16384,
+        )?)?;
+        if coordinator.get("reused").and_then(|value| value.as_bool()) != Some(true)
+            || coordinator.get("phase").and_then(|value| value.as_str()) != Some("complete")
+            || coordinator
+                .get("pre_backup")
+                .and_then(|value| value.as_str())
+                != Some(name.as_str())
+        {
+            return Err(GardenError::Recovery(
+                "Reused recovery completion is ambiguous.".into(),
+            ));
+        }
+        let work = coordinator
+            .get("pre_work")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| GardenError::Recovery("Recovery generation is missing.".into()))?;
         let work = Path::new(work);
         validate_relative_collection_path(work)?;
-        let generation = work.file_name().and_then(|value| value.to_str()).ok_or_else(|| GardenError::Recovery("Recovery generation is invalid.".into()))?;
-        if work.parent() != Some(Path::new(".recovery/migration")) || !generation.starts_with("pre-work-") || generation.len()>128 {
-            return Err(GardenError::Recovery("Recovery generation is invalid.".into()));
+        let generation = work
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| GardenError::Recovery("Recovery generation is invalid.".into()))?;
+        if work.parent() != Some(Path::new(".recovery/migration"))
+            || !generation.starts_with("pre-work-")
+            || generation.len() > 128
+        {
+            return Err(GardenError::Recovery(
+                "Recovery generation is invalid.".into(),
+            ));
         }
         completed = format!("{name}-{generation}.json");
-        renameat_with(&migration, "pre-recovery.json", &history, completed.as_str(), RenameFlags::NOREPLACE).map_err(std::io::Error::from)?;
+        renameat_with(
+            &migration,
+            "pre-recovery.json",
+            &history,
+            completed.as_str(),
+            RenameFlags::NOREPLACE,
+        )
+        .map_err(std::io::Error::from)?;
     } else {
         result.map_err(std::io::Error::from)?;
     }
@@ -651,23 +831,51 @@ pub(super) fn retire_manual_authority(app: &mut Application) -> Result<()> {
 }
 
 #[derive(Serialize, Deserialize)]
-struct ManifestV2 { version: u32, entries: Vec<(PathBuf, Option<String>)> }
+struct ManifestV2 {
+    version: u32,
+    entries: Vec<(PathBuf, Option<String>)>,
+}
 
 fn verify_manifest(root: &Path, bytes: &[u8]) -> Result<Vec<PathBuf>> {
     let paths = inventory(root)?;
     let value: serde_json::Value = serde_json::from_slice(bytes)?;
     if value.is_array() {
         let expected: Vec<(PathBuf, Option<String>)> = serde_json::from_value(value)?;
-        if manifest(root, &paths)? != expected { return Err(GardenError::Invalid("Migration backup failed integrity verification.".into())); }
+        if manifest(root, &paths)? != expected {
+            return Err(GardenError::Invalid(
+                "Migration backup failed integrity verification.".into(),
+            ));
+        }
     } else {
         let expected: ManifestV2 = serde_json::from_value(value)?;
-        if expected.version != 2 || expected.entries.len() != paths.len() { return Err(GardenError::Invalid("Migration backup manifest is invalid.".into())); }
+        if expected.version != 2 || expected.entries.len() != paths.len() {
+            return Err(GardenError::Invalid(
+                "Migration backup manifest is invalid.".into(),
+            ));
+        }
         for (path, (expected_path, expected_digest)) in paths.iter().zip(&expected.entries) {
             validate_relative_collection_path(expected_path)?;
-            if path != expected_path { return Err(GardenError::Invalid("Migration backup paths differ from the manifest.".into())); }
-            let full = root.join(path); let kind = fs::symlink_metadata(&full)?.file_type();
-            let digest = if kind.is_dir() { None } else if kind.is_file() { Some(manifest_cursor::digest_file(root, path)?) } else { return Err(GardenError::Invalid("Migration backup contains a non-regular entry.".into())); };
-            if &digest != expected_digest { return Err(GardenError::Invalid("Migration backup failed integrity verification.".into())); }
+            if path != expected_path {
+                return Err(GardenError::Invalid(
+                    "Migration backup paths differ from the manifest.".into(),
+                ));
+            }
+            let full = root.join(path);
+            let kind = fs::symlink_metadata(&full)?.file_type();
+            let digest = if kind.is_dir() {
+                None
+            } else if kind.is_file() {
+                Some(manifest_cursor::digest_file(root, path)?)
+            } else {
+                return Err(GardenError::Invalid(
+                    "Migration backup contains a non-regular entry.".into(),
+                ));
+            };
+            if &digest != expected_digest {
+                return Err(GardenError::Invalid(
+                    "Migration backup failed integrity verification.".into(),
+                ));
+            }
         }
     }
     Ok(paths)
@@ -684,15 +892,28 @@ fn verify_v3(files: &Path, database: &Path) -> Result<()> {
 fn verify_backup(saved: &Path) -> Result<()> {
     let v3 = saved.join("manifest.sqlite");
     if fs::symlink_metadata(&v3).is_ok() {
-        if !fs::symlink_metadata(saved)?.is_dir() || !fs::symlink_metadata(saved.join("files"))?.is_dir() || !fs::symlink_metadata(&v3)?.is_file() {
-            return Err(GardenError::Invalid("Migration backup contains a non-regular entry.".into()));
+        if !fs::symlink_metadata(saved)?.is_dir()
+            || !fs::symlink_metadata(saved.join("files"))?.is_dir()
+            || !fs::symlink_metadata(&v3)?.is_file()
+        {
+            return Err(GardenError::Invalid(
+                "Migration backup contains a non-regular entry.".into(),
+            ));
         }
         return verify_v3(&saved.join("files"), &v3);
     }
-    if !fs::symlink_metadata(saved)?.is_dir() || !fs::symlink_metadata(saved.join("files"))?.is_dir() || !fs::symlink_metadata(saved.join("manifest.json"))?.is_file() {
-        return Err(GardenError::Invalid("Migration backup contains a non-regular entry.".into()));
+    if !fs::symlink_metadata(saved)?.is_dir()
+        || !fs::symlink_metadata(saved.join("files"))?.is_dir()
+        || !fs::symlink_metadata(saved.join("manifest.json"))?.is_file()
+    {
+        return Err(GardenError::Invalid(
+            "Migration backup contains a non-regular entry.".into(),
+        ));
     }
-    verify_manifest(&saved.join("files"), &fs::read(saved.join("manifest.json"))?)?;
+    verify_manifest(
+        &saved.join("files"),
+        &fs::read(saved.join("manifest.json"))?,
+    )?;
     Ok(())
 }
 
@@ -962,14 +1183,22 @@ fn ensure_unrelated_collection_files_match(
     let database = saved.join("manifest.sqlite");
     let v3 = database.exists();
     let expected: Vec<(PathBuf, Option<String>)> = if v3 {
-        let mut entries = Vec::new(); let mut cursor = None;
+        let mut entries = Vec::new();
+        let mut cursor = None;
         while let Some((key, entry)) = manifest_records::next(&database, cursor.as_deref())? {
-            entries.push((entry.path, entry.digest)); cursor = Some(key);
+            entries.push((entry.path, entry.digest));
+            cursor = Some(key);
         }
-        entries.sort_by(|a, b| a.0.cmp(&b.0)); entries
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        entries
     } else {
-        let value: serde_json::Value = serde_json::from_slice(&fs::read(saved.join("manifest.json"))?)?;
-        if value.is_array() { serde_json::from_value(value)? } else { serde_json::from_value::<ManifestV2>(value)?.entries }
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(saved.join("manifest.json"))?)?;
+        if value.is_array() {
+            serde_json::from_value(value)?
+        } else {
+            serde_json::from_value::<ManifestV2>(value)?.entries
+        }
     };
     let migration_directories = intents
         .iter()
@@ -996,12 +1225,25 @@ fn ensure_unrelated_collection_files_match(
         })
         .collect();
     let actual = if v3 {
-        current.iter().map(|path| {
-            let metadata = fs::symlink_metadata(root.join(path))?;
-            let digest = if metadata.is_dir() { None } else if metadata.is_file() { Some(manifest_cursor::digest_file(root, path)?) } else { return Err(GardenError::Recovery("Collection member changed type during migration.".into())); };
-            Ok((path.clone(), digest))
-        }).collect::<Result<Vec<_>>>()?
-    } else { manifest(root, &current)? };
+        current
+            .iter()
+            .map(|path| {
+                let metadata = fs::symlink_metadata(root.join(path))?;
+                let digest = if metadata.is_dir() {
+                    None
+                } else if metadata.is_file() {
+                    Some(manifest_cursor::digest_file(root, path)?)
+                } else {
+                    return Err(GardenError::Recovery(
+                        "Collection member changed type during migration.".into(),
+                    ));
+                };
+                Ok((path.clone(), digest))
+            })
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        manifest(root, &current)?
+    };
     if actual != expected {
         let changed = actual
             .iter()
@@ -1059,6 +1301,7 @@ fn import_authored_sources_with_hook(
             None,
             None,
             Some(scope),
+            None,
         );
         app.migration_import = false;
         let imported = result?;
@@ -1084,9 +1327,15 @@ fn validate_unrecorded_import(
 ) -> Result<()> {
     let paths = inventory(directory)?;
     let plain = vec![PathBuf::from("index.md"), PathBuf::from("original.txt")];
-    let seeded = vec![PathBuf::from(".trusted-index"), PathBuf::from("index.md"), PathBuf::from("original.txt")];
+    let seeded = vec![
+        PathBuf::from(".trusted-index"),
+        PathBuf::from("index.md"),
+        PathBuf::from("original.txt"),
+    ];
     if paths != plain && paths != seeded {
-        return Err(GardenError::Invalid("Unrecorded authored source has unexpected files; migration remains pending.".into()));
+        return Err(GardenError::Invalid(
+            "Unrecorded authored source has unexpected files; migration remains pending.".into(),
+        ));
     }
     if paths == seeded {
         let index = read_bounded_text(&directory.join("index.md"), MAX_PAGE_BYTES)?;
@@ -1174,6 +1423,7 @@ fn stage_authored_sources(saved: &Path) -> Result<Vec<PathBuf>> {
 
 // A later stage must use this guard before modifying pages, then retain any
 // saves displaced during publication. External editors do not hold our lock.
+#[cfg(test)]
 fn ensure_collection_matches_backup(root: &Path, saved: &Path) -> Result<()> {
     verify_backup(saved)?;
     if saved.join("manifest.sqlite").exists() {
@@ -1196,8 +1446,17 @@ pub(super) fn restore_to_new_directory(saved: &Path, destination: &Path) -> Resu
     }
     let files = saved.join("files");
     let v3 = saved.join("manifest.sqlite");
-    let manifest_bytes = if v3.exists() { verify_v3(&files, &v3)?; None } else { Some(fs::read(saved.join("manifest.json"))?) };
-    let paths = if let Some(bytes) = &manifest_bytes { verify_manifest(&files, bytes)? } else { inventory(&files)? };
+    let manifest_bytes = if v3.exists() {
+        verify_v3(&files, &v3)?;
+        None
+    } else {
+        Some(fs::read(saved.join("manifest.json"))?)
+    };
+    let paths = if let Some(bytes) = &manifest_bytes {
+        verify_manifest(&files, bytes)?
+    } else {
+        inventory(&files)?
+    };
     fs::create_dir(destination)?;
     for relative in &paths {
         let source = files.join(relative);
@@ -1232,8 +1491,14 @@ pub(super) fn restore_to_new_directory(saved: &Path, destination: &Path) -> Resu
         }
     }
     if let Some(bytes) = &manifest_bytes {
-        verify_manifest(destination, bytes).map_err(|_| GardenError::Invalid("Recovery verification failed; the restored directory is incomplete.".into()))?;
-    } else { verify_v3(destination, &v3)?; }
+        verify_manifest(destination, bytes).map_err(|_| {
+            GardenError::Invalid(
+                "Recovery verification failed; the restored directory is incomplete.".into(),
+            )
+        })?;
+    } else {
+        verify_v3(destination, &v3)?;
+    }
     sync_directory(destination)?;
     sync_directory(destination.parent().unwrap())?;
     Ok(())
@@ -1315,16 +1580,24 @@ mod tests {
         let root = fs::canonicalize(workspace.path()).unwrap();
         let entered = Arc::new(std::sync::Barrier::new(2));
         let release = Arc::new(std::sync::Barrier::new(2));
-        *PAUSE_PRE_RECOVERY.lock().unwrap() = Some((root.clone(), Arc::clone(&entered), Arc::clone(&release)));
+        *PAUSE_PRE_RECOVERY.lock().unwrap() =
+            Some((root.clone(), Arc::clone(&entered), Arc::clone(&release)));
         let mut app = Application::open_pending_with_all_providers_and_meaning_assets(
-            &root, Arc::new(UnavailableProvider), Arc::new(LocalExtractor),
-            Arc::new(NativeAudioProcessor), None::<PathBuf>,
-        ).unwrap();
+            &root,
+            Arc::new(UnavailableProvider),
+            Arc::new(LocalExtractor),
+            Arc::new(NativeAudioProcessor),
+            None::<PathBuf>,
+        )
+        .unwrap();
         assert!(app.startup_recovery_pending);
         assert!(app.require_integrity_recovered().is_err());
         let status = app.collection_status();
         assert!(!status.complete);
-        assert!(status.diagnostics.iter().any(|item| item.kind == "startup_recovery_pending"));
+        assert!(status
+            .diagnostics
+            .iter()
+            .any(|item| item.kind == "startup_recovery_pending"));
         let worker = std::thread::spawn(move || app.resume_pending_startup());
         entered.wait();
         assert!(!root.join(".derived/lookup.sqlite").exists());
@@ -1338,15 +1611,23 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let root = workspace.path();
         fs::write(root.join("owner.txt"), b"owner content").unwrap();
-        let open = || Application::open_pending_with_all_providers_and_meaning_assets(
-            root, Arc::new(UnavailableProvider), Arc::new(LocalExtractor),
-            Arc::new(NativeAudioProcessor), None::<PathBuf>,
-        ).unwrap();
+        let open = || {
+            Application::open_pending_with_all_providers_and_meaning_assets(
+                root,
+                Arc::new(UnavailableProvider),
+                Arc::new(LocalExtractor),
+                Arc::new(NativeAudioProcessor),
+                None::<PathBuf>,
+            )
+            .unwrap()
+        };
         let mut app = open();
         assert!(!app.collection_status().complete);
         assert!(app.require_integrity_recovered().is_err());
         assert!(app.list_sources(0).is_err());
-        assert!(app.import_source(root.join("owner.txt"), AcquisitionMethod::Picker).is_err());
+        assert!(app
+            .import_source(root.join("owner.txt"), AcquisitionMethod::Picker)
+            .is_err());
         drop(app);
         assert_eq!(fs::read(root.join("owner.txt")).unwrap(), b"owner content");
         let mut app = open();
@@ -2213,16 +2494,39 @@ mod tests {
 
     #[test]
     fn version_two_backup_restores_and_detects_corruption() {
-        let workspace = tempfile::tempdir().unwrap(); let root = workspace.path().join("collection");
-        fs::create_dir_all(root.join("nested")).unwrap(); fs::write(root.join("nested/owner"), vec![9; 150_000]).unwrap();
-        let saved = backup(&root).unwrap(); let files = saved.join("files");
-        let entries = inventory(&files).unwrap().into_iter().map(|path| {
-            let digest = if files.join(&path).is_file() { Some(manifest_cursor::digest_file(&files, &path).unwrap()) } else { None };
-            (path, digest)
-        }).collect();
-        fs::write(saved.join("manifest.json"), serde_json::to_vec(&ManifestV2 { version: 2, entries }).unwrap()).unwrap();
-        let restored = workspace.path().join("restored"); restore_to_new_directory(&saved, &restored).unwrap();
-        assert_eq!(fs::read(restored.join("nested/owner")).unwrap(), vec![9; 150_000]);
+        let workspace = tempfile::tempdir().unwrap();
+        let root = workspace.path().join("collection");
+        fs::create_dir_all(root.join("nested")).unwrap();
+        fs::write(root.join("nested/owner"), vec![9; 150_000]).unwrap();
+        let saved = backup(&root).unwrap();
+        let files = saved.join("files");
+        let entries = inventory(&files)
+            .unwrap()
+            .into_iter()
+            .map(|path| {
+                let digest = if files.join(&path).is_file() {
+                    Some(manifest_cursor::digest_file(&files, &path).unwrap())
+                } else {
+                    None
+                };
+                (path, digest)
+            })
+            .collect();
+        fs::write(
+            saved.join("manifest.json"),
+            serde_json::to_vec(&ManifestV2 {
+                version: 2,
+                entries,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let restored = workspace.path().join("restored");
+        restore_to_new_directory(&saved, &restored).unwrap();
+        assert_eq!(
+            fs::read(restored.join("nested/owner")).unwrap(),
+            vec![9; 150_000]
+        );
         fs::write(files.join("nested/owner"), vec![8; 150_000]).unwrap();
         assert!(restore_to_new_directory(&saved, &workspace.path().join("rejected")).is_err());
     }
