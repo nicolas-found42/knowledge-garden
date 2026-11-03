@@ -17,7 +17,7 @@ impl Session {
     pub(super) fn new() -> Self {
         Self {
             tree: traversal::Session::new(),
-            verify: incremental_verify::Session::new(),
+            verify: incremental_verify::Session::ephemeral(),
             verification_work: None,
             initialized: false,
         }
@@ -160,19 +160,30 @@ pub(super) fn step(root: &Path, work: &Path, session: &mut Session) -> Result<Op
                     if recorded.is_none() {
                         if !is_file(&root.join(&copy))? {
                             let temp = work.join("temps").join(Uuid::new_v4().to_string());
-                            bounded_copy::begin(root, &copy, &relative, &temp)?;
-                            return Ok(None);
+                            if !bounded_copy::begin_verified_small(root, &copy, &relative, &temp)? {
+                                bounded_copy::begin(root, &copy, &relative, &temp)?;
+                                return Ok(None);
+                            }
                         }
                         if !bounded_copy::step(root, &copy, 4 * 1024 * 1024)? {
                             return Ok(None);
                         }
                         let temp = bounded_copy::destination(root, &copy)?;
-                        if !is_file(&root.join(&hash))? {
-                            manifest_cursor::begin(root, root, &hash, &temp)?;
-                            return Ok(None);
-                        }
-                        let Some(digest) = manifest_cursor::step(root, root, &hash)? else {
-                            return Ok(None);
+                        let digest = if let Some(digest) = manifest_cursor::digest_bounded(
+                            root,
+                            &temp,
+                            manifest_cursor::BLOCK as u64,
+                        )? {
+                            digest
+                        } else {
+                            if !is_file(&root.join(&hash))? {
+                                manifest_cursor::begin(root, root, &hash, &temp)?;
+                                return Ok(None);
+                            }
+                            let Some(digest) = manifest_cursor::step(root, root, &hash)? else {
+                                return Ok(None);
+                            };
+                            digest
                         };
                         manifest_records::put(&db, &relative, Some(&digest))?;
                     }
@@ -220,7 +231,7 @@ pub(super) fn step(root: &Path, work: &Path, session: &mut Session) -> Result<Op
                     "ready"
                 }
                 .into();
-                session.verify = incremental_verify::Session::new();
+                session.verify = incremental_verify::Session::ephemeral();
                 session.verification_work = None;
                 save(root, work, &state)?;
             }

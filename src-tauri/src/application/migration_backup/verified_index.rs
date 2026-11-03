@@ -16,7 +16,9 @@ impl VerifiedIndex {
     pub(crate) fn new() -> Result<Self> {
         let work = tempfile::tempdir()?;
         let db = Connection::open(work.path().join("verified.sqlite"))?;
-        db.execute_batch("CREATE TABLE entries(path BLOB PRIMARY KEY, previous BLOB NOT NULL, digest TEXT, tag BLOB NOT NULL) WITHOUT ROWID")?;
+        // This authenticated cache is usable only with its process-held key.
+        // A crash discards both; durable snapshots and manifests are separate.
+        db.execute_batch("PRAGMA journal_mode=MEMORY; PRAGMA synchronous=OFF; CREATE TABLE entries(path BLOB PRIMARY KEY, previous BLOB NOT NULL, digest TEXT, tag BLOB NOT NULL) WITHOUT ROWID")?;
         let mut key = [0; 32];
         key[..16].copy_from_slice(Uuid::new_v4().as_bytes());
         key[16..].copy_from_slice(Uuid::new_v4().as_bytes());

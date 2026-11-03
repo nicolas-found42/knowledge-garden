@@ -52,9 +52,12 @@ tests against the real Rust application driver, and builds the app bundle. The
 was skipped or cancelled. There are no path filters that exempt documentation
 or tooling changes from the gate. Superseded runs are cancelled automatically.
 
-Native CI runs Rust tests serially on the standard three-core runner. The AAC
-inference case runs first; the remaining test invocation excludes only that
-already-executed case. The full pinned model, two-minute segment deadline and
+Native CI runs Rust tests serially on the standard three-core runner. Startup
+latency is qualified alone with `npm run test:rust:startup`, which is also part
+of `npm run check` and `npm test`; the timing case is ignored by the parallel
+test invocation so unrelated disk I/O cannot masquerade as a regression. The
+AAC inference case then runs before the remaining test invocation, which excludes
+only that already-executed inference case. The full pinned model, two-minute segment deadline and
 transcript assertions remain intact. Verified model downloads and compiled
 dependencies are saved even if a later test fails.
 

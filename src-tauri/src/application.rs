@@ -140,6 +140,7 @@ pub struct RepositoryImportResult {
 #[serde(rename_all = "snake_case")]
 pub enum ExtractionState {
     TextPreserved,
+    Empty,
     StructuredText,
     PartialText,
     InvalidContainer,
@@ -234,6 +235,8 @@ pub struct SourceVersion {
     pub extraction_attempts: u32,
     #[serde(default)]
     pub semantic_integrity_failures: u32,
+    #[serde(default)]
+    pub semantic_policy_revision: u32,
     #[serde(default)]
     pub retryable_provider_failures: u32,
     /// Known service outages do not consume the malformed/integrity failure budget.
@@ -2380,7 +2383,7 @@ impl Application {
             {
                 match String::from_utf8(text_bytes.clone()) {
                 Err(_) => (ExtractionState::InvalidUtf8, "The source is not valid UTF-8. The original is retained without lossy decoding.".into(), String::new(), None, None),
-                Ok(text) if text.trim_start_matches('\u{feff}').trim().is_empty() => (ExtractionState::Unsupported, "The response contains no extractable text. The original is retained.".into(), String::new(), None, None),
+                Ok(text) if text.trim_start_matches('\u{feff}').trim().is_empty() => (ExtractionState::Empty, "The response contains no extractable text. The original is retained.".into(), String::new(), None, None),
                 Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 response text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
             }
             } else if crate::extraction::is_structured_source(&staging.path().join(&asset), &format)
@@ -2548,7 +2551,7 @@ impl Application {
                 Err(_) => (ExtractionState::InvalidUtf8, "The source is not valid UTF-8. The original is retained without lossy decoding.".into(), String::new(), None, None),
                 Ok(text) if text.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t')) =>
                     (ExtractionState::Unsupported, "The source contains binary control characters. The original is retained.".into(), String::new(), None, None),
-                Ok(text) if text.trim_start_matches('\u{feff}').trim().is_empty() => (ExtractionState::Unsupported, "The source contains no extractable text. The original is retained.".into(), String::new(), None, None),
+                Ok(text) if text.trim_start_matches('\u{feff}').trim().is_empty() => (ExtractionState::Empty, "The source contains no extractable text. The original is retained.".into(), String::new(), None, None),
                 Ok(text) => (ExtractionState::TextPreserved, "The complete UTF-8 source text is preserved; the original remains available.".into(), text.trim_start_matches('\u{feff}').to_owned(), None, None),
             }
             };
@@ -3364,9 +3367,38 @@ impl Application {
             if !entry.file_type()?.is_dir() {
                 continue;
             }
-            let Some(page) = self.readable_source_entry(&entry) else {
+            let Some(mut page) = self.readable_source_entry(&entry) else {
                 continue;
             };
+            let policy = self.semantic_provider.policy_revision();
+            let unsupported_prose = page.info.semantic_error.as_deref().is_some_and(|error| {
+                error.starts_with("No supported event identity or acquired reference was found")
+                    || error.starts_with("Jev has no grounded candidate spans for this text yet")
+            });
+            if (page.info.semantic_state == "failed"
+                || page.info.update_status.as_deref() == Some("failed"))
+                && unsupported_prose
+                && is_text_format(&page.info.format)
+            {
+                if let Some(version) = page.info.versions_seen.iter_mut().find(|version| {
+                    Some(version.source_version_id.as_str())
+                        == page.info.pending_version_id.as_deref()
+                        && version.semantic_policy_revision < policy
+                }) {
+                    version.semantic_policy_revision = policy;
+                    version.semantic_integrity_failures = 0;
+                    version.retryable_provider_failures = 0;
+                    version.state = "pending".into();
+                    if page.info.current_version_id.is_none() {
+                        page.info.semantic_state = "pending".into();
+                    }
+                    page.info.update_status = Some("pending".into());
+                    page.info.semantic_error = None;
+                    page.info.semantic_retry_at = None;
+                    self.write_source_page(&mut page)?;
+                    self.index_page(&page.info)?;
+                }
+            }
             if page.info.semantic_state == "processing"
                 || page.info.update_status.as_deref() == Some("processing")
             {
@@ -3390,10 +3422,9 @@ impl Application {
                     });
                 let exhausted = interruptions.is_none_or(|count| count >= 3);
                 let state = if exhausted { "failed" } else { "pending" };
+                interrupted.info.update_status = Some(state.into());
                 if interrupted.info.current_version_id.is_none() {
                     interrupted.info.semantic_state = state.into();
-                } else {
-                    interrupted.info.update_status = Some(state.into());
                 }
                 interrupted.info.semantic_error = Some(if interruptions.is_none() {
                     "Interrupted processing has no retained version identity; recovery failed without changing the prior content or original.".into()
@@ -3817,12 +3848,14 @@ impl Application {
                 .find(|version| version.source_version_id == source_version_id)
             {
                 version.state = "processing".into();
+                version.semantic_policy_revision = self.semantic_provider.policy_revision();
             }
             self.write_source_page(&mut page)?;
             self.index_page(&page.info)?;
             jobs.push(SemanticJob {
                 source_id,
                 source_version_id,
+                source_format: version.format,
                 attempt,
                 claim,
                 generation,
@@ -3854,6 +3887,9 @@ impl Application {
         version.coverage = "partial".into();
         version.state = if exhausted { "failed" } else { "pending" }.into();
         page.info.update_status = Some(version.state.clone());
+        if page.info.current_version_id.is_none() {
+            page.info.semantic_state = version.state.clone();
+        }
         page.info.semantic_error = Some(format!(
             "Update {}: extraction has not established complete coverage. {}",
             if exhausted { "failed" } else { "pending" },
@@ -4790,8 +4826,11 @@ impl Application {
         let jobs = self.claim_due_semantic_jobs_at(4, now)?;
         for job in jobs {
             let result = if job.needs_provider() {
-                self.semantic_provider
-                    .form_knowledge_with_prior(&job.source_text, job.prior_source_text.as_deref())
+                self.semantic_provider.form_knowledge_for_source(
+                    &job.source_text,
+                    job.prior_source_text.as_deref(),
+                    &job.source_format,
+                )
             } else {
                 Ok(KnowledgeDraft::default())
             };
@@ -7156,11 +7195,15 @@ impl Application {
             }
             version.state = if retryable { "pending" } else { "failed" }.into();
         }
-        if page.info.current_version_id.is_some() {
-            page.info.update_status = Some(if retryable { "pending" } else { "failed" }.into());
-        } else {
+        page.info.update_status = Some(if retryable { "pending" } else { "failed" }.into());
+        if page.info.current_version_id.is_none() {
             page.info.semantic_state = if retryable { "pending" } else { "failed" }.into();
         }
+        let message = if retryable {
+            message
+        } else {
+            without_retry_promise(&message)
+        };
         page.info.semantic_error = Some(message.chars().take(300).collect());
         let retry_attempt = if invalid_draft {
             page.info.semantic_attempts
@@ -9768,7 +9811,7 @@ fn classify_source(
             )
         }
         Ok(text) if text.trim_start_matches('\u{feff}').trim().is_empty() => (
-            ExtractionState::Unsupported,
+            ExtractionState::Empty,
             "The source contains no extractable text. The original is retained.",
             String::new(),
         ),
@@ -9882,6 +9925,7 @@ fn source_version(
         state: state.to_owned(),
         extraction_attempts: 1,
         semantic_integrity_failures: 0,
+        semantic_policy_revision: 0,
         retryable_provider_failures: 0,
         availability_attempts: 0,
         provider_availability: None,
@@ -10002,6 +10046,7 @@ fn write_search_documents(
 fn extraction_string(value: ExtractionState) -> String {
     match value {
         ExtractionState::TextPreserved => "text_preserved",
+        ExtractionState::Empty => "empty",
         ExtractionState::StructuredText => "structured_text",
         ExtractionState::PartialText => "partial_text",
         ExtractionState::InvalidContainer => "invalid_container",
@@ -10016,6 +10061,7 @@ fn extraction_string(value: ExtractionState) -> String {
 fn parse_extraction(value: &str) -> Result<ExtractionState> {
     match value {
         "text_preserved" => Ok(ExtractionState::TextPreserved),
+        "empty" => Ok(ExtractionState::Empty),
         "structured_text" => Ok(ExtractionState::StructuredText),
         "partial_text" => Ok(ExtractionState::PartialText),
         "invalid_container" => Ok(ExtractionState::InvalidContainer),
@@ -12018,6 +12064,14 @@ fn serialize_page(info: &SourceInfo, body: &str) -> Result<String> {
     ))
 }
 
+fn without_retry_promise(message: &str) -> String {
+    message
+        .replace(" and will retry automatically", "")
+        .replace("; semantic work will retry automatically", "")
+        .replace("; semantic processing will retry automatically", "")
+        .replace("will retry automatically", "has no retry scheduled")
+}
+
 fn read_page(path: &Path) -> Result<SourcePage> {
     let markdown = String::from_utf8(trusted_pages::read_active_or_original(
         path,
@@ -12037,6 +12091,27 @@ fn read_page(path: &Path) -> Result<SourcePage> {
     })?;
     let body = body.trim_start_matches('\n').to_owned();
     let mut info: SourceInfo = serde_yaml_ng::from_str(header)?;
+    if (info.semantic_state == "failed" || info.update_status.as_deref() == Some("failed"))
+        && info.semantic_retry_at.is_none()
+    {
+        if info.current_version_id.is_none() && info.pending_version_id.is_some() {
+            info.update_status = Some("failed".into());
+        }
+        info.semantic_error = info.semantic_error.as_deref().map(without_retry_promise);
+    }
+    // Older importers recorded empty supported text as an unsupported format.
+    // Only normalize their exact empty-content outcome, never binary/unknown input.
+    if info.extraction == ExtractionState::Unsupported
+        && info.line_count == 0
+        && is_text_format(&info.format)
+        && matches!(
+            info.extraction_detail.as_str(),
+            "The source contains no extractable text. The original is retained."
+                | "The response contains no extractable text. The original is retained."
+        )
+    {
+        info.extraction = ExtractionState::Empty;
+    }
     if info.versions_seen.is_empty() {
         let received_at = info
             .acquisitions

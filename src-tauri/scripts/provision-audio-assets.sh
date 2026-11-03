@@ -51,14 +51,18 @@ if [ ! -x "$ASSET_DIR/whisper-cli" ] || [ "$(cat "$ASSET_DIR/whisper-cli.build-s
   install -m 755 "$BUILD_DIR/bin/whisper-cli" "$ASSET_DIR/whisper-cli"
   printf '%s\n' "$BUILD_SIGNATURE" > "$ASSET_DIR/whisper-cli.build-signature"
 fi
-install -m 644 "$SOURCE_DIR/LICENSE" "$ASSET_DIR/WHISPER-CPP-LICENSE.txt"
+if ! cmp -s "$SOURCE_DIR/LICENSE" "$ASSET_DIR/WHISPER-CPP-LICENSE.txt"; then
+  install -m 644 "$SOURCE_DIR/LICENSE" "$ASSET_DIR/WHISPER-CPP-LICENSE.txt"
+fi
 
 if otool -L "$ASSET_DIR/whisper-cli" | awk 'NR > 1 { print $1 }' | grep -Ev '^(/usr/lib/|/System/Library/Frameworks/)' >/dev/null; then
   echo "The bundled Whisper processor has a non-system dynamic library dependency." >&2
   exit 1
 fi
 
-cat > "$ASSET_DIR/ASSET-MANIFEST.txt" <<EOF
+manifest_temporary=$(mktemp "$ASSET_DIR/manifest.XXXXXX")
+trap 'rm -f "$manifest_temporary"' EXIT HUP INT TERM
+cat > "$manifest_temporary" <<EOF
 Whisper ASR bundle
 Source project: https://github.com/ggml-org/whisper.cpp
 Source revision: $SOURCE_REVISION (v1.9.3)
@@ -71,3 +75,9 @@ Model license: MIT (upstream model repository)
 Processor build: static arm64, Metal enabled with embedded Metal library
 Inference downloads: none
 EOF
+if ! cmp -s "$manifest_temporary" "$ASSET_DIR/ASSET-MANIFEST.txt"; then
+  chmod 644 "$manifest_temporary"
+  mv "$manifest_temporary" "$ASSET_DIR/ASSET-MANIFEST.txt"
+fi
+rm -f "$manifest_temporary"
+trap - EXIT HUP INT TERM

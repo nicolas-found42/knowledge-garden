@@ -139,7 +139,7 @@ impl Session {
                     )?;
                     Verifier::V3 {
                         work,
-                        session: Box::new(incremental_verify::Session::new()),
+                        session: Box::new(incremental_verify::Session::ephemeral()),
                     }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {

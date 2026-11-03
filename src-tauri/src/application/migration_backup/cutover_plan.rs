@@ -21,7 +21,7 @@ impl Session {
         )?;
         Ok(Self {
             work,
-            verification: incremental_verify::Session::new(),
+            verification: incremental_verify::Session::ephemeral(),
             reference: None,
             phase: 0,
             after: None,

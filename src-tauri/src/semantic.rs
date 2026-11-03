@@ -73,6 +73,7 @@ pub struct TextChunkJob {
 pub struct SemanticJob {
     pub source_id: String,
     pub source_version_id: String,
+    pub source_format: String,
     pub attempt: u32,
     pub claim: String,
     pub generation: String,
@@ -191,6 +192,11 @@ pub struct NavigationJudgments {
     pub model: String,
 }
 pub trait SemanticProvider: Send + Sync {
+    /// Bump when previously exhausted work can benefit from new interpretation rules.
+    fn policy_revision(&self) -> u32 {
+        0
+    }
+
     fn judge_navigation(
         &self,
         _goal: &str,
@@ -215,6 +221,17 @@ pub trait SemanticProvider: Send + Sync {
         _prior_source_text: Option<&str>,
     ) -> std::result::Result<KnowledgeDraft, ProviderError> {
         self.form_knowledge(source_text)
+    }
+
+    /// The acquired version's format selects the applicable extraction policy.
+    /// Existing providers retain their comparative-context behavior by default.
+    fn form_knowledge_for_source(
+        &self,
+        source_text: &str,
+        prior_source_text: Option<&str>,
+        _source_format: &str,
+    ) -> std::result::Result<KnowledgeDraft, ProviderError> {
+        self.form_knowledge_with_prior(source_text, prior_source_text)
     }
 }
 

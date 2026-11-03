@@ -3,7 +3,7 @@
 use super::*;
 use std::os::unix::fs::MetadataExt;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct State {
     after: Option<Vec<u8>>,
     phase: String,
@@ -18,12 +18,70 @@ struct State {
 pub(super) struct Session {
     traversal: traversal::Session,
     verified_index: Option<verified_index::VerifiedIndex>,
+    ephemeral: bool,
+    state: Option<State>,
+    scope: Option<(PathBuf, PathBuf, PathBuf, Option<PathBuf>)>,
+    memory_traversal: Option<traversal::MemoryTraversal>,
 }
 impl Session {
     pub(super) fn new() -> Self {
         Self {
             traversal: traversal::Session::new(),
             verified_index: None,
+            ephemeral: false,
+            state: None,
+            scope: None,
+            memory_traversal: None,
+        }
+    }
+    /// Only for caller-owned scratch directories, discarded on every restart.
+    /// Verification never resumes from an earlier process's proof or cursor.
+    pub(super) fn ephemeral() -> Self {
+        Self {
+            ephemeral: true,
+            ..Self::new()
+        }
+    }
+    fn save(&mut self, work: &Path, state: &State) -> Result<()> {
+        if self.ephemeral {
+            self.state = Some(state.clone());
+            Ok(())
+        } else {
+            save(work, state)
+        }
+    }
+    fn next_tree(&mut self, files: &Path, work: &Path) -> Result<traversal::Turn> {
+        if self.ephemeral {
+            if self.memory_traversal.is_none() {
+                self.memory_traversal = Some(traversal::MemoryTraversal::new(files)?);
+            }
+            return self.memory_traversal.as_mut().unwrap().next(files);
+        }
+        match fs::symlink_metadata(work.join(TREE)) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                traversal::begin(files, work, Path::new(TREE))?;
+                return Ok(traversal::Turn::More);
+            }
+            Err(e) => return Err(e.into()),
+            Ok(m) if m.is_file() => (),
+            Ok(_) => {
+                return Err(GardenError::Recovery(
+                    "Verification traversal journal is not a file.".into(),
+                ))
+            }
+        }
+        traversal::next(files, work, Path::new(TREE), &mut self.traversal)
+    }
+    fn acknowledge_tree(&mut self, files: &Path, work: &Path, descend: bool) -> Result<()> {
+        if self.ephemeral {
+            self.memory_traversal
+                .as_mut()
+                .unwrap()
+                .acknowledge(files, descend)
+        } else if descend {
+            traversal::acknowledge(files, work, Path::new(TREE))
+        } else {
+            traversal::skip(files, work, Path::new(TREE))
         }
     }
     pub(super) fn capture(&mut self) -> Result<()> {
@@ -143,16 +201,39 @@ pub(super) fn step_ignoring(
     session: &mut Session,
     ignored: Option<&Path>,
 ) -> Result<bool> {
-    let mut bytes = Vec::new();
-    bounded_copy::source_file(work, Path::new(STATE))?
-        .take(16385)
-        .read_to_end(&mut bytes)?;
-    if bytes.len() > 16384 {
-        return Err(GardenError::Recovery(
-            "Verification state is too large.".into(),
-        ));
+    if session.ephemeral {
+        let scope = (
+            files.to_owned(),
+            database.to_owned(),
+            work.to_owned(),
+            ignored.map(Path::to_owned),
+        );
+        if session.scope.as_ref().is_some_and(|prior| prior != &scope) {
+            return Err(GardenError::Recovery(
+                "Verification scope changed during the session.".into(),
+            ));
+        }
+        session.scope = Some(scope);
     }
-    let mut state: State = serde_json::from_slice(&bytes)?;
+    let mut state: State = if let Some(state) = &session.state {
+        state.clone()
+    } else {
+        let mut bytes = Vec::new();
+        bounded_copy::source_file(work, Path::new(STATE))?
+            .take(16385)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > 16384 {
+            return Err(GardenError::Recovery(
+                "Verification state is too large.".into(),
+            ));
+        }
+        serde_json::from_slice(&bytes)?
+    };
+    if session.ephemeral && session.state.is_none() {
+        state.after = None;
+        state.phase = "records".into();
+        session.state = Some(state.clone());
+    }
     check_db(database, &state)?;
     if ignored.map(database_identity).transpose()? != state.ignored_identity {
         return Err(GardenError::Recovery(
@@ -167,7 +248,7 @@ pub(super) fn step_ignoring(
                     index.seal()?;
                 }
                 state.phase = "tree".into();
-                save(work, &state)?;
+                session.save(work, &state)?;
                 return Ok(false);
             };
             if let Some(ignored) = ignored {
@@ -184,23 +265,39 @@ pub(super) fn step_ignoring(
                         "Manifest file is missing or changed type.".into(),
                     ));
                 }
-                let name = hex::encode(Sha256::digest(&key));
-                let journal =
-                    PathBuf::from(format!(".recovery/migration/verify/hashes/{name}.json"));
-                match fs::symlink_metadata(work.join(&journal)) {
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                        manifest_cursor::begin(files, work, &journal, &entry.path)?
+                // A single-block member is already bounded work. Verify it in
+                // one pass rather than syncing a restart cursor for a tiny file.
+                // digest_file checks both the open file and its live identity.
+                let actual = if m.len() <= manifest_cursor::BLOCK as u64 {
+                    let Some(digest) = manifest_cursor::digest_bounded(
+                        files,
+                        &entry.path,
+                        manifest_cursor::BLOCK as u64,
+                    )?
+                    else {
+                        return Ok(false);
+                    };
+                    digest
+                } else {
+                    let name = hex::encode(Sha256::digest(&key));
+                    let journal =
+                        PathBuf::from(format!(".recovery/migration/verify/hashes/{name}.json"));
+                    match fs::symlink_metadata(work.join(&journal)) {
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                            manifest_cursor::begin(files, work, &journal, &entry.path)?
+                        }
+                        Err(e) => return Err(e.into()),
+                        Ok(m) if m.is_file() => (),
+                        Ok(_) => {
+                            return Err(GardenError::Recovery(
+                                "Verification cursor is not a file.".into(),
+                            ))
+                        }
                     }
-                    Err(e) => return Err(e.into()),
-                    Ok(m) if m.is_file() => (),
-                    Ok(_) => {
-                        return Err(GardenError::Recovery(
-                            "Verification cursor is not a file.".into(),
-                        ))
-                    }
-                }
-                let Some(actual) = manifest_cursor::step(files, work, &journal)? else {
-                    return Ok(false);
+                    let Some(actual) = manifest_cursor::step(files, work, &journal)? else {
+                        return Ok(false);
+                    };
+                    actual
                 };
                 if actual != expected {
                     return Err(GardenError::Recovery(
@@ -217,62 +314,47 @@ pub(super) fn step_ignoring(
                 index.put(&entry.path, entry.digest.as_deref())?;
             }
             state.after = Some(key);
-            save(work, &state)?;
+            session.save(work, &state)?;
             Ok(false)
         }
-        "tree" => {
-            match fs::symlink_metadata(work.join(TREE)) {
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    traversal::begin(files, work, Path::new(TREE))?;
-                    return Ok(false);
-                }
-                Err(e) => return Err(e.into()),
-                Ok(m) if m.is_file() => (),
-                Ok(_) => {
-                    return Err(GardenError::Recovery(
-                        "Verification traversal journal is not a file.".into(),
-                    ))
-                }
+        "tree" => match session.next_tree(files, work)? {
+            traversal::Turn::More => Ok(false),
+            traversal::Turn::Complete => {
+                state.phase = "complete".into();
+                session.save(work, &state)?;
+                Ok(true)
             }
-            match traversal::next(files, work, Path::new(TREE), &mut session.traversal)? {
-                traversal::Turn::More => Ok(false),
-                traversal::Turn::Complete => {
-                    state.phase = "complete".into();
-                    save(work, &state)?;
-                    Ok(true)
-                }
-                traversal::Turn::Entry(path, directory) => {
-                    if let Some(ignored) = ignored {
-                        if ignored_source(ignored, &path)? {
-                            if !directory {
-                                return Err(GardenError::Recovery(
-                                    "Migration source path changed type.".into(),
-                                ));
-                            }
-                            traversal::skip(files, work, Path::new(TREE))?;
-                            return Ok(false);
+            traversal::Turn::Entry(path, directory) => {
+                if let Some(ignored) = ignored {
+                    if ignored_source(ignored, &path)? {
+                        if !directory {
+                            return Err(GardenError::Recovery(
+                                "Migration source path changed type.".into(),
+                            ));
                         }
+                        session.acknowledge_tree(files, work, false)?;
+                        return Ok(false);
                     }
-                    let digest = if let Some(index) = &session.verified_index {
-                        index.get(&path)?
-                    } else {
-                        manifest_records::get(database, &path)?.map(|entry| entry.digest)
-                    }
-                    .ok_or_else(|| {
-                        GardenError::Recovery(
-                            "Backup contains a member absent from its manifest.".into(),
-                        )
-                    })?;
-                    if directory != digest.is_none() {
-                        return Err(GardenError::Recovery(
-                            "Backup member type differs from its manifest.".into(),
-                        ));
-                    }
-                    traversal::acknowledge(files, work, Path::new(TREE))?;
-                    Ok(false)
                 }
+                let digest = if let Some(index) = &session.verified_index {
+                    index.get(&path)?
+                } else {
+                    manifest_records::get(database, &path)?.map(|entry| entry.digest)
+                }
+                .ok_or_else(|| {
+                    GardenError::Recovery(
+                        "Backup contains a member absent from its manifest.".into(),
+                    )
+                })?;
+                if directory != digest.is_none() {
+                    return Err(GardenError::Recovery(
+                        "Backup member type differs from its manifest.".into(),
+                    ));
+                }
+                session.acknowledge_tree(files, work, true)?;
+                Ok(false)
             }
-        }
+        },
         "complete" => Ok(true),
         _ => Err(GardenError::Recovery(
             "Verification state is invalid.".into(),
@@ -282,6 +364,47 @@ pub(super) fn step_ignoring(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ephemeral_verification_rejects_tampered_bytes_even_with_a_forged_complete_cursor() {
+        let temp = tempfile::tempdir().unwrap();
+        let files = temp.path().join("files");
+        let work = temp.path().join("work");
+        fs::create_dir(&files).unwrap();
+        fs::create_dir(&work).unwrap();
+        fs::write(files.join("page"), b"original").unwrap();
+        let db = temp.path().join("manifest.sqlite");
+        manifest_records::create(&db).unwrap();
+        let digest = manifest_cursor::digest_file(&files, Path::new("page")).unwrap();
+        manifest_records::put(&db, Path::new("page"), Some(&digest)).unwrap();
+        begin(&files, &db, &work).unwrap();
+        let mut cursor: serde_json::Value =
+            serde_json::from_slice(&fs::read(work.join(STATE)).unwrap()).unwrap();
+        cursor["phase"] = serde_json::json!("complete");
+        fs::write(work.join(STATE), serde_json::to_vec(&cursor).unwrap()).unwrap();
+        fs::write(files.join("page"), b"tampered").unwrap();
+        assert!(step(&files, &db, &work, &mut Session::ephemeral()).is_err());
+        assert_eq!(fs::read(files.join("page")).unwrap(), b"tampered");
+    }
+    #[test]
+    fn ephemeral_verification_cannot_reuse_progress_for_a_different_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let files = temp.path().join("files");
+        let other = temp.path().join("other");
+        let work = temp.path().join("work");
+        fs::create_dir(&files).unwrap();
+        fs::create_dir(&other).unwrap();
+        fs::create_dir(&work).unwrap();
+        fs::write(files.join("page"), b"original").unwrap();
+        fs::write(other.join("page"), b"tampered").unwrap();
+        let db = temp.path().join("manifest.sqlite");
+        manifest_records::create(&db).unwrap();
+        let digest = manifest_cursor::digest_file(&files, Path::new("page")).unwrap();
+        manifest_records::put(&db, Path::new("page"), Some(&digest)).unwrap();
+        begin(&files, &db, &work).unwrap();
+        let mut session = Session::ephemeral();
+        assert!(!step(&files, &db, &work, &mut session).unwrap());
+        assert!(step(&other, &db, &work, &mut session).is_err());
+    }
     #[test]
     fn verified_rows_remain_bound_when_manifest_changes_after_verification() {
         let temp = tempfile::tempdir().unwrap();

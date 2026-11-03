@@ -112,7 +112,7 @@ impl Session {
             scratch.path(),
             ignored,
         )?;
-        self.verification = Some((scratch, incremental_verify::Session::new()));
+        self.verification = Some((scratch, incremental_verify::Session::ephemeral()));
         Ok(())
     }
     fn verify_turn(&mut self, files: &Path, ignored: Option<&Path>) -> Result<bool> {

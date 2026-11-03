@@ -515,7 +515,7 @@ pub fn spawn_worker(
                         break;
                     }
                     processed = true;
-                    let result = if job.needs_provider() { provider.form_knowledge_with_prior(&job.source_text, job.prior_source_text.as_deref()) } else { Ok(crate::semantic::KnowledgeDraft::default()) };
+                    let result = if job.needs_provider() { provider.form_knowledge_for_source(&job.source_text, job.prior_source_text.as_deref(), &job.source_format) } else { Ok(crate::semantic::KnowledgeDraft::default()) };
                     if let Err(error) = &result {
                         issue = Some(error.to_string());
                     }

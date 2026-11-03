@@ -42,6 +42,7 @@ const PATH_PAGE_SIZE = 50;
 const PATH_WORK_BUDGET = 50;
 const labels = {
   text_preserved: "Text preserved",
+  empty: "No extractable text",
   structured_text: "Structured text extracted",
   partial_text: "Partially extracted",
   invalid_container: "Damaged Office container",
@@ -1547,7 +1548,9 @@ export async function mountReader(
       const published =
         Boolean(next.info.current_version_id) ||
         next.info.semantic_state === "complete";
-      const failed = ["failed", "incomplete"].includes(next.info.update_status);
+      const failed =
+        ["failed", "incomplete"].includes(next.info.update_status) ||
+        (!published && next.info.semantic_state === "failed");
       const state = failed
         ? "failed"
         : next.info.update_status === "uncertain"
@@ -1594,7 +1597,9 @@ export async function mountReader(
         next.info.semantic_state === "complete"
           ? "Ready"
           : next.info.semantic_state === "unavailable"
-            ? "Not available for this format"
+            ? next.info.extraction === "empty"
+              ? "No text to process"
+              : "Not available for this format"
             : next.info.semantic_state === "failed"
               ? "Processing failed"
               : next.info.semantic_state === "processing"

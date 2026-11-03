@@ -1,0 +1,8 @@
+# Build outputs are rewritten while cargo runs. Watching them restarts that build.
+/resources/audio/
+/resources/container-runtime/
+/resources/container-licenses/
+/binaries/
+/container-helper/generated-gmime/
+/container-helper/target/
+/target/

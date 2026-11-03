@@ -1,4 +1,41 @@
-use std::{env, path::PathBuf, process::Command};
+use std::{
+    env,
+    io::Read,
+    path::{Path, PathBuf},
+    process::Command,
+};
+
+fn same_contents(source: &Path, destination: &Path) -> std::io::Result<bool> {
+    let mut left = std::fs::File::open(source)?;
+    let mut right = match std::fs::File::open(destination) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    let a = left.metadata()?;
+    let b = right.metadata()?;
+    if a.len() != b.len() || a.permissions() != b.permissions() {
+        return Ok(false);
+    }
+    let mut left_bytes = [0; 64 * 1024];
+    let mut right_bytes = [0; 64 * 1024];
+    loop {
+        let count = left.read(&mut left_bytes)?;
+        if count == 0 {
+            return Ok(true);
+        }
+        right.read_exact(&mut right_bytes[..count])?;
+        if left_bytes[..count] != right_bytes[..count] {
+            return Ok(false);
+        }
+    }
+}
+fn copy_if_changed(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> std::io::Result<()> {
+    if !same_contents(source.as_ref(), destination.as_ref())? {
+        std::fs::copy(source, destination)?;
+    }
+    Ok(())
+}
 
 fn main() {
     println!("cargo:rerun-if-changed=native/media.swift");
@@ -95,7 +132,7 @@ fn main() {
         let triple = env::var("TARGET").unwrap();
         let binaries = manifest_dir.join("binaries");
         std::fs::create_dir_all(&binaries).unwrap();
-        std::fs::copy(
+        copy_if_changed(
             helper
                 .join("target")
                 .join(if profile == "release" {
@@ -122,7 +159,7 @@ fn main() {
                 .success(),
             "Pinned GMime runtime provisioning failed"
         );
-        std::fs::copy(
+        copy_if_changed(
             generated.join("kg-mime-unit"),
             binaries.join(format!("kg-mime-unit-{triple}")),
         )
@@ -133,10 +170,7 @@ fn main() {
             for entry in std::fs::read_dir(generated.join(name)).unwrap() {
                 let entry = entry.unwrap();
                 let target = destination.join(entry.file_name());
-                if target.exists() {
-                    std::fs::remove_file(&target).unwrap();
-                }
-                std::fs::copy(entry.path(), target).unwrap();
+                copy_if_changed(entry.path(), target).unwrap();
             }
         }
     }

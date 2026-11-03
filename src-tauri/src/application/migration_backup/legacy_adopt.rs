@@ -226,7 +226,7 @@ impl Session {
                 if self.v3_verify.is_none() {
                     let work = tempfile::tempdir()?;
                     incremental_verify::begin(&self.saved.join("files"), &database, work.path())?;
-                    self.v3_verify = Some((work, incremental_verify::Session::new()));
+                    self.v3_verify = Some((work, incremental_verify::Session::ephemeral()));
                     return Ok(false);
                 }
                 let (work, session) = self.v3_verify.as_mut().unwrap();
