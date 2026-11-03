@@ -1,5 +1,7 @@
 # Offline processing and service recovery
 
+Local retention, extraction, and search can continue without connectivity. Semantic judgments use remote Jev through OpenRouter, so the complete system is not offline. The checks below describe earlier behavior and do not by themselves establish the final pivot's acceptance.
+
 Source originals and available local extraction are retained and searchable before
 remote knowledge formation finishes. A new source can display its local projection
 while processing remains pending; an update with a published version keeps the

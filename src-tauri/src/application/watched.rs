@@ -40,6 +40,7 @@ struct DirectoryVolume {
 impl Application {
     /// Registers a directory without enumerating it or waiting for semantic work.
     pub fn watch_directory(&mut self, path: impl AsRef<Path>) -> Result<WatchedDirectory> {
+        self.recover_unregistering_watches()?;
         let path = fs::canonicalize(path)?;
         readable_directory(&path)?;
         if path.starts_with(&self.root) {
@@ -82,6 +83,59 @@ impl Application {
         start_scan(&mut watch);
         self.save_watch(&watch)?;
         Ok(watch)
+    }
+
+    pub fn unregister_watched_directory(&mut self, watch_id: &str) -> Result<()> {
+        self.recover_source_removals()?;
+        let mut watch = self
+            .list_watched_directories()?
+            .into_iter()
+            .find(|watch| watch.watch_id == watch_id && watch.state != "invalid_record")
+            .ok_or_else(|| GardenError::Invalid("The watched directory is unknown.".into()))?;
+        watch.state = "unregistering".into();
+        watch.detail = None;
+        self.watch_readers.remove(&watch.watch_id);
+        self.save_watch(&watch)?;
+        self.finish_unregister_watched_directory(&watch)
+    }
+
+    pub(super) fn recover_unregistering_watches(&mut self) -> Result<()> {
+        for watch in self.list_watched_directories()? {
+            if watch.state == "unregistering" {
+                self.finish_unregister_watched_directory(&watch)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn finish_unregister_watched_directory(&mut self, watch: &WatchedDirectory) -> Result<()> {
+        let directory = self.root.join("watches").join(&watch.watch_id);
+        validate_watch(watch, &directory)?;
+        let files = directory.join("files");
+        if files.exists() {
+            for entry in fs::read_dir(&files)? {
+                let entry = entry?;
+                if !entry.file_type()?.is_file() {
+                    return Err(GardenError::Invalid("Watch receipt is not a file.".into()));
+                }
+                let receipt: FileReceipt = read_record(&entry.path())?;
+                validate_watch_relative(&receipt.relative_path)?;
+                let origin = watch.path.join(&receipt.relative_path);
+                self.backup_and_withdraw_watched_source(
+                    &receipt.source_id,
+                    &origin,
+                    &entry.path(),
+                )?;
+            }
+        }
+        commit_publication_with_removals(
+            &self.root,
+            Vec::new(),
+            vec![directory],
+            &HashMap::new(),
+            None,
+        )?;
+        Ok(())
     }
 
     pub fn list_watched_directories(&self) -> Result<Vec<WatchedDirectory>> {
@@ -133,6 +187,8 @@ impl Application {
     /// using durable receipts, then continues the saved frontier.
     pub fn reconcile_watched_directories(&mut self, work_budget: usize) -> Result<()> {
         self.recover_pending_publications()?;
+        self.recover_source_removals()?;
+        self.recover_unregistering_watches()?;
         let mut watches = self.list_watched_directories()?;
         let mut remaining = work_budget.min(128);
         let count = watches.len();
@@ -256,6 +312,9 @@ impl Application {
                 watch.pending.push(relative);
             }
         } else if kind.is_file() {
+            if self.origin_is_suppressed(&path) {
+                return Ok(true);
+            }
             let receipt_path = watch_root.join("files").join(format!(
                 "{}.md",
                 hex::encode(Sha256::digest(relative.as_os_str().as_encoded_bytes()))
@@ -285,9 +344,16 @@ impl Application {
             if prior.as_ref().is_some_and(|retry| now < retry.retry_at) {
                 return Err(GardenError::Invalid("A failed watch input is waiting for its retry deadline; retained sources are preserved.".into()));
             }
-            let page = match readable_file(&path)
-                .and_then(|()| self.import_source(&path, AcquisitionMethod::Watch))
-            {
+            let page = match readable_file(&path).and_then(|()| {
+                self.import_source_with_identity(
+                    &path,
+                    AcquisitionMethod::Watch,
+                    None,
+                    None,
+                    None,
+                    Some(watch.watch_id.clone()),
+                )
+            }) {
                 Ok(page) => {
                     if retry_path.exists() {
                         fs::remove_file(&retry_path)?;
@@ -365,7 +431,7 @@ impl Application {
             }
         }
         if receipt.missing == Some(watch.completed_generation) && watch.completed_generation != 0 {
-            self.withdraw_watched_source(&receipt.source_id, &source_path, path)?;
+            self.backup_and_withdraw_watched_source(&receipt.source_id, &source_path, path)?;
         } else if receipt.missing != Some(watch.generation) {
             receipt.missing = Some(watch.generation);
             write_record(path, &receipt)?;
@@ -434,19 +500,444 @@ impl Application {
         )
     }
 
-    fn withdraw_watched_source(
+    pub(super) fn source_generation(&self, source_id: &str) -> Result<String> {
+        let path = self.root.join(".recovery/generations").join(source_id);
+        validate_real_collection_ancestors(&self.root, &path)?;
+        if path.exists() {
+            return Ok(fs::read_to_string(path)?);
+        }
+        let generation = Uuid::new_v4().to_string();
+        self.set_source_generation(source_id, &generation)?;
+        Ok(generation)
+    }
+
+    pub(super) fn set_source_generation(&self, source_id: &str, generation: &str) -> Result<()> {
+        self.source_dir(source_id)?;
+        validate_real_collection_ancestors(
+            &self.root,
+            &self.root.join(".recovery/generations").join(source_id),
+        )?;
+        write_atomic(
+            &self.root.join(".recovery/generations").join(source_id),
+            generation.as_bytes(),
+        )
+    }
+
+    pub(super) fn origin_is_suppressed(&self, path: &Path) -> bool {
+        let origin = normalized_origin(path);
+        let name = hex::encode(Sha256::digest(origin.as_os_str().as_encoded_bytes()));
+        self.root
+            .join(".recovery/suppressed-origins")
+            .join(name)
+            .exists()
+    }
+
+    pub(super) fn clear_origin_suppression(&self, path: &Path) -> Result<()> {
+        let origin = normalized_origin(path);
+        let name = hex::encode(Sha256::digest(origin.as_os_str().as_encoded_bytes()));
+        let file = self.root.join(".recovery/suppressed-origins").join(name);
+        match fs::remove_file(&file) {
+            Ok(()) => sync_directory(file.parent().unwrap()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub fn remove_source(&mut self, source_id: &str) -> Result<()> {
+        self.recover_pending_publications()?;
+        self.prepare_source_removal(source_id, None, None, None, None)
+    }
+
+    fn backup_and_withdraw_watched_source(
         &mut self,
         source_id: &str,
         origin: &Path,
         receipt_path: &Path,
     ) -> Result<()> {
-        let origin = normalized_origin(origin);
+        if !self.retained_source_exists(source_id)? {
+            return self.withdraw_watched_source(
+                source_id,
+                Some(origin),
+                Some(receipt_path),
+                None,
+                None,
+                false,
+            );
+        }
+        self.prepare_source_removal(source_id, Some(origin), Some(receipt_path), None, None)
+    }
+
+    pub(super) fn withdraw_repository_acquisition(
+        &mut self,
+        source_id: &str,
+        origin: &Path,
+        registration_id: &str,
+    ) -> Result<()> {
+        self.prepare_source_removal(
+            source_id,
+            Some(origin),
+            None,
+            None,
+            Some((
+                AcquisitionMethod::Repository,
+                Some(registration_id.to_owned()),
+            )),
+        )
+    }
+
+    pub(super) fn withdraw_legacy_repository_acquisition(
+        &mut self,
+        source_id: &str,
+        origin: &Path,
+    ) -> Result<()> {
+        self.prepare_source_removal(
+            source_id,
+            Some(origin),
+            None,
+            None,
+            Some((AcquisitionMethod::Repository, None)),
+        )
+    }
+
+    pub(super) fn reconcile_reacquired_version(
+        &mut self,
+        source_id: &str,
+        owner: &AcquisitionOwner,
+        version_id: &str,
+    ) -> Result<()> {
+        self.prepare_source_removal(
+            source_id,
+            None,
+            None,
+            Some(VersionReassignment {
+                owner: owner.clone(),
+                version_id: version_id.to_owned(),
+            }),
+            None,
+        )
+    }
+
+    fn prepare_source_removal(
+        &mut self,
+        source_id: &str,
+        origin: Option<&Path>,
+        receipt_path: Option<&Path>,
+        reassignment: Option<VersionReassignment>,
+        registration: Option<(AcquisitionMethod, Option<String>)>,
+    ) -> Result<()> {
+        let source = self.open_source(source_id)?;
+        let backup_root = self
+            .root
+            .join(".recovery/sources")
+            .join(Uuid::new_v4().to_string());
+        validate_real_collection_ancestors(&self.root, &backup_root)?;
+        fs::create_dir_all(&backup_root)?;
+        sync_directory(&self.root.join(".recovery"))?;
+        sync_directory(&self.root)?;
+        let bundle = self.source_dir(source_id)?;
+        copy_verified_bundle(&bundle, &backup_root.join("bundle"))?;
+        self.source_recovery_checkpoint("backup")?;
+        let origins = source
+            .info
+            .acquisitions
+            .iter()
+            .map(acquisition_origin)
+            .collect::<Result<Vec<_>>>()?;
+        let record = RemovalRecord {
+            source_id: source_id.to_owned(),
+            origins,
+            generation: Uuid::new_v4().to_string(),
+            bundle_digest: digest_bundle(&backup_root.join("bundle"))?,
+            watch_origin: origin.map(normalized_origin),
+            withdraw_method: registration
+                .as_ref()
+                .map(|value| value.0)
+                .or(origin.map(|_| AcquisitionMethod::Watch)),
+            watch_registration: registration
+                .as_ref()
+                .and_then(|value| value.1.clone())
+                .or_else(|| {
+                    receipt_path
+                        .and_then(Path::parent)
+                        .and_then(Path::parent)
+                        .and_then(Path::file_name)
+                        .and_then(|value| value.to_str())
+                        .map(str::to_owned)
+                }),
+            reassignment,
+            receipt: receipt_path
+                .map(|path| path.strip_prefix(&self.root).map(Path::to_owned))
+                .transpose()
+                .map_err(|_| {
+                    GardenError::Invalid("Watch receipt escaped the collection.".into())
+                })?,
+        };
+        write_record(&backup_root.join("removal.md"), &record)?;
+        sync_directory(&backup_root)?;
+        sync_directory(backup_root.parent().unwrap())?;
+        self.source_recovery_checkpoint("intent")?;
+        self.finish_source_removal(&backup_root, &record)
+    }
+
+    pub fn list_removed_sources(&self) -> Result<Vec<RemovedSource>> {
+        let root = self.root.join(".recovery/sources");
+        validate_real_collection_ancestors(&self.root, &root.join("entry"))?;
+        if !root.exists() {
+            return Ok(Vec::new());
+        }
+        let mut result = Vec::new();
+        for entry in fs::read_dir(root)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() || !entry.path().join("completed").exists() {
+                continue;
+            }
+            let Some(id) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if Uuid::parse_str(&id).is_err() {
+                continue;
+            }
+            let page = read_page(&entry.path().join("bundle/index.md"))?;
+            if self.retained_source_exists(&page.info.source_id)? {
+                continue;
+            }
+            result.push(RemovedSource {
+                recovery_id: id,
+                source_id: page.info.source_id,
+                title: page.info.title,
+            });
+        }
+        result.sort_by(|a, b| {
+            a.title
+                .cmp(&b.title)
+                .then(a.recovery_id.cmp(&b.recovery_id))
+        });
+        Ok(result)
+    }
+
+    pub fn restore_removed_source(&mut self, recovery_id: &str) -> Result<SourcePage> {
+        self.recover_source_removals()?;
+        let id = Uuid::parse_str(recovery_id)
+            .map_err(|_| GardenError::Invalid("Invalid recovery identity.".into()))?;
+        let backup = self.root.join(".recovery/sources").join(id.to_string());
+        validate_real_collection_ancestors(&self.root, &backup.join("bundle/index.md"))?;
+        if !backup.join("completed").exists() {
+            return Err(GardenError::Invalid(
+                "This source backup is not complete.".into(),
+            ));
+        }
+        let record: RemovalRecord = read_record(&backup.join("removal.md"))?;
+        verify_recovery_bundle(&backup, &record)?;
+        if self.retained_source_exists(&record.source_id)? {
+            return Err(GardenError::Invalid(
+                "This source is already active.".into(),
+            ));
+        }
+        let generation = Uuid::new_v4().to_string();
+        write_atomic(&backup.join("restore-pending"), generation.as_bytes())?;
+        self.source_recovery_checkpoint("restore-intent")?;
+        self.finish_source_restore(&backup, &generation)
+    }
+
+    fn finish_source_restore(&mut self, backup: &Path, generation: &str) -> Result<SourcePage> {
+        let record: RemovalRecord = read_record(&backup.join("removal.md"))?;
+        verify_recovery_bundle(backup, &record)?;
+        let destination = self.source_dir(&record.source_id)?;
+        self.set_source_generation(&record.source_id, generation)?;
+        if !destination.exists() {
+            let recovery_id = backup
+                .file_name()
+                .ok_or_else(|| GardenError::Invalid("Recovery identity is missing.".into()))?;
+            let staging_root = self.root.join(".staging/restores");
+            let staging = staging_root.join(recovery_id);
+            validate_real_collection_ancestors(&self.root, &staging.join("index.md"))?;
+            fs::create_dir_all(&staging_root)?;
+            if staging.exists() {
+                fs::remove_dir_all(&staging)?;
+            }
+            copy_verified_bundle(&backup.join("bundle"), &staging)?;
+            let mut page = read_page(&staging.join("index.md"))?;
+            if page.info.source_id != record.source_id {
+                return Err(GardenError::Invalid(
+                    "Recovery identity does not match the source bundle.".into(),
+                ));
+            }
+            let active_version = page
+                .info
+                .pending_version_id
+                .clone()
+                .or_else(|| page.info.current_version_id.clone());
+            page.info.knowledge_pages.clear();
+            page.body = replace_semantic_section(&page.body, &[]);
+            page.info.semantic_claim = None;
+            page.info.semantic_attempts = 0;
+            page.info.semantic_retry_at = None;
+            if let Some(version_id) = active_version {
+                if page.info.semantic_state != "unavailable" {
+                    page.info.current_version_id = None;
+                    page.info.pending_version_id = Some(version_id.clone());
+                    page.info.semantic_state = "pending".into();
+                    page.info.update_status = None;
+                    if let Some(version) = page
+                        .info
+                        .versions_seen
+                        .iter_mut()
+                        .find(|v| v.source_version_id == version_id)
+                    {
+                        version.state = "pending".into();
+                    }
+                }
+            }
+            write_atomic(
+                &staging.join("index.md"),
+                serialize_page(&page.info, &page.body)?.as_bytes(),
+            )?;
+            sync_directory(&staging)?;
+            self.source_recovery_checkpoint("restore-staged")?;
+            fs::rename(&staging, &destination)?;
+            sync_directory(destination.parent().unwrap())?;
+            self.source_recovery_checkpoint("restore-published")?;
+        }
+        self.rebuild_index()?;
+        for origin in &record.origins {
+            self.clear_origin_suppression(origin)?;
+        }
+        fs::remove_file(backup.join("restore-pending"))?;
+        sync_directory(backup)?;
+        self.open_source(&record.source_id)
+    }
+
+    pub fn recover_source_removals(&mut self) -> Result<()> {
+        let root = self.root.join(".recovery/sources");
+        validate_real_collection_ancestors(&self.root, &root)?;
+        if !root.exists() {
+            return Ok(());
+        }
+        if !fs::symlink_metadata(&root)?.is_dir() {
+            return Err(GardenError::Invalid(
+                "Recovery storage is not a directory.".into(),
+            ));
+        }
+        for entry in fs::read_dir(root)? {
+            let path = entry?.path();
+            let record = path.join("removal.md");
+            if record.exists() && !path.join("completed").exists() {
+                let removal: RemovalRecord = read_record(&record)?;
+                self.finish_source_removal(&path, &removal)?;
+            }
+            let restore = path.join("restore-pending");
+            if restore.exists() {
+                let generation = fs::read_to_string(&restore)?;
+                self.finish_source_restore(&path, &generation)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn finish_source_removal(&mut self, path: &Path, removal: &RemovalRecord) -> Result<()> {
+        verify_recovery_bundle(path, removal)?;
+        self.set_source_generation(&removal.source_id, &removal.generation)?;
+        self.source_recovery_checkpoint("generation")?;
+        let suppressed = self.root.join(".recovery/suppressed-origins");
+        fs::create_dir_all(&suppressed)?;
+        sync_directory(&self.root.join(".recovery"))?;
+        for origin in removal
+            .origins
+            .iter()
+            .filter(|_| removal.watch_origin.is_none() && removal.reassignment.is_none())
+        {
+            let name = hex::encode(Sha256::digest(origin.as_os_str().as_encoded_bytes()));
+            write_record(&suppressed.join(name), origin)?;
+        }
+        self.source_recovery_checkpoint("suppression")?;
+        let receipt = removal
+            .receipt
+            .as_ref()
+            .map(|path| {
+                validate_relative_collection_path(path)?;
+                Ok::<_, GardenError>(self.root.join(path))
+            })
+            .transpose()?;
+        if let Some(change) = &removal.reassignment {
+            let mut source = self.open_source(&removal.source_id)?;
+            let mut found = false;
+            for version in &mut source.info.versions_seen {
+                if version.source_version_id == change.version_id {
+                    found = true;
+                    if !version.acquisition_owners.contains(&change.owner) {
+                        version.acquisition_owners.push(change.owner.clone());
+                    }
+                    version.withdrawn = false;
+                } else {
+                    version
+                        .acquisition_owners
+                        .retain(|owner| owner != &change.owner);
+                    if version.acquisition_owners.is_empty() {
+                        version.withdrawn = true;
+                    }
+                }
+            }
+            if !found {
+                return Err(GardenError::Invalid(
+                    "The reacquired source version is missing.".into(),
+                ));
+            }
+            self.write_source_page(&mut source)?;
+        }
+        self.withdraw_watched_source(
+            &removal.source_id,
+            removal.watch_origin.as_deref(),
+            receipt.as_deref(),
+            removal.watch_registration.as_deref(),
+            removal.withdraw_method,
+            removal.reassignment.is_some(),
+        )?;
+        if removal.watch_origin.is_some() && self.retained_source_exists(&removal.source_id)? {
+            let mut page = self.open_source(&removal.source_id)?;
+            let initial = page.info.current_version_id.is_none();
+            let processing = if initial {
+                page.info.semantic_state == "processing"
+            } else {
+                page.info.update_status.as_deref() == Some("processing")
+            };
+            if processing {
+                if initial {
+                    page.info.semantic_state = "pending".into();
+                } else {
+                    page.info.update_status = Some("pending".into());
+                }
+                page.info.semantic_claim = None;
+                page.info.semantic_retry_at = None;
+                if let Some(version) = page.info.versions_seen.iter_mut().find(|version| {
+                    Some(&version.source_version_id) == page.info.pending_version_id.as_ref()
+                }) {
+                    version.state = "pending".into();
+                }
+                self.write_source_page(&mut page)?;
+                self.index_page(&page.info)?;
+            }
+        }
+        self.source_recovery_checkpoint("withdrawn")?;
+        write_atomic(&path.join("completed"), b"completed\n")?;
+        Ok(())
+    }
+
+    fn withdraw_watched_source(
+        &mut self,
+        source_id: &str,
+        origin: Option<&Path>,
+        receipt_path: Option<&Path>,
+        watch_registration: Option<&str>,
+        withdraw_method: Option<AcquisitionMethod>,
+        preserve_acquisitions: bool,
+    ) -> Result<()> {
+        let origin = origin.map(normalized_origin);
         if !self.retained_source_exists(source_id)? {
             // An overlapping watch already withdrew this same source.
             commit_publication_with_removals(
                 &self.root,
                 Vec::new(),
-                vec![receipt_path.to_owned()],
+                receipt_path.map(Path::to_owned).into_iter().collect(),
                 &HashMap::new(),
                 None,
             )?;
@@ -455,14 +946,32 @@ impl Application {
         let mut source = self.open_source(source_id)?;
         let mut retained_acquisitions = Vec::new();
         for acquisition in source.info.acquisitions.drain(..) {
-            if acquisition_origin(&acquisition)? != origin {
+            if preserve_acquisitions {
                 retained_acquisitions.push(acquisition);
+            } else if let Some(origin) = &origin {
+                let matches_watch = acquisition_origin(&acquisition)? == *origin
+                    && Some(acquisition.method) == withdraw_method
+                    && acquisition.registration_id.as_deref() == watch_registration
+                    && (watch_registration.is_some()
+                        || withdraw_method == Some(AcquisitionMethod::Repository));
+                if !matches_watch {
+                    retained_acquisitions.push(acquisition);
+                }
             }
         }
         source.info.acquisitions = retained_acquisitions;
+        if withdraw_method == Some(AcquisitionMethod::Repository)
+            && source.info.repository.as_ref().is_some_and(|repository| {
+                watch_registration.is_none()
+                    || Some(repository.repository_id.as_str()) == watch_registration
+            })
+        {
+            source.info.repository = None;
+        }
         let contexts = self.source_dir(source_id)?.join("acquisitions");
-        let mut removed_contexts = vec![receipt_path.to_owned()];
-        if contexts.exists() {
+        let mut removed_contexts: Vec<PathBuf> =
+            receipt_path.map(Path::to_owned).into_iter().collect();
+        if contexts.exists() && !preserve_acquisitions {
             for entry in fs::read_dir(contexts)? {
                 let entry = entry?;
                 if entry
@@ -471,15 +980,56 @@ impl Application {
                     .is_some_and(|extension| extension == "md")
                 {
                     let acquisition: Acquisition = read_record(&entry.path())?;
-                    if acquisition_origin(&acquisition)? == origin {
+                    if origin.is_none()
+                        || (acquisition_origin(&acquisition)? == *origin.as_ref().unwrap()
+                            && Some(acquisition.method) == withdraw_method
+                            && acquisition.registration_id.as_deref() == watch_registration
+                            && (watch_registration.is_some()
+                                || withdraw_method == Some(AcquisitionMethod::Repository)))
+                    {
                         removed_contexts.push(entry.path());
                     }
                 }
             }
         }
-        if !source.info.acquisitions.is_empty() {
-            // An established source can have other independent acquisition origins.
-            // Selecting a watch adopts its identity without owning those origins.
+        if let Some(origin) = &origin {
+            for version in &mut source.info.versions_seen {
+                version.acquisition_owners.retain(|owner| {
+                    !(owner.origin == *origin
+                        && Some(owner.method) == withdraw_method
+                        && owner.registration_id.as_deref() == watch_registration
+                        && (watch_registration.is_some()
+                            || withdraw_method == Some(AcquisitionMethod::Repository)))
+                });
+                if version.acquisition_owners.is_empty() {
+                    version.withdrawn = true;
+                }
+            }
+        }
+        let retained = !source.info.acquisitions.is_empty();
+        let has_owner = |id: &str| {
+            source.info.versions_seen.iter().any(|version| {
+                version.source_version_id == id && !version.acquisition_owners.is_empty()
+            })
+        };
+        let current_supported = source
+            .info
+            .current_version_id
+            .as_deref()
+            .is_some_and(has_owner);
+        let pending_supported = source
+            .info
+            .pending_version_id
+            .as_deref()
+            .is_some_and(has_owner);
+        let had_current = source.info.current_version_id.is_some();
+        if retained && (current_supported || (!had_current && pending_supported)) {
+            if source.info.pending_version_id.is_some() && !pending_supported {
+                source.info.pending_version_id = None;
+                source.info.update_status = None;
+                source.info.semantic_state = "complete".into();
+                source.info.semantic_claim = None;
+            }
             let files = vec![(
                 self.page_path(source_id)?,
                 serialize_page(&source.info, &source.body)?.into_bytes(),
@@ -497,7 +1047,121 @@ impl Application {
         let removed = HashSet::from([source_id.to_owned()]);
         let mut files = Vec::new();
         let mut changed_owners = HashMap::<String, SourcePage>::new();
-        let mut removals = vec![self.source_dir(source_id)?, receipt_path.to_owned()];
+        let mut removals = if retained {
+            removed_contexts
+        } else {
+            vec![self.source_dir(source_id)?]
+        };
+        if !retained {
+            removals.extend(receipt_path.map(Path::to_owned));
+        }
+        if retained {
+            let candidates = source
+                .info
+                .versions_seen
+                .iter()
+                .filter(|version| !version.acquisition_owners.is_empty())
+                .cloned()
+                .collect::<Vec<_>>();
+            let fallback = candidates
+                .iter()
+                .find(|candidate| {
+                    candidates.iter().all(|other| {
+                        candidate.source_version_id == other.source_version_id
+                            || compare_source_order(other, candidate)
+                                == Some(std::cmp::Ordering::Greater)
+                    })
+                })
+                .cloned();
+            let old_original = self.source_dir(source_id)?.join(&source.info.asset);
+            if candidates.len() > 1 && fallback.is_none() {
+                source.info.ordering_uncertain = true;
+            }
+            source.info.current_version_id = None;
+            source.info.pending_version_id = None;
+            source.info.knowledge_pages.clear();
+            source.info.semantic_decisions.clear();
+            source.info.semantic_claim = None;
+            source.info.semantic_retry_at = None;
+            source.info.update_status = None;
+            source.info.semantic_state = "unavailable".into();
+            source.info.semantic_error = Some("The withdrawn origin was the only known support for the active version. Remaining version ownership or extraction is unverified.".into());
+            source.body = format!("# {}\n\nThe previous active version is no longer supported by an active origin. Retained versions remain in the recovery copy.\n", source.info.title);
+            if let Some(version) = fallback {
+                let path = self.version_original_path(source_id, &version)?;
+                if !path.is_file() {
+                    return Err(GardenError::Invalid(
+                        "The supported retained version is missing; withdrawal remains pending."
+                            .into(),
+                    ));
+                }
+                let destination = self.source_dir(source_id)?.join(&version.asset);
+                write_atomic_from_file(&destination, &path)?;
+                self.source_recovery_checkpoint("fallback-original")?;
+                if old_original != destination {
+                    removals.push(old_original);
+                }
+                source.info.sha256 = version.sha256.clone();
+                source.info.bytes = version.bytes;
+                source.info.asset = version.asset.clone();
+                source.info.original_name = version.original_name.clone();
+                source.info.format = version.format.clone();
+                source.info.extraction_version_id = None;
+                source.info.extraction_coverage = None;
+                source.info.pending_version_id = Some(version.source_version_id.clone());
+                source.info.semantic_state = "pending".into();
+                source.info.semantic_error = None;
+                if is_timed_media_format(&version.format) {
+                    let (audio, media) = self.inspect_timed_media(true, &path);
+                    source.info.audio_processing = audio.map(|audio| {
+                        audio_processing_info(audio, &version.source_version_id, media)
+                    });
+                    source.info.pending_audio_processing = None;
+                    source.info.extraction = ExtractionState::PartialText;
+                    source.info.extraction_detail =
+                        "The supported recording is queued for renewed transcription.".into();
+                    source.body = source_body(&source.info, "", None);
+                } else if crate::extraction::is_structured_source(&path, &version.format) {
+                    source.info.extraction = ExtractionState::PartialText;
+                    source.info.extraction_detail =
+                        "The supported source version is queued for renewed extraction.".into();
+                    source.body = source_body(&source.info, "", None);
+                } else if version.bytes <= MAX_TEXT_BYTES as u64 {
+                    match fs::read_to_string(&path) {
+                        Ok(text) => {
+                            source.info.extraction = ExtractionState::TextPreserved;
+                            source.info.extraction_detail = "The supported source version is queued for renewed knowledge processing.".into();
+                            source.info.extraction_version_id =
+                                Some(version.source_version_id.clone());
+                            source.info.line_count = text.lines().count();
+                            source.body = source_body(&source.info, &text, None);
+                        }
+                        Err(error) => {
+                            source.info.extraction = ExtractionState::InvalidUtf8;
+                            source.info.semantic_state = "unavailable".into();
+                            source.info.semantic_error = Some(format!(
+                                "The supported version cannot be read as text: {error}"
+                            ));
+                            source.info.pending_version_id = None;
+                        }
+                    }
+                } else {
+                    source.info.extraction = ExtractionState::TooLarge;
+                    source.info.semantic_state = "unavailable".into();
+                    source.info.semantic_error = Some("The supported version exceeds the current text extraction limit; its complete original remains available.".into());
+                    source.info.pending_version_id = None;
+                }
+            } else {
+                removals.push(old_original);
+                if candidates.len() > 1 {
+                    source.info.semantic_error = Some("Remaining source versions have no reliable ordering; their evidence cannot be promoted automatically.".into());
+                }
+            }
+            files.push((
+                self.page_path(source_id)?,
+                serialize_page(&source.info, &source.body)?.into_bytes(),
+            ));
+        }
         let paths = self.knowledge_paths()?;
         let mut referenced = HashMap::new();
         for path in &paths {
@@ -805,4 +1469,138 @@ mod tests {
         assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
         assert!(start.elapsed() < std::time::Duration::from_secs(1));
     }
+}
+
+#[derive(Serialize, Deserialize)]
+struct VersionReassignment {
+    owner: AcquisitionOwner,
+    version_id: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RemovalRecord {
+    source_id: String,
+    origins: Vec<PathBuf>,
+    generation: String,
+    bundle_digest: String,
+    #[serde(default)]
+    watch_origin: Option<PathBuf>,
+    #[serde(default)]
+    watch_registration: Option<String>,
+    #[serde(default)]
+    withdraw_method: Option<AcquisitionMethod>,
+    #[serde(default)]
+    reassignment: Option<VersionReassignment>,
+    #[serde(default)]
+    receipt: Option<PathBuf>,
+}
+
+fn copy_verified_bundle(source: &Path, destination: &Path) -> Result<()> {
+    let metadata = fs::symlink_metadata(source)?;
+    if !metadata.is_dir() {
+        return Err(GardenError::Invalid(
+            "Source bundle is not a directory.".into(),
+        ));
+    }
+    fs::create_dir(destination)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let input = entry.path();
+        let output = destination.join(entry.file_name());
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            copy_verified_bundle(&input, &output)?;
+        } else if kind.is_file() {
+            fs::copy(&input, &output)?;
+            File::open(&output)?.sync_all()?;
+            let mut original = File::open(&input)?;
+            let mut copied = File::open(&output)?;
+            let mut left = [0u8; 65536];
+            let mut right = [0u8; 65536];
+            loop {
+                let a = std::io::Read::read(&mut original, &mut left)?;
+                let b = std::io::Read::read(&mut copied, &mut right)?;
+                if a != b || left[..a] != right[..b] {
+                    return Err(GardenError::Invalid(
+                        "Source backup verification failed.".into(),
+                    ));
+                }
+                if a == 0 {
+                    break;
+                }
+            }
+            if fs::metadata(&input)?.len() != fs::metadata(&output)?.len() {
+                return Err(GardenError::Invalid(
+                    "Source backup verification failed.".into(),
+                ));
+            }
+        } else {
+            return Err(GardenError::Invalid(
+                "Source backup cannot contain links or special files.".into(),
+            ));
+        }
+    }
+    sync_directory(destination)?;
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+pub struct RemovedSource {
+    pub recovery_id: String,
+    pub source_id: String,
+    pub title: String,
+}
+
+fn verify_recovery_bundle(path: &Path, record: &RemovalRecord) -> Result<()> {
+    if digest_bundle(&path.join("bundle"))? != record.bundle_digest {
+        return Err(GardenError::Invalid(
+            "Source recovery copy failed verification.".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn digest_bundle(root: &Path) -> Result<String> {
+    if !fs::symlink_metadata(root)?.is_dir() {
+        return Err(GardenError::Invalid(
+            "Recovery bundle is not a directory.".into(),
+        ));
+    }
+    fn visit(root: &Path, directory: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+        for entry in fs::read_dir(directory)? {
+            let entry = entry?;
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
+                visit(root, &entry.path(), files)?;
+            } else if kind.is_file() {
+                files.push(entry.path().strip_prefix(root).unwrap().to_owned());
+            } else {
+                return Err(GardenError::Invalid(
+                    "Recovery copy contains a link or special file.".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+    let mut files = Vec::new();
+    visit(root, root, &mut files)?;
+    files.sort();
+    let mut digest = Sha256::new();
+    for relative in files {
+        let name = relative.as_os_str().as_encoded_bytes();
+        digest.update((name.len() as u64).to_le_bytes());
+        digest.update(name);
+        let mut input = File::open(root.join(relative))?;
+        let mut contents = Sha256::new();
+        let mut buffer = [0u8; 65536];
+        loop {
+            let count = std::io::Read::read(&mut input, &mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            contents.update(&buffer[..count]);
+        }
+        digest.update(contents.finalize());
+    }
+    Ok(hex::encode(digest.finalize()))
 }

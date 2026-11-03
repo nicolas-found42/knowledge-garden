@@ -225,7 +225,12 @@ it("imports a real temporary source through the reader and preserves visible con
   );
   expect(selected!.info.page_id).toBe(identity);
   expect(call<SourceList>("list", "0").sources).toHaveLength(1);
-  expect(readFileSync(pagePath, "utf8")).toBe(markdown);
+  expect(selected!.info.versions_seen).toHaveLength(1);
+  const reimportedMarkdown = readFileSync(pagePath, "utf8");
+  expect(reimportedMarkdown).toContain("Source text · lines 1–1");
+  expect(reimportedMarkdown).toContain(
+    "Observation V17 took place at Riverside",
+  );
   expect(readFileSync(openedOriginal!)).toEqual(bytes);
 
   const unsupported = join(workspace, "unsupported.bin");

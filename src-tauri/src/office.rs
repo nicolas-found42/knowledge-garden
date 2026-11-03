@@ -14,6 +14,7 @@ pub enum CoverageScope {
     MainDocument,
     ConversationMessages,
     Tables,
+    SpreadsheetCells,
     SlideText,
     SpeakerNotes,
     EmbeddedObject,
@@ -42,7 +43,7 @@ pub struct CoveragePart {
     pub detail: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OfficeProjection {
     pub markdown: String,
     /// A located text projection passed to semantic providers. Each evidence line is
@@ -61,7 +62,145 @@ struct Relationship {
     external: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OfficeContainer {
+    Encrypted,
+    Other,
+}
+
+pub fn detect_xlsx_container(path: &Path) -> OfficeContainer {
+    if std::fs::metadata(path)
+        .map(|m| m.len() > 32 * 1024 * 1024)
+        .unwrap_or(true)
+    {
+        return OfficeContainer::Other;
+    }
+    let Ok(mut file) = cfb::open(path) else {
+        return OfficeContainer::Other;
+    };
+    let Ok(mut info) = file.open_stream("/EncryptionInfo") else {
+        return OfficeContainer::Other;
+    };
+    if info.len() > 64 * 1024 || info.len() < 9 {
+        return OfficeContainer::Other;
+    }
+    let mut data = Vec::new();
+    if info.read_to_end(&mut data).is_err() {
+        return OfficeContainer::Other;
+    }
+    drop(info);
+    if data.get(..8) != Some(&[4, 0, 4, 0, 0x40, 0, 0, 0]) {
+        return OfficeContainer::Other;
+    }
+    let Ok(doc) = parse_xml(&data[8..], "EncryptionInfo") else {
+        return OfficeContainer::Other;
+    };
+    let root = doc.root_element();
+    const NS: &str = "http://schemas.microsoft.com/office/2006/encryption";
+    const PASS: &str = "http://schemas.microsoft.com/office/2006/keyEncryptor/password";
+    if root.tag_name().name() != "encryption" || root.tag_name().namespace() != Some(NS) {
+        return OfficeContainer::Other;
+    }
+    fn child<'a, 'input>(
+        parent: roxmltree::Node<'a, 'input>,
+        name: &str,
+    ) -> Option<roxmltree::Node<'a, 'input>> {
+        parent.children().find(|n| {
+            n.is_element()
+                && n.tag_name().namespace()
+                    == Some("http://schemas.microsoft.com/office/2006/encryption")
+                && n.tag_name().name() == name
+        })
+    }
+    let Some(key) = child(root, "keyData") else {
+        return OfficeContainer::Other;
+    };
+    let valid_base64 = |value: Option<&str>| {
+        value.is_some_and(|v| {
+            !v.is_empty()
+                && v.len() % 4 == 0
+                && v.bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'+' | b'/' | b'='))
+        })
+    };
+    if key.attribute("cipherAlgorithm") != Some("AES")
+        || key.attribute("cipherChaining") != Some("ChainingModeCBC")
+        || key.attribute("blockSize") != Some("16")
+        || !matches!(key.attribute("keyBits"), Some("128" | "192" | "256"))
+        || !valid_base64(key.attribute("saltValue"))
+        || key.attribute("hashAlgorithm").is_none()
+        || key.attribute("hashSize").is_none()
+        || key.attribute("saltSize").is_none()
+    {
+        return OfficeContainer::Other;
+    }
+    let Some(integrity) = child(root, "dataIntegrity") else {
+        return OfficeContainer::Other;
+    };
+    if !valid_base64(integrity.attribute("encryptedHmacKey"))
+        || !valid_base64(integrity.attribute("encryptedHmacValue"))
+    {
+        return OfficeContainer::Other;
+    }
+    let Some(encryptors) = child(root, "keyEncryptors") else {
+        return OfficeContainer::Other;
+    };
+    let password = encryptors
+        .children()
+        .filter(|n| {
+            n.is_element()
+                && n.tag_name().namespace() == Some(NS)
+                && n.tag_name().name() == "keyEncryptor"
+                && n.attribute("uri") == Some(PASS)
+        })
+        .flat_map(|n| n.children())
+        .find(|n| {
+            n.is_element()
+                && n.tag_name().namespace() == Some(PASS)
+                && n.tag_name().name() == "encryptedKey"
+        });
+    let Some(password) = password else {
+        return OfficeContainer::Other;
+    };
+    if [
+        "saltValue",
+        "encryptedVerifierHashInput",
+        "encryptedVerifierHashValue",
+        "encryptedKeyValue",
+    ]
+    .iter()
+    .any(|name| !valid_base64(password.attribute(*name)))
+        || password
+            .attribute("spinCount")
+            .and_then(|v| v.parse::<u32>().ok())
+            .is_none()
+    {
+        return OfficeContainer::Other;
+    }
+    let Ok(mut package) = file.open_stream("/EncryptedPackage") else {
+        return OfficeContainer::Other;
+    };
+    let size = package.len();
+    let mut header = [0; 8];
+    if package.read_exact(&mut header).is_err() {
+        return OfficeContainer::Other;
+    }
+    let plain_size = u64::from_le_bytes(header);
+    let Some(padded) = plain_size.checked_add(15).map(|n| n / 16 * 16) else {
+        return OfficeContainer::Other;
+    };
+    if plain_size == 0 || size.checked_sub(8) != Some(padded) {
+        return OfficeContainer::Other;
+    }
+    OfficeContainer::Encrypted
+}
+
 pub fn extract(path: &Path, format: &str, title: &str) -> Result<OfficeProjection, String> {
+    if format == "xlsx" && detect_xlsx_container(path) == OfficeContainer::Encrypted {
+        return Err(
+            "The workbook is encrypted and cannot be extracted without its password.".into(),
+        );
+    }
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut archive = ZipArchive::new(file)
         .map_err(|_| "The Office file is not a readable ZIP package.".to_owned())?;
@@ -71,7 +210,8 @@ pub fn extract(path: &Path, format: &str, title: &str) -> Result<OfficeProjectio
     match format {
         "docx" => extract_docx(&mut archive, title),
         "pptx" => extract_pptx(&mut archive, title),
-        _ => Err("Only modern DOCX and PPTX packages are supported.".into()),
+        "xlsx" => extract_xlsx(&mut archive, title),
+        _ => Err("Only modern DOCX, PPTX and XLSX packages are supported.".into()),
     }
 }
 
@@ -468,6 +608,7 @@ fn coverage_scope_label(scope: CoverageScope) -> &'static str {
         CoverageScope::MainDocument => "main document",
         CoverageScope::ConversationMessages => "conversation messages",
         CoverageScope::Tables => "tables",
+        CoverageScope::SpreadsheetCells => "spreadsheet cells",
         CoverageScope::SlideText => "slide text",
         CoverageScope::SpeakerNotes => "speaker notes",
         CoverageScope::EmbeddedObject => "embedded object",
@@ -478,6 +619,212 @@ fn coverage_scope_label(scope: CoverageScope) -> &'static str {
         CoverageScope::ImageText => "image OCR text",
         CoverageScope::ImageInterpretation => "uncertain image interpretation",
     }
+}
+
+fn spreadsheet_markdown_text(text: &str) -> String {
+    let mut escaped = String::new();
+    for character in text.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '\n' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}' => escaped.push(' '),
+            c if c.is_control() => escaped.push(' '),
+            c if "\\`*_{}[]()#!|".contains(c) => {
+                escaped.push('\\');
+                escaped.push(c);
+            }
+            c => escaped.push(c),
+        }
+    }
+    escaped
+}
+
+fn extract_xlsx(
+    archive: &mut ZipArchive<std::fs::File>,
+    title: &str,
+) -> Result<OfficeProjection, String> {
+    use std::collections::HashSet;
+    const MAX_WORKBOOK_BYTES: u64 = 32 * 1024 * 1024;
+    const MAX_CELLS: usize = 100_000;
+    const MAX_SHEETS: usize = 100;
+    let mut names = HashSet::new();
+    for index in 0..archive.len() {
+        let item = archive
+            .by_index(index)
+            .map_err(|e| format!("Office package part cannot be read: {e}"))?;
+        let name = item
+            .name()
+            .map_err(|_| "Office package part name is invalid.")?;
+        if name.starts_with('/')
+            || name.contains('\\')
+            || name.split('/').any(|p| p == "..")
+            || !names.insert(name.into_owned())
+        {
+            return Err("Office package contains an unsafe or duplicate part name.".into());
+        }
+    }
+    let workbook_part = "xl/workbook.xml";
+    let bytes = read_part(archive, workbook_part)?;
+    let workbook = parse_xml(&bytes, workbook_part)?;
+    let rel_bytes = read_part(archive, "xl/_rels/workbook.xml.rels")?;
+    let _ = parse_xml(&rel_bytes, "xl/_rels/workbook.xml.rels")?;
+    let rels = relationships(archive, workbook_part)?;
+    let mut total_bytes = bytes.len() as u64 + rel_bytes.len() as u64;
+    let shared = if names.contains("xl/sharedStrings.xml") {
+        let bytes = read_part(archive, "xl/sharedStrings.xml")?;
+        total_bytes += bytes.len() as u64;
+        let doc = parse_xml(&bytes, "xl/sharedStrings.xml")?;
+        doc.root_element()
+            .children()
+            .filter(|n| n.is_element() && local_name(*n) == "si")
+            .map(node_text)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let sheets: Vec<_> = workbook
+        .descendants()
+        .filter(|n| n.is_element() && local_name(*n) == "sheet")
+        .collect();
+    if sheets.len() > MAX_SHEETS {
+        return Err("Workbook exceeds the 100 sheet limit.".into());
+    }
+    let mut sections = Vec::new();
+    let mut semantic = Vec::new();
+    let mut cell_count = 0usize;
+    let mut projected_bytes = 0usize;
+    let mut formula_count = 0usize;
+    let mut error_count = 0usize;
+    let mut gaps = Vec::new();
+    for sheet in sheets {
+        let name = attr_local(sheet, "name").ok_or("Workbook sheet name is missing.")?;
+        let id = attr_local(sheet, "id").ok_or("Workbook sheet relationship is missing.")?;
+        let rel = rels
+            .get(&id)
+            .ok_or("Workbook sheet relationship is missing.")?;
+        if rel.external || !rel.kind.ends_with("/worksheet") {
+            gaps.push(format!(
+                "Sheet {} is not a supported local worksheet.",
+                spreadsheet_markdown_text(&name)
+            ));
+            continue;
+        }
+        let part =
+            resolve_target(workbook_part, &rel.target).ok_or("Workbook sheet target is unsafe.")?;
+        let bytes = read_part(archive, &part)?;
+        total_bytes = total_bytes.saturating_add(bytes.len() as u64);
+        if total_bytes > MAX_WORKBOOK_BYTES {
+            return Err("Workbook exceeds the 32 MiB uncompressed worksheet limit.".into());
+        }
+        let doc = parse_xml(&bytes, &part)?;
+        let mut lines = Vec::new();
+        for cell in doc
+            .descendants()
+            .filter(|n| n.is_element() && local_name(*n) == "c")
+        {
+            cell_count += 1;
+            if cell_count > MAX_CELLS {
+                return Err("Workbook exceeds the 100,000 cell limit.".into());
+            }
+            let address = attr_local(cell, "r").ok_or("Worksheet cell address is missing.")?;
+            if !address.chars().all(|c| c.is_ascii_alphanumeric()) || address.len() > 16 {
+                return Err("Worksheet cell address is invalid.".into());
+            }
+            let kind = attr_local(cell, "t").unwrap_or_default();
+            let raw = child_named(cell, "v").and_then(|v| v.text()).unwrap_or("");
+            let value = match kind.as_str() {
+                "s" => {
+                    let index: usize = raw.parse().map_err(|_| "Invalid shared string index.")?;
+                    shared
+                        .get(index)
+                        .ok_or("Shared string index is out of range.")?
+                        .clone()
+                }
+                "inlineStr" => child_named(cell, "is").map(node_text).unwrap_or_default(),
+                "b" => match raw {
+                    "1" => "TRUE".into(),
+                    "0" => "FALSE".into(),
+                    _ => return Err("Invalid boolean cell value.".into()),
+                },
+                _ => raw.to_owned(),
+            };
+            let formula = child_named(cell, "f").map(node_text);
+            if formula.is_some() {
+                formula_count += 1;
+            }
+            if kind == "e" {
+                error_count += 1;
+            }
+            if value.is_empty() {
+                continue;
+            }
+            projected_bytes = projected_bytes
+                .saturating_add(value.len())
+                .saturating_add(name.len())
+                .saturating_add(address.len());
+            if projected_bytes > 2 * 1024 * 1024 {
+                return Err("Workbook exceeds the 2 MiB extracted-text limit.".into());
+            }
+            let value: String = value
+                .chars()
+                .map(|c| {
+                    if c.is_control() || matches!(c, '\u{85}' | '\u{2028}' | '\u{2029}') {
+                        ' '
+                    } else {
+                        c
+                    }
+                })
+                .collect();
+            let channel = if formula.is_some() {
+                "cached_formula_value"
+            } else {
+                "cell"
+            };
+            let safe_name = format!("{:?}", name).replace(']', "\\u005d");
+            let location = format!("XLSX sheet {safe_name} cell {address}; channel={channel}");
+            semantic.push(format!("[{location}] {value}"));
+            lines.push(format!(
+                "- **{}**: {}",
+                address,
+                spreadsheet_markdown_text(&value)
+            ));
+        }
+        sections.push(format!(
+            "## Sheet {}\n\n{}",
+            spreadsheet_markdown_text(&name),
+            if lines.is_empty() {
+                "No supported cell values were found.".into()
+            } else {
+                lines.join("\n")
+            }
+        ));
+    }
+    if semantic.is_empty() {
+        gaps.push("No supported non-empty cell values were found.".into());
+    }
+    if formula_count > 0 {
+        gaps.push(format!(
+            "{formula_count} formula cells were not evaluated; their stored values may be stale."
+        ));
+    }
+    if error_count > 0 {
+        gaps.push(format!("{error_count} cells contain spreadsheet errors."));
+    }
+    gaps.push("Cell formatting, date interpretation, comments, drawings, charts, and other workbook features are not interpreted; numeric values are stored values.".into());
+    if names
+        .iter()
+        .any(|name| name.to_ascii_lowercase().contains("vbaproject"))
+    {
+        gaps.push("Workbook macros are retained and never executed.".into());
+    }
+    let coverage = vec![CoveragePart {
+        scope: CoverageScope::SpreadsheetCells,
+        status: CoverageStatus::Partial,
+        source_location: Some("workbook sheets and cells".into()),
+        detail: gaps.join(" "),
+    }];
+    Ok(finish(&spreadsheet_markdown_text(title), sections, semantic, coverage, "Workbook cell values were projected with sheet and cell locations; unsupported workbook features remain unexamined.".into()))
 }
 
 fn extract_docx(

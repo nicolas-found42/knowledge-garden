@@ -673,3 +673,66 @@ fn supplied_text_cannot_impersonate_native_pdf_evidence() {
         .unwrap()
         .contains("retained PDF"));
 }
+
+#[test]
+fn withdrawing_pdf_update_reextracts_remaining_supported_pdf() {
+    use std::sync::Arc;
+    let workspace = tempdir().unwrap();
+    let incoming = workspace.path().join("incoming");
+    fs::create_dir(&incoming).unwrap();
+    let first = incoming.join("first.pdf");
+    let second = incoming.join("second.pdf");
+    let baseline = include_bytes!("fixtures/pdf/source/text-report.pdf");
+    let replacement = include_bytes!("fixtures/pdf/source/mixed.pdf");
+    fs::write(&first, baseline).unwrap();
+    fs::write(&second, baseline).unwrap();
+    let collection = workspace.path().join("collection");
+    let provider = Arc::new(RecordedPdfProvider);
+    let extractor = Arc::new(InterruptedOcr(std::sync::atomic::AtomicBool::new(true)));
+    let mut app =
+        Application::open_with_providers(&collection, provider.clone(), extractor.clone()).unwrap();
+    app.watch_directory(&incoming).unwrap();
+    let scan = |app: &mut Application| {
+        for _ in 0..1000 {
+            app.reconcile_watched_directories(1).unwrap();
+            if app.list_watched_directories().unwrap()[0].state != "scanning" {
+                break;
+            }
+        }
+    };
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let id = app.list_sources(0).unwrap().sources[0].source_id.clone();
+    fs::write(&first, replacement).unwrap();
+    scan(&mut app);
+    app.resume_due_semantic_jobs().unwrap();
+    let changed = app.open_source(&id).unwrap();
+    let removed_version = changed.info.current_version_id.clone().unwrap();
+    assert_eq!(
+        fs::read(app.original_path(&id).unwrap()).unwrap(),
+        replacement
+    );
+    fs::remove_file(&first).unwrap();
+    scan(&mut app);
+    scan(&mut app);
+    assert_eq!(fs::read(app.original_path(&id).unwrap()).unwrap(), baseline);
+    assert!(app
+        .original_version_path(&id, &removed_version, "original.pdf")
+        .is_err());
+    let pending = app.open_source(&id).unwrap();
+    assert_eq!(pending.info.semantic_state, "pending");
+    app.resume_due_semantic_jobs().unwrap();
+    let restored = app.open_source(&id).unwrap();
+    assert_eq!(
+        restored.info.semantic_state, "complete",
+        "{:?}",
+        restored.info.semantic_error
+    );
+    assert!(restored.body.contains("PDF page 1"));
+    drop(app);
+    let app = Application::open_with_providers(&collection, provider, extractor).unwrap();
+    assert_eq!(fs::read(app.original_path(&id).unwrap()).unwrap(), baseline);
+    assert!(app
+        .original_version_path(&id, &removed_version, "original.pdf")
+        .is_err());
+}

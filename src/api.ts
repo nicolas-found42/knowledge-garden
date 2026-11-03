@@ -9,6 +9,7 @@ export type ExtractionState =
   | "structured_text"
   | "partial_text"
   | "invalid_container"
+  | "encrypted"
   | "unsupported"
   | "invalid_utf8"
   | "too_large";
@@ -17,6 +18,7 @@ export type CoverageScope =
   | "pdf_pages"
   | "main_document"
   | "tables"
+  | "spreadsheet_cells"
   | "slide_text"
   | "speaker_notes"
   | "embedded_object"
@@ -579,18 +581,17 @@ export interface SavedViews {
 }
 
 export interface GardenApi {
+  checkLocalVisualModel?(): Promise<{
+    model: string;
+    observed_revision: string;
+  }>;
+  checkJevConnection?(): Promise<string>;
   resolveTrail?(stops: TrailStop[]): Promise<ResolvedTrailStop[]>;
   trailSourceChoices?(sourceId: string, offset: number): Promise<TrailChoices>;
   trailSelectedPassage?(sourceId: string, quote: string): Promise<TrailStop>;
   suggestTrailStops?(goal: string): Promise<TrailSuggestions>;
   listSavedViews?(query: string, offset: number): Promise<SavedViews>;
-  createSavedView?(
-    name: string,
-    definition: SavedViewDefinition,
-  ): Promise<SavedView>;
   openSavedView?(viewId: string): Promise<SavedView>;
-  renameSavedView?(viewId: string, name: string): Promise<SavedView>;
-  removeSavedView?(viewId: string): Promise<void>;
   comparisonSide?(request: ComparisonRequest): Promise<ComparisonSide>;
   openComparisonOriginal?(request: ComparisonRequest): Promise<void>;
 
@@ -602,6 +603,11 @@ export interface GardenApi {
   chooseDirectory?(): Promise<string | null>;
   watchDirectory?(path: string): Promise<WatchedDirectory>;
   listWatchedDirectories?(): Promise<WatchedDirectory[]>;
+  unregisterWatchedDirectory?(watchId: string): Promise<void>;
+  listRepositories?(): Promise<
+    Array<{ repository_id: string; path: string; state: string }>
+  >;
+  unregisterRepository?(repositoryId: string): Promise<void>;
   openCollectionFile?(path: string): Promise<void>;
   collectionStatus?(): Promise<CollectionStatus>;
   resolvePageLink?(pageId: string, href: string): Promise<string>;
@@ -609,6 +615,11 @@ export interface GardenApi {
   chooseFile(): Promise<string | null>;
   chooseRepositoryDirectory(): Promise<string | null>;
   importSource(path: string, method: AcquisitionMethod): Promise<SourcePage>;
+  removeSource?(sourceId: string): Promise<void>;
+  listRemovedSources?(): Promise<
+    { recovery_id: string; source_id: string; title: string }[]
+  >;
+  restoreRemovedSource?(recoveryId: string): Promise<SourcePage>;
   importRepository(path: string): Promise<RepositoryImportResult>;
   importUrl(url: string): Promise<SourcePage>;
   listUrlAcquisitions(): Promise<UrlAcquisitionStatus[]>;
@@ -624,6 +635,12 @@ export interface GardenApi {
   openKnowledgePage(pageId: string): Promise<KnowledgePage>;
   openOriginal(sourceId: string): Promise<void>;
   previewOriginal?(sourceId: string): Promise<string>;
+  previewContainerPart?(
+    sourceId: string,
+    version: string,
+    asset: string,
+    locator: string,
+  ): Promise<string>;
   previewVideoFrame?(
     sourceId: string,
     sourceVersionId: string,
@@ -657,6 +674,8 @@ export interface UrlAcquisitionStatus {
 }
 
 export const desktopApi: GardenApi = {
+  checkLocalVisualModel: () => invoke("check_local_visual_model"),
+  checkJevConnection: () => invoke("check_jev_connection"),
   resolveTrail: (stops) => invoke("resolve_trail", { stops }),
   trailSourceChoices: (sourceId, offset) =>
     invoke("trail_source_choices", { sourceId, offset }),
@@ -665,12 +684,7 @@ export const desktopApi: GardenApi = {
   suggestTrailStops: (goal) => invoke("suggest_trail_stops", { goal }),
   listSavedViews: (query, offset) =>
     invoke("list_saved_views", { query, offset }),
-  createSavedView: (name, definition) =>
-    invoke("create_saved_view", { name, definition }),
   openSavedView: (viewId) => invoke("open_saved_view", { viewId }),
-  renameSavedView: (viewId, name) =>
-    invoke("rename_saved_view", { viewId, name }),
-  removeSavedView: (viewId) => invoke("remove_saved_view", { viewId }),
   timeline: (request) => invoke("timeline", { request }),
   comparisonSide: (request) => invoke("comparison_side", { request }),
   openComparisonOriginal: (request) =>
@@ -688,6 +702,11 @@ export const desktopApi: GardenApi = {
   },
   watchDirectory: (path) => invoke("watch_directory", { path }),
   listWatchedDirectories: () => invoke("list_watched_directories"),
+  unregisterWatchedDirectory: (watchId) =>
+    invoke("unregister_watched_directory", { watchId }),
+  listRepositories: () => invoke("list_repositories"),
+  unregisterRepository: (repositoryId) =>
+    invoke("unregister_repository", { repositoryId }),
   openCollectionFile: (path) => invoke("open_collection_file", { path }),
   collectionStatus: () => invoke("collection_status"),
   resolvePageLink: (pageId, href) =>
@@ -709,6 +728,10 @@ export const desktopApi: GardenApi = {
     return typeof selected === "string" ? selected : null;
   },
   importSource: (path, method) => invoke("import_source", { path, method }),
+  removeSource: (sourceId) => invoke("remove_source", { sourceId }),
+  listRemovedSources: () => invoke("list_removed_sources"),
+  restoreRemovedSource: (recoveryId) =>
+    invoke("restore_removed_source", { recoveryId }),
   importRepository: (path) => invoke("import_repository", { path }),
   importUrl: (url) => invoke("import_url", { url }),
   listUrlAcquisitions: () => invoke("list_url_acquisitions"),
@@ -725,6 +748,8 @@ export const desktopApi: GardenApi = {
   openKnowledgePage: (pageId) => invoke("open_knowledge_page", { pageId }),
   openOriginal: (sourceId) => invoke("open_original", { sourceId }),
   previewOriginal: (sourceId) => invoke("preview_original", { sourceId }),
+  previewContainerPart: (sourceId, version, asset, locator) =>
+    invoke("preview_container_part", { sourceId, version, asset, locator }),
   previewVideoFrame: (sourceId, sourceVersionId, asset, atMs) =>
     invoke("preview_video_frame", { sourceId, sourceVersionId, asset, atMs }),
   openOriginalVersion: (sourceId, sourceVersionId, asset) =>

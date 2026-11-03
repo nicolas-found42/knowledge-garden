@@ -8,7 +8,7 @@ capture date.
 
 Processing advances through durable windows of at most 30 seconds. One frame is
 sampled every three seconds; intervening images are unexamined. OCR regions and
-uncertain classifier predictions are retained separately from transcript passages.
+uncertain classifier predictions and local Qwen frame interpretations are retained separately from transcript passages. Qwen statements are attributed, unverified interpretations that may be wrong.
 A failed track/window does not discard evidence from another track. After the
 bounded speech retry budget, a damaged video interval is recorded as a coverage
 gap and subsequent windows can continue. Restart retries the durable unfinished
@@ -17,7 +17,7 @@ window; stable version/window identities prevent duplicate passages or frames.
 The readable Markdown includes sampled times, OCR, qualifications, track status,
 and failed intervals. Semantic formation is bounded to 24 visual evidence lines;
 additional observations remain readable on the source page. Jev represents frame
-text and classifier output in their own visual channels. Frame dates and Vision
+text, classifier output and qualified model interpretations in their own visual channels. Frame dates and Vision
 revision annotations cannot order source versions. Pasted projection text cannot
 establish acquired video provenance.
 
@@ -30,6 +30,8 @@ manual seeking. Missing previews retain that fallback. Source/version containmen
 checks also apply to preview requests.
 
 ## Verification and limits
+
+The pivot's real-model `real_video_publishes_located_audio_and_visual_knowledge` test ran local Qwen, local Whisper and Jev against a synthetic video and published separately located visual and audio statements. A separate real-model check rejected a fabricated cross-track relation. This is not broad model-quality evidence or final desktop acceptance; see [the pivot matrix](../pivot-acceptance.md).
 
 `tests/video_workflow.rs` exercises public import, processing, semantic publication,
 restart and original/preview access. Native fixtures cover silent MP4, truncated

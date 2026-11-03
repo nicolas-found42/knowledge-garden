@@ -1,5 +1,7 @@
 # Durable source contract, schema 1
 
+> **Pivot status:** [ADR 0009](../adr/0009-sources-are-the-content-authority.md) supersedes this document's external-edit authority: authored material must be preserved as recoverable source evidence, and later edits to generated pages must not change knowledge. Migration and enforcement are still being completed; see [the acceptance matrix](../pivot-acceptance.md) before using a development build with an existing collection.
+
 This is the minimum source/page representation for [issue #2](https://github.com/nicolas-found42/knowledge-garden/issues/2), following the Markdown/original and Tauri decisions in [specification #1](https://github.com/nicolas-found42/knowledge-garden/issues/1).
 
 ```text

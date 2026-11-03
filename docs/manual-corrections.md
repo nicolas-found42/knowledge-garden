@@ -1,5 +1,7 @@
 # External manual corrections
 
+> **Historical behavior, retired by [ADR 0009](adr/0009-sources-are-the-content-authority.md).** Do not edit generated fact rows to change library content. Add or remove a source instead. Existing authored corrections must be preserved as recoverable source evidence during migration; migration and enforcement remain under verification. The instructions below describe the previous contract and are retained as historical context.
+
 Knowledge pages in `pages/` are ordinary Markdown. To correct a fact, change the displayed value on its generated row and keep the property name and following `Fact identity` line intact:
 
 ```markdown

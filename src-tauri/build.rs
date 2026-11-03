@@ -68,5 +68,75 @@ fn main() {
             "Native PDF helper compilation failed."
         );
     }
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
+        let helper = manifest_dir.join("container-helper");
+        println!("cargo:rerun-if-changed=src/containers.rs");
+        println!("cargo:rerun-if-changed=container-helper/src/main.rs");
+        println!("cargo:rerun-if-changed=container-helper/Cargo.lock");
+        let profile = env::var("PROFILE").unwrap_or_default();
+        let mut build = Command::new(env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
+        build
+            .arg("build")
+            .arg("--locked")
+            .arg("--manifest-path")
+            .arg(helper.join("Cargo.toml"));
+        if profile == "release" {
+            build.arg("--release");
+        }
+        build.env_remove("CARGO_TARGET_DIR");
+        assert!(
+            build
+                .status()
+                .expect("container helper build must start")
+                .success(),
+            "container helper build failed"
+        );
+        let triple = env::var("TARGET").unwrap();
+        let binaries = manifest_dir.join("binaries");
+        std::fs::create_dir_all(&binaries).unwrap();
+        std::fs::copy(
+            helper
+                .join("target")
+                .join(if profile == "release" {
+                    "release"
+                } else {
+                    "debug"
+                })
+                .join("kg-container-helper"),
+            binaries.join(format!("kg-container-helper-{triple}")),
+        )
+        .expect("container helper must be bundled");
+        println!("cargo:rerun-if-changed=container-helper/gmime_unit.c");
+        println!("cargo:rerun-if-changed=container-helper/provision_gmime.py");
+        println!("cargo:rerun-if-changed=container-helper/gmime-runtime-lock.json");
+        let generated = helper.join("generated-gmime");
+        assert!(
+            Command::new("python3")
+                .arg(helper.join("provision_gmime.py"))
+                .arg(&generated)
+                .status()
+                .expect("GMime provisioning must start")
+                .success(),
+            "Pinned GMime runtime provisioning failed"
+        );
+        std::fs::copy(
+            generated.join("kg-mime-unit"),
+            binaries.join(format!("kg-mime-unit-{triple}")),
+        )
+        .expect("GMime helper must be bundled");
+        for name in ["container-runtime", "container-licenses"] {
+            let destination = manifest_dir.join("resources").join(name);
+            std::fs::create_dir_all(&destination).unwrap();
+            for entry in std::fs::read_dir(generated.join(name)).unwrap() {
+                let entry = entry.unwrap();
+                let target = destination.join(entry.file_name());
+                if target.exists() {
+                    std::fs::remove_file(&target).unwrap();
+                }
+                std::fs::copy(entry.path(), target).unwrap();
+            }
+        }
+    }
     tauri_build::build();
 }

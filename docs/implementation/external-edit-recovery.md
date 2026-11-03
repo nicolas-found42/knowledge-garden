@@ -1,5 +1,7 @@
 # External Markdown reconciliation and recovery
 
+> **Historical contract:** [ADR 0009](../adr/0009-sources-are-the-content-authority.md) retires external edits as authority over generated knowledge. Its recoverable migration is still being verified. Statements below about manual authority describe the previous implementation and must not be treated as the new product policy.
+
 Knowledge page identity lives in YAML `page_id`, independently of filename and
 `title`. Keep that identity when renaming or moving a page within `pages/`.
 A duplicate identity has no canonical winner. Malformed owner files are retained

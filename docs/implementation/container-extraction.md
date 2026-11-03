@@ -1,0 +1,7 @@
+# Email and ZIP extraction
+
+The retained email or ZIP file remains the original. The helper reads at most 8 MiB of email input and projects plain-text email body parts. ZIP archives are read by member without loading the whole archive; individual members and total expanded text are bounded. Each projected line carries a MIME part number or a ZIP member index and encoded name. Unsupported parts, attachments, unsafe paths, unreadable members, and limits appear as coverage gaps. Nested archives are not expanded. Files are never extracted to disk and links, code, and macros are not executed.
+
+The macOS helper runs as a separate executable under a deny-by-default sandbox. It can read only the specified input, its executable, the root directory, and system library paths. Network access and filesystem writes are denied. The supervisor terminates a helper after 15 seconds, when output exceeds 16 MiB, or when a 200 ms RSS sample exceeds 512 MiB. RSS sampling is not a hard memory limit and the process can exceed that threshold between samples. On other platforms this extractor reports that its sandbox helper is unavailable.
+
+A retained-part preview reopens the specified source version and re-extracts it under the same sandbox. It returns only the identified part as inert text. It does not change the original or open an attachment in a separate application. The original can also be opened separately. MIME HTML, attachment interpretation, encrypted content, and archive formats other than ZIP remain unsupported.

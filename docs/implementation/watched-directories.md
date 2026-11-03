@@ -48,13 +48,14 @@ resolved. Filesystem existence is never used to guess which interpretation owns
 the retained original.
 
 Confirmed removal withdraws only that source's fact, relationship, and tag support.
-Independent support and external manual corrections survive. A recoverable
+Independent source support survives. Historical authored corrections require the
+recoverable migration described by [ADR 0009](../adr/0009-sources-are-the-content-authority.md); they are not ongoing authority over generated facts. A recoverable
 publication transaction writes reconciled Markdown before removing source assets;
 restart completes an interrupted publication before rebuilding disposable indexes.
 The running application also finishes pending publication intents before accepting
 later imports, directory reconciliation, or semantic/audio work, so an old removal
 cannot replay over a newly reimported source on a subsequent restart.
-Manual pages with no remaining source remain searchable with unavailable evidence.
+The handling of formerly manual pages is part of the pending migration verification.
 
 The existing importer and source-withdrawal path rebuild the collection index and
 reconcile affected Markdown while holding the application lock. Discovery is

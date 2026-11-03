@@ -18,7 +18,6 @@ import { marked } from "marked";
 import type {
   TrailStop,
   ResolvedTrailStop,
-  SavedViewDefinition,
   ViewTarget,
   AcquisitionMethod,
   GardenApi,
@@ -46,6 +45,7 @@ const labels = {
   structured_text: "Structured text extracted",
   partial_text: "Partially extracted",
   invalid_container: "Damaged Office container",
+  encrypted: "Encrypted source",
   unsupported: "Unsupported format",
   invalid_utf8: "Text could not be decoded",
   too_large: "Text exceeds preview limit",
@@ -74,12 +74,7 @@ export async function mountReader(
   const timelineButton = element("button", "Timeline");
   timelineButton.hidden = !api.timeline;
   const savedButton = element("button", "Saved views");
-  savedButton.hidden =
-    !api.listSavedViews ||
-    !api.createSavedView ||
-    !api.openSavedView ||
-    !api.renameSavedView ||
-    !api.removeSavedView;
+  savedButton.hidden = !api.listSavedViews || !api.openSavedView;
   const savedHost = element("aside");
   savedHost.hidden = true;
   const trailButton = element("button", "Trails");
@@ -99,6 +94,9 @@ export async function mountReader(
   const addUrlButton = element("button", "Add URL");
   const watchButton = element("button", "Watch directory");
   watchButton.hidden = !api.watchDirectory || !api.chooseDirectory;
+  const setupButton = element("button", "Processing setup");
+  setupButton.hidden = !api.checkLocalVisualModel || !api.checkJevConnection;
+  setupButton.setAttribute("aria-expanded", "false");
   toolbar.append(
     brand,
     backButton,
@@ -112,7 +110,66 @@ export async function mountReader(
     addRepositoryButton,
     addUrlButton,
     watchButton,
+    setupButton,
   );
+  const setup = element("section");
+  setup.hidden = true;
+  setup.setAttribute("aria-label", "Processing setup");
+  setup.append(
+    element("h2", "Processing setup"),
+    element(
+      "p",
+      "Visual interpretation uses local Qwen qwen2.5vl:7b through Ollama. Audio transcription uses local Whisper. Model interpretations and transcripts can be wrong.",
+    ),
+    element(
+      "p",
+      "Jev typesafe/jev-1.14 assesses evidence remotely through OpenRouter. Some judgments send source excerpts or bounded projections. These checks use only built-in test data.",
+    ),
+    element(
+      "p",
+      "The current visual request limit is 8 MiB per image; Jev source-text projections are limited to 64 KiB, with questions and sometimes prior context sent separately. Source coverage and processing limits are shown with each source.",
+    ),
+  );
+  const localCheck = element("button", "Check local model");
+  const localResult = element(
+    "p",
+    "Local model has not been checked in this session.",
+  );
+  localResult.setAttribute("role", "status");
+  const jevCheck = element("button", "Check Jev connection");
+  const jevResult = element("p", "Jev has not been checked in this session.");
+  jevResult.setAttribute("role", "status");
+  setup.append(localCheck, localResult, jevCheck, jevResult);
+  setupButton.addEventListener("click", () => {
+    setup.hidden = !setup.hidden;
+    setupButton.setAttribute("aria-expanded", String(!setup.hidden));
+  });
+  localCheck.addEventListener("click", async () => {
+    if (!api.checkLocalVisualModel) return;
+    localCheck.disabled = true;
+    localResult.textContent =
+      "Checking the local model. Loading it may take a moment.";
+    try {
+      const result = await api.checkLocalVisualModel();
+      localResult.textContent = `Local model responded: ${result.model}; observed revision ${result.observed_revision}.`;
+    } catch (error) {
+      localResult.textContent = `Local model check failed: ${String(error)}`;
+    } finally {
+      localCheck.disabled = false;
+    }
+  });
+  jevCheck.addEventListener("click", async () => {
+    if (!api.checkJevConnection) return;
+    jevCheck.disabled = true;
+    jevResult.textContent = "Checking Jev with a synthetic example.";
+    try {
+      jevResult.textContent = `Jev responded: ${await api.checkJevConnection()}.`;
+    } catch (error) {
+      jevResult.textContent = `Jev check failed: ${String(error)}`;
+    } finally {
+      jevCheck.disabled = false;
+    }
+  });
   const urlForm = element("form");
   urlForm.className = "url-form";
   urlForm.hidden = true;
@@ -160,6 +217,7 @@ export async function mountReader(
   readingWorkspace.append(trailHost, main);
   root.replaceChildren(
     toolbar,
+    setup,
     notice,
     comparisonTray,
     savedHost,
@@ -222,13 +280,7 @@ export async function mountReader(
   let comparisonController: ReturnType<typeof renderComparison> | null = null;
   let comparisonIntent = 0;
   let comparisonCandidate: { sourceId: string; title: string } | null = null;
-  const savedPanel = savedViewsPanel(
-    savedHost,
-    api,
-    captureSavedView,
-    openSavedView,
-    report,
-  );
+  const savedPanel = savedViewsPanel(savedHost, api, openSavedView, report);
   savedButton.addEventListener("click", () => savedPanel.toggle());
   let trailNavigationIntent: number | null = null;
   let trailOrigin: NavigationState | null = null;
@@ -259,19 +311,6 @@ export async function mountReader(
       syncBackButton();
     },
     follow: followTrailStop,
-    save: async (name, stops) => {
-      await api.createSavedView!(name, {
-        active: "trail",
-        trail: stops,
-        search: null,
-        query: null,
-        collection: null,
-        timeline: null,
-        paths: null,
-        comparison: [],
-        target: null,
-      });
-    },
     error: report,
   });
   trailButton.addEventListener("click", () => trailController.toggle());
@@ -388,77 +427,6 @@ export async function mountReader(
       showKnowledgePage(next);
     }
     return true;
-  }
-  function captureSavedView(): SavedViewDefinition | null {
-    if (
-      currentView === "empty" ||
-      main.querySelector("[data-saved-view-unavailable]")
-    )
-      return null;
-    const target = (
-      sourceId: string | null,
-      pageId: string | null,
-      title?: string,
-    ): ViewTarget | null =>
-      sourceId
-        ? { source_id: sourceId, page_id: null, title }
-        : pageId
-          ? { source_id: null, page_id: pageId, title }
-          : null;
-    return structuredClone({
-      active: currentView,
-      ...(trailController.stops().length
-        ? { trail: trailController.stops() }
-        : {}),
-      search: currentSearch ? { ...currentSearch, offset: 0 } : null,
-      query:
-        queryView && (currentView === "query" || queryView.revision !== null)
-          ? { ...queryView.request, continuation: null }
-          : null,
-      collection: {
-        axis: currentCollection.axis,
-        query: currentCollection.query,
-        presentation: currentCollection.presentation,
-        expanded_groups: Object.values(currentCollection.expanded).map((v) => ({
-          group_id: v.group.group_id,
-          label: v.group.label,
-        })),
-        selected: currentCollection.selected
-          ? target(
-              currentCollection.selected.page_type === "source"
-                ? currentCollection.selected.source_id
-                : null,
-              currentCollection.selected.page_id,
-              currentCollection.selected.title,
-            )
-          : null,
-      },
-      timeline: currentTimeline ? { ...currentTimeline, offset: 0 } : null,
-      paths: currentPathExplore
-        ? {
-            start_page_id: currentPathExplore.startPageId,
-            start_title: currentPathExplore.startTitle,
-            max_hops: currentPathExplore.maxHops,
-            selected_target_page_id: currentPathExplore.selectedTargetPageId,
-          }
-        : null,
-      comparison: currentComparison.selections.flatMap((v) =>
-        v
-          ? [{ source_id: v.sourceId, title: v.title, line_start: v.lineStart }]
-          : [],
-      ),
-      target:
-        currentView === "source"
-          ? target(currentSourceId, null, page?.info.title)
-          : currentView === "knowledge"
-            ? target(
-                null,
-                currentKnowledgePageId,
-                main.querySelector("article")?.getAttribute("aria-label") ??
-                  undefined,
-              )
-            : null,
-    });
   }
   async function openSavedView(id: string): Promise<string | null> {
     const intent = ++searchGeneration;
@@ -1267,6 +1235,9 @@ export async function mountReader(
       const videoFrameMatch = href.match(
         /^\?video_frame=(source-[a-f0-9]{64})&at_ms=(\d+)&version=([a-f0-9]{64})&asset=(original(?:\.[a-zA-Z0-9]+)?)$/,
       );
+      const containerMatch = href.match(
+        /^\?container_source=(source-[a-f0-9]{64})&version=([a-f0-9]{64})&asset=(original\.(?:eml|zip))&locator=([A-Za-z0-9%]+)$/,
+      );
       const audioSeekMatch = href.match(
         /^\?audio_seek=(source-[a-f0-9]{64})&at_ms=(\d+)(?:&version=([a-f0-9]{64})&asset=(original(?:\.[a-zA-Z0-9]+)?))?$/,
       );
@@ -1282,7 +1253,37 @@ export async function mountReader(
       const originalMatch = href.match(
         /^(?:\.\.\/)*sources\/([a-f0-9]{64})\/(original(?:\.[a-zA-Z0-9]+)?)$/,
       );
-      if (videoFrameMatch) {
+      if (containerMatch) {
+        let locator: string;
+        try {
+          locator = decodeURIComponent(containerMatch[4]);
+        } catch {
+          message("The container location is invalid.");
+          return;
+        }
+        if (!/^(EMAIL |ZIP )/.test(locator) || !api.previewContainerPart) {
+          message("The container part preview is unavailable.");
+          return;
+        }
+        void api
+          .previewContainerPart(
+            containerMatch[1],
+            containerMatch[2],
+            containerMatch[3],
+            locator,
+          )
+          .then((text) => {
+            if (disposed || !article.isConnected) return;
+            const preview = element("section");
+            preview.setAttribute("aria-label", "Retained container part");
+            preview.append(
+              element("p", `Retained source part ${locator}`),
+              element("pre", text),
+            );
+            link.after(preview);
+          })
+          .catch(report);
+      } else if (videoFrameMatch) {
         const atMs = Number(videoFrameMatch[2]);
         if (!Number.isSafeInteger(atMs)) {
           message(
@@ -1427,6 +1428,74 @@ export async function mountReader(
       next.info.asset,
     );
     if (!article) return;
+    if (api.removeSource) {
+      const removal = element("details");
+      removal.append(element("summary", "Remove source"));
+      removal.append(
+        element(
+          "p",
+          "Removing this source stops processing and removes its evidence. Knowledge supported only by this source will be removed. A recovery copy is kept, and the original file is not deleted.",
+        ),
+      );
+      const confirm = element("button", "Confirm removal");
+      confirm.addEventListener("click", async () => {
+        confirm.disabled = true;
+        try {
+          await api.removeSource!(next.info.source_id);
+          if (!disposed) {
+            clearRemovedPage();
+            sourcesFingerprint = "";
+            if (!sources.hidden) await loadSources(0, false);
+          }
+        } catch (error) {
+          confirm.disabled = false;
+          report(error);
+        }
+      });
+      removal.append(confirm);
+      article.prepend(removal);
+    }
+    if (api.previewContainerPart && /^(eml|zip)$/.test(next.info.format)) {
+      const locations = new Set(
+        Array.from(
+          next.body.matchAll(
+            /\[((?:EMAIL (?:part=[0-9.]+|header=(?:From|To|Cc|Date|Subject))|ZIP member=[0-9]+ name=[A-Za-z0-9%]+))\]/g,
+          ),
+          (match) => match[1],
+        ),
+      );
+      if (locations.size) {
+        const parts = element("section");
+        parts.setAttribute("aria-label", "Retained container parts");
+        parts.append(element("h2", "Retained parts"));
+        for (const locator of locations) {
+          const button = element("button", `View ${locator}`);
+          button.addEventListener("click", () => {
+            void api.previewContainerPart!(
+              next.info.source_id,
+              next.info.sha256,
+              next.info.asset,
+              locator,
+            )
+              .then((text) => {
+                if (disposed || !article.isConnected) return;
+                parts.querySelector("[data-part-preview]")?.remove();
+                const preview = element("section");
+                preview.dataset.partPreview = "true";
+                preview.setAttribute("aria-label", "Retained container part");
+                preview.append(
+                  element("p", `Retained source part ${locator}`),
+                  element("pre", text),
+                );
+                parts.append(preview);
+              })
+              .catch(report);
+          });
+          parts.append(button);
+        }
+        article.prepend(parts);
+      }
+    }
     if (api.comparisonSide) {
       const compare = element("button", "Compare this source");
       compare.dataset.focusId = "compare-source";
@@ -2920,7 +2989,7 @@ export async function mountReader(
       return;
     const fingerprint = JSON.stringify([offset, listing]);
     if (!focus && fingerprint === sourcesFingerprint) {
-      await refreshWatches();
+      await refreshWatches(false);
       return;
     }
     sourcesOffset = offset;
@@ -2929,9 +2998,50 @@ export async function mountReader(
       .sourceId;
     const heading = element("h2", "Sources");
     sources.replaceChildren(heading);
+    if (api.listRemovedSources && api.restoreRemovedSource) {
+      const recovery = element("details");
+      recovery.append(element("summary", "Recover removed sources"));
+      recovery.addEventListener("toggle", async () => {
+        if (!recovery.open) return;
+        try {
+          const removed = await api.listRemovedSources!();
+          recovery.replaceChildren(
+            element("summary", "Recover removed sources"),
+          );
+          recovery.append(
+            element(
+              "p",
+              "Restore the source and its retained version history. Knowledge will be rebuilt from the restored source.",
+            ),
+          );
+          if (!removed.length)
+            recovery.append(element("p", "No recovery copies."));
+          for (const item of removed) {
+            const restore = element("button", `Restore ${item.title}`);
+            restore.addEventListener("click", async () => {
+              restore.disabled = true;
+              try {
+                showPage(await api.restoreRemovedSource!(item.recovery_id));
+                message("Source restored.");
+              } catch (error) {
+                restore.disabled = false;
+                report(error);
+              }
+            });
+            recovery.append(restore);
+          }
+        } catch (error) {
+          report(error);
+        }
+      });
+      sources.append(recovery);
+    }
     const watched = element("section");
     watched.setAttribute("aria-label", "Watched directories");
     sources.append(watched);
+    const repositories = element("section");
+    repositories.setAttribute("aria-label", "Repositories");
+    sources.append(repositories);
     void refreshWatches().catch(report);
     if (listing.sources.length === 0)
       sources.append(element("p", "No sources yet."));
@@ -2960,19 +3070,93 @@ export async function mountReader(
         )
         ?.focus();
   }
-  async function refreshWatches() {
-    if (!api.listWatchedDirectories) return;
-    const watches = await api.listWatchedDirectories();
-    if (disposed) return;
-    const section = sources.querySelector('[aria-label="Watched directories"]');
-    section?.replaceChildren(
-      ...watches.map((watch) =>
-        element(
-          "p",
-          `${watch.path} · ${watch.state}${watch.state === "scanning" ? ` · ${watch.processed_files} files processed` : ""}${watch.detail ? ` · ${watch.detail}` : ""}${watch.state === "unavailable" ? " · Retained originals and knowledge remain available." : ""}`,
-        ),
-      ),
-    );
+  async function refreshWatches(includeRepositories = true) {
+    if (api.listWatchedDirectories) {
+      const watches = await api.listWatchedDirectories();
+      if (disposed) return;
+      const section = sources.querySelector(
+        '[aria-label="Watched directories"]',
+      );
+      section?.replaceChildren();
+      for (const watch of watches) {
+        const row = element("div");
+        row.append(
+          element(
+            "p",
+            `${watch.path} · ${watch.state}${watch.state === "scanning" ? ` · ${watch.processed_files} files processed` : ""}${watch.detail ? ` · ${watch.detail}` : ""}`,
+          ),
+        );
+        if (api.unregisterWatchedDirectory) {
+          const removal = element("details");
+          removal.append(element("summary", "Remove watched directory"));
+          removal.append(
+            element(
+              "p",
+              "This stops watching the directory and withdraws evidence acquired only through this registration. The original files remain in place and recovery copies are kept.",
+            ),
+          );
+          const confirm = element("button", "Confirm directory removal");
+          confirm.addEventListener("click", async () => {
+            confirm.disabled = true;
+            try {
+              await api.unregisterWatchedDirectory!(watch.watch_id);
+              sourcesFingerprint = "";
+              await loadSources(0, false);
+              message("Watched directory removed.");
+            } catch (error) {
+              confirm.disabled = false;
+              report(error);
+            }
+          });
+          removal.append(confirm);
+          row.append(removal);
+        }
+        section?.append(row);
+      }
+    }
+    if (includeRepositories && api.listRepositories) {
+      const records = await api.listRepositories();
+      if (disposed) return;
+      const section = sources.querySelector('[aria-label="Repositories"]');
+      section?.replaceChildren();
+      for (const repository of records) {
+        const row = element("div");
+        row.append(element("p", `${repository.path} · ${repository.state}`));
+        if (repository.state === "legacy_ambiguous") {
+          row.append(
+            element(
+              "p",
+              "This older repository's ownership is ambiguous. Its sources are retained and cannot be removed automatically.",
+            ),
+          );
+        } else if (api.unregisterRepository) {
+          const removal = element("details");
+          removal.append(element("summary", "Remove repository"));
+          removal.append(
+            element(
+              "p",
+              "This withdraws evidence acquired only through this registration. The original repository remains in place and recovery copies are kept.",
+            ),
+          );
+          const confirm = element("button", "Confirm repository removal");
+          confirm.addEventListener("click", async () => {
+            confirm.disabled = true;
+            try {
+              await api.unregisterRepository!(repository.repository_id);
+              sourcesFingerprint = "";
+              await loadSources(0, false);
+              message("Repository removed.");
+            } catch (error) {
+              confirm.disabled = false;
+              report(error);
+            }
+          });
+          removal.append(confirm);
+          row.append(removal);
+        }
+        section?.append(row);
+      }
+    }
   }
   watchButton.addEventListener("click", () => {
     if (watchButton.disabled) return;
@@ -3267,10 +3451,10 @@ export async function mountReader(
     main.replaceChildren(
       element(
         "p",
-        "This source was removed from its watched directory. Its solely supported knowledge has been removed.",
+        "This source was removed. Knowledge supported only by this source has been removed.",
       ),
     );
-    message("Source removed after confirmed directory reconciliation.");
+    message("Source removed.");
   }
   return () => {
     disposed = true;
