@@ -13,12 +13,12 @@ struct State {
 enum Verification {
     Legacy {
         path: PathBuf,
-        session: legacy_verify::Session,
+        session: Box<legacy_verify::Session>,
     },
     V3 {
         path: PathBuf,
         work: tempfile::TempDir,
-        session: incremental_verify::Session,
+        session: Box<incremental_verify::Session>,
     },
 }
 pub(crate) struct Session {
@@ -61,14 +61,14 @@ fn verified(saved: &Path, session: &mut Session) -> Result<bool> {
             Verification::V3 {
                 path: saved.to_owned(),
                 work,
-                session: cursor,
+                session: Box::new(cursor),
             }
         } else {
             let mut cursor = legacy_verify::Session::new(saved)?;
             cursor.capture()?;
             Verification::Legacy {
                 path: saved.to_owned(),
-                session: cursor,
+                session: Box::new(cursor),
             }
         };
         session.verification = Some(verification);

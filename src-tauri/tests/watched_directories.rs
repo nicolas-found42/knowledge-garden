@@ -165,21 +165,16 @@ fn actual_removal_withdraws_sole_support_and_recovers_external_edits() {
                 ..Default::default()
             })
             .unwrap();
-        assert_eq!(
-            results
-                .pages
-                .iter()
-                .any(|page| page.page_id == event.page_id),
-            false
-        );
-        assert_eq!(
-            app.timeline(knowledge_garden::timeline::TimelineRequest::default())
-                .unwrap()
-                .entries
-                .iter()
-                .any(|entry| entry.page_id == event.page_id),
-            false
-        );
+        assert!(!results
+            .pages
+            .iter()
+            .any(|page| page.page_id == event.page_id));
+        assert!(!app
+            .timeline(knowledge_garden::timeline::TimelineRequest::default())
+            .unwrap()
+            .entries
+            .iter()
+            .any(|entry| entry.page_id == event.page_id));
         assert!(app
             .search_pages(PageSearchRequest {
                 query: "10 minutes".into(),

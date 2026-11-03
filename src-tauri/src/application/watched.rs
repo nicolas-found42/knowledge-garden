@@ -798,7 +798,7 @@ impl Application {
             write_atomic(&staging.join("index.md"), &bytes)?;
             trusted_pages::record_restored_source(
                 &self.root,
-                &destination
+                destination
                     .join("index.md")
                     .strip_prefix(&self.root)
                     .map_err(|_| {
@@ -1167,6 +1167,12 @@ impl Application {
                             source.info.pending_version_id = None;
                         }
                     }
+                } else if version.bytes <= MAX_RECONCILIATION_BYTES
+                    && is_text_format(&version.format)
+                {
+                    source.info.extraction = ExtractionState::PartialText;
+                    source.info.extraction_detail = "The supported UTF-8 source version is queued for resumable text processing; its complete original remains available.".into();
+                    source.body = source_body(&source.info, "", None);
                 } else {
                     source.info.extraction = ExtractionState::TooLarge;
                     source.info.semantic_state = "unavailable".into();

@@ -230,12 +230,12 @@ impl PageIdReader {
                             ));
                         }
                         self.root_mapping = true;
-                    } else if self.depth == 1 {
-                        if self.expect_key || self.key.as_deref() == Some("page_id") {
-                            return Err(GardenError::Invalid(
-                                "Invalid page header key or identity.".into(),
-                            ));
-                        }
+                    } else if self.depth == 1
+                        && (self.expect_key || self.key.as_deref() == Some("page_id"))
+                    {
+                        return Err(GardenError::Invalid(
+                            "Invalid page header key or identity.".into(),
+                        ));
                     }
                     self.depth += 1;
                     if self.depth > MAX_DEPTH {
@@ -646,29 +646,28 @@ struct SnapshotRecord {
 
 /// Scans one authenticated snapshot row or one bounded file chunk per turn.
 /// A result is provisional until the matched live record passes its fence.
+type IdentityAuthority = super::super::migration_backup::replay_authority::Expected;
+type RecordAuthority = Option<(std::path::PathBuf, IdentityAuthority)>;
+type FoundIdentity = (
+    std::path::PathBuf,
+    std::path::PathBuf,
+    IdentityAuthority,
+    RecordAuthority,
+);
+type PendingIdentity = (
+    std::path::PathBuf,
+    std::path::PathBuf,
+    IdentityAuthority,
+    RecordAuthority,
+    AuthenticatedCandidate,
+);
+
 pub(super) struct Resolver {
     rows: super::super::migration_backup::replay_authority::SnapshotRows,
     wanted: String,
     trusted: bool,
-    candidate: Option<(
-        std::path::PathBuf,
-        std::path::PathBuf,
-        super::super::migration_backup::replay_authority::Expected,
-        Option<(
-            std::path::PathBuf,
-            super::super::migration_backup::replay_authority::Expected,
-        )>,
-        AuthenticatedCandidate,
-    )>,
-    found: Option<(
-        std::path::PathBuf,
-        std::path::PathBuf,
-        super::super::migration_backup::replay_authority::Expected,
-        Option<(
-            std::path::PathBuf,
-            super::super::migration_backup::replay_authority::Expected,
-        )>,
-    )>,
+    candidate: Option<PendingIdentity>,
+    found: Option<FoundIdentity>,
     fence: Option<super::super::migration_backup::replay_authority::FileVerifier>,
     scanned: bool,
     overlay_after: String,

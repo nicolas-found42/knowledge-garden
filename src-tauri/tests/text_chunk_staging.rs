@@ -191,14 +191,16 @@ fn incomplete_chain_and_excessive_output_are_never_publishable() {
         offset_basis: None,
         source_location: None,
     };
-    let mut draft = KnowledgeDraft::default();
-    draft.entities = (0..501)
-        .map(|i| EntityDraft {
-            kind: "topic".into(),
-            label: format!("topic{i}"),
-            evidence: evidence.clone(),
-        })
-        .collect();
+    let draft = KnowledgeDraft {
+        entities: (0..501)
+            .map(|i| EntityDraft {
+                kind: "topic".into(),
+                label: format!("topic{i}"),
+                evidence: evidence.clone(),
+            })
+            .collect(),
+        ..Default::default()
+    };
     knowledge_garden::text_chunk_staging::commit(
         temp.path(),
         &StagedChunk {

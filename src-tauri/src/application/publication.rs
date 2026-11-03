@@ -787,7 +787,7 @@ fn replay_parent(
                     Ok(()) | Err(Errno::EXIST) => (),
                     Err(error) => return Err(std::io::Error::from(error).into()),
                 }
-                File::from(directory.try_clone().map_err(std::io::Error::from)?).sync_all()?;
+                File::from(directory.try_clone()?).sync_all()?;
                 openat(&directory, part.as_os_str(), flags, Mode::empty())
                     .map_err(std::io::Error::from)?
             }
@@ -1034,16 +1034,17 @@ impl ActiveReplay {
             let staged_size = migration_backup::open_nofollow(root, &staged_relative)?
                 .metadata()?
                 .len();
-            if Path::new(&pending.entry.destination).starts_with("pages")
-                && pending.expected.is_some()
-                && pending.page_destination.is_none()
-            {
+            let page_expected = pending.expected.clone().filter(|_| {
+                Path::new(&pending.entry.destination).starts_with("pages")
+                    && pending.page_destination.is_none()
+            });
+            if let Some(page_expected) = page_expected {
                 if pending.page_resolver.is_none() {
                     if pending.page_candidate.is_none() {
                         pending.page_candidate = Some(page_identity::AuthenticatedCandidate::new(
                             root,
                             &staged_relative,
-                            pending.expected.as_ref().unwrap().clone(),
+                            page_expected.clone(),
                         )?);
                         return Ok(false);
                     }
@@ -1057,7 +1058,7 @@ impl ActiveReplay {
                         )?;
                         resolver.permit_published_output(
                             staged_relative.clone(),
-                            pending.expected.as_ref().unwrap().clone(),
+                            page_expected.clone(),
                             pending.entry.destination.clone(),
                         );
                         pending.page_resolver = Some(resolver);
@@ -1111,14 +1112,13 @@ impl ActiveReplay {
                 return Ok(false);
             }
             let pending = self.pending.take().unwrap();
-            if matches!(pending.page_destination, Some(None)) {
-                if pending.entry.base_sha256.is_some()
-                    || root.join(&pending.entry.destination).exists()
-                {
-                    return Err(GardenError::Recovery(
-                        "Publication page identity is absent from the verified snapshot.".into(),
-                    ));
-                }
+            if matches!(pending.page_destination, Some(None))
+                && (pending.entry.base_sha256.is_some()
+                    || root.join(&pending.entry.destination).exists())
+            {
+                return Err(GardenError::Recovery(
+                    "Publication page identity is absent from the verified snapshot.".into(),
+                ));
             }
             let expected_base = if let Some(digest) = &pending.entry.base_sha256 {
                 let bytes = self.manifest.base(self.entry, pending.entry.base_length)?;
@@ -1256,7 +1256,8 @@ fn archive_replayed_transaction(root: &Path, replay_generation: &str, name: &str
         openat(&root_fd, ".staging", flags, Mode::empty()).map_err(std::io::Error::from)?;
     let transactions =
         openat(&staging, "transactions", flags, Mode::empty()).map_err(std::io::Error::from)?;
-    for (parent, name) in [(&root_fd, ".recovery")] {
+    {
+        let (parent, name) = (&root_fd, ".recovery");
         match mkdirat(parent, name, Mode::from_bits_truncate(0o700)) {
             Ok(()) | Err(Errno::EXIST) => (),
             Err(error) => return Err(std::io::Error::from(error).into()),
@@ -1514,7 +1515,7 @@ fn retain_removed_entry(root: &Path, relative: &Path) -> Result<()> {
     let mut file = File::from(fd);
     file.write_all(&serde_json::to_vec(relative)?)?;
     file.sync_all()?;
-    File::from(directory.try_clone().map_err(std::io::Error::from)?).sync_all()?;
+    File::from(directory.try_clone()?).sync_all()?;
     File::from(recovery).sync_all()?;
     match replay_parent(root, relative, false) {
         Ok((source, name)) => {

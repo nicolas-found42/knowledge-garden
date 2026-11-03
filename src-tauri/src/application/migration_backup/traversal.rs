@@ -297,7 +297,7 @@ fn acknowledge_with_descend(
     let mark = marker(work_root, journal, &item.path)?;
     fs::create_dir_all(mark.parent().unwrap())?;
     let bytes = serde_json::to_vec(&item.path)?;
-    if seen(work_root, journal, &item.path)? == false {
+    if !seen(work_root, journal, &item.path)? {
         write_atomic(&mark, &bytes)?;
     }
     if item.directory && descend {

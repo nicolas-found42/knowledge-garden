@@ -15,10 +15,10 @@ impl Proof {
     }
 }
 enum Verifier {
-    Legacy(legacy_verify::Session),
+    Legacy(Box<legacy_verify::Session>),
     V3 {
         work: tempfile::TempDir,
-        session: incremental_verify::Session,
+        session: Box<incremental_verify::Session>,
     },
 }
 pub(crate) struct Session {
@@ -139,11 +139,11 @@ impl Session {
                     )?;
                     Verifier::V3 {
                         work,
-                        session: incremental_verify::Session::new(),
+                        session: Box::new(incremental_verify::Session::new()),
                     }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    Verifier::Legacy(legacy_verify::Session::new(&saved)?)
+                    Verifier::Legacy(Box::new(legacy_verify::Session::new(&saved)?))
                 }
                 Err(e) => return Err(e.into()),
                 Ok(_) => {

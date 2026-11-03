@@ -111,7 +111,7 @@ fn create_scratch(root: &Path, work: &Path) -> Result<()> {
         ));
     }
     let (directory, _) = replay_parent(root, &work.join("placeholder"), true)?;
-    let metadata = File::from(directory.try_clone().map_err(std::io::Error::from)?).metadata()?;
+    let metadata = File::from(directory.try_clone()?).metadata()?;
     if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o077 != 0 {
         return Err(GardenError::Recovery(
             "Replay scratch directory is not private.".into(),
@@ -155,7 +155,7 @@ impl ScratchOutput {
             Mode::from_bits_truncate(0o600),
         ) {
             Ok(fd) => {
-                File::from(parent.try_clone().map_err(std::io::Error::from)?).sync_all()?;
+                File::from(parent.try_clone()?).sync_all()?;
                 fd
             }
             Err(Errno::EXIST) => {

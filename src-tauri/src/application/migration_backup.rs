@@ -75,7 +75,7 @@ fn replay_copy_directories(root: &Path, journal: &Path, create: bool) -> Result<
             }
         }
         let child = openat(&parent, part, flags, Mode::empty()).map_err(std::io::Error::from)?;
-        let metadata = File::from(child.try_clone().map_err(std::io::Error::from)?).metadata()?;
+        let metadata = File::from(child.try_clone()?).metadata()?;
         if metadata.mode() & 0o077 != 0 || metadata.uid() != unsafe { libc::geteuid() } {
             return Err(GardenError::Recovery(
                 "Replay copy work directory is not private.".into(),
@@ -135,9 +135,9 @@ pub(super) fn replay_copy_destination(root: &Path, journal: &Path) -> Result<Pat
 }
 
 #[cfg(test)]
-static PAUSE_PRE_RECOVERY: std::sync::Mutex<
-    Option<(PathBuf, Arc<std::sync::Barrier>, Arc<std::sync::Barrier>)>,
-> = std::sync::Mutex::new(None);
+type RecoveryPause = (PathBuf, Arc<std::sync::Barrier>, Arc<std::sync::Barrier>);
+#[cfg(test)]
+static PAUSE_PRE_RECOVERY: std::sync::Mutex<Option<RecoveryPause>> = std::sync::Mutex::new(None);
 
 #[derive(Serialize, Deserialize)]
 struct MigrationState {

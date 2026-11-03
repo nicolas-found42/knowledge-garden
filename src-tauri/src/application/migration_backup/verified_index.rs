@@ -3,6 +3,9 @@ use super::*;
 use rusqlite::{params, OptionalExtension};
 use std::sync::Mutex;
 
+type VerifiedRow = (Vec<u8>, PathBuf, Option<String>);
+type StoredRow = (Vec<u8>, Vec<u8>, Option<String>, Vec<u8>);
+
 pub(crate) struct VerifiedIndex {
     _work: tempfile::TempDir,
     db: Mutex<Connection>,
@@ -94,10 +97,7 @@ impl VerifiedIndex {
         validate_relative_collection_path(&path)?;
         Ok((key, path, digest))
     }
-    pub(crate) fn next(
-        &self,
-        after: Option<&[u8]>,
-    ) -> Result<Option<(Vec<u8>, PathBuf, Option<String>)>> {
+    pub(crate) fn next(&self, after: Option<&[u8]>) -> Result<Option<VerifiedRow>> {
         let (last, sealed) = self.chain.lock().unwrap().clone();
         if !sealed {
             return Err(GardenError::Recovery(
@@ -105,7 +105,7 @@ impl VerifiedIndex {
             ));
         }
         let db = self.db.lock().unwrap();
-        let row: Option<(Vec<u8>,Vec<u8>,Option<String>,Vec<u8>)> = db.query_row("SELECT CASE WHEN length(path)<=16384 THEN path ELSE x'' END, CASE WHEN length(previous)<=16384 THEN previous ELSE x'ff' END, CASE WHEN digest IS NULL OR length(digest)=64 THEN digest ELSE '' END, CASE WHEN length(tag)=32 THEN tag ELSE x'' END FROM entries WHERE path>?1 ORDER BY path LIMIT 1", params![after.unwrap_or(&[])], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
+        let row: Option<StoredRow> = db.query_row("SELECT CASE WHEN length(path)<=16384 THEN path ELSE x'' END, CASE WHEN length(previous)<=16384 THEN previous ELSE x'ff' END, CASE WHEN digest IS NULL OR length(digest)=64 THEN digest ELSE '' END, CASE WHEN length(tag)=32 THEN tag ELSE x'' END FROM entries WHERE path>?1 ORDER BY path LIMIT 1", params![after.unwrap_or(&[])], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
         match row {
             Some((key, previous, digest, tag)) => {
                 if previous.as_slice() != after.unwrap_or(&[]) {

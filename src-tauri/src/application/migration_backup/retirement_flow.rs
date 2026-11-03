@@ -216,12 +216,10 @@ impl Session {
             if path.starts_with("pages") {
                 if retirement::expected_live_with_labels(app, saved, receipts, path, Some(labels))?
                     .is_none()
-                {
-                    if manifest_cursor::digest_file(&app.root, path)?
+                    && manifest_cursor::digest_file(&app.root, path)?
                         != entry.digest.unwrap_or_default()
-                    {
-                        return Err(GardenError::Recovery("Unparsed saved page changed.".into()));
-                    }
+                {
+                    return Err(GardenError::Recovery("Unparsed saved page changed.".into()));
                 }
             } else if manifest_cursor::digest_file(&app.root, path)?
                 != entry.digest.unwrap_or_default()

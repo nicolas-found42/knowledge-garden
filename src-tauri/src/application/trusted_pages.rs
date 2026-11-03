@@ -122,7 +122,7 @@ fn recover_abandoned_original_copies_with_hook(
         }
         File::from(destination).sync_all()?;
         File::from(abandoned).sync_all()?;
-        File::from(staging.try_clone().map_err(std::io::Error::from)?).sync_all()?;
+        File::from(staging.try_clone()?).sync_all()?;
     }
     Ok(true)
 }

@@ -544,7 +544,7 @@ pub(super) fn step(saved: &Path, work: &Path) -> Result<bool> {
                 let mut actual = Vec::new();
                 bounded_copy::source_file(
                     work,
-                    &path.strip_prefix(work).map_err(|_| {
+                    path.strip_prefix(work).map_err(|_| {
                         GardenError::Recovery("Authored record escaped recovery.".into())
                     })?,
                 )?

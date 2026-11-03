@@ -254,134 +254,6 @@ fn archive(path: &Path, title: &str) -> Result<OfficeProjection, String> {
     Ok(projection(title, lines, gaps))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Write;
-    #[test]
-    fn mime_parts_have_locations_and_attachments_are_partial() {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        write!(f, "From: A <a@example.org>\r\nSubject: Greeting\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=x\r\n\r\n--x\r\nContent-Type: text/plain\r\n\r\nHello garden\r\n--x\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=secret.bin\r\n\r\nABC\r\n--x--\r\n").unwrap();
-        let p = extract(f.path(), "eml", "Mail").unwrap();
-        assert!(p.semantic_text.contains("[EMAIL part=1.1] Hello garden"));
-        assert!(p.partial);
-        assert!(p.coverage[0].detail.contains("part 1.2"));
-    }
-    #[test]
-    fn zip_skips_traversal_and_nested_archive() {
-        let f = tempfile::NamedTempFile::new().unwrap();
-        let mut writer = zip::ZipWriter::new(File::create(f.path()).unwrap());
-        let options = zip::write::SimpleFileOptions::default();
-        writer.start_file("notes/a.txt", options).unwrap();
-        writer.write_all(b"Garden evidence").unwrap();
-        writer.start_file("../escape.txt", options).unwrap();
-        writer.write_all(b"bad").unwrap();
-        writer.start_file("nested.zip", options).unwrap();
-        writer.write_all(b"PK").unwrap();
-        writer.finish().unwrap();
-        let p = extract(f.path(), "zip", "Archive").unwrap();
-        assert!(p
-            .semantic_text
-            .contains("[ZIP member=0 name=notes%2Fa%2Etxt] Garden evidence"));
-        assert!(!p.semantic_text.contains("bad"));
-        assert!(p.partial);
-        assert!(p.coverage[0].detail.contains("unsafe path"));
-        assert!(p.coverage[0].detail.contains("not interpreted"));
-    }
-    #[test]
-    fn corrupt_and_empty_are_not_complete() {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        write!(f, "not a zip").unwrap();
-        assert!(extract(f.path(), "zip", "Broken").is_err());
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        write!(f, "Subject: Empty\r\n\r\n").unwrap();
-        let p = extract(f.path(), "eml", "Empty").unwrap();
-        assert!(
-            p.partial,
-            "headers alone do not constitute message body extraction"
-        );
-    }
-    #[test]
-    fn oversized_container_is_partial_not_corrupt() {
-        let f = tempfile::NamedTempFile::new().unwrap();
-        f.as_file().set_len(MAX_INPUT + 1).unwrap();
-        for format in ["eml"] {
-            let result = extract(f.path(), format, "Large").unwrap();
-            assert!(result.partial);
-            assert!(result.coverage[0].detail.contains("8 MiB"));
-        }
-    }
-    #[test]
-    fn excessive_projected_text_reports_a_gap() {
-        let lines = (0..3).map(|_| "a".repeat(1024 * 1024)).collect();
-        let result = projection("Long", lines, Vec::new());
-        assert!(result.partial);
-        assert!(result.coverage[0].detail.contains("2 MiB"));
-        assert!(result.semantic_text.len() <= 2 * 1024 * 1024);
-    }
-    #[test]
-    fn large_zip_processes_bounded_members() {
-        let f = tempfile::NamedTempFile::new().unwrap();
-        let mut writer = zip::ZipWriter::new(File::create(f.path()).unwrap());
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored);
-        writer.start_file("large.bin", options).unwrap();
-        let chunk = [0u8; 65536];
-        for _ in 0..129 {
-            writer.write_all(&chunk).unwrap();
-        }
-        writer.start_file("note.txt", options).unwrap();
-        writer
-            .write_all(b"A later member remains available.")
-            .unwrap();
-        writer.finish().unwrap();
-        let result = extract(f.path(), "zip", "Large archive").unwrap();
-        assert!(result.partial);
-        assert!(result
-            .semantic_text
-            .contains("A later member remains available."));
-    }
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn sandbox_denies_unrelated_file_and_network() {
-        use std::process::Command;
-        let allowed = tempfile::NamedTempFile::new().unwrap();
-        let secret = tempfile::NamedTempFile::new().unwrap();
-        let helper = std::env::current_exe()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("kg-container-helper");
-        let run = |path: &Path, probe: &str| {
-            Command::new("/usr/bin/sandbox-exec")
-            .arg("-D").arg(format!("INPUT={}", allowed.path().canonicalize().unwrap().display()))
-            .arg("-D").arg(format!("EXECUTABLE={}", helper.display()))
-            .args(["-p", "(version 1) (deny default) (allow process-exec (literal (param \"EXECUTABLE\"))) (allow file-read* (literal \"/\") (literal (param \"INPUT\")) (literal (param \"EXECUTABLE\")) (subpath \"/usr/lib\") (subpath \"/System/Library\")) (allow sysctl-read) (allow mach-lookup)"])
-            .arg(&helper).arg("--extract-container-helper").arg(path).arg("__probe").arg(probe).output().unwrap()
-        };
-        let read = run(secret.path(), "read");
-        assert!(read.status.success());
-        assert_eq!(read.stdout, b"true");
-        let network = run(allowed.path(), "network");
-        assert!(network.status.success());
-        assert_eq!(network.stdout, b"Some(1)");
-    }
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn helper_is_sandboxed_and_supervised() {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        write!(f, "Subject: Probe\r\n\r\nVisible body\r\n").unwrap();
-        let p = isolated_extract(f.path(), "eml", "Probe").unwrap();
-        assert!(p.semantic_text.contains("Visible body"));
-        let memory = isolated_extract(f.path(), "__probe", "memory").unwrap_err();
-        assert!(memory.contains("memory limit"), "{memory}");
-        let timeout = isolated_extract(f.path(), "__probe", "sleep").unwrap_err();
-        assert!(timeout.contains("time or output limit"), "{timeout}");
-    }
-}
-
 /// The desktop executable owns the helper protocol. The helper does not run the UI.
 pub fn helper() {
     let args: Vec<_> = std::env::args().collect();
@@ -628,5 +500,134 @@ fn zip_unit(path: &Path, index: usize, offset: u64) -> Result<(), String> {
         );
         std::io::stdout().flush().map_err(|e| e.to_string())?;
         position += count as u64;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    #[test]
+    fn mime_parts_have_locations_and_attachments_are_partial() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        write!(f, "From: A <a@example.org>\r\nSubject: Greeting\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=x\r\n\r\n--x\r\nContent-Type: text/plain\r\n\r\nHello garden\r\n--x\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=secret.bin\r\n\r\nABC\r\n--x--\r\n").unwrap();
+        let p = extract(f.path(), "eml", "Mail").unwrap();
+        assert!(p.semantic_text.contains("[EMAIL part=1.1] Hello garden"));
+        assert!(p.partial);
+        assert!(p.coverage[0].detail.contains("part 1.2"));
+    }
+    #[test]
+    fn zip_skips_traversal_and_nested_archive() {
+        let f = tempfile::NamedTempFile::new().unwrap();
+        let mut writer = zip::ZipWriter::new(File::create(f.path()).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        writer.start_file("notes/a.txt", options).unwrap();
+        writer.write_all(b"Garden evidence").unwrap();
+        writer.start_file("../escape.txt", options).unwrap();
+        writer.write_all(b"bad").unwrap();
+        writer.start_file("nested.zip", options).unwrap();
+        writer.write_all(b"PK").unwrap();
+        writer.finish().unwrap();
+        let p = extract(f.path(), "zip", "Archive").unwrap();
+        assert!(p
+            .semantic_text
+            .contains("[ZIP member=0 name=notes%2Fa%2Etxt] Garden evidence"));
+        assert!(!p.semantic_text.contains("bad"));
+        assert!(p.partial);
+        assert!(p.coverage[0].detail.contains("unsafe path"));
+        assert!(p.coverage[0].detail.contains("not interpreted"));
+    }
+    #[test]
+    fn corrupt_and_empty_are_not_complete() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        write!(f, "not a zip").unwrap();
+        assert!(extract(f.path(), "zip", "Broken").is_err());
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        write!(f, "Subject: Empty\r\n\r\n").unwrap();
+        let p = extract(f.path(), "eml", "Empty").unwrap();
+        assert!(
+            p.partial,
+            "headers alone do not constitute message body extraction"
+        );
+    }
+    #[test]
+    fn oversized_container_is_partial_not_corrupt() {
+        let f = tempfile::NamedTempFile::new().unwrap();
+        f.as_file().set_len(MAX_INPUT + 1).unwrap();
+        {
+            let format = "eml";
+            let result = extract(f.path(), format, "Large").unwrap();
+            assert!(result.partial);
+            assert!(result.coverage[0].detail.contains("8 MiB"));
+        }
+    }
+    #[test]
+    fn excessive_projected_text_reports_a_gap() {
+        let lines = (0..3).map(|_| "a".repeat(1024 * 1024)).collect();
+        let result = projection("Long", lines, Vec::new());
+        assert!(result.partial);
+        assert!(result.coverage[0].detail.contains("2 MiB"));
+        assert!(result.semantic_text.len() <= 2 * 1024 * 1024);
+    }
+    #[test]
+    fn large_zip_processes_bounded_members() {
+        let f = tempfile::NamedTempFile::new().unwrap();
+        let mut writer = zip::ZipWriter::new(File::create(f.path()).unwrap());
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        writer.start_file("large.bin", options).unwrap();
+        let chunk = [0u8; 65536];
+        for _ in 0..129 {
+            writer.write_all(&chunk).unwrap();
+        }
+        writer.start_file("note.txt", options).unwrap();
+        writer
+            .write_all(b"A later member remains available.")
+            .unwrap();
+        writer.finish().unwrap();
+        let result = extract(f.path(), "zip", "Large archive").unwrap();
+        assert!(result.partial);
+        assert!(result
+            .semantic_text
+            .contains("A later member remains available."));
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn sandbox_denies_unrelated_file_and_network() {
+        use std::process::Command;
+        let allowed = tempfile::NamedTempFile::new().unwrap();
+        let secret = tempfile::NamedTempFile::new().unwrap();
+        let helper = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("kg-container-helper");
+        let run = |path: &Path, probe: &str| {
+            Command::new("/usr/bin/sandbox-exec")
+            .arg("-D").arg(format!("INPUT={}", allowed.path().canonicalize().unwrap().display()))
+            .arg("-D").arg(format!("EXECUTABLE={}", helper.display()))
+            .args(["-p", "(version 1) (deny default) (allow process-exec (literal (param \"EXECUTABLE\"))) (allow file-read* (literal \"/\") (literal (param \"INPUT\")) (literal (param \"EXECUTABLE\")) (subpath \"/usr/lib\") (subpath \"/System/Library\")) (allow sysctl-read) (allow mach-lookup)"])
+            .arg(&helper).arg("--extract-container-helper").arg(path).arg("__probe").arg(probe).output().unwrap()
+        };
+        let read = run(secret.path(), "read");
+        assert!(read.status.success());
+        assert_eq!(read.stdout, b"true");
+        let network = run(allowed.path(), "network");
+        assert!(network.status.success());
+        assert_eq!(network.stdout, b"Some(1)");
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn helper_is_sandboxed_and_supervised() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        write!(f, "Subject: Probe\r\n\r\nVisible body\r\n").unwrap();
+        let p = isolated_extract(f.path(), "eml", "Probe").unwrap();
+        assert!(p.semantic_text.contains("Visible body"));
+        let memory = isolated_extract(f.path(), "__probe", "memory").unwrap_err();
+        assert!(memory.contains("memory limit"), "{memory}");
+        let timeout = isolated_extract(f.path(), "__probe", "sleep").unwrap_err();
+        assert!(timeout.contains("time or output limit"), "{timeout}");
     }
 }

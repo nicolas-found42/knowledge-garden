@@ -1866,7 +1866,7 @@ impl Application {
         };
         let path = directory.join(&name);
         let metadata = fs::symlink_metadata(&path)?;
-        if !metadata.file_type().is_file() || metadata.len() > MAX_PAGE_BYTES as u64 {
+        if !metadata.file_type().is_file() || metadata.len() > MAX_PAGE_BYTES {
             return Err(GardenError::Recovery(
                 "URL recovery entry is not a bounded regular file.".into(),
             ));
@@ -4893,7 +4893,7 @@ impl Application {
         if !entry.file_type()?.is_dir() {
             return Ok(());
         }
-        let Some(mut page) = self.readable_source_entry(&entry) else {
+        let Some(mut page) = self.readable_source_entry(entry) else {
             return Ok(());
         };
         let Some(pending) = page.info.pending_version_id.clone() else {
@@ -5597,7 +5597,7 @@ impl Application {
                     escape_markdown(&fact.property.replace('_', " ")), escape_markdown(&fact.value), fact.qualifier.as_deref().map(|q| format!(" ({})", escape_markdown(q))).unwrap_or_default(), fact.fact_id,
                     escape_markdown(&fact.evidence.quote), escape_markdown(&fact.origin), line_basis, fact.evidence.line_start, fact.evidence.line_end,
                     byte_basis, fact.evidence.byte_start, fact.evidence.byte_end, basis, locator, guidance, &source.info.source_id["source-".len()..],
-                    &source.info.source_id["source-".len()..], source.info.asset, format!("{audio_link}{container_link}")
+                    &source.info.source_id["source-".len()..], source.info.asset, format_args!("{audio_link}{container_link}")
                 ));
             }
             body.push_str("\n## Relationships\n");
@@ -5755,7 +5755,7 @@ impl Application {
                     relationship.qualifier.as_deref().map(|q| format!(" (qualifier: {})", escape_markdown(q))).unwrap_or_default(), relationship.relationship_id,
                     escape_markdown(&relationship.evidence.quote), escape_markdown(&relationship.origin), line_basis, relationship.evidence.line_start, relationship.evidence.line_end,
                     byte_basis, relationship.evidence.byte_start, relationship.evidence.byte_end, locator, guidance, &source.info.source_id["source-".len()..],
-                    &source.info.source_id["source-".len()..], source.info.asset, format!("{audio_link}{container_link}")
+                    &source.info.source_id["source-".len()..], source.info.asset, format_args!("{audio_link}{container_link}")
                 ));
             }
             body.push_str("\n## Tags\n");
@@ -7919,7 +7919,7 @@ impl Application {
                 }
                 Err(error) => return Err(std::io::Error::from(error).into()),
             }
-            File::from(directory.try_clone().map_err(std::io::Error::from)?).sync_all()?;
+            File::from(directory.try_clone()?).sync_all()?;
             check_directory()?;
             Ok(())
         })();
@@ -8333,7 +8333,7 @@ impl Application {
                 GardenError::Invalid("The retained source version is unknown.".into())
             })?;
         let current_asset =
-            version.source_version_id == page.info.sha256 && asset == page.info.asset;
+            version.source_version_id == source.info.sha256 && asset == source.info.asset;
         if (asset != version.asset && !current_asset)
             || !asset.starts_with("original")
             || Path::new(asset).components().count() != 1
@@ -13419,7 +13419,7 @@ mod startup_url_recovery_tests {
             if app.recover_interrupted_url_step(false).unwrap() {
                 panic!("fixture finished before interruption");
             }
-            if app.startup_url_after != "" {
+            if !app.startup_url_after.is_empty() {
                 std::process::exit(88);
             }
         }

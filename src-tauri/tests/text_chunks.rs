@@ -13,11 +13,8 @@ fn reconstructs_large_utf8_file_from_resumable_byte_offsets() {
     fs::write(&path, original.as_bytes()).unwrap();
     let mut offset = 0;
     let mut reconstructed = String::new();
-    loop {
-        // Reopening the file each time models a process restart between chunks.
-        let Some(chunk) = read_chunk(&path, offset, 65536).unwrap() else {
-            break;
-        };
+    // Reopening each time models a process restart between chunks.
+    while let Some(chunk) = read_chunk(&path, offset, 65536).unwrap() {
         assert_eq!(chunk.start, offset);
         assert_eq!(
             &original.as_bytes()[chunk.start as usize..chunk.end as usize],
