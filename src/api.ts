@@ -584,13 +584,7 @@ export interface GardenApi {
   trailSelectedPassage?(sourceId: string, quote: string): Promise<TrailStop>;
   suggestTrailStops?(goal: string): Promise<TrailSuggestions>;
   listSavedViews?(query: string, offset: number): Promise<SavedViews>;
-  createSavedView?(
-    name: string,
-    definition: SavedViewDefinition,
-  ): Promise<SavedView>;
   openSavedView?(viewId: string): Promise<SavedView>;
-  renameSavedView?(viewId: string, name: string): Promise<SavedView>;
-  removeSavedView?(viewId: string): Promise<void>;
   comparisonSide?(request: ComparisonRequest): Promise<ComparisonSide>;
   openComparisonOriginal?(request: ComparisonRequest): Promise<void>;
 
@@ -665,12 +659,7 @@ export const desktopApi: GardenApi = {
   suggestTrailStops: (goal) => invoke("suggest_trail_stops", { goal }),
   listSavedViews: (query, offset) =>
     invoke("list_saved_views", { query, offset }),
-  createSavedView: (name, definition) =>
-    invoke("create_saved_view", { name, definition }),
   openSavedView: (viewId) => invoke("open_saved_view", { viewId }),
-  renameSavedView: (viewId, name) =>
-    invoke("rename_saved_view", { viewId, name }),
-  removeSavedView: (viewId) => invoke("remove_saved_view", { viewId }),
   timeline: (request) => invoke("timeline", { request }),
   comparisonSide: (request) => invoke("comparison_side", { request }),
   openComparisonOriginal: (request) =>

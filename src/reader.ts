@@ -18,7 +18,6 @@ import { marked } from "marked";
 import type {
   TrailStop,
   ResolvedTrailStop,
-  SavedViewDefinition,
   ViewTarget,
   AcquisitionMethod,
   GardenApi,
@@ -74,12 +73,7 @@ export async function mountReader(
   const timelineButton = element("button", "Timeline");
   timelineButton.hidden = !api.timeline;
   const savedButton = element("button", "Saved views");
-  savedButton.hidden =
-    !api.listSavedViews ||
-    !api.createSavedView ||
-    !api.openSavedView ||
-    !api.renameSavedView ||
-    !api.removeSavedView;
+  savedButton.hidden = !api.listSavedViews || !api.openSavedView;
   const savedHost = element("aside");
   savedHost.hidden = true;
   const trailButton = element("button", "Trails");
@@ -222,13 +216,7 @@ export async function mountReader(
   let comparisonController: ReturnType<typeof renderComparison> | null = null;
   let comparisonIntent = 0;
   let comparisonCandidate: { sourceId: string; title: string } | null = null;
-  const savedPanel = savedViewsPanel(
-    savedHost,
-    api,
-    captureSavedView,
-    openSavedView,
-    report,
-  );
+  const savedPanel = savedViewsPanel(savedHost, api, openSavedView, report);
   savedButton.addEventListener("click", () => savedPanel.toggle());
   let trailNavigationIntent: number | null = null;
   let trailOrigin: NavigationState | null = null;
@@ -259,19 +247,6 @@ export async function mountReader(
       syncBackButton();
     },
     follow: followTrailStop,
-    save: async (name, stops) => {
-      await api.createSavedView!(name, {
-        active: "trail",
-        trail: stops,
-        search: null,
-        query: null,
-        collection: null,
-        timeline: null,
-        paths: null,
-        comparison: [],
-        target: null,
-      });
-    },
     error: report,
   });
   trailButton.addEventListener("click", () => trailController.toggle());
@@ -388,77 +363,6 @@ export async function mountReader(
       showKnowledgePage(next);
     }
     return true;
-  }
-  function captureSavedView(): SavedViewDefinition | null {
-    if (
-      currentView === "empty" ||
-      main.querySelector("[data-saved-view-unavailable]")
-    )
-      return null;
-    const target = (
-      sourceId: string | null,
-      pageId: string | null,
-      title?: string,
-    ): ViewTarget | null =>
-      sourceId
-        ? { source_id: sourceId, page_id: null, title }
-        : pageId
-          ? { source_id: null, page_id: pageId, title }
-          : null;
-    return structuredClone({
-      active: currentView,
-      ...(trailController.stops().length
-        ? { trail: trailController.stops() }
-        : {}),
-      search: currentSearch ? { ...currentSearch, offset: 0 } : null,
-      query:
-        queryView && (currentView === "query" || queryView.revision !== null)
-          ? { ...queryView.request, continuation: null }
-          : null,
-      collection: {
-        axis: currentCollection.axis,
-        query: currentCollection.query,
-        presentation: currentCollection.presentation,
-        expanded_groups: Object.values(currentCollection.expanded).map((v) => ({
-          group_id: v.group.group_id,
-          label: v.group.label,
-        })),
-        selected: currentCollection.selected
-          ? target(
-              currentCollection.selected.page_type === "source"
-                ? currentCollection.selected.source_id
-                : null,
-              currentCollection.selected.page_id,
-              currentCollection.selected.title,
-            )
-          : null,
-      },
-      timeline: currentTimeline ? { ...currentTimeline, offset: 0 } : null,
-      paths: currentPathExplore
-        ? {
-            start_page_id: currentPathExplore.startPageId,
-            start_title: currentPathExplore.startTitle,
-            max_hops: currentPathExplore.maxHops,
-            selected_target_page_id: currentPathExplore.selectedTargetPageId,
-          }
-        : null,
-      comparison: currentComparison.selections.flatMap((v) =>
-        v
-          ? [{ source_id: v.sourceId, title: v.title, line_start: v.lineStart }]
-          : [],
-      ),
-      target:
-        currentView === "source"
-          ? target(currentSourceId, null, page?.info.title)
-          : currentView === "knowledge"
-            ? target(
-                null,
-                currentKnowledgePageId,
-                main.querySelector("article")?.getAttribute("aria-label") ??
-                  undefined,
-              )
-            : null,
-    });
   }
   async function openSavedView(id: string): Promise<string | null> {
     const intent = ++searchGeneration;

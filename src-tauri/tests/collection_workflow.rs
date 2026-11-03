@@ -1,3 +1,5 @@
+#[path = "fixtures/views/mod.rs"]
+mod legacy_views;
 use knowledge_garden::application::{
     AcquisitionMethod, Application, ExtractionState, PageSearchMode, PageSearchRequest,
 };
@@ -5465,12 +5467,9 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
         "active":"trail", "trail":[{"stop_id":uuid::Uuid::new_v4().to_string(), "label":"Corrected observation", "target":{"source_id":null,"page_id":event.page_id,"title":"Observation V17"},"context":null}],
         "search":null,"query":null,"collection":null,"timeline":null,"paths":null,"comparison":[],"target":null
     })).unwrap();
-    let saved_search = app
-        .create_saved_view("Corrected observations", search_definition.clone())
-        .unwrap();
-    let saved_trail = app
-        .create_saved_view("Reviewed route", trail_definition.clone())
-        .unwrap();
+    let saved_search =
+        legacy_views::seed(&collection, "Corrected observations", &search_definition);
+    let saved_trail = legacy_views::seed(&collection, "Reviewed route", &trail_definition);
     let unfinished = workspace.path().join("unfinished.txt");
     fs::write(
         &unfinished,
@@ -5498,8 +5497,8 @@ fn external_manual_fact_edit_survives_source_update_restart_and_index_rebuild() 
     drop(app);
     fs::remove_dir_all(collection.join(".derived")).unwrap();
     let mut reopened = Application::open(&collection).unwrap();
-    let reopened_search = reopened.open_saved_view(&saved_search.view_id).unwrap();
-    let reopened_trail = reopened.open_saved_view(&saved_trail.view_id).unwrap();
+    let reopened_search = reopened.open_saved_view(&saved_search).unwrap();
+    let reopened_trail = reopened.open_saved_view(&saved_trail).unwrap();
     assert_eq!(
         serde_json::to_value(&reopened_search.definition).unwrap(),
         serde_json::to_value(&search_definition).unwrap()
